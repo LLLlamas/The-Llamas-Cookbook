@@ -1,0 +1,78 @@
+name: iOS TestFlight
+
+# Manually triggered build pipeline that uses EAS Build (Expo's hosted macOS
+# builders) to produce a signed iOS binary and optionally submits it to
+# TestFlight. Running on ubuntu-latest is fine because the actual build
+# executes on EAS's macOS infrastructure via the EXPO_TOKEN authenticated CLI.
+#
+# Required repo secrets:
+#   EXPO_TOKEN                    - personal access token from https://expo.dev/settings/access-tokens
+#   APPLE_ID                      - Apple ID email for submission
+#   APPLE_TEAM_ID                 - 10-char Apple Developer Team ID
+#   ASC_APP_ID                    - App Store Connect numeric app ID
+#   EXPO_APPLE_APP_SPECIFIC_PASSWORD - app-specific password from appleid.apple.com
+#
+# One-time prerequisites (done outside this workflow):
+#   1. Register bundle id com.lorenzo.llamascookbook in Apple Developer portal.
+#   2. Create the app record in App Store Connect with that bundle id.
+#   3. Run `eas credentials` locally once (or use the EAS dashboard) to let EAS
+#      provision the distribution cert + provisioning profile. After that, CI
+#      builds reuse those stored credentials.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: EAS build profile
+        type: choice
+        default: production
+        options:
+          - preview
+          - production
+      submit:
+        description: Auto-submit to TestFlight after build?
+        type: boolean
+        default: true
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build iOS (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Expo / EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build iOS binary on EAS
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          EXPO_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.EXPO_APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          if [ "${{ inputs.submit }}" = "true" ] && [ "${{ inputs.profile }}" = "production" ]; then
+            eas build --platform ios --profile production --non-interactive --auto-submit
+          else
+            eas build --platform ios --profile ${{ inputs.profile }} --non-interactive
+          fi
