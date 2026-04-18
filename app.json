@@ -15,19 +15,22 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lorenzo.llamascookbook",
+      "bundleIdentifier": "com.llamascookbook.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.lorenzo.llamascookbook",
+      "package": "com.llamascookbook.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FAF6EF"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,6 +44,12 @@
           "cameraPermission": "Allow Llamas Cookbook to use your camera so you can photograph a recipe."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a7c84a51-ae79-45d2-aec9-ba21e77d9df8"
+      }
+    },
+    "owner": "llllamas924"
   }
 }

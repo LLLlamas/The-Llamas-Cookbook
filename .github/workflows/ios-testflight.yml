@@ -6,18 +6,21 @@ name: iOS TestFlight
 # executes on EAS's macOS infrastructure via the EXPO_TOKEN authenticated CLI.
 #
 # Required repo secrets:
-#   EXPO_TOKEN                    - personal access token from https://expo.dev/settings/access-tokens
-#   APPLE_ID                      - Apple ID email for submission
-#   APPLE_TEAM_ID                 - 10-char Apple Developer Team ID
-#   ASC_APP_ID                    - App Store Connect numeric app ID
-#   EXPO_APPLE_APP_SPECIFIC_PASSWORD - app-specific password from appleid.apple.com
+#   EXPO_TOKEN        personal access token from https://expo.dev/settings/access-tokens
+#   APPLE_TEAM_ID     10-char Apple Developer Team ID
+#   ASC_APP_ID        numeric App Store Connect app ID
+#
+# Signing + App Store Connect auth are stored on EAS's credential servers
+# (uploaded via `npx eas credentials` once). The ASC API Key (.p8, Key ID,
+# Issuer ID) lives there, so GitHub never touches it.
 #
 # One-time prerequisites (done outside this workflow):
-#   1. Register bundle id com.lorenzo.llamascookbook in Apple Developer portal.
+#   1. Register bundle id com.llamascookbook.app in Apple Developer portal.
 #   2. Create the app record in App Store Connect with that bundle id.
-#   3. Run `eas credentials` locally once (or use the EAS dashboard) to let EAS
-#      provision the distribution cert + provisioning profile. After that, CI
-#      builds reuse those stored credentials.
+#   3. Run `npx eas credentials` locally:
+#        - iOS -> production -> Distribution Certificate (let EAS generate)
+#        - iOS -> production -> Provisioning Profile (let EAS generate)
+#        - App Store Connect API Key -> paste Key ID + Issuer ID + upload .p8
 
 on:
   workflow_dispatch:
@@ -66,10 +69,8 @@ jobs:
 
       - name: Build iOS binary on EAS
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          EXPO_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.EXPO_APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
           if [ "${{ inputs.submit }}" = "true" ] && [ "${{ inputs.profile }}" = "production" ]; then
             eas build --platform ios --profile production --non-interactive --auto-submit
