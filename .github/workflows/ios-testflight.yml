@@ -107,14 +107,60 @@ jobs:
       - name: Expo prebuild (generate native iOS project)
         run: npx expo prebuild --platform ios --clean --no-install
 
+      - name: Show ios/ tree after prebuild
+        run: |
+          echo "--- ios/ top level ---"
+          ls -la ios/ || true
+          echo "--- workspaces/projects ---"
+          find ios -maxdepth 3 \( -name "*.xcworkspace" -o -name "*.xcodeproj" \) -print || true
+          echo "--- Podfile head ---"
+          head -40 ios/Podfile 2>/dev/null || echo "no Podfile"
+          echo "--- Gemfile? ---"
+          cat ios/Gemfile 2>/dev/null || cat Gemfile 2>/dev/null || echo "no Gemfile"
+
       - name: Install CocoaPods
         working-directory: ios
-        run: pod install --repo-update
+        run: |
+          set -euo pipefail
+          if [ -f ../Gemfile ] || [ -f Gemfile ]; then
+            echo "Gemfile found, using bundler"
+            bundle install
+            bundle exec pod install --repo-update
+          else
+            pod install --repo-update
+          fi
+
+      - name: Show ios/ tree after pod install
+        run: |
+          ls -la ios/ || true
+          echo "--- xcworkspace contents ---"
+          for ws in ios/*.xcworkspace; do
+            echo "Workspace: $ws"
+            ls -la "$ws" || true
+          done
 
       - name: Discover Xcode workspace + scheme
         run: |
           set -euo pipefail
-          WORKSPACE=$(ls ios/*.xcworkspace | head -1)
+          shopt -s nullglob
+          WORKSPACES=(ios/*.xcworkspace)
+          shopt -u nullglob
+          if [ ${#WORKSPACES[@]} -eq 0 ]; then
+            echo "::error::No .xcworkspace in ios/ — pod install did not produce one."
+            exit 1
+          fi
+          WORKSPACE=""
+          for ws in "${WORKSPACES[@]}"; do
+            if [ -f "$ws/contents.xcworkspacedata" ]; then
+              WORKSPACE="$ws"
+              break
+            fi
+          done
+          if [ -z "$WORKSPACE" ]; then
+            echo "::error::Found .xcworkspace dir(s) but none contain contents.xcworkspacedata"
+            echo "Candidates: ${WORKSPACES[*]}"
+            exit 1
+          fi
           SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json \
             | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace']['schemes'][0])")
           echo "WORKSPACE=$WORKSPACE" >> "$GITHUB_ENV"
