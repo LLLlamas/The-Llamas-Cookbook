@@ -1,39 +1,28 @@
 name: iOS TestFlight
 
-# Manually triggered build pipeline that uses EAS Build (Expo's hosted macOS
-# builders) to produce a signed iOS binary and optionally submits it to
-# TestFlight. Running on ubuntu-latest is fine because the actual build
-# executes on EAS's macOS infrastructure via the EXPO_TOKEN authenticated CLI.
+# Builds an iOS app on a GitHub-hosted macOS runner using Expo prebuild + Xcode,
+# then uploads the .ipa to TestFlight via `xcrun altool` with an App Store
+# Connect API key.
 #
-# Required repo secrets:
-#   EXPO_TOKEN        personal access token from https://expo.dev/settings/access-tokens
-#   APPLE_TEAM_ID     10-char Apple Developer Team ID
-#   ASC_APP_ID        numeric App Store Connect app ID
+# Required repo secrets (set at
+#   https://github.com/LLLlamas/The-Llamas-Cookbook/settings/secrets/actions):
 #
-# Signing + App Store Connect auth are stored on EAS's credential servers
-# (uploaded via `npx eas credentials` once). The ASC API Key (.p8, Key ID,
-# Issuer ID) lives there, so GitHub never touches it.
+#   IOS_DIST_CERT_P12_BASE64          base64 of iOS Distribution .p12
+#   IOS_DIST_CERT_P12_PASSWORD        password for that .p12
+#   IOS_PROVISIONING_PROFILE_BASE64   base64 of App Store .mobileprovision
+#   APPSTORE_API_KEY_P8_BASE64        base64 of AuthKey_<KEYID>.p8
+#   APPSTORE_API_KEY_ID               10-char ASC API Key ID
+#   APPSTORE_API_ISSUER_ID            ASC API issuer UUID
 #
-# One-time prerequisites (done outside this workflow):
-#   1. Register bundle id com.llamascookbook.app in Apple Developer portal.
-#   2. Create the app record in App Store Connect with that bundle id.
-#   3. Run `npx eas credentials` locally:
-#        - iOS -> production -> Distribution Certificate (let EAS generate)
-#        - iOS -> production -> Provisioning Profile (let EAS generate)
-#        - App Store Connect API Key -> paste Key ID + Issuer ID + upload .p8
+# The build number is set to github.run_number so every run produces a fresh
+# CFBundleVersion for TestFlight. Bump `expo.version` in app.json when you
+# want a new marketing version.
 
 on:
   workflow_dispatch:
     inputs:
-      profile:
-        description: EAS build profile
-        type: choice
-        default: production
-        options:
-          - preview
-          - production
-      submit:
-        description: Auto-submit to TestFlight after build?
+      upload:
+        description: Upload .ipa to TestFlight?
         type: boolean
         default: true
 
@@ -41,10 +30,16 @@ concurrency:
   group: ios-testflight-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  APPLE_TEAM_ID: GYFN949Q5E
+  BUNDLE_ID: com.llamascookbook.app
+
 jobs:
   build:
-    name: Build iOS (${{ inputs.profile }})
-    runs-on: ubuntu-latest
+    name: Build + upload
+    runs-on: macos-latest
+    timeout-minutes: 60
+
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -55,25 +50,143 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Set up Expo / EAS CLI
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install dependencies
+      - name: Install JS dependencies
         run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Build iOS binary on EAS
+      - name: Decode signing assets
         env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          P12_B64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          KEY_P8_B64: ${{ secrets.APPSTORE_API_KEY_P8_BASE64 }}
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
         run: |
-          if [ "${{ inputs.submit }}" = "true" ] && [ "${{ inputs.profile }}" = "production" ]; then
-            eas build --platform ios --profile production --non-interactive --auto-submit
-          else
-            eas build --platform ios --profile ${{ inputs.profile }} --non-interactive
-          fi
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/signing/dist.p12"
+          echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/signing/profile.mobileprovision"
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$KEY_P8_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+
+      - name: Create signing keychain
+        env:
+          P12_PASSWORD: ${{ secrets.IOS_DIST_CERT_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC_PATH="$RUNNER_TEMP/build.keychain-db"
+          KC_PASS=$(openssl rand -base64 24)
+          echo "KC_PATH=$KC_PATH" >> "$GITHUB_ENV"
+          echo "::add-mask::$KC_PASS"
+          security create-keychain -p "$KC_PASS" "$KC_PATH"
+          security set-keychain-settings -lut 21600 "$KC_PATH"
+          security unlock-keychain -p "$KC_PASS" "$KC_PATH"
+          security import "$RUNNER_TEMP/signing/dist.p12" \
+            -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KC_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" "$KC_PATH" >/dev/null
+          security list-keychain -d user -s "$KC_PATH" login.keychain
+
+      - name: Install provisioning profile
+        run: |
+          set -euo pipefail
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          PROFILE_SRC="$RUNNER_TEMP/signing/profile.mobileprovision"
+          # Extract UUID and Name from the profile (it's a CMS-wrapped plist)
+          PROFILE_PLIST=$(security cms -D -i "$PROFILE_SRC")
+          PROFILE_UUID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin)
+          PROFILE_NAME=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin)
+          cp "$PROFILE_SRC" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "Installed profile: $PROFILE_NAME ($PROFILE_UUID)"
+
+      - name: Expo prebuild (generate native iOS project)
+        run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Discover Xcode workspace + scheme
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(ls ios/*.xcworkspace | head -1)
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace']['schemes'][0])")
+          echo "WORKSPACE=$WORKSPACE" >> "$GITHUB_ENV"
+          echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
+          echo "Workspace: $WORKSPACE"
+          echo "Scheme:    $SCHEME"
+
+      - name: Archive
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            -destination "generic/platform=iOS" \
+            -allowProvisioningUpdates NO \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            archive
+
+      - name: Export .ipa
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+          IPA=$(ls "$RUNNER_TEMP/export"/*.ipa | head -1)
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "Built $IPA"
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.run_number }}
+          path: ${{ env.IPA }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload to TestFlight
+        if: ${{ inputs.upload }}
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --apiKey "$KEY_ID" \
+            --apiIssuer "$ISSUER_ID" \
+            --verbose
