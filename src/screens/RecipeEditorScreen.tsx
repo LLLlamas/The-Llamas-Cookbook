@@ -139,6 +139,11 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
   const removeStep = (id: string) => {
     setSteps((prev) => prev.filter((s) => s.id !== id));
   };
+  const updateStep = (id: string, patch: Pick<Step, 'text'>) => {
+    setSteps((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    );
+  };
 
   return (
     <KeyboardAvoidingView
@@ -219,6 +224,7 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
                 step={step}
                 index={idx}
                 onDelete={() => removeStep(step.id)}
+                onUpdate={(patch) => updateStep(step.id, patch)}
               />
             ))}
           </View>
