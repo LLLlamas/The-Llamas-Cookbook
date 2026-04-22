@@ -9,7 +9,14 @@
       "Bash(gh --version)",
       "Bash(git pull *)",
       "Bash(git fetch *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git -C \"C:\\\\Users\\\\fines\\\\Documents\\\\2026 Repository\\\\The-Llamas-Cookbook\" log --oneline -20)",
+      "Bash(git -C \"C:\\\\Users\\\\fines\\\\Documents\\\\2026 Repository\\\\The-Llamas-Cookbook\" status)",
+      "Bash(npx --yes eas-cli@latest build:list --platform ios --limit 5 --non-interactive --json)",
+      "Bash(gh repo *)",
+      "Bash(gh secret *)"
     ]
   }
 }
