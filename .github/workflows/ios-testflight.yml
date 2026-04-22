@@ -161,8 +161,18 @@ jobs:
             echo "Candidates: ${WORKSPACES[*]}"
             exit 1
           fi
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace']['schemes'][0])")
+          # Scheme name = workspace basename (Expo prebuild convention).
+          # Verify it actually exists in the workspace's scheme list; fall back to first app scheme.
+          WS_BASE=$(basename "$WORKSPACE" .xcworkspace)
+          ALL_SCHEMES=$(xcodebuild -workspace "$WORKSPACE" -list -json \
+            | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)['workspace']['schemes']))")
+          echo "All schemes:"
+          echo "$ALL_SCHEMES" | sed 's/^/  /'
+          if echo "$ALL_SCHEMES" | grep -qx "$WS_BASE"; then
+            SCHEME="$WS_BASE"
+          else
+            SCHEME=$(echo "$ALL_SCHEMES" | head -1)
+          fi
           echo "WORKSPACE=$WORKSPACE" >> "$GITHUB_ENV"
           echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
           echo "Workspace: $WORKSPACE"
@@ -177,7 +187,6 @@ jobs:
             -configuration Release \
             -archivePath "$RUNNER_TEMP/app.xcarchive" \
             -destination "generic/platform=iOS" \
-            -allowProvisioningUpdates NO \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
