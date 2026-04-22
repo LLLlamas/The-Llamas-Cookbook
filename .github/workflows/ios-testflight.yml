@@ -139,6 +139,21 @@ jobs:
             ls -la "$ws" || true
           done
 
+      - name: Bump CFBundleVersion in Info.plist
+        run: |
+          set -euo pipefail
+          INFO_PLIST=$(find ios -maxdepth 3 -name "Info.plist" -not -path "*/Pods/*" -not -path "*/build/*" | head -1)
+          if [ -z "$INFO_PLIST" ]; then
+            echo "::error::Could not locate Info.plist under ios/"
+            exit 1
+          fi
+          BUILD_NUMBER="${{ github.run_number }}"
+          echo "Info.plist: $INFO_PLIST"
+          echo "Before: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST" 2>/dev/null || echo 'not set')"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$INFO_PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$INFO_PLIST"
+          echo "After:  $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")"
+
       - name: Discover Xcode workspace + scheme
         run: |
           set -euo pipefail
