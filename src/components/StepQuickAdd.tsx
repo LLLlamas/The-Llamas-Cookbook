@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
-import { textStyles } from '../theme/typography';
+import { fontFamilies, textStyles } from '../theme/typography';
 import { newId } from '../lib/ids';
 import type { Step } from '../types/recipe';
 
@@ -25,11 +25,14 @@ export function StepQuickAdd({ onAdd, nextNumber }: Props) {
 
   return (
     <View style={styles.row}>
+      <View style={styles.numberBadge}>
+        <Text style={styles.numberText}>{nextNumber}</Text>
+      </View>
       <TextInput
         ref={inputRef}
         value={text}
         onChangeText={setText}
-        placeholder={`Step ${nextNumber}`}
+        placeholder={`Describe step ${nextNumber}…`}
         placeholderTextColor={colors.textSecondary}
         style={styles.input}
         returnKeyType="done"
@@ -43,17 +46,37 @@ export function StepQuickAdd({ onAdd, nextNumber }: Props) {
 
 const styles = StyleSheet.create({
   row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  numberBadge: {
+    width: 36,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.surface,
     borderRadius: radius.md,
-    padding: spacing.sm,
     borderWidth: 1,
     borderColor: colors.divider,
   },
+  numberText: {
+    fontFamily: fontFamilies.displayBold,
+    fontSize: 16,
+    color: colors.accent,
+    fontVariant: ['tabular-nums'],
+  },
   input: {
     ...textStyles.body,
+    flex: 1,
     color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    minHeight: 40,
+    paddingHorizontal: spacing.md,
+    minHeight: 44,
+    textAlignVertical: 'top',
   },
 });

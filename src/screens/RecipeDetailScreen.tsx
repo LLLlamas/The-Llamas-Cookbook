@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Heart, Pencil, Trash2, UtensilsCrossed } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { LlamaMascot } from '../components/LlamaMascot';
 import { TagChip } from '../components/TagChip';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
@@ -175,7 +176,10 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
-        <Text style={styles.metaFooter}>{metaParts.join(' · ')}</Text>
+        <View style={styles.signatureRow}>
+          <LlamaMascot size={36} />
+          <Text style={styles.metaFooter}>{metaParts.join(' · ')}</Text>
+        </View>
 
         <Pressable
           onPress={handleDelete}
@@ -290,10 +294,16 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: colors.textPrimary,
   },
+  signatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.xl,
+  },
   metaFooter: {
     ...textStyles.caption,
     color: colors.textSecondary,
-    marginTop: spacing.xl,
+    flex: 1,
   },
   deleteInline: {
     flexDirection: 'row',

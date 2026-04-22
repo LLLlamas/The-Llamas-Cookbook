@@ -17,6 +17,7 @@ import { IngredientRow } from '../components/IngredientRow';
 import { StepQuickAdd } from '../components/StepQuickAdd';
 import { StepRow } from '../components/StepRow';
 import { TagInput } from '../components/TagInput';
+import { LlamaMascot } from '../components/LlamaMascot';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
@@ -152,13 +153,31 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Recipe title"
-          placeholderTextColor={colors.textSecondary}
-          style={styles.titleInput}
-        />
+        <View style={styles.heroRow}>
+          <LlamaMascot size={44} />
+          <View style={styles.heroText}>
+            <Text style={styles.heroTitle}>
+              {editingId ? 'Edit recipe' : 'New recipe'}
+            </Text>
+            <Text style={styles.heroSubtitle}>
+              Start with a name — the rest is up to you.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.titleBlock}>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>Recipe name</Text>
+            <Text style={styles.requiredBadge}>REQUIRED</Text>
+          </View>
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            placeholder="e.g. Grandma's Sunday pasta"
+            placeholderTextColor={colors.textSecondary}
+            style={styles.titleInput}
+          />
+        </View>
 
         <TextInput
           value={description}
@@ -169,43 +188,10 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
           multiline
         />
 
-        <View style={styles.metaRow}>
-          <View style={styles.metaField}>
-            <Text style={styles.metaLabel}>Servings</Text>
-            <TextInput
-              value={servings}
-              onChangeText={setServings}
-              placeholder="4"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.metaInput}
-              keyboardType="number-pad"
-            />
-          </View>
-          <View style={styles.metaField}>
-            <Text style={styles.metaLabel}>Prep (min)</Text>
-            <TextInput
-              value={prepTime}
-              onChangeText={setPrepTime}
-              placeholder="15"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.metaInput}
-              keyboardType="number-pad"
-            />
-          </View>
-          <View style={styles.metaField}>
-            <Text style={styles.metaLabel}>Cook (min)</Text>
-            <TextInput
-              value={cookTime}
-              onChangeText={setCookTime}
-              placeholder="30"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.metaInput}
-              keyboardType="number-pad"
-            />
-          </View>
-        </View>
-
         <Text style={styles.sectionHeading}>Ingredients</Text>
+        <Text style={styles.sectionHint}>
+          Enter quantity, unit, and ingredient separately. Hit return after each.
+        </Text>
         <IngredientQuickAdd onAdd={addIngredient} />
         {ingredients.length > 0 ? (
           <View style={styles.list}>
@@ -221,6 +207,9 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
         ) : null}
 
         <Text style={styles.sectionHeading}>Steps</Text>
+        <Text style={styles.sectionHint}>
+          One step per line. They'll be numbered and you'll check them off while cooking.
+        </Text>
         <StepQuickAdd onAdd={addStep} nextNumber={steps.length + 1} />
         {steps.length > 0 ? (
           <View style={styles.list}>
@@ -247,6 +236,48 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
           style={styles.notesInput}
           multiline
         />
+
+        <View style={styles.optionalBlock}>
+          <Text style={styles.optionalHeading}>Optional details</Text>
+          <Text style={styles.sectionHint}>
+            Set servings so you can scale ingredients up or down while cooking.
+          </Text>
+          <View style={styles.metaRow}>
+            <View style={styles.metaField}>
+              <Text style={styles.metaLabel}>Servings</Text>
+              <TextInput
+                value={servings}
+                onChangeText={setServings}
+                placeholder="4"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.metaInput}
+                keyboardType="number-pad"
+              />
+            </View>
+            <View style={styles.metaField}>
+              <Text style={styles.metaLabel}>Prep (min)</Text>
+              <TextInput
+                value={prepTime}
+                onChangeText={setPrepTime}
+                placeholder="15"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.metaInput}
+                keyboardType="number-pad"
+              />
+            </View>
+            <View style={styles.metaField}>
+              <Text style={styles.metaLabel}>Cook (min)</Text>
+              <TextInput
+                value={cookTime}
+                onChangeText={setCookTime}
+                placeholder="30"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.metaInput}
+                keyboardType="number-pad"
+              />
+            </View>
+          </View>
+        </View>
       </ScrollView>
 
       <View style={[styles.actionBar, { paddingBottom: insets.bottom + spacing.md }]}>
@@ -277,10 +308,57 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  heroText: {
+    flex: 1,
+  },
+  heroTitle: {
+    fontFamily: fontFamilies.displayBold,
+    fontSize: 20,
+    lineHeight: 26,
+    color: colors.textPrimary,
+  },
+  heroSubtitle: {
+    ...textStyles.caption,
+    color: colors.textSecondary,
+  },
+  titleBlock: {
+    gap: spacing.xs,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  label: {
+    fontFamily: fontFamilies.bodySemibold,
+    fontSize: 13,
+    lineHeight: 16,
+    color: colors.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  requiredBadge: {
+    fontFamily: fontFamilies.bodySemibold,
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.accent,
+    letterSpacing: 0.8,
+  },
   titleInput: {
     ...textStyles.recipeTitle,
     color: colors.textPrimary,
-    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
   descInput: {
     ...textStyles.body,
@@ -293,32 +371,15 @@ const styles = StyleSheet.create({
     minHeight: 56,
     textAlignVertical: 'top',
   },
-  metaRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  metaField: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  metaLabel: {
-    ...textStyles.caption,
-    color: colors.textSecondary,
-  },
-  metaInput: {
-    ...textStyles.body,
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
   sectionHeading: {
     ...textStyles.sectionHeading,
     color: colors.textPrimary,
     marginTop: spacing.md,
+  },
+  sectionHint: {
+    ...textStyles.caption,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
   },
   list: {
     gap: 2,
@@ -333,6 +394,44 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     minHeight: 96,
     textAlignVertical: 'top',
+  },
+  optionalBlock: {
+    marginTop: spacing.xl,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    gap: spacing.xs,
+  },
+  optionalHeading: {
+    fontFamily: fontFamilies.display,
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.textPrimary,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  metaField: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  metaLabel: {
+    ...textStyles.caption,
+    color: colors.textSecondary,
+  },
+  metaInput: {
+    ...textStyles.body,
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   actionBar: {
     position: 'absolute',

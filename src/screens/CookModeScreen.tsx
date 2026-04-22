@@ -9,8 +9,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
-import { Minus, Plus, X } from 'lucide-react-native';
+import { ArrowLeft, Check, ChevronRight, Minus, Plus, X } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { LlamaMascot } from '../components/LlamaMascot';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
@@ -19,6 +20,8 @@ import { useRecipesStore } from '../store/recipesStore';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CookMode'>;
+
+type Phase = 'prep' | 'cook';
 
 export function CookModeScreen({ route, navigation }: Props) {
   useKeepAwake();
@@ -35,6 +38,9 @@ export function CookModeScreen({ route, navigation }: Props) {
     new Set(),
   );
   const [struckSteps, setStruckSteps] = useState<Set<string>>(new Set());
+  const [phase, setPhase] = useState<Phase>(() =>
+    (recipe?.ingredients.length ?? 0) > 0 ? 'prep' : 'cook',
+  );
 
   useEffect(() => {
     if (!recipe) navigation.goBack();
@@ -101,6 +107,10 @@ export function CookModeScreen({ route, navigation }: Props) {
     setCurrentServings((n) => Math.min(99, n + 1));
   };
 
+  const totalIngredients = recipe.ingredients.length;
+  const readyCount = struckIngredients.size;
+  const hasSteps = recipe.steps.length > 0;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
       <View style={styles.topBar}>
@@ -115,7 +125,33 @@ export function CookModeScreen({ route, navigation }: Props) {
         <Text style={styles.topTitle} numberOfLines={1}>
           {recipe.title}
         </Text>
-        <View style={styles.topSpacer} />
+        <View style={styles.topSpacer}>
+          <LlamaMascot size={32} />
+        </View>
+      </View>
+
+      <View style={styles.phaseHeader}>
+        {phase === 'cook' && totalIngredients > 0 ? (
+          <Pressable
+            onPress={() => setPhase('prep')}
+            hitSlop={10}
+            style={styles.backToPrep}
+            accessibilityLabel="Back to ingredients"
+          >
+            <ArrowLeft size={16} color={colors.textSecondary} strokeWidth={2} />
+            <Text style={styles.backToPrepText}>Ingredients</Text>
+          </Pressable>
+        ) : null}
+        <Text style={styles.phaseTitle}>
+          {phase === 'prep' ? 'Got everything?' : "Let's cook"}
+        </Text>
+        <Text style={styles.phaseSubtitle}>
+          {phase === 'prep'
+            ? 'Check off each ingredient as you line it up.'
+            : hasSteps
+              ? 'Tap each step as you finish it.'
+              : 'No steps listed — cook freestyle and mark it done when finished.'}
+        </Text>
       </View>
 
       <ScrollView
@@ -124,44 +160,43 @@ export function CookModeScreen({ route, navigation }: Props) {
           { paddingBottom: insets.bottom + spacing.xxxl },
         ]}
       >
-        {canScale ? (
-          <View style={styles.scaler}>
-            <Pressable
-              onPress={stepServings}
-              hitSlop={10}
-              style={styles.scalerBtn}
-              accessibilityLabel="Decrease servings"
-              disabled={currentServings <= 1}
-            >
-              <Minus
-                size={18}
-                color={currentServings <= 1 ? colors.divider : colors.textPrimary}
-                strokeWidth={2.5}
-              />
-            </Pressable>
-            <View style={styles.scalerCenter}>
-              <Text style={styles.scalerCount}>{currentServings}</Text>
-              <Text style={styles.scalerLabel}>
-                serving{currentServings === 1 ? '' : 's'}
-                {scaleFactor !== 1
-                  ? `  ·  ${scaleFactor.toFixed(scaleFactor % 1 === 0 ? 0 : 2).replace(/\.?0+$/, '')}x`
-                  : ''}
-              </Text>
-            </View>
-            <Pressable
-              onPress={bumpServings}
-              hitSlop={10}
-              style={styles.scalerBtn}
-              accessibilityLabel="Increase servings"
-            >
-              <Plus size={18} color={colors.textPrimary} strokeWidth={2.5} />
-            </Pressable>
-          </View>
-        ) : null}
+        {phase === 'prep' ? (
+          <>
+            {canScale ? (
+              <View style={styles.scaler}>
+                <Pressable
+                  onPress={stepServings}
+                  hitSlop={10}
+                  style={styles.scalerBtn}
+                  accessibilityLabel="Decrease servings"
+                  disabled={currentServings <= 1}
+                >
+                  <Minus
+                    size={18}
+                    color={currentServings <= 1 ? colors.divider : colors.textPrimary}
+                    strokeWidth={2.5}
+                  />
+                </Pressable>
+                <View style={styles.scalerCenter}>
+                  <Text style={styles.scalerCount}>{currentServings}</Text>
+                  <Text style={styles.scalerLabel}>
+                    serving{currentServings === 1 ? '' : 's'}
+                    {scaleFactor !== 1
+                      ? `  ·  ${scaleFactor.toFixed(scaleFactor % 1 === 0 ? 0 : 2).replace(/\.?0+$/, '')}x`
+                      : ''}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={bumpServings}
+                  hitSlop={10}
+                  style={styles.scalerBtn}
+                  accessibilityLabel="Increase servings"
+                >
+                  <Plus size={18} color={colors.textPrimary} strokeWidth={2.5} />
+                </Pressable>
+              </View>
+            ) : null}
 
-        {recipe.ingredients.length > 0 ? (
-          <View>
-            <Text style={styles.sectionHeading}>Ingredients</Text>
             <View style={styles.list}>
               {recipe.ingredients.map((ingredient) => {
                 const struck = struckIngredients.has(ingredient.id);
@@ -171,13 +206,18 @@ export function CookModeScreen({ route, navigation }: Props) {
                     key={ingredient.id}
                     onPress={() => toggleIngredient(ingredient.id)}
                     style={({ pressed }) => [
-                      styles.ingredientRow,
+                      styles.checkRow,
+                      struck && styles.checkRowDone,
                       pressed && styles.rowPressed,
                     ]}
                   >
                     <View
-                      style={[styles.dot, struck && styles.dotStruck]}
-                    />
+                      style={[styles.checkbox, struck && styles.checkboxDone]}
+                    >
+                      {struck ? (
+                        <Check size={16} color="#FFFDF8" strokeWidth={3} />
+                      ) : null}
+                    </View>
                     <Text
                       style={[
                         styles.ingredientText,
@@ -192,55 +232,73 @@ export function CookModeScreen({ route, navigation }: Props) {
                 );
               })}
             </View>
-          </View>
-        ) : null}
-
-        {recipe.steps.length > 0 ? (
-          <View>
-            <Text style={styles.sectionHeading}>Steps</Text>
-            <View style={styles.list}>
-              {recipe.steps.map((step, idx) => {
-                const struck = struckSteps.has(step.id);
-                const isCurrent = step.id === currentStepId;
-                return (
-                  <Pressable
-                    key={step.id}
-                    onPress={() => toggleStep(step.id)}
-                    style={({ pressed }) => [
-                      styles.stepRow,
-                      isCurrent && styles.stepCurrent,
-                      pressed && styles.rowPressed,
+          </>
+        ) : (
+          <View style={styles.list}>
+            {recipe.steps.map((step, idx) => {
+              const struck = struckSteps.has(step.id);
+              const isCurrent = step.id === currentStepId;
+              return (
+                <Pressable
+                  key={step.id}
+                  onPress={() => toggleStep(step.id)}
+                  style={({ pressed }) => [
+                    styles.stepRow,
+                    isCurrent && styles.stepCurrent,
+                    struck && styles.stepDone,
+                    pressed && styles.rowPressed,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.stepNumberBadge,
+                      struck && styles.stepNumberBadgeDone,
                     ]}
                   >
-                    <Text
-                      style={[styles.stepNumber, struck && styles.textStruck]}
-                    >
-                      {idx + 1}
-                    </Text>
-                    <Text
-                      style={[styles.stepText, struck && styles.textStruck]}
-                    >
-                      {step.text}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                    {struck ? (
+                      <Check size={16} color="#FFFDF8" strokeWidth={3} />
+                    ) : (
+                      <Text style={styles.stepNumberText}>{idx + 1}</Text>
+                    )}
+                  </View>
+                  <Text
+                    style={[styles.stepText, struck && styles.textStruck]}
+                  >
+                    {step.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-        ) : null}
+        )}
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
-        <Pressable
-          onPress={() => {
-            markCooked(recipe.id);
-            navigation.goBack();
-          }}
-          style={styles.doneBtn}
-          accessibilityLabel="Mark as cooked and exit"
-        >
-          <Text style={styles.doneBtnText}>Mark as Cooked</Text>
-        </Pressable>
+        {phase === 'prep' && hasSteps ? (
+          <Pressable
+            onPress={() => setPhase('cook')}
+            style={styles.primaryBtn}
+            accessibilityLabel="Start cooking"
+          >
+            <Text style={styles.primaryBtnText}>
+              Start cooking
+              {totalIngredients > 0 ? `  ·  ${readyCount}/${totalIngredients}` : ''}
+            </Text>
+            <ChevronRight size={20} color="#FFFDF8" strokeWidth={2.5} />
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => {
+              markCooked(recipe.id);
+              navigation.goBack();
+            }}
+            style={[styles.primaryBtn, styles.doneBtn]}
+            accessibilityLabel="Mark as cooked and exit"
+          >
+            <Check size={20} color="#FFFDF8" strokeWidth={2.5} />
+            <Text style={styles.primaryBtnText}>Mark as cooked</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -255,7 +313,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
     gap: spacing.md,
   },
   closeBtn: {
@@ -275,9 +333,38 @@ const styles = StyleSheet.create({
   },
   topSpacer: {
     width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  phaseHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    gap: 2,
+  },
+  backToPrep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  backToPrepText: {
+    ...textStyles.caption,
+    color: colors.textSecondary,
+  },
+  phaseTitle: {
+    fontFamily: fontFamilies.displayBold,
+    fontSize: 24,
+    lineHeight: 30,
+    color: colors.textPrimary,
+  },
+  phaseSubtitle: {
+    ...textStyles.body,
+    color: colors.textSecondary,
   },
   content: {
     padding: spacing.lg,
+    paddingTop: spacing.sm,
     gap: spacing.md,
   },
   scaler: {
@@ -313,17 +400,10 @@ const styles = StyleSheet.create({
     ...textStyles.caption,
     color: colors.textSecondary,
   },
-  sectionHeading: {
-    ...textStyles.sectionHeading,
-    fontFamily: fontFamilies.displayBold,
-    color: colors.textPrimary,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-  },
   list: {
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
-  ingredientRow: {
+  checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
@@ -331,18 +411,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     backgroundColor: colors.surface,
     borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+  },
+  checkRowDone: {
+    borderColor: colors.success,
+    backgroundColor: colors.background,
   },
   rowPressed: {
     opacity: 0.7,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.accent,
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  dotStruck: {
+  checkboxDone: {
     backgroundColor: colors.success,
+    borderColor: colors.success,
   },
   ingredientText: {
     ...textStyles.ingredientCook,
@@ -362,17 +453,33 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.divider,
   },
   stepCurrent: {
     borderColor: colors.accent,
   },
-  stepNumber: {
+  stepDone: {
+    borderColor: colors.success,
+    backgroundColor: colors.background,
+  },
+  stepNumberBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.full,
+    backgroundColor: colors.background,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberBadgeDone: {
+    backgroundColor: colors.success,
+    borderColor: colors.success,
+  },
+  stepNumberText: {
     fontFamily: fontFamilies.displayBold,
-    fontSize: 20,
-    lineHeight: 30,
+    fontSize: 15,
     color: colors.accent,
-    minWidth: 28,
     fontVariant: ['tabular-nums'],
   },
   stepText: {
@@ -391,14 +498,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.divider,
   },
-  doneBtn: {
-    backgroundColor: colors.success,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
+  primaryBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
   },
-  doneBtnText: {
+  doneBtn: {
+    backgroundColor: colors.success,
+  },
+  primaryBtnText: {
     fontFamily: fontFamilies.bodySemibold,
     fontSize: 17,
     color: '#FFFDF8',

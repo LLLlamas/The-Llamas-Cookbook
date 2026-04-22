@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
-import { textStyles } from '../theme/typography';
+import { fontFamilies, textStyles } from '../theme/typography';
 import { newId } from '../lib/ids';
 import type { Ingredient } from '../types/recipe';
 import { FractionChips } from './FractionChips';
@@ -43,43 +43,52 @@ export function IngredientQuickAdd({ onAdd, autoFocus }: Props) {
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        <TextInput
-          ref={qtyRef}
-          value={quantity}
-          onChangeText={setQuantity}
-          placeholder="Qty"
-          placeholderTextColor={colors.textSecondary}
-          style={[styles.input, styles.qty]}
-          keyboardType="decimal-pad"
-          returnKeyType="next"
-          blurOnSubmit={false}
-          autoFocus={autoFocus}
-          onSubmitEditing={() => unitRef.current?.focus()}
-        />
-        <TextInput
-          ref={unitRef}
-          value={unit}
-          onChangeText={setUnit}
-          placeholder="Unit"
-          placeholderTextColor={colors.textSecondary}
-          style={[styles.input, styles.unit]}
-          returnKeyType="next"
-          autoCapitalize="none"
-          autoCorrect={false}
-          blurOnSubmit={false}
-          onSubmitEditing={() => nameRef.current?.focus()}
-        />
-        <TextInput
-          ref={nameRef}
-          value={name}
-          onChangeText={setName}
-          placeholder="Ingredient"
-          placeholderTextColor={colors.textSecondary}
-          style={[styles.input, styles.name]}
-          returnKeyType="done"
-          blurOnSubmit={false}
-          onSubmitEditing={submit}
-        />
+        <View style={[styles.field, styles.qtyField]}>
+          <Text style={styles.label}>Qty</Text>
+          <TextInput
+            ref={qtyRef}
+            value={quantity}
+            onChangeText={setQuantity}
+            placeholder="2"
+            placeholderTextColor={colors.textSecondary}
+            style={styles.input}
+            keyboardType="decimal-pad"
+            returnKeyType="next"
+            blurOnSubmit={false}
+            autoFocus={autoFocus}
+            onSubmitEditing={() => unitRef.current?.focus()}
+          />
+        </View>
+        <View style={[styles.field, styles.unitField]}>
+          <Text style={styles.label}>Unit</Text>
+          <TextInput
+            ref={unitRef}
+            value={unit}
+            onChangeText={setUnit}
+            placeholder="cup"
+            placeholderTextColor={colors.textSecondary}
+            style={styles.input}
+            returnKeyType="next"
+            autoCapitalize="none"
+            autoCorrect={false}
+            blurOnSubmit={false}
+            onSubmitEditing={() => nameRef.current?.focus()}
+          />
+        </View>
+        <View style={[styles.field, styles.nameField]}>
+          <Text style={styles.label}>Ingredient</Text>
+          <TextInput
+            ref={nameRef}
+            value={name}
+            onChangeText={setName}
+            placeholder="flour"
+            placeholderTextColor={colors.textSecondary}
+            style={styles.input}
+            returnKeyType="done"
+            blurOnSubmit={false}
+            onSubmitEditing={submit}
+          />
+        </View>
       </View>
       <FractionChips onPick={setQuantity} currentValue={quantity} />
       <UnitChips onPick={setUnit} currentValue={unit} />
@@ -89,32 +98,45 @@ export function IngredientQuickAdd({ onAdd, autoFocus }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   row: {
     flexDirection: 'row',
     gap: spacing.sm,
+    alignItems: 'flex-end',
+  },
+  field: {
+    gap: 4,
+  },
+  qtyField: {
+    flex: 1,
+    minWidth: 56,
+  },
+  unitField: {
+    flex: 1.2,
+    minWidth: 64,
+  },
+  nameField: {
+    flex: 3,
+  },
+  label: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 14,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingLeft: 2,
   },
   input: {
     ...textStyles.body,
     color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  qty: {
-    flex: 1,
-    minWidth: 44,
-  },
-  unit: {
-    flex: 1.2,
-    minWidth: 56,
-  },
-  name: {
-    flex: 3,
+    paddingHorizontal: spacing.md,
+    minHeight: 44,
   },
 });
