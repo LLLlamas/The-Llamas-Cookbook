@@ -123,6 +123,14 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
   const removeIngredient = (id: string) => {
     setIngredients((prev) => prev.filter((i) => i.id !== id));
   };
+  const updateIngredient = (
+    id: string,
+    patch: Pick<Ingredient, 'quantity' | 'unit' | 'name'>,
+  ) => {
+    setIngredients((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, ...patch } : i)),
+    );
+  };
 
   const addStep = (draft: Omit<Step, 'order'>) => {
     setSteps((prev) => [...prev, { ...draft, order: prev.length }]);
@@ -206,6 +214,7 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
                 key={ingredient.id}
                 ingredient={ingredient}
                 onDelete={() => removeIngredient(ingredient.id)}
+                onUpdate={(patch) => updateIngredient(ingredient.id, patch)}
               />
             ))}
           </View>
