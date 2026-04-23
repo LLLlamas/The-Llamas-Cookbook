@@ -68,12 +68,12 @@ struct TimerToggleButton: View {
             isOn.toggle()
         } label: {
             Image(systemName: "timer")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(isOn ? Color(red: 1, green: 0.992, blue: 0.972) : AppColor.textSecondary)
-                .frame(width: 32, height: 32)
-                .background(isOn ? AppColor.accent : Color.clear)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(isOn ? Color(red: 1, green: 0.992, blue: 0.972) : AppColor.accent)
+                .frame(width: 36, height: 36)
+                .background(isOn ? AppColor.accent : AppColor.background)
                 .overlay(
-                    Circle().stroke(isOn ? AppColor.accent : AppColor.divider, lineWidth: 1)
+                    Circle().stroke(AppColor.accent, lineWidth: isOn ? 0 : 1.5)
                 )
                 .clipShape(Circle())
         }

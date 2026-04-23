@@ -12,14 +12,14 @@ enum Quantity {
         (3.0 / 4.0, "3/4"),
     ]
 
-    /// Parse "3", "1/4", "3 1/4", "0.5" into a Double. Returns nil for freeform
-    /// strings like "a pinch".
+    /// Parse "3", "1/4", "3 1/4", "3 & 1/4", "0.5" into a Double. Returns nil
+    /// for freeform strings like "a pinch".
     static func parse(_ raw: String?) -> Double? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return nil }
 
-        if let m = try? #/^(\d+)\s+(\d+)\/(\d+)$/#.wholeMatch(in: trimmed) {
+        if let m = try? #/^(\d+)\s+(?:&\s+)?(\d+)\/(\d+)$/#.wholeMatch(in: trimmed) {
             guard let whole = Double(m.output.1),
                   let num = Double(m.output.2),
                   let den = Double(m.output.3),
@@ -60,7 +60,7 @@ enum Quantity {
                 best = entry
             }
         }
-        return whole > 0 ? "\(whole) \(best.label)" : best.label
+        return whole > 0 ? "\(whole) & \(best.label)" : best.label
     }
 
     static func scale(_ original: String?, by factor: Double) -> String? {
@@ -70,12 +70,12 @@ enum Quantity {
         return format(parsed * factor)
     }
 
-    /// Turn the stored "2 1/2" form into "2 & 1/2" for display. Leaves lone
+    /// Normalize "2 1/2" or "2 & 1/2" into "2 & 1/2" for display. Leaves lone
     /// wholes, lone fractions, and freeform strings untouched.
     static func displayFormat(_ raw: String?) -> String {
         guard let raw else { return "" }
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
-        if let m = try? #/^(\d+)\s+(\d+\/\d+)$/#.wholeMatch(in: trimmed) {
+        if let m = try? #/^(\d+)\s+(?:&\s+)?(\d+\/\d+)$/#.wholeMatch(in: trimmed) {
             return "\(m.output.1) & \(m.output.2)"
         }
         return trimmed
@@ -92,7 +92,7 @@ enum Quantity {
     static func splitForChips(_ raw: String) -> Parsed {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return Parsed(whole: nil, frac: nil, isFreeform: false) }
-        if let m = try? #/^(\d+)\s+(\d+\/\d+)$/#.wholeMatch(in: trimmed) {
+        if let m = try? #/^(\d+)\s+(?:&\s+)?(\d+\/\d+)$/#.wholeMatch(in: trimmed) {
             return Parsed(whole: String(m.output.1), frac: String(m.output.2), isFreeform: false)
         }
         if let m = try? #/^(\d+\/\d+)$/#.wholeMatch(in: trimmed) {
@@ -105,7 +105,12 @@ enum Quantity {
     }
 
     static func combine(whole: String?, frac: String?) -> String {
-        [whole, frac].compactMap { $0 }.joined(separator: " ")
+        switch (whole, frac) {
+        case let (w?, f?): return "\(w) & \(f)"
+        case let (w?, nil): return w
+        case let (nil, f?): return f
+        default: return ""
+        }
     }
 }
 
