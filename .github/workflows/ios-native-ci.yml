@@ -109,6 +109,26 @@ jobs:
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "Installed profile: $PROFILE_NAME ($PROFILE_UUID)"
 
+      - name: Generate placeholder app icon
+        run: |
+          set -euo pipefail
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            echo "Installing ImageMagick..."
+            brew install imagemagick
+          fi
+          IM=$(command -v magick || command -v convert)
+          ICON_DIR="Resources/Assets.xcassets/AppIcon.appiconset"
+          ICON_PATH="$ICON_DIR/AppIcon.png"
+          "$IM" -size 1024x1024 xc:"#C97C5D" \
+            -gravity center \
+            -fill "#FFFDF8" \
+            -font "Helvetica-Bold" \
+            -pointsize 520 \
+            -annotate +0+0 "LC" \
+            "$ICON_PATH"
+          echo "Generated $ICON_PATH"
+          ls -la "$ICON_PATH"
+
       - name: Archive
         run: |
           set -euo pipefail
