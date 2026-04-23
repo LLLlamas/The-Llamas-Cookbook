@@ -22,6 +22,18 @@ struct LibraryView: View {
             addButton
         }
         .navigationTitle("Llamas Cookbook")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: AppSpacing.xs + 2) {
+                    LlamaMascot(size: 22)
+                    Text("Llamas Cookbook")
+                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .foregroundStyle(AppColor.accentDeep)
+                        .tracking(0.3)
+                }
+            }
+        }
         .toolbarBackground(AppColor.background, for: .navigationBar)
         .navigationDestination(for: Recipe.self) { recipe in
             RecipeDetailView(recipe: recipe)

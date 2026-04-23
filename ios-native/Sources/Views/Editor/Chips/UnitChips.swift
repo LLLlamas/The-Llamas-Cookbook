@@ -6,7 +6,7 @@ struct UnitChips: View {
     private let units = [
         "cup", "tbsp", "tsp", "oz", "lb",
         "g", "kg", "ml", "l",
-        "clove", "pinch", "slice", "can", "stick"
+        "piece", "clove", "pinch", "slice", "can", "stick"
     ]
 
     var body: some View {

@@ -1,5 +1,91 @@
 import Foundation
 
+// MARK: - Live calculator units & engine
+
+enum ConvertibleUnit: String, CaseIterable, Hashable, Identifiable {
+    // Volume
+    case tsp, tbsp, flOz, cup, pint, quart, gallon, ml, liter
+    // Weight
+    case oz, lb, g, kg
+    // Temperature
+    case fahrenheit, celsius
+
+    var id: String { rawValue }
+
+    enum Category: String { case volume, weight, temperature }
+
+    var category: Category {
+        switch self {
+        case .tsp, .tbsp, .flOz, .cup, .pint, .quart, .gallon, .ml, .liter: return .volume
+        case .oz, .lb, .g, .kg: return .weight
+        case .fahrenheit, .celsius: return .temperature
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .tsp: return "tsp"
+        case .tbsp: return "tbsp"
+        case .flOz: return "fl oz"
+        case .cup: return "cup"
+        case .pint: return "pint"
+        case .quart: return "quart"
+        case .gallon: return "gallon"
+        case .ml: return "ml"
+        case .liter: return "L"
+        case .oz: return "oz"
+        case .lb: return "lb"
+        case .g: return "g"
+        case .kg: return "kg"
+        case .fahrenheit: return "°F"
+        case .celsius: return "°C"
+        }
+    }
+
+    /// Factor to category base. Volume base = ml, weight base = g.
+    /// Temperature is special-cased (not linear), so this is unused for °F/°C.
+    fileprivate var toBase: Double {
+        switch self {
+        case .tsp: return 4.92892
+        case .tbsp: return 14.7868
+        case .flOz: return 29.5735
+        case .cup: return 240
+        case .pint: return 473.176
+        case .quart: return 946.353
+        case .gallon: return 3785.41
+        case .ml: return 1
+        case .liter: return 1000
+        case .oz: return 28.3495
+        case .lb: return 453.592
+        case .g: return 1
+        case .kg: return 1000
+        case .fahrenheit, .celsius: return 1
+        }
+    }
+}
+
+enum ConversionEngine {
+    /// Returns nil when from/to are in different categories (e.g. cup → g) —
+    /// that conversion only works with ingredient context, which the calculator
+    /// surfaces as a note rather than guessing.
+    static func convert(_ value: Double, from: ConvertibleUnit, to: ConvertibleUnit) -> Double? {
+        guard from.category == to.category else { return nil }
+        if from.category == .temperature {
+            return temperature(value, from: from, to: to)
+        }
+        return value * from.toBase / to.toBase
+    }
+
+    private static func temperature(_ value: Double, from: ConvertibleUnit, to: ConvertibleUnit) -> Double {
+        if from == to { return value }
+        if from == .fahrenheit && to == .celsius { return (value - 32) * 5 / 9 }
+        if from == .celsius && to == .fahrenheit { return value * 9 / 5 + 32 }
+        return value
+    }
+}
+
+// MARK: - Static reference tables
+
 /// Static cooking-conversion reference. Standard kitchen equivalents — these
 /// don't change. Exposed as a list of sections for the Conversions sheet.
 enum Conversions {

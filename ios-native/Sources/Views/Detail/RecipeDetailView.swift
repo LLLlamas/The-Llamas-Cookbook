@@ -63,17 +63,19 @@ struct RecipeDetailView: View {
 
                     if !recipe.notes.trimmed.isEmpty {
                         section("Notes") {
-                            Text(recipe.notes)
-                                .font(AppFont.body)
-                                .foregroundStyle(AppColor.textPrimary)
-                                .padding(AppSpacing.md)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(AppColor.surface)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: AppRadius.md)
-                                        .stroke(AppColor.divider, lineWidth: 1)
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                            HStack(alignment: .top, spacing: AppSpacing.md) {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .fill(AppColor.accent)
+                                    .frame(width: 3)
+                                Text(recipe.notes)
+                                    .font(AppFont.body)
+                                    .foregroundStyle(AppColor.textPrimary)
+                                    .lineSpacing(3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(AppSpacing.md)
+                            .background(AppColor.surfaceSunken)
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                         }
                     }
 
@@ -129,7 +131,8 @@ struct RecipeDetailView: View {
                     Button {
                         showingEditor = true
                     } label: {
-                        Image(systemName: "pencil")
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 17, weight: .bold))
                             .foregroundStyle(AppColor.textPrimary)
                     }
                 }
@@ -168,12 +171,17 @@ struct RecipeDetailView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title)
-                    .font(AppFont.sectionHeading)
-                    .foregroundStyle(AppColor.textPrimary)
-                Spacer(minLength: AppSpacing.sm)
-                accessory()
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title)
+                        .font(AppFont.sectionHeading)
+                        .foregroundStyle(AppColor.textPrimary)
+                    Spacer(minLength: AppSpacing.sm)
+                    accessory()
+                }
+                Capsule()
+                    .fill(AppColor.accent.opacity(0.55))
+                    .frame(width: 32, height: 2)
             }
             .padding(.top, AppSpacing.lg)
             content()
@@ -211,16 +219,18 @@ struct RecipeDetailView: View {
                 .fill(AppColor.accent)
                 .frame(width: 6, height: 6)
 
-            if !measure.isEmpty {
-                Text(measure)
-                    .font(.system(size: 15.5, weight: .semibold))
-                    .foregroundStyle(AppColor.accent)
-                    .monospacedDigit()
-                    .layoutPriority(1)
-                Text("—")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(AppColor.divider)
-            }
+            Text(measure)
+                .font(.system(size: 15.5, weight: .semibold))
+                .foregroundStyle(AppColor.accentDeep)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: 100, alignment: .trailing)
+
+            Text("—")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(AppColor.dividerStrong)
+                .opacity(measure.isEmpty ? 0 : 1)
 
             Text(ingredient.name)
                 .font(AppFont.ingredient)
@@ -235,6 +245,7 @@ struct RecipeDetailView: View {
                 .stroke(AppColor.divider, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .shadow(color: AppColor.shadowSoft, radius: 3, x: 0, y: 1)
     }
 
     private func stepRow(idx: Int, step: RecipeStep) -> some View {

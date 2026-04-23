@@ -33,9 +33,20 @@ struct RecipeCardView: View {
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColor.surface)
+        .background(
+            LinearGradient(
+                colors: [AppColor.surfaceRaised, AppColor.surface],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.lg)
+                .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.5)
+        )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: .black.opacity(0.05), radius: 16, y: 4)
+        .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
+        .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
     }
 
     private var metaParts: [String] {
