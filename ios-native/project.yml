@@ -20,7 +20,7 @@ targets:
       - Resources/Assets.xcassets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.llamascookbook.app.native
+        PRODUCT_BUNDLE_IDENTIFIER: com.llamascookbook.app
         PRODUCT_NAME: LlamasCookbook
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES

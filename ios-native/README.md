@@ -20,10 +20,11 @@ The `.xcodeproj` is generated on demand by XcodeGen and is gitignored.
 
 ## Bundle identifier
 
-Swift: `com.llamascookbook.app.native`
-RN:    `com.llamascookbook.app`
+Both Swift and RN ship under `com.llamascookbook.app`. Same App Store Connect app record, same provisioning profile, same signing secrets.
 
-The bundles are distinct so both apps can live on the phone side-by-side during the port. When the Swift app reaches parity we retire the RN app and decide whether to keep the `.native` suffix or migrate to the original bundle id (requires a new ASC app record either way).
+**Don't run both TestFlight workflows at once.** The most recent upload wins on TestFlight, so shipping Swift replaces RN on your phone until you ship RN again. During the port we mostly push Swift builds; only re-run the RN workflow if you need to compare something on the current RN version.
+
+Swift build numbers get an offset of 10000 on top of `github.run_number` so they never collide with RN's lower build numbers in the App Store Connect history.
 
 ## Building locally (requires a Mac)
 
@@ -38,9 +39,7 @@ open LlamasCookbookNative.xcodeproj
 
 ## CI
 
-`.github/workflows/ios-native-ci.yml` builds the Swift app for the iOS Simulator on GitHub's `macos-latest` runner. It runs on every push that touches `ios-native/` or the workflow file, and is manually triggerable via `workflow_dispatch`. No signing; no TestFlight upload yet.
-
-Once the Swift app has meaningful functionality we'll add a TestFlight workflow mirroring the RN one, using the same signing secrets plus a new provisioning profile for the `.native` bundle id.
+`.github/workflows/ios-native-ci.yml` archives the Swift app on GitHub's `macos-latest` runner and uploads it to TestFlight via the existing signing secrets. Only manually triggerable (`workflow_dispatch`) to prevent accidental Swift uploads overwriting the RN app while we're still mid-port.
 
 ## Port status
 

@@ -1,30 +1,45 @@
-name: iOS Native (Swift) Build
+name: iOS Native (Swift) TestFlight
 
-# Simulator-only build for the SwiftUI port living in ios-native/. No signing,
-# no TestFlight upload yet — we verify the code compiles on a real macOS
-# runner with Xcode. Once the Swift app has meaningful functionality we'll
-# add an archive + TestFlight step using the same secrets as the RN workflow.
+# Builds the SwiftUI port in ios-native/ on a macos-latest runner, archives
+# it, and uploads to TestFlight via xcrun altool. Shares signing credentials
+# with the RN workflow because Swift and RN ship under the same bundle id
+# (com.llamascookbook.app). IMPORTANT: only run one of the two workflows to
+# TestFlight at a time — the more recent upload wins.
+#
+# Required repo secrets (same as the RN workflow):
+#
+#   IOS_DIST_CERT_P12_BASE64          base64 of iOS Distribution .p12
+#   IOS_DIST_CERT_P12_PASSWORD        password for that .p12
+#   IOS_PROVISIONING_PROFILE_BASE64   base64 of App Store .mobileprovision
+#   APPSTORE_API_KEY_P8_BASE64        base64 of AuthKey_<KEYID>.p8
+#   APPSTORE_API_KEY_ID               10-char ASC API Key ID
+#   APPSTORE_API_ISSUER_ID            ASC API issuer UUID
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'ios-native/**'
-      - '.github/workflows/ios-native-ci.yml'
-  pull_request:
-    paths:
-      - 'ios-native/**'
-      - '.github/workflows/ios-native-ci.yml'
+    inputs:
+      upload:
+        description: Upload .ipa to TestFlight?
+        type: boolean
+        default: true
 
 concurrency:
   group: ios-native-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+env:
+  APPLE_TEAM_ID: GYFN949Q5E
+  BUNDLE_ID: com.llamascookbook.app
+  # Swift workflow needs a CFBundleVersion that never collides with a previous
+  # RN upload. RN runs number ~= single digits at time of writing. 10000+
+  # gives decades of headroom for both workflows to coexist.
+  BUILD_NUMBER_OFFSET: 10000
 
 jobs:
   build:
-    name: Build (simulator)
+    name: Build + upload (Swift)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: ios-native
@@ -44,36 +59,122 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml
 
-      - name: Pick latest iPhone simulator
-        id: sim
+      - name: Decode signing assets
+        env:
+          P12_B64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          KEY_P8_B64: ${{ secrets.APPSTORE_API_KEY_P8_BASE64 }}
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          DEVICE=$(xcrun simctl list devices available --json \
-            | python3 -c "import sys,json,re; d=json.load(sys.stdin)['devices']; \
-runtimes=sorted([k for k in d if k.startswith('com.apple.CoreSimulator.SimRuntime.iOS')], reverse=True); \
-print(next((dev['name'] for rt in runtimes for dev in d[rt] if re.match(r'iPhone 1[5-9]', dev['name'])), 'iPhone 15'))")
-          echo "device=$DEVICE" >> "$GITHUB_OUTPUT"
-          echo "Using simulator: $DEVICE"
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/signing/dist.p12"
+          echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/signing/profile.mobileprovision"
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$KEY_P8_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
 
-      - name: Build
+      - name: Create signing keychain
+        env:
+          P12_PASSWORD: ${{ secrets.IOS_DIST_CERT_P12_PASSWORD }}
+        working-directory: ${{ github.workspace }}
         run: |
-          set -o pipefail
+          set -euo pipefail
+          KC_PATH="$RUNNER_TEMP/build.keychain-db"
+          KC_PASS=$(openssl rand -base64 24)
+          echo "KC_PATH=$KC_PATH" >> "$GITHUB_ENV"
+          echo "::add-mask::$KC_PASS"
+          security create-keychain -p "$KC_PASS" "$KC_PATH"
+          security set-keychain-settings -lut 21600 "$KC_PATH"
+          security unlock-keychain -p "$KC_PASS" "$KC_PATH"
+          security import "$RUNNER_TEMP/signing/dist.p12" \
+            -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KC_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" "$KC_PATH" >/dev/null
+          security list-keychain -d user -s "$KC_PATH" login.keychain
+
+      - name: Install provisioning profile
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          PROFILE_SRC="$RUNNER_TEMP/signing/profile.mobileprovision"
+          PROFILE_PLIST=$(security cms -D -i "$PROFILE_SRC")
+          PROFILE_UUID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin)
+          PROFILE_NAME=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin)
+          cp "$PROFILE_SRC" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "Installed profile: $PROFILE_NAME ($PROFILE_UUID)"
+
+      - name: Archive
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER=$(( ${{ github.run_number }} + BUILD_NUMBER_OFFSET ))
+          echo "Using CFBundleVersion: $BUILD_NUMBER"
           xcodebuild \
             -project LlamasCookbookNative.xcodeproj \
             -scheme LlamasCookbookNative \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            build | xcpretty || xcodebuild \
-              -project LlamasCookbookNative.xcodeproj \
-              -scheme LlamasCookbookNative \
-              -configuration Debug \
-              -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
-              -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGNING_ALLOWED=NO \
-              build
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            archive
+
+      - name: Export .ipa
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+          IPA=$(ls "$RUNNER_TEMP/export"/*.ipa | head -1)
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "Built $IPA"
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-native-ipa-${{ github.run_number }}
+          path: ${{ env.IPA }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload to TestFlight
+        if: ${{ inputs.upload }}
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --apiKey "$KEY_ID" \
+            --apiIssuer "$ISSUER_ID" \
+            --verbose
