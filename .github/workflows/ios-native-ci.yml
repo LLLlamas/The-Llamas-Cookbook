@@ -1,0 +1,79 @@
+name: iOS Native (Swift) Build
+
+# Simulator-only build for the SwiftUI port living in ios-native/. No signing,
+# no TestFlight upload yet — we verify the code compiles on a real macOS
+# runner with Xcode. Once the Swift app has meaningful functionality we'll
+# add an archive + TestFlight step using the same secrets as the RN workflow.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ios-native/**'
+      - '.github/workflows/ios-native-ci.yml'
+  pull_request:
+    paths:
+      - 'ios-native/**'
+      - '.github/workflows/ios-native-ci.yml'
+
+concurrency:
+  group: ios-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (simulator)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ios-native
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Show Xcode and Swift versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Pick latest iPhone simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          DEVICE=$(xcrun simctl list devices available --json \
+            | python3 -c "import sys,json,re; d=json.load(sys.stdin)['devices']; \
+runtimes=sorted([k for k in d if k.startswith('com.apple.CoreSimulator.SimRuntime.iOS')], reverse=True); \
+print(next((dev['name'] for rt in runtimes for dev in d[rt] if re.match(r'iPhone 1[5-9]', dev['name'])), 'iPhone 15'))")
+          echo "device=$DEVICE" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $DEVICE"
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project LlamasCookbookNative.xcodeproj \
+            -scheme LlamasCookbookNative \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcpretty || xcodebuild \
+              -project LlamasCookbookNative.xcodeproj \
+              -scheme LlamasCookbookNative \
+              -configuration Debug \
+              -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
+              -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              build
