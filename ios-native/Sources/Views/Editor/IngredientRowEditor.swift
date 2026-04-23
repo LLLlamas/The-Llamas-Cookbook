@@ -2,6 +2,7 @@ import SwiftUI
 
 struct IngredientRowEditor: View {
     @Binding var ingredient: DraftIngredient
+    var numericFocus: FocusState<Bool>.Binding
     let onDelete: () -> Void
 
     @State private var isEditing = false
@@ -119,7 +120,7 @@ struct IngredientRowEditor: View {
             .autocorrectionDisabled(!autocap)
             .submitLabel(.done)
             .onSubmit { onSubmit?() }
-            .modifier(NumericDoneModifier(apply: keyboard == .decimalPad || keyboard == .numberPad))
+            .focusedNumeric(numericFocus, when: keyboard == .decimalPad || keyboard == .numberPad)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
             .frame(minHeight: 44)

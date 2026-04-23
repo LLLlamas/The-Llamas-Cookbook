@@ -11,10 +11,11 @@ struct RecipeEditorView: View {
 
     @State private var draft: DraftRecipe
     @State private var showDiscardAlert = false
+    @FocusState private var isNumericFocused: Bool
 
-    init(recipe: Recipe?) {
+    init(recipe: Recipe?, initialDraft: DraftRecipe? = nil) {
         self.recipe = recipe
-        _draft = State(initialValue: recipe?.toDraft() ?? DraftRecipe())
+        _draft = State(initialValue: initialDraft ?? recipe?.toDraft() ?? DraftRecipe())
     }
 
     var body: some View {
@@ -26,11 +27,11 @@ struct RecipeEditorView: View {
 
                 sectionHeader("Ingredients")
                 sectionHint("Fill in quantity, unit, and ingredient — all three are required before you add the row.")
-                IngredientQuickAdd { draft.ingredients.append($0) }
+                IngredientQuickAdd(numericFocus: $isNumericFocused) { draft.ingredients.append($0) }
                 if !draft.ingredients.isEmpty {
                     VStack(spacing: AppSpacing.xs) {
                         ForEach($draft.ingredients) { $ingredient in
-                            IngredientRowEditor(ingredient: $ingredient) {
+                            IngredientRowEditor(ingredient: $ingredient, numericFocus: $isNumericFocused) {
                                 draft.ingredients.removeAll { $0.id == ingredient.id }
                             }
                         }
@@ -129,6 +130,16 @@ struct RecipeEditorView: View {
                         .opacity(draft.canSave ? 1 : 0.4)
                 }
                 .disabled(!draft.canSave)
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                if isNumericFocused {
+                    Spacer()
+                    Button("Done") {
+                        isNumericFocused = false
+                    }
+                    .foregroundStyle(AppColor.accent)
+                    .font(.system(size: 16, weight: .semibold))
+                }
             }
         }
         .alert("Discard changes?", isPresented: $showDiscardAlert) {
@@ -229,7 +240,7 @@ struct RecipeEditorView: View {
                 .foregroundStyle(AppColor.textSecondary)
             TextField(placeholder, text: text)
                 .keyboardType(.numberPad)
-                .numericKeyboardDone()
+                .focused($isNumericFocused)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.sm)
                 .background(AppColor.background)

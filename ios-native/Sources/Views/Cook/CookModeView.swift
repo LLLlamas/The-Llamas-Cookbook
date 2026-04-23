@@ -22,6 +22,7 @@ struct CookModeView: View {
     @State private var alarmTask: Task<Void, Never>?
 
     @State private var showingExitConfirm = false
+    @State private var showingTimerSheet = false
 
     private enum Phase { case prep, cook }
 
@@ -97,13 +98,39 @@ struct CookModeView: View {
         .navigationBarHidden(true)
         .task(id: timerEndsAt) { await tickTimer() }
         .onChange(of: timerExpired) { _, expired in
-            if expired { startAlarm() } else { stopAlarm() }
+            if expired {
+                showingTimerSheet = false
+                startAlarm()
+            } else {
+                stopAlarm()
+            }
         }
         .onDisappear { stopAlarm() }
         .fullScreenCover(isPresented: $timerExpired) {
-            TimerReadyOverlay(label: timerLabel) {
-                timerExpired = false
-            }
+            TimerReadyOverlay(
+                label: timerLabel,
+                onExtend: { minutes in extendTimer(by: minutes) },
+                onStop: {
+                    timerStepId = nil
+                    timerExpired = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingTimerSheet) {
+            RunningTimerSheet(
+                secondsLeft: secondsLeft,
+                label: timerLabel,
+                onExtend: { minutes in
+                    extendTimer(by: minutes)
+                    showingTimerSheet = false
+                },
+                onCancel: {
+                    cancelTimer()
+                    showingTimerSheet = false
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .alert("Mark as cooked?", isPresented: $showingExitConfirm) {
             Button("Not this time", role: .cancel) { dismiss() }
@@ -413,8 +440,8 @@ struct CookModeView: View {
             ?? "\(StringCase.capitalizeFirst(timerLabel)) timer"
 
         return Button {
-            Haptics.impact(.light)
-            cancelTimer()
+            Haptics.selection()
+            showingTimerSheet = true
         } label: {
             HStack(spacing: AppSpacing.md) {
                 Image(systemName: "timer")
@@ -428,9 +455,13 @@ struct CookModeView: View {
                         .monospacedDigit()
                 }
                 Spacer()
-                Text("tap to cancel")
-                    .font(.system(size: 11, weight: .semibold))
-                    .opacity(0.85)
+                HStack(spacing: 2) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("adjust")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .opacity(0.9)
             }
             .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
             .padding(.horizontal, AppSpacing.md)
@@ -440,7 +471,7 @@ struct CookModeView: View {
             .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Timer running, \(formatClock(secondsLeft)) left, tap to cancel")
+        .accessibilityLabel("Timer running, \(formatClock(secondsLeft)) left, tap to adjust or cancel")
     }
 
     private func formatClock(_ secs: Int) -> String {
@@ -557,16 +588,31 @@ struct CookModeView: View {
         timerStepId = nil
     }
 
+    /// Add minutes to the current timer, or (if the timer already expired)
+    /// restart a fresh timer with just those minutes.
+    private func extendTimer(by minutes: Int) {
+        guard minutes > 0 else { return }
+        let additional = TimeInterval(minutes * 60)
+        if let end = timerEndsAt {
+            timerEndsAt = end.addingTimeInterval(additional)
+        } else {
+            timerEndsAt = Date().addingTimeInterval(additional)
+        }
+        now = Date()
+        timerExpired = false
+        Haptics.impact(.medium)
+    }
+
     // Timer ticker — runs while timerEndsAt is set, updates `now` every second.
     private func tickTimer() async {
         while let end = timerEndsAt, Date() < end {
             try? await Task.sleep(for: .seconds(1))
             now = Date()
         }
-        // Expired
+        // Expired. Keep timerStepId around so a subsequent Extend stays tied
+        // to the step that triggered the timer — Stop clears it explicitly.
         if timerEndsAt != nil {
             timerEndsAt = nil
-            timerStepId = nil
             timerExpired = true
         }
     }
@@ -606,47 +652,186 @@ struct CookModeView: View {
 
 private struct TimerReadyOverlay: View {
     let label: String
+    let onExtend: (Int) -> Void
     let onStop: () -> Void
 
+    @State private var extendMinutes: Int = 5
+
     var body: some View {
-        VStack {
-            Spacer()
-            VStack(spacing: AppSpacing.lg) {
+        VStack(spacing: 0) {
+            Spacer(minLength: AppSpacing.xl)
+            VStack(spacing: AppSpacing.md) {
                 ZStack {
                     Circle()
                         .stroke(Color(red: 1, green: 0.992, blue: 0.972), lineWidth: 3)
-                        .frame(width: 128, height: 128)
+                        .frame(width: 112, height: 112)
                     Image(systemName: "bell.and.waves.left.and.right.fill")
-                        .font(.system(size: 56, weight: .semibold))
+                        .font(.system(size: 48, weight: .semibold))
                         .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
                 }
                 Text("\(StringCase.capitalizeFirst(label)) timer ready!")
-                    .font(.system(size: 36, weight: .bold, design: .serif))
+                    .font(.system(size: 32, weight: .bold, design: .serif))
                     .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
                     .multilineTextAlignment(.center)
                 Text("Check on your food — time's up.")
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972).opacity(0.9))
                     .multilineTextAlignment(.center)
             }
-            Spacer()
+
+            Spacer(minLength: AppSpacing.lg)
+
+            VStack(spacing: AppSpacing.sm) {
+                Text("Need more time?")
+                    .font(.system(size: 13, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972).opacity(0.85))
+
+                MinutePicker(selection: $extendMinutes, tint: Color(red: 1, green: 0.992, blue: 0.972))
+                    .frame(height: 120)
+
+                Button {
+                    Haptics.impact(.medium)
+                    onExtend(extendMinutes)
+                } label: {
+                    HStack(spacing: AppSpacing.xs) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("Extend by \(extendMinutes) min")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .foregroundStyle(AppColor.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, AppSpacing.md)
+                    .background(Color(red: 1, green: 0.992, blue: 0.972))
+                    .clipShape(Capsule())
+                }
+            }
+            .padding(AppSpacing.lg)
+            .background(Color.black.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .padding(.horizontal, AppSpacing.lg)
+
+            Spacer(minLength: AppSpacing.md)
+
             Button {
                 Haptics.impact(.heavy)
                 onStop()
             } label: {
                 Text("Stop")
-                    .font(.system(size: 22, weight: .bold, design: .serif))
-                    .foregroundStyle(AppColor.accent)
+                    .font(.system(size: 20, weight: .bold, design: .serif))
+                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppSpacing.lg)
-                    .background(Color(red: 1, green: 0.992, blue: 0.972))
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .padding(.vertical, AppSpacing.md + 2)
+                    .overlay(
+                        Capsule().stroke(Color(red: 1, green: 0.992, blue: 0.972), lineWidth: 2)
+                    )
             }
             .padding(.horizontal, AppSpacing.xl)
             .padding(.bottom, AppSpacing.xl)
         }
-        .padding(AppSpacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppColor.accent.ignoresSafeArea())
+    }
+}
+
+// MARK: - Running-timer adjust sheet
+
+private struct RunningTimerSheet: View {
+    let secondsLeft: Int
+    let label: String
+    let onExtend: (Int) -> Void
+    let onCancel: () -> Void
+
+    @State private var extendMinutes: Int = 5
+
+    var body: some View {
+        VStack(spacing: AppSpacing.lg) {
+            VStack(spacing: AppSpacing.xs) {
+                Text("\(StringCase.capitalizeFirst(label)) timer")
+                    .font(.system(size: 13, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(AppColor.textSecondary)
+                Text(formatClock(secondsLeft))
+                    .font(.system(size: 44, weight: .bold, design: .serif))
+                    .foregroundStyle(AppColor.accent)
+                    .monospacedDigit()
+            }
+            .padding(.top, AppSpacing.md)
+
+            VStack(spacing: AppSpacing.sm) {
+                Text("Add more time")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppColor.textPrimary)
+
+                MinutePicker(selection: $extendMinutes, tint: AppColor.textPrimary)
+                    .frame(height: 120)
+
+                Button {
+                    onExtend(extendMinutes)
+                } label: {
+                    HStack(spacing: AppSpacing.xs) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .bold))
+                        Text("Extend by \(extendMinutes) min")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, AppSpacing.md)
+                    .background(AppColor.accent)
+                    .clipShape(Capsule())
+                }
+            }
+
+            Button(role: .destructive) {
+                Haptics.impact(.light)
+                onCancel()
+            } label: {
+                HStack(spacing: AppSpacing.xs) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("Cancel timer")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundStyle(AppColor.destructive)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, AppSpacing.sm + 2)
+                .overlay(
+                    Capsule().stroke(AppColor.destructive, lineWidth: 1)
+                )
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(AppSpacing.lg)
+        .background(AppColor.background)
+    }
+
+    private func formatClock(_ secs: Int) -> String {
+        let m = secs / 60
+        let s = secs % 60
+        return String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - Scrollable minute picker
+
+private struct MinutePicker: View {
+    @Binding var selection: Int
+    let tint: Color
+
+    private let range: ClosedRange<Int> = 1...60
+
+    var body: some View {
+        Picker("Minutes", selection: $selection) {
+            ForEach(range, id: \.self) { m in
+                Text("\(m) min")
+                    .foregroundStyle(tint)
+                    .tag(m)
+            }
+        }
+        .pickerStyle(.wheel)
+        .labelsHidden()
     }
 }

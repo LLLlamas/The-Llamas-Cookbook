@@ -13,6 +13,7 @@ struct LibraryView: View {
 
     @State private var filter: LibraryFilter = .all
     @State private var showingNewEditor = false
+    @State private var showingImport = false
     @State private var deletingRecipe: Recipe?
 
     var body: some View {
@@ -28,6 +29,11 @@ struct LibraryView: View {
         .sheet(isPresented: $showingNewEditor) {
             NavigationStack {
                 RecipeEditorView(recipe: nil)
+            }
+        }
+        .sheet(isPresented: $showingImport) {
+            NavigationStack {
+                ImportRecipeView()
             }
         }
         .alert(
@@ -161,9 +167,19 @@ struct LibraryView: View {
     }
 
     private var addButton: some View {
-        Button {
-            Haptics.impact(.light)
-            showingNewEditor = true
+        Menu {
+            Button {
+                Haptics.impact(.light)
+                showingNewEditor = true
+            } label: {
+                Label("New recipe", systemImage: "square.and.pencil")
+            }
+            Button {
+                Haptics.impact(.light)
+                showingImport = true
+            } label: {
+                Label("Import from text", systemImage: "doc.on.clipboard")
+            }
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 28, weight: .semibold))
@@ -174,7 +190,7 @@ struct LibraryView: View {
                 .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
         }
         .padding(AppSpacing.xl)
-        .accessibilityLabel("Add recipe")
+        .accessibilityLabel("Add or import recipe")
     }
 
     // MARK: Derived

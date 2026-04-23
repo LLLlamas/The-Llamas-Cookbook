@@ -6,6 +6,7 @@ struct IngredientQuickAdd: View {
     @State private var name = ""
     @State private var errorFields: Set<Field> = []
 
+    var numericFocus: FocusState<Bool>.Binding
     let onAdd: (DraftIngredient) -> Void
 
     @FocusState private var focused: Field?
@@ -90,8 +91,8 @@ struct IngredientQuickAdd: View {
                 .autocorrectionDisabled(!autocap)
                 .submitLabel(.done)
                 .focused($focused, equals: focus)
+                .focusedNumeric(numericFocus, when: keyboard == .decimalPad || keyboard == .numberPad)
                 .onSubmit { onSubmit?() }
-                .modifier(NumericDoneModifier(apply: keyboard == .decimalPad || keyboard == .numberPad))
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.sm)
                 .frame(maxWidth: .infinity, minHeight: 44)

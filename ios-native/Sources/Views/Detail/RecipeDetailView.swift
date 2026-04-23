@@ -117,6 +117,14 @@ struct RecipeDetailView: View {
                         Image(systemName: recipe.favorite ? "heart.fill" : "heart")
                             .foregroundStyle(AppColor.accent)
                     }
+                    ShareLink(
+                        item: recipe.exportText,
+                        subject: Text(recipe.title),
+                        message: Text("Recipe from Llamas Cookbook")
+                    ) {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(AppColor.textPrimary)
+                    }
                     Button {
                         showingEditor = true
                     } label: {
