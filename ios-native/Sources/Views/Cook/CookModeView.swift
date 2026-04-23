@@ -46,7 +46,7 @@ struct CookModeView: View {
         return Double(currentServings) / Double(originalServings)
     }
     private var cookMins: Int {
-        recipe.cookTimeMinutes ?? recipe.ovenTimeMinutes ?? 0
+        recipe.cookTimeMinutes ?? 0
     }
     private var canTimer: Bool { cookMins > 0 }
 
