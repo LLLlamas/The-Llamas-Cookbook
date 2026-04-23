@@ -28,7 +28,7 @@ struct IngredientRowEditor: View {
                             .monospacedDigit()
                     }
                     if !ingredient.unit.trimmed.isEmpty {
-                        Text(ingredient.unit)
+                        Text(Plural.unit(ingredient.unit, for: ingredient.quantity))
                             .font(AppFont.caption)
                             .foregroundStyle(AppColor.textSecondary)
                     }
@@ -65,18 +65,38 @@ struct IngredientRowEditor: View {
     private var editMode: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack(alignment: .bottom, spacing: AppSpacing.sm) {
-                editField(placeholder: "Qty", text: $ingredient.quantity, keyboard: .decimalPad, flex: 1) {
+                editField(placeholder: "Qty", text: $ingredient.quantity, keyboard: .decimalPad)
+                    .frame(width: 84)
+                editField(placeholder: "Unit", text: $ingredient.unit, keyboard: .default, autocap: false)
+                    .frame(width: 96)
+                editField(placeholder: "Ingredient", text: $ingredient.name, keyboard: .default) {
                     isEditing = false
                 }
-                editField(placeholder: "Unit", text: $ingredient.unit, keyboard: .default, flex: 1.2, autocap: false) {
-                    isEditing = false
-                }
-                editField(placeholder: "Ingredient", text: $ingredient.name, keyboard: .default, flex: 3) {
-                    isEditing = false
-                }
+                .frame(maxWidth: .infinity)
             }
             QuantityChips(value: $ingredient.quantity)
             UnitChips(value: $ingredient.unit)
+            HStack {
+                Spacer()
+                Button {
+                    Haptics.selection()
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                    isEditing = false
+                } label: {
+                    Text("Done")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                        .padding(.horizontal, AppSpacing.lg)
+                        .padding(.vertical, AppSpacing.sm)
+                        .background(AppColor.accent)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, AppSpacing.xs)
         }
         .padding(AppSpacing.sm)
         .background(AppColor.surface)
@@ -91,7 +111,6 @@ struct IngredientRowEditor: View {
     private func editField(placeholder: String,
                            text: Binding<String>,
                            keyboard: UIKeyboardType,
-                           flex: CGFloat,
                            autocap: Bool = true,
                            onSubmit: (() -> Void)? = nil) -> some View {
         TextField(placeholder, text: text)
@@ -100,6 +119,7 @@ struct IngredientRowEditor: View {
             .autocorrectionDisabled(!autocap)
             .submitLabel(.done)
             .onSubmit { onSubmit?() }
+            .modifier(NumericDoneModifier(apply: keyboard == .decimalPad || keyboard == .numberPad))
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
             .frame(minHeight: 44)
@@ -111,7 +131,5 @@ struct IngredientRowEditor: View {
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
             .font(AppFont.body)
             .foregroundStyle(AppColor.textPrimary)
-            .frame(maxWidth: .infinity)
-            .layoutPriority(flex)
     }
 }

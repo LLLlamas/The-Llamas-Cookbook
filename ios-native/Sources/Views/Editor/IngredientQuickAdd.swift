@@ -91,6 +91,7 @@ struct IngredientQuickAdd: View {
                 .submitLabel(.done)
                 .focused($focused, equals: focus)
                 .onSubmit { onSubmit?() }
+                .modifier(NumericDoneModifier(apply: keyboard == .decimalPad || keyboard == .numberPad))
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.sm)
                 .frame(maxWidth: .infinity, minHeight: 44)

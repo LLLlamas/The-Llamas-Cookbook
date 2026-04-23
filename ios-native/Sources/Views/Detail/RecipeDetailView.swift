@@ -291,7 +291,8 @@ struct RecipeDetailView: View {
 
     private func ingredientText(_ ingredient: Ingredient) -> String {
         let qty = Quantity.displayFormat(ingredient.quantity)
-        return [qty, ingredient.unit ?? "", ingredient.name]
+        let unit = Plural.unit(ingredient.unit ?? "", for: ingredient.quantity)
+        return [qty, unit, ingredient.name]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }

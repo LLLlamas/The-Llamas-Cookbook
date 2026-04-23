@@ -97,8 +97,15 @@ struct RecipeEditorView: View {
             }
             .padding(AppSpacing.lg)
             .padding(.bottom, AppSpacing.xxl)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil, from: nil, for: nil
+                )
+            }
         }
-        .scrollDismissesKeyboard(.interactively)
+        .scrollDismissesKeyboard(.immediately)
         .background(AppColor.background)
         .navigationTitle(headerTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -222,6 +229,7 @@ struct RecipeEditorView: View {
                 .foregroundStyle(AppColor.textSecondary)
             TextField(placeholder, text: text)
                 .keyboardType(.numberPad)
+                .numericKeyboardDone()
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.sm)
                 .background(AppColor.background)

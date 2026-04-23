@@ -146,21 +146,8 @@ struct CookModeView: View {
     // MARK: Phase header
 
     private var phaseHeader: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if phase == .cook, !sortedIngredients.isEmpty {
-                Button {
-                    phase = .prep
-                } label: {
-                    HStack(spacing: AppSpacing.xs) {
-                        Image(systemName: "arrow.left")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Ingredients")
-                            .font(AppFont.caption)
-                    }
-                    .foregroundStyle(AppColor.textSecondary)
-                }
-                .padding(.bottom, AppSpacing.xs)
-            }
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            phaseToggle
             Text(phase == .prep ? "Got everything?" : "Let's cook")
                 .font(.system(size: 24, weight: .bold, design: .serif))
                 .foregroundStyle(AppColor.textPrimary)
@@ -171,6 +158,49 @@ struct CookModeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AppSpacing.lg)
         .padding(.bottom, AppSpacing.md)
+    }
+
+    @ViewBuilder
+    private var phaseToggle: some View {
+        if phase == .cook, !sortedIngredients.isEmpty {
+            phasePill(systemImage: "list.bullet", label: "Ingredients", trailingChevron: false) {
+                Haptics.selection()
+                phase = .prep
+            }
+        } else if phase == .prep, !sortedSteps.isEmpty {
+            phasePill(systemImage: "fork.knife", label: "Jump to steps", trailingChevron: true) {
+                Haptics.selection()
+                phase = .cook
+            }
+        }
+    }
+
+    private func phasePill(systemImage: String, label: String, trailingChevron: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: AppSpacing.xs) {
+                if !trailingChevron {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 14, weight: .semibold))
+                if trailingChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                }
+            }
+            .foregroundStyle(AppColor.accent)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.xs + 2)
+            .background(AppColor.surface)
+            .overlay(
+                Capsule().stroke(AppColor.accent, lineWidth: 1.5)
+            )
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private var phaseSubtitle: String {
@@ -282,7 +312,8 @@ struct CookModeView: View {
     private func ingredientDisplay(_ ingredient: Ingredient) -> String {
         let scaled = Quantity.scale(ingredient.quantity, by: scaleFactor) ?? ingredient.quantity ?? ""
         let qty = Quantity.displayFormat(scaled)
-        return [qty, ingredient.unit ?? "", ingredient.name]
+        let unit = Plural.unit(ingredient.unit ?? "", for: scaled)
+        return [qty, unit, ingredient.name]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }
