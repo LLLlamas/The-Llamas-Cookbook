@@ -290,17 +290,3 @@ struct RecipeEditorView: View {
     }
 }
 
-extension DraftRecipe: Equatable {
-    static func == (lhs: DraftRecipe, rhs: DraftRecipe) -> Bool {
-        lhs.title == rhs.title &&
-        lhs.summary == rhs.summary &&
-        lhs.sourceUrl == rhs.sourceUrl &&
-        lhs.servings == rhs.servings &&
-        lhs.cookTimeMinutes == rhs.cookTimeMinutes &&
-        lhs.notes == rhs.notes &&
-        lhs.tags == rhs.tags &&
-        lhs.favorite == rhs.favorite &&
-        lhs.ingredients == rhs.ingredients &&
-        lhs.steps == rhs.steps
-    }
-}

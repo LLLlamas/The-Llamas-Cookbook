@@ -2,7 +2,7 @@ import Foundation
 
 /// Transient, plain-Swift mirror of a Recipe used by the editor. We edit
 /// into a draft and only commit to SwiftData on Save so Cancel is non-destructive.
-struct DraftRecipe {
+struct DraftRecipe: Equatable {
     var title: String = ""
     var summary: String = ""
     var sourceUrl: String = ""

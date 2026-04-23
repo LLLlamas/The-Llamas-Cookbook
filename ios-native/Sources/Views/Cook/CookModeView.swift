@@ -6,7 +6,7 @@ import AudioToolbox
 struct CookModeView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @Bindable var recipe: Recipe
+    let recipe: Recipe
 
     @State private var phase: Phase
     @State private var currentServings: Int

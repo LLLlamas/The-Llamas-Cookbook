@@ -30,4 +30,4 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleDefault
         ENABLE_USER_SCRIPT_SANDBOXING: YES
-        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_STRICT_CONCURRENCY: minimal

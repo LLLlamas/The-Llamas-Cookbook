@@ -6,7 +6,7 @@ struct RecipeDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @Bindable var recipe: Recipe
+    let recipe: Recipe
 
     @State private var showingEditor = false
     @State private var showingDeleteAlert = false
