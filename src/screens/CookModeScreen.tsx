@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -9,7 +9,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
-import { ArrowLeft, Check, ChevronRight, Minus, Plus, X } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import {
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  Minus,
+  Plus,
+  Timer,
+  X,
+} from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LlamaMascot } from '../components/LlamaMascot';
 import { colors } from '../theme/colors';
@@ -41,10 +50,37 @@ export function CookModeScreen({ route, navigation }: Props) {
   const [phase, setPhase] = useState<Phase>(() =>
     (recipe?.ingredients.length ?? 0) > 0 ? 'prep' : 'cook',
   );
+  const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
+  const [timerStepId, setTimerStepId] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const timerFiredRef = useRef(false);
 
   useEffect(() => {
     if (!recipe) navigation.goBack();
   }, [recipe, navigation]);
+
+  useEffect(() => {
+    if (!timerEndsAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timerEndsAt]);
+
+  useEffect(() => {
+    if (!timerEndsAt || timerFiredRef.current) return;
+    if (now >= timerEndsAt) {
+      timerFiredRef.current = true;
+      setTimerEndsAt(null);
+      setTimerStepId(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
+      Alert.alert(
+        'Oven timer done!',
+        'Your food is ready to come out of the oven.',
+        [{ text: 'Got it', onPress: () => { timerFiredRef.current = false; } }],
+      );
+    }
+  }, [now, timerEndsAt]);
 
   const scaleFactor = useMemo(() => {
     if (!originalServings || !currentServings) return 1;
@@ -110,6 +146,29 @@ export function CookModeScreen({ route, navigation }: Props) {
   const totalIngredients = recipe.ingredients.length;
   const readyCount = struckIngredients.size;
   const hasSteps = recipe.steps.length > 0;
+
+  const ovenMins = recipe.ovenTimeMinutes ?? 0;
+  const canOvenTimer = ovenMins > 0;
+  const secondsLeft = timerEndsAt
+    ? Math.max(0, Math.ceil((timerEndsAt - now) / 1000))
+    : 0;
+  const formatClock = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+  const isOvenStep = (text: string) => /oven|bake/i.test(text);
+  const startOvenTimer = (stepId: string) => {
+    if (!canOvenTimer) return;
+    timerFiredRef.current = false;
+    setTimerStepId(stepId);
+    setTimerEndsAt(Date.now() + ovenMins * 60 * 1000);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  };
+  const cancelOvenTimer = () => {
+    setTimerEndsAt(null);
+    setTimerStepId(null);
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
@@ -238,35 +297,75 @@ export function CookModeScreen({ route, navigation }: Props) {
             {recipe.steps.map((step, idx) => {
               const struck = struckSteps.has(step.id);
               const isCurrent = step.id === currentStepId;
+              const oven = isOvenStep(step.text);
+              const thisTiming =
+                timerStepId === step.id && timerEndsAt != null;
+              const anotherTiming =
+                timerEndsAt != null && timerStepId !== step.id;
               return (
-                <Pressable
+                <View
                   key={step.id}
-                  onPress={() => toggleStep(step.id)}
-                  style={({ pressed }) => [
+                  style={[
                     styles.stepRow,
                     isCurrent && styles.stepCurrent,
                     struck && styles.stepDone,
-                    pressed && styles.rowPressed,
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.stepNumberBadge,
-                      struck && styles.stepNumberBadgeDone,
+                  <Pressable
+                    onPress={() => toggleStep(step.id)}
+                    style={({ pressed }) => [
+                      styles.stepHeader,
+                      pressed && styles.rowPressed,
                     ]}
                   >
-                    {struck ? (
-                      <Check size={16} color="#FFFDF8" strokeWidth={3} />
-                    ) : (
-                      <Text style={styles.stepNumberText}>{idx + 1}</Text>
-                    )}
-                  </View>
-                  <Text
-                    style={[styles.stepText, struck && styles.textStruck]}
-                  >
-                    {step.text}
-                  </Text>
-                </Pressable>
+                    <View
+                      style={[
+                        styles.stepNumberBadge,
+                        struck && styles.stepNumberBadgeDone,
+                      ]}
+                    >
+                      {struck ? (
+                        <Check size={16} color="#FFFDF8" strokeWidth={3} />
+                      ) : (
+                        <Text style={styles.stepNumberText}>{idx + 1}</Text>
+                      )}
+                    </View>
+                    <Text
+                      style={[styles.stepText, struck && styles.textStruck]}
+                    >
+                      {step.text}
+                    </Text>
+                  </Pressable>
+                  {oven && canOvenTimer ? (
+                    thisTiming ? (
+                      <Pressable
+                        onPress={cancelOvenTimer}
+                        style={styles.timerActiveBtn}
+                        accessibilityLabel="Cancel oven timer"
+                      >
+                        <Timer size={16} color="#FFFDF8" strokeWidth={2.25} />
+                        <Text style={styles.timerActiveText}>
+                          {formatClock(secondsLeft)}  ·  tap to cancel
+                        </Text>
+                      </Pressable>
+                    ) : !anotherTiming ? (
+                      <Pressable
+                        onPress={() => startOvenTimer(step.id)}
+                        style={styles.timerBtn}
+                        accessibilityLabel={`Start ${ovenMins}-minute oven timer`}
+                      >
+                        <Timer
+                          size={16}
+                          color={colors.accent}
+                          strokeWidth={2.25}
+                        />
+                        <Text style={styles.timerBtnText}>
+                          Start {ovenMins}-min oven timer
+                        </Text>
+                      </Pressable>
+                    ) : null
+                  ) : null}
+                </View>
               );
             })}
           </View>
@@ -445,15 +544,18 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   stepRow: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.divider,
+    overflow: 'hidden',
+  },
+  stepHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.divider,
   },
   stepCurrent: {
     borderColor: colors.accent,
@@ -461,6 +563,43 @@ const styles = StyleSheet.create({
   stepDone: {
     borderColor: colors.success,
     backgroundColor: colors.background,
+  },
+  timerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    alignSelf: 'flex-start',
+  },
+  timerBtnText: {
+    fontFamily: fontFamilies.bodySemibold,
+    fontSize: 14,
+    color: colors.accent,
+  },
+  timerActiveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    alignSelf: 'flex-start',
+  },
+  timerActiveText: {
+    fontFamily: fontFamilies.bodySemibold,
+    fontSize: 14,
+    color: '#FFFDF8',
+    fontVariant: ['tabular-nums'],
   },
   stepNumberBadge: {
     width: 30,

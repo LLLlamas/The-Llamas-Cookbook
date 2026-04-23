@@ -37,7 +37,6 @@ export function StepQuickAdd({ onAdd, nextNumber }: Props) {
         style={styles.input}
         returnKeyType="done"
         blurOnSubmit={false}
-        multiline
         onSubmitEditing={submit}
       />
     </View>
@@ -77,6 +76,5 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     minHeight: 44,
-    textAlignVertical: 'top',
   },
 });

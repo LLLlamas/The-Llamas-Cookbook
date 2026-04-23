@@ -22,6 +22,7 @@ export interface Recipe {
   servings?: number;
   prepTimeMinutes?: number;
   cookTimeMinutes?: number;
+  ovenTimeMinutes?: number;
   ingredients: Ingredient[];
   steps: Step[];
   notes: string;

@@ -5,7 +5,7 @@ import { radius, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
 import { newId } from '../lib/ids';
 import type { Ingredient } from '../types/recipe';
-import { FractionChips } from './FractionChips';
+import { QuantityChips } from './QuantityChips';
 import { UnitChips } from './UnitChips';
 
 type Props = {
@@ -90,7 +90,7 @@ export function IngredientQuickAdd({ onAdd, autoFocus }: Props) {
           />
         </View>
       </View>
-      <FractionChips onPick={setQuantity} currentValue={quantity} />
+      <QuantityChips value={quantity} onChange={setQuantity} />
       <UnitChips onPick={setUnit} currentValue={unit} />
     </View>
   );

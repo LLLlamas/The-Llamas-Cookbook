@@ -5,7 +5,7 @@ import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
 import type { Ingredient } from '../types/recipe';
-import { FractionChips } from './FractionChips';
+import { QuantityChips } from './QuantityChips';
 import { UnitChips } from './UnitChips';
 
 type Props = {
@@ -95,7 +95,7 @@ export function IngredientRow({ ingredient, onDelete, onUpdate }: Props) {
             onSubmitEditing={save}
           />
         </View>
-        <FractionChips onPick={setQuantity} currentValue={quantity} />
+        <QuantityChips value={quantity} onChange={setQuantity} />
         <UnitChips onPick={setUnit} currentValue={unit} />
         <View style={styles.actions}>
           <Pressable

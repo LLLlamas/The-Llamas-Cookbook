@@ -53,6 +53,9 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
   const [cookTime, setCookTime] = useState(
     existing?.cookTimeMinutes != null ? String(existing.cookTimeMinutes) : '',
   );
+  const [ovenTime, setOvenTime] = useState(
+    existing?.ovenTimeMinutes != null ? String(existing.ovenTimeMinutes) : '',
+  );
   const [ingredients, setIngredients] = useState<Ingredient[]>(
     existing?.ingredients ?? [],
   );
@@ -80,6 +83,7 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
       servings: toOptionalNumber(servings),
       prepTimeMinutes: toOptionalNumber(prepTime),
       cookTimeMinutes: toOptionalNumber(cookTime),
+      ovenTimeMinutes: toOptionalNumber(ovenTime),
       ingredients: ingredients.map((i, idx) => ({ ...i, order: idx })),
       steps: steps.map((s, idx) => ({ ...s, order: idx })),
       tags,
@@ -247,6 +251,7 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
           <Text style={styles.optionalHeading}>Optional details</Text>
           <Text style={styles.sectionHint}>
             Set servings so you can scale ingredients up or down while cooking.
+            Set Oven (min) and the timer will auto-suggest on your oven step.
           </Text>
           <View style={styles.metaRow}>
             <View style={styles.metaField}>
@@ -277,6 +282,17 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
                 value={cookTime}
                 onChangeText={setCookTime}
                 placeholder="30"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.metaInput}
+                keyboardType="number-pad"
+              />
+            </View>
+            <View style={styles.metaField}>
+              <Text style={styles.metaLabel}>Oven (min)</Text>
+              <TextInput
+                value={ovenTime}
+                onChangeText={setOvenTime}
+                placeholder="25"
                 placeholderTextColor={colors.textSecondary}
                 style={styles.metaInput}
                 keyboardType="number-pad"
@@ -418,11 +434,13 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.xs,
   },
   metaField: {
-    flex: 1,
+    flexBasis: '47%',
+    flexGrow: 1,
     gap: spacing.xs,
   },
   metaLabel: {

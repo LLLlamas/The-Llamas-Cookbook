@@ -97,6 +97,9 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   if (recipe.cookTimeMinutes != null) {
     timeParts.push(`Cook ${recipe.cookTimeMinutes}m`);
   }
+  if (recipe.ovenTimeMinutes != null) {
+    timeParts.push(`Oven ${recipe.ovenTimeMinutes}m`);
+  }
 
   const metaParts: string[] = [];
   metaParts.push(`Added ${formatDateMDY(recipe.createdAt)}`);
