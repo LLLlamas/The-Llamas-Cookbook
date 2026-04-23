@@ -15,9 +15,8 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Sources
-    resources:
-      - Resources/Assets.xcassets
+      - path: Sources
+      - path: Resources/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.llamascookbook.app
