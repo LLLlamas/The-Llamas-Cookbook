@@ -118,6 +118,7 @@ struct RecipeDetailView: View {
                         recipe.updatedAt = .now
                     } label: {
                         Image(systemName: recipe.favorite ? "heart.fill" : "heart")
+                            .font(.system(size: 17, weight: .bold))
                             .foregroundStyle(AppColor.accent)
                     }
                     ShareLink(
@@ -224,8 +225,8 @@ struct RecipeDetailView: View {
                 .foregroundStyle(AppColor.accentDeep)
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(width: 100, alignment: .trailing)
+                .minimumScaleFactor(0.7)
+                .frame(width: 120, alignment: .leading)
 
             Text("—")
                 .font(.system(size: 15, weight: .regular))
@@ -249,22 +250,31 @@ struct RecipeDetailView: View {
     }
 
     private func stepRow(idx: Int, step: RecipeStep) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.md) {
-            Text("\(idx + 1).")
-                .font(AppFont.sectionHeading)
-                .foregroundStyle(AppColor.accent)
-                .frame(minWidth: 28, alignment: .leading)
-                .monospacedDigit()
-            Text(step.text)
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textPrimary)
-                .lineSpacing(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if step.needsTimer {
-                Image(systemName: "timer")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppColor.accent.opacity(0.8))
+        // Width of the step-number column + spacing — the small accent rule
+        // below extends from the leading edge to where the step text begins.
+        let numberColumnWidth: CGFloat = 28 + AppSpacing.md
+
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.md) {
+                Text("\(idx + 1).")
+                    .font(AppFont.sectionHeading)
+                    .foregroundStyle(AppColor.accent)
+                    .frame(minWidth: 28, alignment: .leading)
+                    .monospacedDigit()
+                Text(step.text)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if step.needsTimer {
+                    Image(systemName: "timer")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppColor.accent.opacity(0.8))
+                }
             }
+            Capsule()
+                .fill(AppColor.accent.opacity(0.35))
+                .frame(width: numberColumnWidth, height: 1.5)
         }
     }
 

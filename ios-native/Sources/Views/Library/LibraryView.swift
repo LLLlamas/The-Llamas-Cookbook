@@ -26,9 +26,9 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: AppSpacing.xs + 2) {
-                    LlamaMascot(size: 22)
+                    LlamaMascot(size: 28)
                     Text("Llamas Cookbook")
-                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .font(.system(size: 22, weight: .heavy, design: .serif))
                         .foregroundStyle(AppColor.accentDeep)
                         .tracking(0.3)
                 }

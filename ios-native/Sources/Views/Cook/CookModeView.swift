@@ -46,10 +46,18 @@ struct CookModeView: View {
         guard originalServings > 0, currentServings > 0 else { return 1 }
         return Double(currentServings) / Double(originalServings)
     }
+    /// Default if the recipe didn't set Cook time but a step still wants a timer.
+    /// User can extend on the fly via the running-timer sheet.
+    private static let defaultTimerMinutes = 5
+
     private var cookMins: Int {
-        recipe.cookTimeMinutes ?? 0
+        let raw = recipe.cookTimeMinutes ?? 0
+        return raw > 0 ? raw : Self.defaultTimerMinutes
     }
-    private var canTimer: Bool { cookMins > 0 }
+    /// Per-step timer is always available now — `cookMins` falls back to a
+    /// default when `cookTimeMinutes` isn't set, so toggling the clock on a
+    /// step always produces a usable timer.
+    private var canTimer: Bool { true }
 
     private var currentStepId: UUID? {
         sortedSteps.first(where: { !struckSteps.contains($0.id) })?.id
@@ -373,7 +381,7 @@ struct CookModeView: View {
                     .buttonStyle(.plain)
 
                     if step.needsTimer, canTimer, !thisTiming, !anotherTiming {
-                        timerStartChip(keyword: label, stepId: step.id)
+                        timerStartChip(keyword: label, step: step)
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.bottom, AppSpacing.md)
                     }
@@ -411,14 +419,15 @@ struct CookModeView: View {
         }
     }
 
-    private func timerStartChip(keyword: String, stepId: UUID) -> some View {
-        Button {
-            startTimer(stepId: stepId, label: keyword)
+    private func timerStartChip(keyword: String, step: RecipeStep) -> some View {
+        let seconds = timerSeconds(for: step)
+        return Button {
+            startTimer(stepId: step.id, label: keyword, durationSeconds: seconds)
         } label: {
             HStack(spacing: AppSpacing.xs) {
                 Image(systemName: "timer")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Start \(StringCase.capitalizeFirst(keyword)) timer (\(cookMins) min)")
+                Text("Start \(StringCase.capitalizeFirst(keyword)) timer (\(formatDuration(seconds)))")
                     .font(.system(size: 14, weight: .semibold))
             }
             .foregroundStyle(AppColor.accent)
@@ -570,17 +579,41 @@ struct CookModeView: View {
            let step = sortedSteps.first(where: { $0.id == id }),
            step.needsTimer {
             let label = Self.extractTimerKeyword(step.text) ?? "cook"
-            startTimer(stepId: id, label: label)
+            startTimer(stepId: id, label: label, durationSeconds: timerSeconds(for: step))
         }
     }
 
-    private func startTimer(stepId: UUID, label: String) {
-        guard canTimer else { return }
+    private func startTimer(stepId: UUID, label: String, durationSeconds: TimeInterval) {
         timerStepId = stepId
         timerLabel = label
-        timerEndsAt = Date().addingTimeInterval(TimeInterval(cookMins * 60))
+        timerEndsAt = Date().addingTimeInterval(durationSeconds)
         now = Date()
         Haptics.impact(.medium)
+    }
+
+    /// Initial timer duration for a step. Priority:
+    /// 1. Time mention in the step text ("…for 10 mins", "…30 sec")
+    /// 2. Recipe-level `cookTimeMinutes`
+    /// 3. Hard fallback (5 min)
+    /// User can always extend via the running-timer sheet from there.
+    private func timerSeconds(for step: RecipeStep) -> TimeInterval {
+        if let parsed = Self.extractDurationSeconds(step.text), parsed > 0 {
+            return TimeInterval(parsed)
+        }
+        if let recipeMins = recipe.cookTimeMinutes, recipeMins > 0 {
+            return TimeInterval(recipeMins * 60)
+        }
+        return TimeInterval(Self.defaultTimerMinutes * 60)
+    }
+
+    /// Render seconds as "5 min", "30 sec", "1 min 15 sec" — for chip labels.
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return "\(total) sec" }
+        let mins = total / 60
+        let rem = total % 60
+        if rem == 0 { return "\(mins) min" }
+        return "\(mins) min \(rem) sec"
     }
 
     private func cancelTimer() {
@@ -645,6 +678,36 @@ struct CookModeView: View {
             return kw
         }
         return nil
+    }
+
+    /// Pull the most prominent duration out of step text.
+    /// Matches `<number><opt. space><unit>` where unit is one of:
+    /// hour(s)/hr(s), minute(s)/min(s), second(s)/sec(s).
+    /// Single-letter aliases (h/m/s) intentionally excluded — they false-match
+    /// too easily inside ordinary words.
+    /// When multiple times appear ("stir 30 sec then bake 10 min"), the
+    /// longest wins — usually the main cooking action, not the prep beat.
+    static func extractDurationSeconds(_ text: String) -> Int? {
+        let pattern = #/(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/#
+        let lower = text.lowercased()
+        var maxSeconds: Double = 0
+        for match in lower.matches(of: pattern) {
+            guard let value = Double(match.output.1) else { continue }
+            let unit = String(match.output.2)
+            let seconds: Double
+            switch unit {
+            case "hour", "hours", "hr", "hrs":
+                seconds = value * 3600
+            case "minute", "minutes", "min", "mins":
+                seconds = value * 60
+            case "second", "seconds", "sec", "secs":
+                seconds = value
+            default:
+                continue
+            }
+            if seconds > maxSeconds { maxSeconds = seconds }
+        }
+        return maxSeconds > 0 ? Int(maxSeconds.rounded()) : nil
     }
 }
 

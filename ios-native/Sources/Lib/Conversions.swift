@@ -44,15 +44,21 @@ enum ConvertibleUnit: String, CaseIterable, Hashable, Identifiable {
 
     /// Factor to category base. Volume base = ml, weight base = g.
     /// Temperature is special-cased (not linear), so this is unused for °F/°C.
+    ///
+    /// Volume uses the kitchen-rounded US legal system (1 cup = 240 ml,
+    /// 1 tbsp = 15 ml, 1 tsp = 5 ml). This keeps the chain internally
+    /// consistent: 3 tsp = 1 tbsp, 16 tbsp = 1 cup, 2 cups = 1 pint, etc.
+    /// The slight divergence from US-customary precise values
+    /// (1 cup ≈ 236.59 ml) is the standard trade-off for cooking.
     fileprivate var toBase: Double {
         switch self {
-        case .tsp: return 4.92892
-        case .tbsp: return 14.7868
-        case .flOz: return 29.5735
+        case .tsp: return 5
+        case .tbsp: return 15
+        case .flOz: return 30
         case .cup: return 240
-        case .pint: return 473.176
-        case .quart: return 946.353
-        case .gallon: return 3785.41
+        case .pint: return 480
+        case .quart: return 960
+        case .gallon: return 3840
         case .ml: return 1
         case .liter: return 1000
         case .oz: return 28.3495
@@ -138,9 +144,9 @@ enum Conversions {
                 Row("1/3 cup", "80 ml"),
                 Row("1/2 cup", "120 ml"),
                 Row("1 cup", "240 ml"),
-                Row("1 pint", "475 ml"),
-                Row("1 quart", "950 ml", note: "≈ 1 liter"),
-                Row("1 gallon", "3.8 liters"),
+                Row("1 pint", "480 ml"),
+                Row("1 quart", "960 ml", note: "≈ 1 liter"),
+                Row("1 gallon", "3.84 liters"),
             ]
         ),
         Section(
