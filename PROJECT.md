@@ -38,14 +38,17 @@ Someone who cooks a handful of recipes on rotation plus occasional new ones. The
 
 | Screen | RN (archived) | Swift |
 |---|---|---|
-| Library / home | ✅ | ✅ — list + empty state + tag/favorite filter + long-press delete + FAB |
-| Recipe Detail | ✅ | ✅ — title, summary, times, tags, ingredients, steps, notes, reference link, signature, delete |
-| Recipe Editor | ✅ | ✅ — hero row, required title, ingredient quick-add (with qty/unit/name validation + error glow), step quick-add, tag input, notes, reference link, optional details (servings + cook time), toolbar Save |
-| Cook Mode | ✅ | ✅ — two-phase (prep → cook), servings scaler, per-step timer with keyword detection, full-screen alarm modal with vibration |
+| Library / home | ✅ | ✅ — list + empty state + tag/favorite filter + long-press delete + FAB menu (New / Import) |
+| Recipe Detail | ✅ | ✅ — title, summary, times, tags, ingredients (qty · em-dash · name + Conversions chip), steps (timer glyph for timed steps), notes, reference link, signature, ShareLink export, delete |
+| Recipe Editor | ✅ | ✅ — hero row, required title, ingredient quick-add (qty/unit/name validation + error glow + shake), step quick-add (with per-step clock toggle), tag input, notes, reference link, optional details (servings + cook time), toolbar Save, single conditional keyboard Done for numeric fields, tap-away keyboard dismiss, spring transitions on row insert/remove |
+| Cook Mode | ✅ | ✅ — two-phase (prep ↔ cook) with prominent pill toggle, servings scaler, per-step `needsTimer` flag (keyword still used as the timer label), floating timer banner pinned at top, tap-banner adjust sheet (extend or cancel), full-screen ready overlay with extend wheel + Stop |
+| Conversions reference | — | ✅ — sheet with Volume (US), US→Metric, Weight, Butter, Common Ingredients, Oven Temps |
+| Import from text | — | ✅ — paste box with live format checklist (Title / Ingredients / Steps), parser pre-fills the editor for review |
+| Export | — | ✅ — Detail-view `ShareLink` emits plain text (works for Notes, Messages, Mail, etc.) |
 | Settings | ✅ (minimal) | ⬜ not started |
 | Llama mascot | ✅ (SVG) | ✅ (SwiftUI Canvas port) |
 
-Build pipeline: Swift archive + TestFlight upload via GitHub Actions on `macos-latest`. Fully functional — placeholder app icon, single 1024×1024 in the asset catalog, auto-downsized by actool at build time.
+Build pipeline: Swift archive + TestFlight upload via GitHub Actions on `macos-latest`. Fully functional — placeholder app icon, single 1024×1024 in the asset catalog, auto-downsized by actool at build time. Encryption-export compliance is declared `NO` via `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` in [project.yml](./ios-native/project.yml), so TestFlight no longer prompts each build.
 
 ---
 
@@ -87,20 +90,21 @@ The-Llamas-Cookbook/
 │   └── workflows/
 │       └── ios-native-ci.yml   ← Swift TestFlight workflow (manual dispatch)
 ├── ios-native/                 ← the Swift app
-│   ├── project.yml             ← XcodeGen config
+│   ├── project.yml             ← XcodeGen config (also declares no-encryption export compliance)
 │   ├── README.md               ← port-specific notes
 │   ├── Sources/
-│   │   ├── App/                ← @main + RootView
+│   │   ├── App/                ← @main + RootView (sets UIView.appearance().tintColor = accent)
 │   │   ├── Models/             ← Recipe, Ingredient, RecipeStep (SwiftData) + DraftRecipe
 │   │   ├── Theme/              ← AppColor, AppFont, AppSpacing, AppRadius
-│   │   ├── Lib/                ← Haptics, Quantity
+│   │   ├── Lib/                ← Haptics, Quantity, Plural, KeyboardDismiss, Shake,
+│   │   │                         RecipeExport, RecipeImporter, Conversions
 │   │   └── Views/
 │   │       ├── Components/     ← LlamaMascot, EmptyLibraryView, FlowRow layout
-│   │       ├── Library/        ← LibraryView, RecipeCardView
-│   │       ├── Detail/         ← RecipeDetailView
-│   │       ├── Cook/           ← CookModeView (+ TimerReadyOverlay)
+│   │       ├── Library/        ← LibraryView, RecipeCardView, ImportRecipeView
+│   │       ├── Detail/         ← RecipeDetailView, ConversionsView
+│   │       ├── Cook/           ← CookModeView (+ TimerReadyOverlay, RunningTimerSheet, MinutePicker)
 │   │       └── Editor/         ← RecipeEditorView, IngredientQuickAdd, IngredientRowEditor,
-│   │                             StepQuickAdd, StepRowEditor, TagInputView, Chips/
+│   │                             StepQuickAdd (+ TimerToggleButton), StepRowEditor, TagInputView, Chips/
 │   └── Resources/
 │       └── Assets.xcassets/    ← AppIcon (generated at CI time — see below)
 ├── outdated/
@@ -154,6 +158,7 @@ SwiftData `@Model` classes under [ios-native/Sources/Models/Recipe.swift](./ios-
     var id: UUID
     var order: Int
     var text: String
+    var needsTimer: Bool = false      // user-set in editor; drives Cook Mode timer chip + auto-start
     var recipe: Recipe?
 }
 ```
@@ -178,15 +183,56 @@ SwiftData `@Model` classes under [ios-native/Sources/Models/Recipe.swift](./ios-
 
 - Two rows: whole numbers (1, 2, 3, 4, 5, 6, 8, 10, 12) on top — slightly bigger, bolder — and fractions (1/8, 1/4, 1/3, 1/2, 2/3, 3/4) below.
 - **Only measurable fractions.** Intentionally omit 3/8, 5/8, 7/8, 1/16 — a home cook has no way to measure them.
-- Tap a whole and a fraction to get "3 1/4".
+- Tap a whole and a fraction to get the combined value.
 - Tapping the active chip deselects it.
-- When Cook Mode scales ingredients, `formatQuantity` snaps the result to the nearest tangible fraction — never surfaces `0.42 tsp`.
+- When Cook Mode scales ingredients, `Quantity.format` snaps the result to the nearest tangible fraction — never surfaces `0.42 tsp`.
 
-### Timer keyword detection
+### Display: ampersand fractions and pluralization
 
-A step is "timeable" if its text contains one of: `oven`, `bake`, `grill`, `skillet`, `stove`, `pan`, `pot`, `simmer`, `boil`. First match wins and becomes the timer label ("Oven timer", "Pot timer"). Tapping the step to check it off *also* auto-starts the timer (bound to `recipe.cookTimeMinutes`). Only one timer runs at a time.
+- Stored quantities use `&` between the whole and fractional parts: `2 & 1/2 cups`. Both parser and chips accept the older space-only `2 1/2` form for backward compatibility.
+- Units pluralize on display via `Plural.unit(_, for:)` — `1 cup` / `2 cups` / `1/2 cup` (fraction stays singular). Common abbreviations (`tbsp`, `tsp`, `oz`, `g`, `kg`, `ml`, `l`, …) never pluralize. Full words (`cup`, `clove`, `pinch`) follow English -s/-es rules.
+- Detail-view ingredient row layout: `•  2 & 1/2 cups  —  flour`. Quantity+unit in accent semibold monospaced, em-dash divider in muted divider color, name in primary text. Falls back gracefully when there's no measure (`•  salt`).
 
-On expiry: full-screen terracotta cover with bell icon + "{Keyword} timer ready!" + big Stop button. Phone vibrates + warns via haptic every 1.2s until Stop. Task is cancelled on disappear so vibration never leaks out of the screen.
+### Per-step timer flag
+
+Each step has a `needsTimer: Bool`. The editor renders a `TimerToggleButton` (clock icon) on the right side of the step input — both in `StepQuickAdd` (new step) and `StepRowEditor` (existing step). Tapping toggles the flag.
+
+In Cook Mode, only steps where `needsTimer == true` show a timer affordance. The keyword extractor (`oven`, `bake`, `grill`, `skillet`, `stove`, `pan`, `pot`, `simmer`, `boil`) still runs — but only as a label fallback (defaults to "cook"). Tapping a `needsTimer` step to check it off auto-starts the timer (bound to `recipe.cookTimeMinutes`). Only one timer runs at a time.
+
+While the timer is running, a **floating timer banner** is pinned between the phase header and the scroll view — so the countdown stays visible no matter where the user scrolls. Tapping the banner opens a `RunningTimerSheet` with a wheel `MinutePicker` (1–60 min) to extend, plus a destructive Cancel.
+
+On expiry: full-screen terracotta cover with bell icon + `"{Label} timer ready!"`. The cover includes its own embedded `MinutePicker` + filled "Extend by N min" button — extending starts a fresh countdown of just those minutes (`timerStepId` is preserved through expiry so the floating banner keeps its step context after extension). Stop is the secondary outlined action that clears the step context and dismisses. Phone vibrates + warns via haptic every 1.2s until Stop or Extend. Task is cancelled on disappear so vibration never leaks out of the screen.
+
+### Conversions reference
+
+Static kitchen-conversion data lives in `Lib/Conversions.swift` (Volume US, US→Metric, Weight, Butter, Common Ingredients, Oven Temps). Surfaced via a `Conversions` capsule chip on the right side of the Ingredients section header in `RecipeDetailView` — opens `ConversionsView` as a `.large` sheet with drag indicator. Each section is a card; each row is `lhs → rhs` with an optional muted secondary note.
+
+### Export / Import
+
+- **Export** — `recipe.exportText` (in `Lib/RecipeExport.swift`) generates plain text with title, meta, bulleted ingredients (pluralized + ampersand), numbered steps, notes, source URL. Detail-view toolbar `ShareLink` hands it to the iOS share sheet — Notes, Messages, Mail, AirDrop all work.
+- **Import** — `RecipeImporter.parse(_:)` (in `Lib/RecipeImporter.swift`) is a best-effort parser for pasted text. Recognized section headers: `Ingredients`, `Steps` / `Instructions` / `Directions` / `Method`, `Notes`. Bullet styles: `• - * – —`. Numbered or unnumbered steps. Meta extraction: `Serves N`, `Cook: N min`, `Source: url`. Output is a `DraftRecipe` — never directly inserted into SwiftData; the `ImportRecipeView` pushes the editor pre-filled so the user reviews and saves.
+- **Import format checklist** — `ImportRecipeView` shows a small "Format" card above the paste area with three pills: `[✓ Title] · [○ Ingredients] · [○ Steps]`. The checks update live as the parser actually picks them up — so misspelled section headers stay unticked, alerting the user to fix them before saving.
+
+### Keyboard dismiss strategy
+
+The editor previously stacked one keyboard-toolbar Done per numeric TextField (3+ visible at once). Consolidated to a single conditional Done:
+
+- Single `@FocusState private var isNumericFocused: Bool` lives in `RecipeEditorView`.
+- Threaded into `IngredientQuickAdd` and `IngredientRowEditor` as a `FocusState<Bool>.Binding` parameter.
+- The `focusedNumeric(_, when:)` extension on `View` (in `Lib/KeyboardDismiss.swift`) attaches the binding only when the keyboard type is `.decimalPad` or `.numberPad`. Text-keyboard fields ignore it.
+- One `ToolbarItemGroup(placement: .keyboard)` at the editor root renders the Done button only when `isNumericFocused == true`.
+- Text fields use `.submitLabel(.done)` + `.onSubmit { … }` — Return acts as Done, no toolbar required.
+- Editor scroll view has `.scrollDismissesKeyboard(.immediately)` (any scroll dismisses) plus a background `.onTapGesture` (tapping the whitespace between cards dismisses). Buttons and TextFields take their own taps first.
+- App init sets `UIView.appearance().tintColor = UIColor(AppColor.accent)` so the keyboard Return key (and text caret) match the theme.
+
+### Animations
+
+Subtle, not showy:
+
+- `Lib/Shake.swift` — counter-driven `ShakeEffect` GeometryEffect. Bump `count += 1` to play one ~0.4s horizontal shake. Used on `IngredientQuickAdd` validation errors alongside the existing red-border flash and warning haptic.
+- `RecipeEditorView` ingredient + step lists use `.transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity.combined(with: .scale(scale: 0.9))))` driven by spring `.animation(value: list.count)` — rows slide in from the leading edge and shrink-fade out on delete.
+- Cook Mode floating timer banner uses `.transition(.move(edge: .top).combined(with: .opacity))` with a spring `.animation(value: timerEndsAt)` driver.
+- Import format checklist pills use `.contentTransition(.symbolEffect(.replace))` so the check icon swap is smooth.
 
 ---
 
@@ -244,13 +290,14 @@ The developer (Lorenzo) is on **Windows**. Swift can't build iOS apps on Windows
 
 Live as of the last commit on `main`:
 
-- Settings screen is not ported (still a stub; no data export yet).
+- Settings screen is not ported (still a stub).
 - App icon is a placeholder geometry generated at CI time. Real artwork needs a 1024×1024 PNG dropped at `ios-native/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png` + the CI "Generate placeholder app icon" step removed.
 - No image picker / recipe hero image (Recipe.imageUri exists on the model, not yet surfaced in UI).
 - No `expo-keep-awake` equivalent wired yet. `UIApplication.shared.isIdleTimerDisabled = true` during Cook Mode is the one-liner fix.
 - iPad layout is not supported (target family is iPhone only for now).
-- No recipe import from URL.
-- No unit conversion.
+- No recipe import from URL (text-paste import covers the manual case).
+- Conversions are read-only reference data — no inline "convert this ingredient" action yet.
+- Custom font files (Fraunces, Inter) are not bundled — `AppFont` uses `.system(.serif)` as a placeholder. A real type system is a likely target of the next aesthetic pass.
 - No iCloud sync (SwiftData can be configured with CloudKit for a future version).
 
 See [llamas-cookbook-plan.md §12](./llamas-cookbook-plan.md) for the original Phase 4 stretch list.

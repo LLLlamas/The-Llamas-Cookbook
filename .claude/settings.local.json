@@ -16,7 +16,8 @@
       "Bash(git -C \"C:\\\\Users\\\\fines\\\\Documents\\\\2026 Repository\\\\The-Llamas-Cookbook\" status)",
       "Bash(npx --yes eas-cli@latest build:list --platform ios --limit 5 --non-interactive --json)",
       "Bash(gh repo *)",
-      "Bash(gh secret *)"
+      "Bash(gh secret *)",
+      "WebFetch(domain:www.southernliving.com)"
     ]
   }
 }

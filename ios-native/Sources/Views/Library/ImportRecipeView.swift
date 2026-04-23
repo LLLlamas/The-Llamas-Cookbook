@@ -9,8 +9,11 @@ struct ImportRecipeView: View {
     @FocusState private var editorFocused: Bool
 
     var body: some View {
+        let checks = checklist
+
         VStack(alignment: .leading, spacing: AppSpacing.md) {
             heroRow
+            formatHint(checks: checks)
 
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $pastedText)
@@ -21,7 +24,7 @@ struct ImportRecipeView: View {
                     .padding(AppSpacing.sm)
 
                 if pastedText.isEmpty {
-                    Text("Paste a recipe here — title on top, then an “Ingredients” section, then “Steps”.")
+                    Text("Paste a recipe here…")
                         .font(AppFont.body)
                         .foregroundStyle(AppColor.textSecondary)
                         .padding(AppSpacing.md)
@@ -112,5 +115,65 @@ struct ImportRecipeView: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func formatHint(checks: Checklist) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("Format")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(AppColor.textSecondary)
+
+            HStack(spacing: AppSpacing.xs + 2) {
+                checkPill(label: "Title", done: checks.title)
+                separator
+                checkPill(label: "Ingredients", done: checks.ingredients)
+                separator
+                checkPill(label: "Steps", done: checks.steps)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, AppSpacing.md)
+        .padding(.vertical, AppSpacing.sm + 2)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: checks)
+    }
+
+    private func checkPill(label: String, done: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(done ? AppColor.success : AppColor.textSecondary.opacity(0.6))
+            Text(label)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(done ? AppColor.textPrimary : AppColor.textSecondary)
+        }
+        .contentTransition(.symbolEffect(.replace))
+    }
+
+    private var separator: some View {
+        Text("·")
+            .font(.system(size: 12))
+            .foregroundStyle(AppColor.divider)
+    }
+
+    private struct Checklist: Equatable {
+        let title: Bool
+        let ingredients: Bool
+        let steps: Bool
+    }
+
+    private var checklist: Checklist {
+        let draft = RecipeImporter.parse(pastedText)
+        return Checklist(
+            title: !draft.title.trimmed.isEmpty,
+            ingredients: !draft.ingredients.isEmpty,
+            steps: !draft.steps.isEmpty
+        )
     }
 }

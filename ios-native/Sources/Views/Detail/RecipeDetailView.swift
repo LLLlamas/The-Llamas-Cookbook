@@ -11,6 +11,7 @@ struct RecipeDetailView: View {
     @State private var showingEditor = false
     @State private var showingDeleteAlert = false
     @State private var showingCookMode = false
+    @State private var showingConversions = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -41,7 +42,7 @@ struct RecipeDetailView: View {
                     }
 
                     if !sortedIngredients.isEmpty {
-                        section("Ingredients") {
+                        section("Ingredients", accessory: { conversionsChip }) {
                             VStack(spacing: AppSpacing.xs) {
                                 ForEach(sortedIngredients) { ingredient in
                                     ingredientRow(ingredient)
@@ -142,6 +143,11 @@ struct RecipeDetailView: View {
         .fullScreenCover(isPresented: $showingCookMode) {
             CookModeView(recipe: recipe)
         }
+        .sheet(isPresented: $showingConversions) {
+            ConversionsView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .alert("Delete recipe?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -156,25 +162,70 @@ struct RecipeDetailView: View {
     // MARK: subsections
 
     @ViewBuilder
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func section<Content: View, Accessory: View>(
+        _ title: String,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() },
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            Text(title)
-                .font(AppFont.sectionHeading)
-                .foregroundStyle(AppColor.textPrimary)
-                .padding(.top, AppSpacing.lg)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(AppFont.sectionHeading)
+                    .foregroundStyle(AppColor.textPrimary)
+                Spacer(minLength: AppSpacing.sm)
+                accessory()
+            }
+            .padding(.top, AppSpacing.lg)
             content()
         }
     }
 
+    private var conversionsChip: some View {
+        Button {
+            Haptics.selection()
+            showingConversions = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "ruler")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Conversions")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(AppColor.accent)
+            .padding(.horizontal, AppSpacing.sm + 2)
+            .padding(.vertical, AppSpacing.xs + 1)
+            .overlay(Capsule().stroke(AppColor.accent, lineWidth: 1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open kitchen conversions reference")
+    }
+
     private func ingredientRow(_ ingredient: Ingredient) -> some View {
-        HStack(spacing: AppSpacing.md) {
+        let qty = Quantity.displayFormat(ingredient.quantity)
+        let unit = Plural.unit(ingredient.unit ?? "", for: ingredient.quantity)
+        let measure = [qty, unit].filter { !$0.isEmpty }.joined(separator: " ")
+
+        return HStack(alignment: .center, spacing: AppSpacing.sm + 2) {
             Circle()
                 .fill(AppColor.accent)
-                .frame(width: 8, height: 8)
-            Text(ingredientText(ingredient))
+                .frame(width: 6, height: 6)
+
+            if !measure.isEmpty {
+                Text(measure)
+                    .font(.system(size: 15.5, weight: .semibold))
+                    .foregroundStyle(AppColor.accent)
+                    .monospacedDigit()
+                    .layoutPriority(1)
+                Text("—")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(AppColor.divider)
+            }
+
+            Text(ingredient.name)
                 .font(AppFont.ingredient)
                 .foregroundStyle(AppColor.textPrimary)
-            Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, AppSpacing.sm + 2)
         .padding(.horizontal, AppSpacing.md)
@@ -196,7 +247,13 @@ struct RecipeDetailView: View {
             Text(step.text)
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textPrimary)
+                .lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if step.needsTimer {
+                Image(systemName: "timer")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColor.accent.opacity(0.8))
+            }
         }
     }
 
@@ -297,13 +354,6 @@ struct RecipeDetailView: View {
         return parts.joined(separator: " · ")
     }
 
-    private func ingredientText(_ ingredient: Ingredient) -> String {
-        let qty = Quantity.displayFormat(ingredient.quantity)
-        let unit = Plural.unit(ingredient.unit ?? "", for: ingredient.quantity)
-        return [qty, unit, ingredient.name]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-    }
 }
 
 private struct TagPill: View {

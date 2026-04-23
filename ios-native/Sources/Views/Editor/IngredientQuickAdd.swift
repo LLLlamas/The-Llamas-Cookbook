@@ -5,6 +5,7 @@ struct IngredientQuickAdd: View {
     @State private var unit = ""
     @State private var name = ""
     @State private var errorFields: Set<Field> = []
+    @State private var shakeCount: CGFloat = 0
 
     var numericFocus: FocusState<Bool>.Binding
     let onAdd: (DraftIngredient) -> Void
@@ -44,6 +45,7 @@ struct IngredientQuickAdd: View {
                 )
                 .frame(maxWidth: .infinity)
             }
+            .shake(count: shakeCount)
             QuantityChips(value: $quantity)
             UnitChips(value: $unit)
             Button {
@@ -142,6 +144,7 @@ struct IngredientQuickAdd: View {
     private func flashErrors(_ fields: [Field]) {
         Haptics.warning()
         errorFields = Set(fields)
+        shakeCount += 1
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(1200))
             errorFields = []

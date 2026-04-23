@@ -34,8 +34,13 @@ struct RecipeEditorView: View {
                             IngredientRowEditor(ingredient: $ingredient, numericFocus: $isNumericFocused) {
                                 draft.ingredients.removeAll { $0.id == ingredient.id }
                             }
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .leading).combined(with: .opacity),
+                                removal: .opacity.combined(with: .scale(scale: 0.9))
+                            ))
                         }
                     }
+                    .animation(.spring(response: 0.42, dampingFraction: 0.82), value: draft.ingredients.count)
                 }
 
                 sectionHeader("Steps")
@@ -52,8 +57,13 @@ struct RecipeEditorView: View {
                             ) {
                                 draft.steps.removeAll { $0.id == step.id }
                             }
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .leading).combined(with: .opacity),
+                                removal: .opacity.combined(with: .scale(scale: 0.9))
+                            ))
                         }
                     }
+                    .animation(.spring(response: 0.42, dampingFraction: 0.82), value: draft.steps.count)
                 }
 
                 sectionHeader("Tags")
