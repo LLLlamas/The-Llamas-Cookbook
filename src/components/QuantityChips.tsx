@@ -67,7 +67,15 @@ export function QuantityChips({ value, onChange }: Props) {
               style={[styles.chip, styles.wholeChip, active && styles.chipActive]}
               accessibilityLabel={`Add whole number ${n}`}
             >
-              <Text style={[styles.text, active && styles.textActive]}>{n}</Text>
+              <Text
+                style={[
+                  styles.text,
+                  styles.wholeText,
+                  active && styles.textActive,
+                ]}
+              >
+                {n}
+              </Text>
             </Pressable>
           );
         })}
@@ -128,6 +136,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textPrimary,
     fontVariant: ['tabular-nums'],
+  },
+  wholeText: {
+    fontFamily: fontFamilies.bodySemibold,
+    fontSize: 16,
   },
   textActive: {
     color: '#FFFDF8',

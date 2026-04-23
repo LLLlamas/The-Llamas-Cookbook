@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
@@ -17,7 +17,10 @@ export function StepQuickAdd({ onAdd, nextNumber }: Props) {
 
   const submit = () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      Keyboard.dismiss();
+      return;
+    }
     onAdd({ id: newId(), text: trimmed });
     setText('');
     inputRef.current?.focus();

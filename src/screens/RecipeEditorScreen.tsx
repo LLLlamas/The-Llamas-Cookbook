@@ -161,6 +161,7 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
           { paddingBottom: insets.bottom + 120 },
         ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <View style={styles.heroRow}>
           <LlamaMascot size={44} />

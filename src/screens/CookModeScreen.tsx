@@ -105,12 +105,19 @@ export function CookModeScreen({ route, navigation }: Props) {
   };
 
   const toggleStep = (id: string) => {
+    const wasStruck = struckSteps.has(id);
     setStruckSteps((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    if (!wasStruck && recipe && canOvenTimer && !timerEndsAt) {
+      const step = recipe.steps.find((s) => s.id === id);
+      if (step && isOvenStep(step.text)) {
+        startOvenTimer(id);
+      }
+    }
   };
 
   const handleExit = () => {

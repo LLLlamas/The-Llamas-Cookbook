@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
@@ -25,7 +25,11 @@ export function IngredientQuickAdd({ onAdd, autoFocus }: Props) {
   const submit = () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      nameRef.current?.focus();
+      if (!quantity.trim() && !unit.trim()) {
+        Keyboard.dismiss();
+      } else {
+        nameRef.current?.focus();
+      }
       return;
     }
     onAdd({
