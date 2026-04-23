@@ -69,6 +69,13 @@ struct CookModeView: View {
                 topBar
                 phaseHeader
 
+                if timerEndsAt != nil {
+                    floatingTimerBar
+                        .padding(.horizontal, AppSpacing.lg)
+                        .padding(.bottom, AppSpacing.sm)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 ScrollView {
                     VStack(spacing: AppSpacing.md) {
                         if phase == .prep {
@@ -82,6 +89,7 @@ struct CookModeView: View {
                     .padding(.bottom, 120)
                 }
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: timerEndsAt)
 
             bottomBar
         }
@@ -306,16 +314,10 @@ struct CookModeView: View {
                     }
                     .buttonStyle(.plain)
 
-                    if step.needsTimer, canTimer {
-                        if thisTiming {
-                            timerRunningChip()
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.bottom, AppSpacing.md)
-                        } else if !anotherTiming {
-                            timerStartChip(keyword: label, stepId: step.id)
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.bottom, AppSpacing.md)
-                        }
+                    if step.needsTimer, canTimer, !thisTiming, !anotherTiming {
+                        timerStartChip(keyword: label, stepId: step.id)
+                            .padding(.horizontal, AppSpacing.md)
+                            .padding(.bottom, AppSpacing.md)
                     }
                 }
                 .background(struck ? AppColor.background : AppColor.surface)
@@ -374,24 +376,40 @@ struct CookModeView: View {
         .buttonStyle(.plain)
     }
 
-    private func timerRunningChip() -> some View {
-        Button {
+    private var floatingTimerBar: some View {
+        let stepIndex = sortedSteps.firstIndex(where: { $0.id == timerStepId }).map { $0 + 1 }
+        let title = stepIndex.map { "Step \($0) · \(StringCase.capitalizeFirst(timerLabel))" }
+            ?? "\(StringCase.capitalizeFirst(timerLabel)) timer"
+
+        return Button {
+            Haptics.impact(.light)
             cancelTimer()
         } label: {
-            HStack(spacing: AppSpacing.xs) {
+            HStack(spacing: AppSpacing.md) {
                 Image(systemName: "timer")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("\(formatClock(secondsLeft))  ·  tap to cancel")
-                    .font(.system(size: 14, weight: .semibold))
-                    .monospacedDigit()
+                    .font(.system(size: 22, weight: .bold))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .opacity(0.9)
+                    Text(formatClock(secondsLeft))
+                        .font(.system(size: 22, weight: .bold, design: .serif))
+                        .monospacedDigit()
+                }
+                Spacer()
+                Text("tap to cancel")
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(0.85)
             }
             .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
             .padding(.horizontal, AppSpacing.md)
-            .padding(.vertical, AppSpacing.sm)
+            .padding(.vertical, AppSpacing.sm + 2)
             .background(AppColor.accent)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Timer running, \(formatClock(secondsLeft)) left, tap to cancel")
     }
 
     private func formatClock(_ secs: Int) -> String {
