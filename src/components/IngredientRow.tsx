@@ -150,13 +150,17 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
     gap: spacing.md,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.divider,
   },
   rowPressed: {
-    backgroundColor: colors.divider,
+    backgroundColor: colors.background,
+    borderColor: colors.accent,
   },
   qtyBlock: {
     flexDirection: 'row',

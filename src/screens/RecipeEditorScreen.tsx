@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import {
   Alert,
+  InputAccessoryView,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -27,6 +29,8 @@ import type { RootStackParamList } from '../navigation/RootStack';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RecipeEditor'>;
 
+const NUMPAD_ACCESSORY_ID = 'editor-numpad-done';
+
 const toOptionalNumber = (s: string): number | undefined => {
   if (!s.trim()) return undefined;
   const n = Number(s);
@@ -44,18 +48,18 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
 
   const [title, setTitle] = useState(existing?.title ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
+  const [sourceUrl, setSourceUrl] = useState(existing?.sourceUrl ?? '');
   const [servings, setServings] = useState(
     existing?.servings != null ? String(existing.servings) : '',
   );
-  const [prepTime, setPrepTime] = useState(
-    existing?.prepTimeMinutes != null ? String(existing.prepTimeMinutes) : '',
-  );
-  const [cookTime, setCookTime] = useState(
-    existing?.cookTimeMinutes != null ? String(existing.cookTimeMinutes) : '',
-  );
-  const [ovenTime, setOvenTime] = useState(
-    existing?.ovenTimeMinutes != null ? String(existing.ovenTimeMinutes) : '',
-  );
+  // Single cook-time value drives the step-level timer. We read legacy
+  // ovenTimeMinutes for backward compatibility with recipes saved before the
+  // fields were consolidated.
+  const [cookTime, setCookTime] = useState(() => {
+    const value =
+      existing?.cookTimeMinutes ?? existing?.ovenTimeMinutes ?? undefined;
+    return value != null ? String(value) : '';
+  });
   const [ingredients, setIngredients] = useState<Ingredient[]>(
     existing?.ingredients ?? [],
   );
@@ -80,10 +84,9 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
     const payload = {
       title: title.trim(),
       description: description.trim() || undefined,
+      sourceUrl: sourceUrl.trim() || undefined,
       servings: toOptionalNumber(servings),
-      prepTimeMinutes: toOptionalNumber(prepTime),
       cookTimeMinutes: toOptionalNumber(cookTime),
-      ovenTimeMinutes: toOptionalNumber(ovenTime),
       ingredients: ingredients.map((i, idx) => ({ ...i, order: idx })),
       steps: steps.map((s, idx) => ({ ...s, order: idx })),
       tags,
@@ -162,6 +165,7 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
         ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
       >
         <View style={styles.heroRow}>
           <LlamaMascot size={44} />
@@ -195,7 +199,7 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
           placeholder="Short description (optional)"
           placeholderTextColor={colors.textSecondary}
           style={styles.descInput}
-          multiline
+          returnKeyType="done"
         />
 
         <Text style={styles.sectionHeading}>Ingredients</Text>
@@ -245,14 +249,30 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
           placeholder="Optional notes — e.g. use less salt next time"
           placeholderTextColor={colors.textSecondary}
           style={styles.notesInput}
-          multiline
+          returnKeyType="done"
+        />
+
+        <Text style={styles.sectionHeading}>Reference link</Text>
+        <Text style={styles.sectionHint}>
+          Optional. Paste a URL if you adapted this from somewhere online.
+        </Text>
+        <TextInput
+          value={sourceUrl}
+          onChangeText={setSourceUrl}
+          placeholder="https://example.com/recipe"
+          placeholderTextColor={colors.textSecondary}
+          style={styles.urlInput}
+          returnKeyType="done"
+          keyboardType="url"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
 
         <View style={styles.optionalBlock}>
           <Text style={styles.optionalHeading}>Optional details</Text>
           <Text style={styles.sectionHint}>
             Set servings so you can scale ingredients up or down while cooking.
-            Set Oven (min) and the timer will auto-suggest on your oven step.
+            Set Cook time and a timer will auto-start on the matching step.
           </Text>
           <View style={styles.metaRow}>
             <View style={styles.metaField}>
@@ -264,21 +284,13 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
                 placeholderTextColor={colors.textSecondary}
                 style={styles.metaInput}
                 keyboardType="number-pad"
+                inputAccessoryViewID={
+                  Platform.OS === 'ios' ? NUMPAD_ACCESSORY_ID : undefined
+                }
               />
             </View>
             <View style={styles.metaField}>
-              <Text style={styles.metaLabel}>Prep (min)</Text>
-              <TextInput
-                value={prepTime}
-                onChangeText={setPrepTime}
-                placeholder="15"
-                placeholderTextColor={colors.textSecondary}
-                style={styles.metaInput}
-                keyboardType="number-pad"
-              />
-            </View>
-            <View style={styles.metaField}>
-              <Text style={styles.metaLabel}>Cook (min)</Text>
+              <Text style={styles.metaLabel}>Cook time (min)</Text>
               <TextInput
                 value={cookTime}
                 onChangeText={setCookTime}
@@ -286,17 +298,9 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
                 placeholderTextColor={colors.textSecondary}
                 style={styles.metaInput}
                 keyboardType="number-pad"
-              />
-            </View>
-            <View style={styles.metaField}>
-              <Text style={styles.metaLabel}>Oven (min)</Text>
-              <TextInput
-                value={ovenTime}
-                onChangeText={setOvenTime}
-                placeholder="25"
-                placeholderTextColor={colors.textSecondary}
-                style={styles.metaInput}
-                keyboardType="number-pad"
+                inputAccessoryViewID={
+                  Platform.OS === 'ios' ? NUMPAD_ACCESSORY_ID : undefined
+                }
               />
             </View>
           </View>
@@ -315,6 +319,20 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
           <Text style={styles.btnPrimaryText}>Save</Text>
         </Pressable>
       </View>
+
+      {Platform.OS === 'ios' ? (
+        <InputAccessoryView nativeID={NUMPAD_ACCESSORY_ID}>
+          <View style={styles.accessoryBar}>
+            <Pressable
+              onPress={() => Keyboard.dismiss()}
+              hitSlop={10}
+              accessibilityLabel="Dismiss keyboard"
+            >
+              <Text style={styles.accessoryDone}>Done</Text>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -392,7 +410,16 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     padding: spacing.md,
     minHeight: 56,
-    textAlignVertical: 'top',
+  },
+  urlInput: {
+    ...textStyles.body,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   sectionHeading: {
     ...textStyles.sectionHeading,
@@ -405,7 +432,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   list: {
-    gap: 2,
+    gap: spacing.xs,
   },
   notesInput: {
     ...textStyles.body,
@@ -415,8 +442,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.divider,
     padding: spacing.md,
-    minHeight: 96,
-    textAlignVertical: 'top',
+    minHeight: 64,
   },
   optionalBlock: {
     marginTop: spacing.xl,
@@ -498,5 +524,21 @@ const styles = StyleSheet.create({
   },
   btnDisabled: {
     opacity: 0.4,
+  },
+  accessoryBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  accessoryDone: {
+    fontFamily: fontFamilies.bodySemibold,
+    fontSize: 16,
+    color: colors.accent,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
   },
 });

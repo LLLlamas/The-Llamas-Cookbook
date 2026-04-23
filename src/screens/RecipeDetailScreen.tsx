@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect } from 'react';
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,7 +9,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Heart, Pencil, Trash2, UtensilsCrossed } from 'lucide-react-native';
+import {
+  ExternalLink,
+  Heart,
+  Pencil,
+  Trash2,
+  UtensilsCrossed,
+} from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LlamaMascot } from '../components/LlamaMascot';
 import { TagChip } from '../components/TagChip';
@@ -91,14 +98,9 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       `${recipe.servings} serving${recipe.servings === 1 ? '' : 's'}`,
     );
   }
-  if (recipe.prepTimeMinutes != null) {
-    timeParts.push(`Prep ${recipe.prepTimeMinutes}m`);
-  }
-  if (recipe.cookTimeMinutes != null) {
-    timeParts.push(`Cook ${recipe.cookTimeMinutes}m`);
-  }
-  if (recipe.ovenTimeMinutes != null) {
-    timeParts.push(`Oven ${recipe.ovenTimeMinutes}m`);
+  const cookMins = recipe.cookTimeMinutes ?? recipe.ovenTimeMinutes;
+  if (cookMins != null) {
+    timeParts.push(`Cook ${cookMins}m`);
   }
 
   const metaParts: string[] = [];
@@ -179,6 +181,26 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
+        {recipe.sourceUrl ? (
+          <View>
+            <Text style={styles.sectionHeading}>Reference</Text>
+            <Pressable
+              onPress={() =>
+                Linking.openURL(recipe.sourceUrl!).catch(() => {
+                  Alert.alert('Could not open link', recipe.sourceUrl!);
+                })
+              }
+              style={styles.sourceLink}
+              accessibilityLabel="Open recipe source"
+            >
+              <ExternalLink size={16} color={colors.accent} strokeWidth={2} />
+              <Text style={styles.sourceLinkText} numberOfLines={2}>
+                {recipe.sourceUrl}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={styles.signatureRow}>
           <LlamaMascot size={36} />
           <Text style={styles.metaFooter}>{metaParts.join(' · ')}</Text>
@@ -248,17 +270,23 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   ingredientsList: {
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   ingredientRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
   },
   dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: colors.accent,
   },
   ingredientText: {
@@ -292,6 +320,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.divider,
     padding: spacing.md,
+  },
+  sourceLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  sourceLinkText: {
+    ...textStyles.body,
+    color: colors.accent,
+    flex: 1,
   },
   notesText: {
     ...textStyles.body,

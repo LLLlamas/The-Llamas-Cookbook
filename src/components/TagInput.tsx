@@ -44,7 +44,6 @@ export function TagInput({ tags, onChange }: Props) {
         placeholderTextColor={colors.textSecondary}
         style={styles.input}
         returnKeyType="done"
-        blurOnSubmit={false}
         autoCapitalize="none"
         autoCorrect={false}
       />

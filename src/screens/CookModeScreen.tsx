@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +14,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import * as Haptics from 'expo-haptics';
 import {
   ArrowLeft,
+  BellRing,
   Check,
   ChevronRight,
   Minus,
@@ -31,6 +34,32 @@ import type { RootStackParamList } from '../navigation/RootStack';
 type Props = NativeStackScreenProps<RootStackParamList, 'CookMode'>;
 
 type Phase = 'prep' | 'cook';
+
+// Keywords we look for in step text to both (a) know a step is a "timed" step
+// and (b) label the timer using the user's own language. Ordered from most
+// specific to most generic so the first match wins.
+const TIMER_KEYWORDS = [
+  'oven',
+  'bake',
+  'grill',
+  'skillet',
+  'stove',
+  'pan',
+  'pot',
+  'simmer',
+  'boil',
+] as const;
+
+function extractTimerKeyword(text: string): string | null {
+  const lower = text.toLowerCase();
+  for (const kw of TIMER_KEYWORDS) {
+    if (lower.includes(kw)) return kw;
+  }
+  return null;
+}
+
+const capitalize = (s: string) =>
+  s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
 
 export function CookModeScreen({ route, navigation }: Props) {
   useKeepAwake();
@@ -52,6 +81,8 @@ export function CookModeScreen({ route, navigation }: Props) {
   );
   const [timerEndsAt, setTimerEndsAt] = useState<number | null>(null);
   const [timerStepId, setTimerStepId] = useState<string | null>(null);
+  const [timerLabel, setTimerLabel] = useState<string>('cook');
+  const [timerExpired, setTimerExpired] = useState(false);
   const [now, setNow] = useState(Date.now());
   const timerFiredRef = useRef(false);
 
@@ -71,16 +102,34 @@ export function CookModeScreen({ route, navigation }: Props) {
       timerFiredRef.current = true;
       setTimerEndsAt(null);
       setTimerStepId(null);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        () => {},
-      );
-      Alert.alert(
-        'Oven timer done!',
-        'Your food is ready to come out of the oven.',
-        [{ text: 'Got it', onPress: () => { timerFiredRef.current = false; } }],
-      );
+      setTimerExpired(true);
     }
   }, [now, timerEndsAt]);
+
+  // While the timer-ready modal is open, keep buzzing and pulsing haptics
+  // every second. RN's Vibration API ignores patterns on iOS, so we call it
+  // on an interval instead.
+  useEffect(() => {
+    if (!timerExpired) return;
+    const pulse = () => {
+      Vibration.vibrate(600);
+      Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Warning,
+      ).catch(() => {});
+    };
+    pulse();
+    const id = setInterval(pulse, 1200);
+    return () => {
+      clearInterval(id);
+      Vibration.cancel();
+    };
+  }, [timerExpired]);
+
+  const stopAlarm = () => {
+    Vibration.cancel();
+    setTimerExpired(false);
+    timerFiredRef.current = false;
+  };
 
   const scaleFactor = useMemo(() => {
     if (!originalServings || !currentServings) return 1;
@@ -94,6 +143,22 @@ export function CookModeScreen({ route, navigation }: Props) {
   }, [recipe, struckSteps]);
 
   if (!recipe) return <View style={styles.container} />;
+
+  const cookMins = recipe.cookTimeMinutes ?? recipe.ovenTimeMinutes ?? 0;
+  const canTimer = cookMins > 0;
+
+  const startTimer = (stepId: string, label: string) => {
+    if (!canTimer) return;
+    timerFiredRef.current = false;
+    setTimerStepId(stepId);
+    setTimerLabel(label);
+    setTimerEndsAt(Date.now() + cookMins * 60 * 1000);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  };
+  const cancelTimer = () => {
+    setTimerEndsAt(null);
+    setTimerStepId(null);
+  };
 
   const toggleIngredient = (id: string) => {
     setStruckIngredients((prev) => {
@@ -112,10 +177,11 @@ export function CookModeScreen({ route, navigation }: Props) {
       else next.add(id);
       return next;
     });
-    if (!wasStruck && recipe && canOvenTimer && !timerEndsAt) {
+    if (!wasStruck && canTimer && !timerEndsAt) {
       const step = recipe.steps.find((s) => s.id === id);
-      if (step && isOvenStep(step.text)) {
-        startOvenTimer(id);
+      if (step) {
+        const keyword = extractTimerKeyword(step.text);
+        if (keyword) startTimer(id, keyword);
       }
     }
   };
@@ -141,7 +207,7 @@ export function CookModeScreen({ route, navigation }: Props) {
   };
 
   const canScale = originalServings > 0;
-  const stepServings = () => {
+  const stepServingsDown = () => {
     if (!canScale) return;
     setCurrentServings((n) => Math.max(1, n - 1));
   };
@@ -154,8 +220,6 @@ export function CookModeScreen({ route, navigation }: Props) {
   const readyCount = struckIngredients.size;
   const hasSteps = recipe.steps.length > 0;
 
-  const ovenMins = recipe.ovenTimeMinutes ?? 0;
-  const canOvenTimer = ovenMins > 0;
   const secondsLeft = timerEndsAt
     ? Math.max(0, Math.ceil((timerEndsAt - now) / 1000))
     : 0;
@@ -163,18 +227,6 @@ export function CookModeScreen({ route, navigation }: Props) {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
-  };
-  const isOvenStep = (text: string) => /oven|bake/i.test(text);
-  const startOvenTimer = (stepId: string) => {
-    if (!canOvenTimer) return;
-    timerFiredRef.current = false;
-    setTimerStepId(stepId);
-    setTimerEndsAt(Date.now() + ovenMins * 60 * 1000);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-  };
-  const cancelOvenTimer = () => {
-    setTimerEndsAt(null);
-    setTimerStepId(null);
   };
 
   return (
@@ -231,7 +283,7 @@ export function CookModeScreen({ route, navigation }: Props) {
             {canScale ? (
               <View style={styles.scaler}>
                 <Pressable
-                  onPress={stepServings}
+                  onPress={stepServingsDown}
                   hitSlop={10}
                   style={styles.scalerBtn}
                   accessibilityLabel="Decrease servings"
@@ -304,7 +356,7 @@ export function CookModeScreen({ route, navigation }: Props) {
             {recipe.steps.map((step, idx) => {
               const struck = struckSteps.has(step.id);
               const isCurrent = step.id === currentStepId;
-              const oven = isOvenStep(step.text);
+              const keyword = extractTimerKeyword(step.text);
               const thisTiming =
                 timerStepId === step.id && timerEndsAt != null;
               const anotherTiming =
@@ -343,12 +395,12 @@ export function CookModeScreen({ route, navigation }: Props) {
                       {step.text}
                     </Text>
                   </Pressable>
-                  {oven && canOvenTimer ? (
+                  {keyword && canTimer ? (
                     thisTiming ? (
                       <Pressable
-                        onPress={cancelOvenTimer}
+                        onPress={cancelTimer}
                         style={styles.timerActiveBtn}
-                        accessibilityLabel="Cancel oven timer"
+                        accessibilityLabel={`Cancel ${keyword} timer`}
                       >
                         <Timer size={16} color="#FFFDF8" strokeWidth={2.25} />
                         <Text style={styles.timerActiveText}>
@@ -357,9 +409,9 @@ export function CookModeScreen({ route, navigation }: Props) {
                       </Pressable>
                     ) : !anotherTiming ? (
                       <Pressable
-                        onPress={() => startOvenTimer(step.id)}
+                        onPress={() => startTimer(step.id, keyword)}
                         style={styles.timerBtn}
-                        accessibilityLabel={`Start ${ovenMins}-minute oven timer`}
+                        accessibilityLabel={`Start ${cookMins}-minute ${keyword} timer`}
                       >
                         <Timer
                           size={16}
@@ -367,7 +419,7 @@ export function CookModeScreen({ route, navigation }: Props) {
                           strokeWidth={2.25}
                         />
                         <Text style={styles.timerBtnText}>
-                          Start {ovenMins}-min oven timer
+                          Start {capitalize(keyword)} timer ({cookMins} min)
                         </Text>
                       </Pressable>
                     ) : null
@@ -406,6 +458,35 @@ export function CookModeScreen({ route, navigation }: Props) {
           </Pressable>
         )}
       </View>
+
+      <Modal
+        visible={timerExpired}
+        animationType="fade"
+        transparent={false}
+        statusBarTranslucent
+        onRequestClose={stopAlarm}
+      >
+        <View style={[styles.alarmOverlay, { paddingTop: insets.top + spacing.xl }]}>
+          <View style={styles.alarmContent}>
+            <View style={styles.alarmBellWrap}>
+              <BellRing size={72} color="#FFFDF8" strokeWidth={2} />
+            </View>
+            <Text style={styles.alarmTitle}>
+              {capitalize(timerLabel)} timer ready!
+            </Text>
+            <Text style={styles.alarmSubtitle}>
+              Check on your food — time's up.
+            </Text>
+          </View>
+          <Pressable
+            onPress={stopAlarm}
+            style={[styles.alarmStopBtn, { marginBottom: insets.bottom + spacing.xl }]}
+            accessibilityLabel="Stop alarm"
+          >
+            <Text style={styles.alarmStopText}>Stop</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -571,6 +652,31 @@ const styles = StyleSheet.create({
     borderColor: colors.success,
     backgroundColor: colors.background,
   },
+  stepNumberBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.full,
+    backgroundColor: colors.background,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberBadgeDone: {
+    backgroundColor: colors.success,
+    borderColor: colors.success,
+  },
+  stepNumberText: {
+    fontFamily: fontFamilies.displayBold,
+    fontSize: 15,
+    color: colors.accent,
+    fontVariant: ['tabular-nums'],
+  },
+  stepText: {
+    ...textStyles.ingredientCook,
+    color: colors.textPrimary,
+    flex: 1,
+  },
   timerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -608,31 +714,6 @@ const styles = StyleSheet.create({
     color: '#FFFDF8',
     fontVariant: ['tabular-nums'],
   },
-  stepNumberBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: radius.full,
-    backgroundColor: colors.background,
-    borderWidth: 2,
-    borderColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepNumberBadgeDone: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
-  },
-  stepNumberText: {
-    fontFamily: fontFamilies.displayBold,
-    fontSize: 15,
-    color: colors.accent,
-    fontVariant: ['tabular-nums'],
-  },
-  stepText: {
-    ...textStyles.ingredientCook,
-    color: colors.textPrimary,
-    flex: 1,
-  },
   bottomBar: {
     position: 'absolute',
     left: 0,
@@ -660,5 +741,55 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.bodySemibold,
     fontSize: 17,
     color: '#FFFDF8',
+  },
+  alarmOverlay: {
+    flex: 1,
+    backgroundColor: colors.accent,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  alarmContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.lg,
+  },
+  alarmBellWrap: {
+    width: 128,
+    height: 128,
+    borderRadius: radius.full,
+    borderWidth: 3,
+    borderColor: '#FFFDF8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alarmTitle: {
+    fontFamily: fontFamilies.displayBold,
+    fontSize: 36,
+    lineHeight: 42,
+    color: '#FFFDF8',
+    textAlign: 'center',
+  },
+  alarmSubtitle: {
+    ...textStyles.body,
+    fontSize: 18,
+    lineHeight: 26,
+    color: '#FFFDF8',
+    opacity: 0.9,
+    textAlign: 'center',
+  },
+  alarmStopBtn: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: '#FFFDF8',
+  },
+  alarmStopText: {
+    fontFamily: fontFamilies.displayBold,
+    fontSize: 22,
+    color: colors.accent,
   },
 });

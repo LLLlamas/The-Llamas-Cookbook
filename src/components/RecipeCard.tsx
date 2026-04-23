@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Heart } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { colors } from '../theme/colors';
 import { radius, shadow, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
@@ -13,6 +15,28 @@ type Props = {
 };
 
 export function RecipeCard({ recipe, onPress, onLongPress }: Props) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const pressIn = () => {
+    Animated.timing(scale, {
+      toValue: 0.96,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+  };
+  const pressOut = () => {
+    Animated.timing(scale, {
+      toValue: 1,
+      duration: 140,
+      useNativeDriver: true,
+    }).start();
+  };
+  const longPress = () => {
+    if (!onLongPress) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    onLongPress();
+  };
+
   const meta: string[] = [];
   if (recipe.lastCookedAt) {
     meta.push(`Last cooked ${formatDateMDY(recipe.lastCookedAt)}`);
@@ -25,32 +49,36 @@ export function RecipeCard({ recipe, onPress, onLongPress }: Props) {
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={400}
+      onLongPress={longPress}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      delayLongPress={350}
+      accessibilityHint={onLongPress ? 'Long press to delete' : undefined}
     >
-      <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={2}>
-          {recipe.title}
-        </Text>
-        {recipe.favorite ? (
-          <Heart
-            size={18}
-            color={colors.accent}
-            fill={colors.accent}
-            strokeWidth={2}
-          />
+      <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
+        <View style={styles.header}>
+          <Text style={styles.title} numberOfLines={2}>
+            {recipe.title}
+          </Text>
+          {recipe.favorite ? (
+            <Heart
+              size={18}
+              color={colors.accent}
+              fill={colors.accent}
+              strokeWidth={2}
+            />
+          ) : null}
+        </View>
+        {recipe.description ? (
+          <Text style={styles.subtitle} numberOfLines={2}>
+            {recipe.description}
+          </Text>
         ) : null}
-      </View>
-      {recipe.description ? (
-        <Text style={styles.subtitle} numberOfLines={2}>
-          {recipe.description}
-        </Text>
-      ) : null}
-      {meta.length > 0 ? (
-        <Text style={styles.meta}>{meta.join(' · ')}</Text>
-      ) : null}
+        {meta.length > 0 ? (
+          <Text style={styles.meta}>{meta.join(' · ')}</Text>
+        ) : null}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -62,9 +90,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.xs,
     ...shadow.card,
-  },
-  cardPressed: {
-    opacity: 0.85,
   },
   header: {
     flexDirection: 'row',

@@ -19,6 +19,7 @@ export interface Recipe {
   title: string;
   description?: string;
   imageUri?: string;
+  sourceUrl?: string;
   servings?: number;
   prepTimeMinutes?: number;
   cookTimeMinutes?: number;
