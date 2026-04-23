@@ -22,7 +22,7 @@ struct IngredientRowEditor: View {
             HStack(spacing: AppSpacing.md) {
                 VStack(alignment: .leading, spacing: 2) {
                     if !ingredient.quantity.trimmed.isEmpty {
-                        Text(ingredient.quantity)
+                        Text(Quantity.displayFormat(ingredient.quantity))
                             .font(AppFont.ingredient)
                             .foregroundStyle(AppColor.textPrimary)
                             .monospacedDigit()
@@ -65,26 +65,18 @@ struct IngredientRowEditor: View {
     private var editMode: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack(alignment: .bottom, spacing: AppSpacing.sm) {
-                editField(placeholder: "Qty", text: $ingredient.quantity, keyboard: .decimalPad, flex: 1)
-                editField(placeholder: "Unit", text: $ingredient.unit, keyboard: .default, flex: 1.2, autocap: false)
+                editField(placeholder: "Qty", text: $ingredient.quantity, keyboard: .decimalPad, flex: 1) {
+                    isEditing = false
+                }
+                editField(placeholder: "Unit", text: $ingredient.unit, keyboard: .default, flex: 1.2, autocap: false) {
+                    isEditing = false
+                }
                 editField(placeholder: "Ingredient", text: $ingredient.name, keyboard: .default, flex: 3) {
                     isEditing = false
                 }
             }
             QuantityChips(value: $ingredient.quantity)
             UnitChips(value: $ingredient.unit)
-            HStack {
-                Spacer()
-                Button("Done") {
-                    isEditing = false
-                }
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.sm)
-                .background(AppColor.accent)
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-            }
         }
         .padding(AppSpacing.sm)
         .background(AppColor.surface)

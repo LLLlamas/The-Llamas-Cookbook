@@ -70,6 +70,17 @@ enum Quantity {
         return format(parsed * factor)
     }
 
+    /// Turn the stored "2 1/2" form into "2 & 1/2" for display. Leaves lone
+    /// wholes, lone fractions, and freeform strings untouched.
+    static func displayFormat(_ raw: String?) -> String {
+        guard let raw else { return "" }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        if let m = try? #/^(\d+)\s+(\d+\/\d+)$/#.wholeMatch(in: trimmed) {
+            return "\(m.output.1) & \(m.output.2)"
+        }
+        return trimmed
+    }
+
     /// Split a string like "3 1/4" into its whole and fractional parts for the
     /// chip UI. Returns nil parts for freeform/decimal strings.
     struct Parsed {

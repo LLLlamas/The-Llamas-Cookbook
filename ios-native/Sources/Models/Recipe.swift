@@ -88,11 +88,13 @@ final class RecipeStep {
     var id: UUID
     var order: Int
     var text: String
+    var needsTimer: Bool = false
     var recipe: Recipe?
 
-    init(text: String, order: Int) {
+    init(text: String, order: Int, needsTimer: Bool = false) {
         self.id = UUID()
         self.order = order
         self.text = text
+        self.needsTimer = needsTimer
     }
 }

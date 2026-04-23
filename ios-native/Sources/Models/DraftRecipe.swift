@@ -45,10 +45,12 @@ struct DraftIngredient: Identifiable, Equatable {
 struct DraftStep: Identifiable, Equatable {
     let id: UUID
     var text: String = ""
+    var needsTimer: Bool = false
 
-    init(id: UUID = UUID(), text: String = "") {
+    init(id: UUID = UUID(), text: String = "", needsTimer: Bool = false) {
         self.id = id
         self.text = text
+        self.needsTimer = needsTimer
     }
 }
 
@@ -79,7 +81,7 @@ extension Recipe {
                 },
             steps: steps
                 .sorted { $0.order < $1.order }
-                .map { DraftStep(id: $0.id, text: $0.text) }
+                .map { DraftStep(id: $0.id, text: $0.text, needsTimer: $0.needsTimer) }
         )
     }
 
@@ -108,7 +110,7 @@ extension Recipe {
 
         steps.removeAll()
         for (idx, item) in draft.steps.enumerated() where !item.text.trimmed.isEmpty {
-            let step = RecipeStep(text: item.text.trimmed, order: idx)
+            let step = RecipeStep(text: item.text.trimmed, order: idx, needsTimer: item.needsTimer)
             steps.append(step)
         }
     }

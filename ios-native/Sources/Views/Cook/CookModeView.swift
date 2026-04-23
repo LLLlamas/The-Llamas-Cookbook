@@ -272,7 +272,8 @@ struct CookModeView: View {
     }
 
     private func ingredientDisplay(_ ingredient: Ingredient) -> String {
-        let qty = Quantity.scale(ingredient.quantity, by: scaleFactor) ?? ingredient.quantity ?? ""
+        let scaled = Quantity.scale(ingredient.quantity, by: scaleFactor) ?? ingredient.quantity ?? ""
+        let qty = Quantity.displayFormat(scaled)
         return [qty, ingredient.unit ?? "", ingredient.name]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
@@ -285,7 +286,7 @@ struct CookModeView: View {
             ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
                 let struck = struckSteps.contains(step.id)
                 let isCurrent = step.id == currentStepId
-                let keyword = Self.extractTimerKeyword(step.text)
+                let label = Self.extractTimerKeyword(step.text) ?? "cook"
                 let thisTiming = timerStepId == step.id && timerEndsAt != nil
                 let anotherTiming = timerEndsAt != nil && timerStepId != step.id
 
@@ -305,13 +306,13 @@ struct CookModeView: View {
                     }
                     .buttonStyle(.plain)
 
-                    if let keyword, canTimer {
+                    if step.needsTimer, canTimer {
                         if thisTiming {
                             timerRunningChip()
                                 .padding(.horizontal, AppSpacing.md)
                                 .padding(.bottom, AppSpacing.md)
                         } else if !anotherTiming {
-                            timerStartChip(keyword: keyword, stepId: step.id)
+                            timerStartChip(keyword: label, stepId: step.id)
                                 .padding(.horizontal, AppSpacing.md)
                                 .padding(.bottom, AppSpacing.md)
                         }
@@ -487,8 +488,9 @@ struct CookModeView: View {
         }
         if !wasStruck, canTimer, timerEndsAt == nil,
            let step = sortedSteps.first(where: { $0.id == id }),
-           let keyword = Self.extractTimerKeyword(step.text) {
-            startTimer(stepId: id, label: keyword)
+           step.needsTimer {
+            let label = Self.extractTimerKeyword(step.text) ?? "cook"
+            startTimer(stepId: id, label: label)
         }
     }
 

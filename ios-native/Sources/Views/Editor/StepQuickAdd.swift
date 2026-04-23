@@ -5,6 +5,7 @@ struct StepQuickAdd: View {
     let onAdd: (DraftStep) -> Void
 
     @State private var text = ""
+    @State private var needsTimer = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -21,21 +22,26 @@ struct StepQuickAdd: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
-            TextField("Describe step \(nextNumber)…", text: $text)
-                .submitLabel(.done)
-                .focused($focused)
-                .onSubmit { submit() }
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.sm)
-                .frame(minHeight: 44)
-                .background(AppColor.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppRadius.md)
-                        .stroke(AppColor.divider, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textPrimary)
+            HStack(spacing: AppSpacing.xs) {
+                TextField("Describe step \(nextNumber)…", text: $text)
+                    .submitLabel(.done)
+                    .focused($focused)
+                    .onSubmit { submit() }
+                    .tint(AppColor.accent)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+
+                TimerToggleButton(isOn: $needsTimer)
+            }
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm)
+            .frame(minHeight: 44)
+            .background(AppColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.divider, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         }
     }
 
@@ -46,8 +52,32 @@ struct StepQuickAdd: View {
             return
         }
         Haptics.impact(.light)
-        onAdd(DraftStep(text: trimmed))
+        onAdd(DraftStep(text: trimmed, needsTimer: needsTimer))
         text = ""
+        needsTimer = false
         focused = true
+    }
+}
+
+struct TimerToggleButton: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button {
+            Haptics.selection()
+            isOn.toggle()
+        } label: {
+            Image(systemName: "timer")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(isOn ? Color(red: 1, green: 0.992, blue: 0.972) : AppColor.textSecondary)
+                .frame(width: 32, height: 32)
+                .background(isOn ? AppColor.accent : Color.clear)
+                .overlay(
+                    Circle().stroke(isOn ? AppColor.accent : AppColor.divider, lineWidth: 1)
+                )
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isOn ? "Timer enabled for this step" : "Enable timer for this step")
     }
 }

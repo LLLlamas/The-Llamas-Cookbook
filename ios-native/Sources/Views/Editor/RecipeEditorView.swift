@@ -123,15 +123,6 @@ struct RecipeEditorView: View {
                 }
                 .disabled(!draft.canSave)
             }
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    UIApplication.shared.sendAction(
-                        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
-                    )
-                }
-                .foregroundStyle(AppColor.accent)
-            }
         }
         .alert("Discard changes?", isPresented: $showDiscardAlert) {
             Button("Keep editing", role: .cancel) { }

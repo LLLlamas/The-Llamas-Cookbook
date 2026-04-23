@@ -30,6 +30,12 @@ struct StepRowEditor: View {
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if step.needsTimer {
+                    Image(systemName: "timer")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppColor.accent)
+                        .padding(.horizontal, AppSpacing.xs)
+                }
                 Button {
                     Haptics.impact(.light)
                     onDelete()
@@ -47,53 +53,39 @@ struct StepRowEditor: View {
     }
 
     private var editMode: some View {
-        VStack(spacing: AppSpacing.sm) {
-            HStack(alignment: .top, spacing: AppSpacing.sm) {
-                Text("\(index + 1)")
-                    .font(AppFont.sectionHeading)
-                    .foregroundStyle(AppColor.accent)
-                    .monospacedDigit()
-                    .frame(width: 36, height: 44)
-                    .background(AppColor.background)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .stroke(AppColor.divider, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        HStack(alignment: .top, spacing: AppSpacing.sm) {
+            Text("\(index + 1)")
+                .font(AppFont.sectionHeading)
+                .foregroundStyle(AppColor.accent)
+                .monospacedDigit()
+                .frame(width: 36, height: 44)
+                .background(AppColor.background)
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppRadius.md)
+                        .stroke(AppColor.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
-                TextField("Step \(index + 1)", text: $step.text, axis: .vertical)
-                    .lineLimit(1...6)
+            HStack(spacing: AppSpacing.xs) {
+                TextField("Step \(index + 1)", text: $step.text)
                     .submitLabel(.done)
                     .onSubmit { isEditing = false }
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.sm)
-                    .frame(minHeight: 44)
-                    .background(AppColor.background)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .stroke(AppColor.divider, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .tint(AppColor.accent)
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)
+
+                TimerToggleButton(isOn: $step.needsTimer)
             }
-            HStack {
-                Spacer()
-                Button("Done") { isEditing = false }
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.sm)
-                    .background(AppColor.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-            }
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm)
+            .frame(minHeight: 44)
+            .background(AppColor.background)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.accent, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         }
-        .padding(AppSpacing.sm)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.accent, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .padding(.vertical, AppSpacing.xs)
     }
 }
