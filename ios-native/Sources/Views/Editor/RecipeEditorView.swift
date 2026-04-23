@@ -18,55 +18,72 @@ struct RecipeEditorView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: AppSpacing.md) {
-                    heroRow
-                    titleBlock
-                    summaryField
+        ScrollView {
+            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                heroRow
+                titleBlock
+                summaryField
 
-                    sectionHeader("Ingredients")
-                    sectionHint("Enter quantity, unit, and ingredient separately. Hit Done after each.")
-                    IngredientQuickAdd { draft.ingredients.append($0) }
-                    if !draft.ingredients.isEmpty {
-                        VStack(spacing: AppSpacing.xs) {
-                            ForEach($draft.ingredients) { $ingredient in
-                                IngredientRowEditor(ingredient: $ingredient) {
-                                    draft.ingredients.removeAll { $0.id == ingredient.id }
-                                }
+                sectionHeader("Ingredients")
+                sectionHint("Fill in quantity, unit, and ingredient — all three are required before you add the row.")
+                IngredientQuickAdd { draft.ingredients.append($0) }
+                if !draft.ingredients.isEmpty {
+                    VStack(spacing: AppSpacing.xs) {
+                        ForEach($draft.ingredients) { $ingredient in
+                            IngredientRowEditor(ingredient: $ingredient) {
+                                draft.ingredients.removeAll { $0.id == ingredient.id }
                             }
                         }
                     }
+                }
 
-                    sectionHeader("Steps")
-                    sectionHint("One step per line. They'll be numbered and you'll check them off while cooking.")
-                    StepQuickAdd(nextNumber: draft.steps.count + 1) {
-                        draft.steps.append($0)
-                    }
-                    if !draft.steps.isEmpty {
-                        VStack(spacing: 2) {
-                            ForEach($draft.steps) { $step in
-                                StepRowEditor(
-                                    index: draft.steps.firstIndex(where: { $0.id == step.id }) ?? 0,
-                                    step: $step
-                                ) {
-                                    draft.steps.removeAll { $0.id == step.id }
-                                }
+                sectionHeader("Steps")
+                sectionHint("One step per line. They'll be numbered and you'll check them off while cooking.")
+                StepQuickAdd(nextNumber: draft.steps.count + 1) {
+                    draft.steps.append($0)
+                }
+                if !draft.steps.isEmpty {
+                    VStack(spacing: 2) {
+                        ForEach($draft.steps) { $step in
+                            StepRowEditor(
+                                index: draft.steps.firstIndex(where: { $0.id == step.id }) ?? 0,
+                                step: $step
+                            ) {
+                                draft.steps.removeAll { $0.id == step.id }
                             }
                         }
                     }
+                }
 
-                    sectionHeader("Tags")
-                    TagInputView(tags: $draft.tags)
+                sectionHeader("Tags")
+                TagInputView(tags: $draft.tags)
 
-                    sectionHeader("Notes")
-                    TextField(
-                        "Optional notes — e.g. use less salt next time",
-                        text: $draft.notes
-                    )
+                sectionHeader("Notes")
+                TextField(
+                    "Optional notes — e.g. use less salt next time",
+                    text: $draft.notes
+                )
+                .submitLabel(.done)
+                .padding(AppSpacing.md)
+                .frame(minHeight: 64, alignment: .topLeading)
+                .background(AppColor.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppRadius.md)
+                        .stroke(AppColor.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textPrimary)
+
+                sectionHeader("Reference link")
+                sectionHint("Optional. Paste a URL if you adapted this from somewhere online.")
+                TextField("https://example.com/recipe", text: $draft.sourceUrl)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .submitLabel(.done)
-                    .padding(AppSpacing.md)
-                    .frame(minHeight: 64, alignment: .topLeading)
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.sm)
                     .background(AppColor.surface)
                     .overlay(
                         RoundedRectangle(cornerRadius: AppRadius.md)
@@ -76,34 +93,13 @@ struct RecipeEditorView: View {
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)
 
-                    sectionHeader("Reference link")
-                    sectionHint("Optional. Paste a URL if you adapted this from somewhere online.")
-                    TextField("https://example.com/recipe", text: $draft.sourceUrl)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .padding(.horizontal, AppSpacing.md)
-                        .padding(.vertical, AppSpacing.sm)
-                        .background(AppColor.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: AppRadius.md)
-                                .stroke(AppColor.divider, lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                        .font(AppFont.body)
-                        .foregroundStyle(AppColor.textPrimary)
-
-                    optionalDetails
-                }
-                .padding(AppSpacing.lg)
-                .padding(.bottom, 120)
+                optionalDetails
             }
-            .scrollDismissesKeyboard(.interactively)
-            .background(AppColor.background)
-
-            actionBar
+            .padding(AppSpacing.lg)
+            .padding(.bottom, AppSpacing.xxl)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .background(AppColor.background)
         .navigationTitle(headerTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -112,14 +108,27 @@ struct RecipeEditorView: View {
                 Button("Cancel") { attemptCancel() }
                     .foregroundStyle(AppColor.textPrimary)
             }
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    save()
+                } label: {
+                    Text("Save")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.vertical, 6)
+                        .background(AppColor.accent)
+                        .clipShape(Capsule())
+                        .opacity(draft.canSave ? 1 : 0.4)
+                }
+                .disabled(!draft.canSave)
+            }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") {
-                    #if canImport(UIKit)
                     UIApplication.shared.sendAction(
                         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
                     )
-                    #endif
                 }
                 .foregroundStyle(AppColor.accent)
             }
@@ -248,46 +257,6 @@ struct RecipeEditorView: View {
             .font(AppFont.caption)
             .foregroundStyle(AppColor.textSecondary)
             .padding(.bottom, AppSpacing.xs)
-    }
-
-    private var actionBar: some View {
-        HStack(spacing: AppSpacing.md) {
-            Button {
-                attemptCancel()
-            } label: {
-                Text("Cancel")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(AppColor.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppSpacing.md)
-                    .background(AppColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .stroke(AppColor.divider, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-            }
-
-            Button {
-                save()
-            } label: {
-                Text("Save")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppSpacing.md)
-                    .background(AppColor.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                    .opacity(draft.canSave ? 1 : 0.4)
-            }
-            .disabled(!draft.canSave)
-        }
-        .padding(AppSpacing.lg)
-        .padding(.top, AppSpacing.md)
-        .background(AppColor.background)
-        .overlay(alignment: .top) {
-            Rectangle().fill(AppColor.divider).frame(height: 1)
-        }
     }
 
     // MARK: - Actions

@@ -51,6 +51,13 @@ final class Recipe {
         self.createdAt = .now
         self.updatedAt = .now
     }
+
+    func markCooked() {
+        let now = Date.now
+        lastCookedAt = now
+        cookCount += 1
+        updatedAt = now
+    }
 }
 
 @Model

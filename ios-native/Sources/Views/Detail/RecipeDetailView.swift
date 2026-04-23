@@ -10,6 +10,7 @@ struct RecipeDetailView: View {
 
     @State private var showingEditor = false
     @State private var showingDeleteAlert = false
+    @State private var showingCookMode = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -130,6 +131,9 @@ struct RecipeDetailView: View {
                 RecipeEditorView(recipe: recipe)
             }
         }
+        .fullScreenCover(isPresented: $showingCookMode) {
+            CookModeView(recipe: recipe)
+        }
         .alert("Delete recipe?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -229,8 +233,8 @@ struct RecipeDetailView: View {
     private var startCookingBar: some View {
         VStack {
             Button {
-                // CookMode is deferred to a later batch.
                 Haptics.impact(.light)
+                showingCookMode = true
             } label: {
                 HStack(spacing: AppSpacing.sm) {
                     Image(systemName: "fork.knife")
@@ -242,14 +246,6 @@ struct RecipeDetailView: View {
                 .padding(.vertical, AppSpacing.md)
                 .background(AppColor.accent)
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-            }
-            .disabled(true)
-            .opacity(0.5)
-            .overlay(alignment: .bottom) {
-                Text("Cook Mode coming in the next update")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(AppColor.textSecondary)
-                    .offset(y: 18)
             }
         }
         .padding(.horizontal, AppSpacing.lg)
