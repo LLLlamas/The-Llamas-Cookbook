@@ -68,8 +68,11 @@ export function RecipeEditorScreen({ route, navigation }: Props) {
   const [notes, setNotes] = useState(existing?.notes ?? '');
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title: editingId ? 'Edit Recipe' : 'New Recipe' });
-  }, [navigation, editingId]);
+    const trimmed = title.trim();
+    navigation.setOptions({
+      title: trimmed || (editingId ? 'Edit Recipe' : 'New Recipe'),
+    });
+  }, [navigation, editingId, title]);
 
   useEffect(() => {
     if (editingId && !existing) {

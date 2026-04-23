@@ -16,21 +16,19 @@ const FRACTION_GLYPHS: Record<string, number> = {
   '\u215E': 0.875,
 };
 
+// Only fractions that actually exist on standard measuring spoons/cups.
+// Eighths other than 1/8 and the awkward 5/8, 7/8 are deliberately omitted —
+// a home cook has no way to measure them precisely.
 const COMMON_FRACTIONS: Array<[number, string]> = [
   [1 / 8, '1/8'],
   [1 / 4, '1/4'],
   [1 / 3, '1/3'],
-  [3 / 8, '3/8'],
   [1 / 2, '1/2'],
-  [5 / 8, '5/8'],
   [2 / 3, '2/3'],
   [3 / 4, '3/4'],
-  [7 / 8, '7/8'],
 ];
 
-// Minimum practical fraction we ever surface after scaling, since 1/16 cup
-// is as fine as a typical home cook measures.
-const MIN_FRACTION: [number, string] = [1 / 16, '1/16'];
+const MIN_FRACTION = COMMON_FRACTIONS[0];
 
 export function parseQuantity(raw: string | undefined): number | null {
   if (!raw) return null;

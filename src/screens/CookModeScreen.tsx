@@ -24,6 +24,7 @@ import {
 } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LlamaMascot } from '../components/LlamaMascot';
+import { MeasurementGuideCard } from '../components/MeasurementGuideCard';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
 import { fontFamilies, textStyles } from '../theme/typography';
@@ -315,6 +316,8 @@ export function CookModeScreen({ route, navigation }: Props) {
               </View>
             ) : null}
 
+            <MeasurementGuideCard style={styles.measurementGuide} />
+
             <View style={styles.list}>
               {recipe.ingredients.map((ingredient) => {
                 const struck = struckIngredients.has(ingredient.id);
@@ -563,6 +566,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     gap: spacing.md,
+  },
+  measurementGuide: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
   },
   scalerBtn: {
     width: 44,

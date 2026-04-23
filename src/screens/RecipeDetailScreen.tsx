@@ -18,6 +18,7 @@ import {
 } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LlamaMascot } from '../components/LlamaMascot';
+import { MeasurementGuideCard } from '../components/MeasurementGuideCard';
 import { TagChip } from '../components/TagChip';
 import { colors } from '../theme/colors';
 import { radius, spacing } from '../theme/spacing';
@@ -155,6 +156,7 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
                 </View>
               ))}
             </View>
+            <MeasurementGuideCard style={styles.measurementGuide} />
           </View>
         ) : null}
 
@@ -293,6 +295,9 @@ const styles = StyleSheet.create({
     ...textStyles.ingredient,
     color: colors.textPrimary,
     flex: 1,
+  },
+  measurementGuide: {
+    marginTop: spacing.md,
   },
   stepsList: {
     gap: spacing.md,

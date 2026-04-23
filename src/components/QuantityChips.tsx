@@ -4,7 +4,7 @@ import { radius, spacing } from '../theme/spacing';
 import { fontFamilies } from '../theme/typography';
 
 const WHOLES = ['1', '2', '3', '4', '5', '6', '8', '10', '12'];
-const FRACS = ['1/4', '1/3', '1/2', '2/3', '3/4', '1/8', '3/8', '5/8', '7/8'];
+const FRACS = ['1/8', '1/4', '1/3', '1/2', '2/3', '3/4'];
 
 type Parsed = { whole?: string; frac?: string; freeform: boolean };
 
