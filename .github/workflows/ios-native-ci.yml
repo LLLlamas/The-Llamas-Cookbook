@@ -119,10 +119,36 @@ jobs:
           IM=$(command -v magick || command -v convert)
           ICON_DIR="Resources/Assets.xcassets/AppIcon.appiconset"
           ICON_PATH="$ICON_DIR/AppIcon.png"
+
+          # Homebrew's ImageMagick on macOS runners can't resolve system font
+          # *names* (e.g. "Helvetica-Bold") through fontconfig — the system
+          # fonts live outside the paths it scans. Pass a font FILE PATH
+          # instead. Prefer a macOS-bundled font; fall back to a downloaded
+          # TTF so the build is reproducible even if Apple reshuffles fonts.
+          FONT_PATH=""
+          for candidate in \
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf" \
+            "/System/Library/Fonts/Supplemental/Helvetica.ttc" \
+            "/Library/Fonts/Arial Bold.ttf" \
+            "/System/Library/Fonts/HelveticaNeue.ttc" \
+            "/System/Library/Fonts/Helvetica.ttc"; do
+            if [ -f "$candidate" ]; then
+              FONT_PATH="$candidate"
+              break
+            fi
+          done
+          if [ -z "$FONT_PATH" ]; then
+            echo "No system bold font found — downloading a fallback TTF"
+            FONT_PATH="$RUNNER_TEMP/icon-font.ttf"
+            curl -fsSL -o "$FONT_PATH" \
+              "https://github.com/google/fonts/raw/main/apache/robotocondensed/static/RobotoCondensed-Bold.ttf"
+          fi
+          echo "Using font file: $FONT_PATH"
+
           "$IM" -size 1024x1024 xc:"#C97C5D" \
             -gravity center \
             -fill "#FFFDF8" \
-            -font "Helvetica-Bold" \
+            -font "$FONT_PATH" \
             -pointsize 520 \
             -annotate +0+0 "LC" \
             "$ICON_PATH"
