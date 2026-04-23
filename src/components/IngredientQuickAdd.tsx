@@ -57,10 +57,8 @@ export function IngredientQuickAdd({ onAdd, autoFocus }: Props) {
             placeholderTextColor={colors.textSecondary}
             style={styles.input}
             keyboardType="decimal-pad"
-            returnKeyType="next"
-            blurOnSubmit={false}
+            returnKeyType="done"
             autoFocus={autoFocus}
-            onSubmitEditing={() => unitRef.current?.focus()}
           />
         </View>
         <View style={[styles.field, styles.unitField]}>
@@ -72,11 +70,9 @@ export function IngredientQuickAdd({ onAdd, autoFocus }: Props) {
             placeholder="cup"
             placeholderTextColor={colors.textSecondary}
             style={styles.input}
-            returnKeyType="next"
+            returnKeyType="done"
             autoCapitalize="none"
             autoCorrect={false}
-            blurOnSubmit={false}
-            onSubmitEditing={() => nameRef.current?.focus()}
           />
         </View>
         <View style={[styles.field, styles.nameField]}>

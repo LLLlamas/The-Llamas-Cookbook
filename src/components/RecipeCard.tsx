@@ -9,9 +9,10 @@ import type { Recipe } from '../types/recipe';
 type Props = {
   recipe: Recipe;
   onPress: () => void;
+  onLongPress?: () => void;
 };
 
-export function RecipeCard({ recipe, onPress }: Props) {
+export function RecipeCard({ recipe, onPress, onLongPress }: Props) {
   const meta: string[] = [];
   if (recipe.lastCookedAt) {
     meta.push(`Last cooked ${formatDateMDY(recipe.lastCookedAt)}`);
@@ -26,6 +27,8 @@ export function RecipeCard({ recipe, onPress }: Props) {
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
     >
       <View style={styles.header}>
         <Text style={styles.title} numberOfLines={2}>

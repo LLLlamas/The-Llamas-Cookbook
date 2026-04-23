@@ -65,10 +65,8 @@ export function IngredientRow({ ingredient, onDelete, onUpdate }: Props) {
             placeholderTextColor={colors.textSecondary}
             style={[styles.input, styles.qtyInput]}
             keyboardType="decimal-pad"
-            returnKeyType="next"
-            blurOnSubmit={false}
+            returnKeyType="done"
             autoFocus
-            onSubmitEditing={() => unitRef.current?.focus()}
           />
           <TextInput
             ref={unitRef}
@@ -77,11 +75,9 @@ export function IngredientRow({ ingredient, onDelete, onUpdate }: Props) {
             placeholder="Unit"
             placeholderTextColor={colors.textSecondary}
             style={[styles.input, styles.unitInput]}
-            returnKeyType="next"
+            returnKeyType="done"
             autoCapitalize="none"
             autoCorrect={false}
-            blurOnSubmit={false}
-            onSubmitEditing={() => nameRef.current?.focus()}
           />
           <TextInput
             ref={nameRef}

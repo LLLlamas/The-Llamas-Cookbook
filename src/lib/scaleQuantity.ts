@@ -28,6 +28,10 @@ const COMMON_FRACTIONS: Array<[number, string]> = [
   [7 / 8, '7/8'],
 ];
 
+// Minimum practical fraction we ever surface after scaling, since 1/16 cup
+// is as fine as a typical home cook measures.
+const MIN_FRACTION: [number, string] = [1 / 16, '1/16'];
+
 export function parseQuantity(raw: string | undefined): number | null {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -74,11 +78,15 @@ export function formatQuantity(value: number): string {
   const whole = Math.floor(value);
   const frac = value - whole;
 
-  if (frac < 0.02) return String(whole);
-  if (frac > 0.98) return String(whole + 1);
+  // Snap trivially-small fractional parts down to the whole number…
+  if (frac < MIN_FRACTION[0] / 2) {
+    return whole > 0 ? String(whole) : MIN_FRACTION[1];
+  }
+  // …and trivially-large ones up to the next whole.
+  if (frac > 1 - MIN_FRACTION[0] / 2) return String(whole + 1);
 
-  let best: [number, string] | null = null;
-  let bestDiff = Infinity;
+  let best: [number, string] = MIN_FRACTION;
+  let bestDiff = Math.abs(frac - MIN_FRACTION[0]);
   for (const entry of COMMON_FRACTIONS) {
     const diff = Math.abs(frac - entry[0]);
     if (diff < bestDiff) {
@@ -86,13 +94,7 @@ export function formatQuantity(value: number): string {
       best = entry;
     }
   }
-
-  if (best && bestDiff < 0.04) {
-    return whole > 0 ? `${whole} ${best[1]}` : best[1];
-  }
-
-  const rounded = Math.round(value * 100) / 100;
-  return String(rounded).replace(/\.?0+$/, '');
+  return whole > 0 ? `${whole} ${best[1]}` : best[1];
 }
 
 export function scaleQuantity(

@@ -10,12 +10,15 @@ type Props = {
   tone?: 'default' | 'accent';
 };
 
+const capitalize = (s: string) =>
+  s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
+
 export function TagChip({ label, onRemove, tone = 'default' }: Props) {
   const chipStyle = tone === 'accent' ? styles.chipAccent : styles.chip;
   const textStyle = tone === 'accent' ? styles.textAccent : styles.text;
   return (
     <View style={[styles.base, chipStyle]}>
-      <Text style={textStyle}>{label}</Text>
+      <Text style={textStyle}>{capitalize(label)}</Text>
       {onRemove ? (
         <Pressable
           onPress={onRemove}
