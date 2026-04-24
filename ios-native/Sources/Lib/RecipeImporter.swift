@@ -94,6 +94,11 @@ enum RecipeImporter {
         s = s.trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty else { return nil }
 
+        // Guard: lines that are only bullets, dashes, or punctuation
+        // ("•", "- - -", "···") shouldn't become a named ingredient.
+        // Require at least one letter or digit after bullet stripping.
+        guard s.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
+
         // Normalize spacing around "&" so "1 &1/2 cup flour" and variants
         // tokenize the same.
         s = s.replacingOccurrences(of: "&", with: " & ")
@@ -131,8 +136,21 @@ enum RecipeImporter {
             idx += 1
         }
 
-        let nameTokens = tokens[idx...].joined(separator: " ")
-        let name = nameTokens.trimmingCharacters(in: .whitespaces)
+        var nameTokens = Array(tokens[idx...])
+
+        // If nothing lined up at the front, scan the remaining tokens for
+        // a `<number(s)> <known-unit>` pair and hoist it to the left —
+        // "flour 1 cup" → (qty=1, unit=cup, name=flour). Requires a real
+        // unit match to avoid pulling stray numbers out of ingredients
+        // like "San Marzano tomatoes 2021".
+        if qtyTokens.isEmpty, unit.isEmpty,
+           let hoisted = hoistInlineMeasurement(tokens: nameTokens) {
+            qtyTokens = hoisted.qty
+            unit = hoisted.unit
+            nameTokens = hoisted.remaining
+        }
+
+        let name = nameTokens.joined(separator: " ").trimmingCharacters(in: .whitespaces)
         if name.isEmpty { return nil }
 
         return DraftIngredient(
@@ -140,6 +158,43 @@ enum RecipeImporter {
             unit: unit,
             name: name
         )
+    }
+
+    /// Scan tokens for the first `<number(s)> <known-unit>` window and
+    /// pull it out. Returns nil when no measurement pair is present —
+    /// in which case the caller leaves the tokens alone rather than
+    /// fabricating a bogus qty/unit.
+    private static func hoistInlineMeasurement(tokens: [String])
+    -> (qty: [String], unit: String, remaining: [String])? {
+        var i = 0
+        while i < tokens.count {
+            guard isQuantityToken(tokens[i]) else { i += 1; continue }
+
+            var qtyEnd = i
+            while qtyEnd + 1 < tokens.count && isQuantityToken(tokens[qtyEnd + 1]) {
+                qtyEnd += 1
+            }
+
+            if qtyEnd + 1 < tokens.count {
+                let candidate = tokens[qtyEnd + 1]
+                    .lowercased()
+                    .trimmingCharacters(in: .punctuationCharacters)
+                if knownUnits.contains(candidate) {
+                    let unit = unitSingularMap[candidate] ?? candidate
+                    let qty = Array(tokens[i...qtyEnd])
+                    var remaining = tokens
+                    remaining.removeSubrange(i...(qtyEnd + 1))
+                    // Drop a stray "of" if it now lands at the split point.
+                    if i < remaining.count, remaining[i].lowercased() == "of" {
+                        remaining.remove(at: i)
+                    }
+                    return (qty: qty, unit: unit, remaining: remaining)
+                }
+            }
+            // Number run without a trailing unit — skip past and keep scanning.
+            i = qtyEnd + 1
+        }
+        return nil
     }
 
     private static func parseStep(_ line: String) -> DraftStep? {

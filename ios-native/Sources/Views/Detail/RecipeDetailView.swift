@@ -43,7 +43,7 @@ struct RecipeDetailView: View {
 
                     if !sortedIngredients.isEmpty {
                         section("Ingredients", accessory: { conversionsChip }) {
-                            VStack(spacing: 3) {
+                            VStack(spacing: AppSpacing.sm) {
                                 ForEach(sortedIngredients) { ingredient in
                                     ingredientRow(ingredient)
                                 }
@@ -53,7 +53,7 @@ struct RecipeDetailView: View {
 
                     if !sortedSteps.isEmpty {
                         section("Steps") {
-                            VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
+                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
                                     StepDetailRow(idx: idx, step: step)
                                 }
@@ -209,7 +209,7 @@ struct RecipeDetailView: View {
 
     private func ingredientRow(_ ingredient: Ingredient) -> some View {
         let display = ingredient.display()
-        let measure = display.measure
+        let hasMeasure = !display.quantity.isEmpty || !display.unit.isEmpty
         let takesOf = display.takesOf
 
         return HStack(alignment: .center, spacing: AppSpacing.sm + 2) {
@@ -217,13 +217,24 @@ struct RecipeDetailView: View {
                 .fill(AppColor.accent)
                 .frame(width: 6, height: 6)
 
-            Text(measure)
-                .font(.system(size: 15.5, weight: .semibold))
-                .foregroundStyle(AppColor.accentDeep)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(width: 120, alignment: .leading)
+            // Qty stacked over unit, both centered under each other in a
+            // fixed-width column so the column edges line up across rows.
+            VStack(alignment: .center, spacing: 1) {
+                if !display.quantity.isEmpty {
+                    Text(display.quantity)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(AppColor.accentDeep)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                if !display.unit.isEmpty {
+                    Text(display.unit)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AppColor.accentDeep.opacity(0.78))
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 78)
 
             Group {
                 if takesOf {
@@ -234,7 +245,7 @@ struct RecipeDetailView: View {
                     Text("—")
                         .font(.system(size: 15, weight: .regular))
                         .foregroundStyle(AppColor.dividerStrong)
-                        .opacity(measure.isEmpty ? 0 : 1)
+                        .opacity(hasMeasure ? 1 : 0)
                 }
             }
 
@@ -243,15 +254,22 @@ struct RecipeDetailView: View {
                 .foregroundStyle(AppColor.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 3)
-        .padding(.horizontal, AppSpacing.md)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
+        .padding(.vertical, AppSpacing.sm + 2)
+        .padding(.horizontal, AppSpacing.md + 2)
+        .background(
+            LinearGradient(
+                colors: [AppColor.surfaceRaised, AppColor.surface],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-        .shadow(color: AppColor.shadowSoft, radius: 3, x: 0, y: 1)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.lg)
+                .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.8)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        .shadow(color: AppColor.shadow, radius: 5, x: 0, y: 2)
+        .shadow(color: AppColor.shadowSoft, radius: 1, x: 0, y: 0.5)
     }
 
     private func sourceLink(url: String) -> some View {
@@ -402,40 +420,53 @@ struct FlowRow: Layout {
     }
 }
 
-/// One step in the detail-view numbered list. Step number is a fixed
-/// size for visual consistency across all steps, vertically centered
-/// against the step text no matter how many lines it wraps to.
-/// Underline spans the full row width.
+/// One step in the detail-view numbered list. The row sits inside a
+/// gradient "bubble" pill — cream shading into a soft terracotta on the
+/// bottom-trailing corner, with layered shadows to lift it off the page.
+/// Number is a fixed size, vertically centered against the wrapping text.
 private struct StepDetailRow: View {
     let idx: Int
     let step: RecipeStep
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: AppSpacing.md) {
-                Text("\(idx + 1).")
-                    .font(AppFont.sectionHeading)
-                    .foregroundStyle(AppColor.accent)
-                    .monospacedDigit()
-                    .frame(minWidth: 28, alignment: .leading)
+        HStack(alignment: .center, spacing: AppSpacing.md) {
+            Text("\(idx + 1).")
+                .font(AppFont.sectionHeading)
+                .foregroundStyle(AppColor.accent)
+                .monospacedDigit()
+                .frame(minWidth: 28, alignment: .leading)
 
-                Text(step.text)
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textPrimary)
-                    .lineSpacing(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            Text(step.text)
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textPrimary)
+                .lineSpacing(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                if step.needsTimer {
-                    Image(systemName: "timer")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(AppColor.accent.opacity(0.8))
-                }
+            if step.needsTimer {
+                Image(systemName: "timer")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColor.accent.opacity(0.8))
             }
-
-            Capsule()
-                .fill(AppColor.accent.opacity(0.35))
-                .frame(maxWidth: .infinity)
-                .frame(height: 1.5)
         }
+        .padding(.vertical, AppSpacing.md)
+        .padding(.horizontal, AppSpacing.md + 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [
+                    AppColor.surfaceRaised,
+                    AppColor.accentSoft.opacity(0.55)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.lg)
+                .stroke(AppColor.accent.opacity(0.22), lineWidth: 0.8)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 2)
+        .shadow(color: AppColor.shadowSoft, radius: 1, x: 0, y: 0.5)
     }
 }
