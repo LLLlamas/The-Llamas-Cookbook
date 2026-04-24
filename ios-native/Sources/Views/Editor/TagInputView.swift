@@ -18,7 +18,7 @@ struct TagInputView: View {
 
             presetScroller
 
-            TextField("Add a custom tag…", text: $draft)
+            TextField("Add a custom category…", text: $draft)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.done)

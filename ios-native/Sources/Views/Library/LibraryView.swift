@@ -253,7 +253,7 @@ struct LibraryView: View {
                 Haptics.impact(.light)
                 editor.startNew()
             } label: {
-                Label("New recipe", systemImage: "square.and.pencil")
+                Label("New Recipe", systemImage: "square.and.pencil")
             }
             Button {
                 Haptics.impact(.light)

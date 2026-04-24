@@ -6,7 +6,7 @@ struct RecipeCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
             HStack(alignment: .top, spacing: AppSpacing.md) {
-                Text(recipe.title)
+                Text(StringCase.titleCase(recipe.title))
                     .font(AppFont.sectionHeading)
                     .foregroundStyle(AppColor.textPrimary)
                     .lineLimit(2)

@@ -54,7 +54,7 @@ struct IngredientQuickAdd: View {
                 HStack(spacing: AppSpacing.xs) {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .bold))
-                    Text("Add ingredient")
+                    Text("Add Ingredient")
                         .font(.system(size: 14, weight: .semibold))
                 }
                 .foregroundStyle(AppColor.accent)

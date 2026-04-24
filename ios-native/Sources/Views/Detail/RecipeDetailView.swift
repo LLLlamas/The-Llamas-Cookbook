@@ -17,7 +17,7 @@ struct RecipeDetailView: View {
         ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
-                    Text(recipe.title)
+                    Text(StringCase.titleCase(recipe.title))
                         .font(AppFont.recipeTitle)
                         .foregroundStyle(AppColor.textPrimary)
 
@@ -55,7 +55,7 @@ struct RecipeDetailView: View {
                         section("Steps") {
                             VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
-                                    stepRow(idx: idx, step: step)
+                                    StepDetailRow(idx: idx, step: step)
                                 }
                             }
                         }
@@ -164,17 +164,22 @@ struct RecipeDetailView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(title)
-                        .font(AppFont.sectionHeading)
-                        .foregroundStyle(AppColor.textPrimary)
-                    Spacer(minLength: AppSpacing.sm)
-                    accessory()
-                }
-                Capsule()
-                    .fill(AppColor.accent.opacity(0.55))
-                    .frame(width: 32, height: 2)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(AppFont.sectionHeading)
+                    .foregroundStyle(AppColor.textPrimary)
+                    // Underline rides the padded bottom of the Text's own
+                    // frame, so it stretches to match the word width —
+                    // 130pt under "Ingredients", 50pt under "Steps" — rather
+                    // than the previous fixed 32pt stub.
+                    .padding(.bottom, 6)
+                    .background(alignment: .bottom) {
+                        Capsule()
+                            .fill(AppColor.accent.opacity(0.55))
+                            .frame(height: 2)
+                    }
+                Spacer(minLength: AppSpacing.sm)
+                accessory()
             }
             .padding(.top, AppSpacing.lg)
             content()
@@ -247,35 +252,6 @@ struct RecipeDetailView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         .shadow(color: AppColor.shadowSoft, radius: 3, x: 0, y: 1)
-    }
-
-    private func stepRow(idx: Int, step: RecipeStep) -> some View {
-        // Width of the step-number column + spacing — the small accent rule
-        // below extends from the leading edge to where the step text begins.
-        let numberColumnWidth: CGFloat = 28 + AppSpacing.md
-
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.md) {
-                Text("\(idx + 1).")
-                    .font(AppFont.sectionHeading)
-                    .foregroundStyle(AppColor.accent)
-                    .frame(minWidth: 28, alignment: .leading)
-                    .monospacedDigit()
-                Text(step.text)
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textPrimary)
-                    .lineSpacing(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if step.needsTimer {
-                    Image(systemName: "timer")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(AppColor.accent.opacity(0.8))
-                }
-            }
-            Capsule()
-                .fill(AppColor.accent.opacity(0.35))
-                .frame(width: numberColumnWidth, height: 1.5)
-        }
     }
 
     private func sourceLink(url: String) -> some View {
@@ -423,5 +399,73 @@ struct FlowRow: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
+    }
+}
+
+/// One step in the detail-view numbered list. Measures its own text height
+/// with a PreferenceKey so the large step number can scale up on wrapped
+/// steps (1-line = base size; multi-line text pulls the number larger,
+/// capped so it doesn't get absurd on long paragraphs). Underline spans
+/// the full row width.
+private struct StepDetailRow: View {
+    let idx: Int
+    let step: RecipeStep
+
+    @State private var textHeight: CGFloat = 24
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: AppSpacing.md) {
+                Text("\(idx + 1).")
+                    .font(.system(size: numberSize, weight: .bold, design: .serif))
+                    .foregroundStyle(AppColor.accent)
+                    .monospacedDigit()
+                    .frame(minWidth: 36, alignment: .leading)
+                    .animation(.easeOut(duration: 0.15), value: numberSize)
+
+                Text(step.text)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: StepTextHeightKey.self,
+                                value: proxy.size.height
+                            )
+                        }
+                    )
+
+                if step.needsTimer {
+                    Image(systemName: "timer")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppColor.accent.opacity(0.8))
+                        .padding(.top, 4)
+                }
+            }
+            .onPreferenceChange(StepTextHeightKey.self) { textHeight = $0 }
+
+            Capsule()
+                .fill(AppColor.accent.opacity(0.35))
+                .frame(maxWidth: .infinity)
+                .frame(height: 1.5)
+        }
+    }
+
+    /// ~20pt for a single line; grows with wrapped text up to 36pt.
+    /// Based on measured text height, not line count, so dynamic type
+    /// and non-Latin scripts both scale correctly.
+    private var numberSize: CGFloat {
+        let base: CGFloat = 20
+        let extra = max(0, textHeight - 26) * 0.35
+        return min(36, base + extra)
+    }
+}
+
+private struct StepTextHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

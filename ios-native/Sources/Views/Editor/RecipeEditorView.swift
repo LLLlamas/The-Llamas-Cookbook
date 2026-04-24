@@ -53,7 +53,7 @@ struct RecipeEditorView: View {
                 }
 
                 sectionHeader("Steps")
-                sectionHint("One step per line. Long-press and drag a step to reorder — numbers renumber automatically.")
+                sectionHint("List the steps in order, and tap the timer icon if you need to use it for that step. Long press and drag to reorder if you need!")
                 StepQuickAdd(nextNumber: draft.steps.count + 1) {
                     draft.steps.append($0)
                 }
@@ -100,7 +100,7 @@ struct RecipeEditorView: View {
                     .animation(.spring(response: 0.42, dampingFraction: 0.82), value: draft.steps.count)
                 }
 
-                sectionHeader("Tags")
+                sectionHeader("Categories")
                 TagInputView(tags: $draft.tags)
 
                 sectionHeader("Notes")
@@ -120,9 +120,17 @@ struct RecipeEditorView: View {
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textPrimary)
 
-                sectionHeader("Reference link")
+                sectionHeader("Reference Link")
                 sectionHint("Optional. Paste a URL if you adapted this from somewhere online.")
-                TextField("https://example.com/recipe", text: $draft.sourceUrl)
+                TextField(
+                    "",
+                    text: $draft.sourceUrl,
+                    // `prompt:` lets us style the placeholder directly —
+                    // necessary here because the URL keyboard + URL-shaped
+                    // placeholder otherwise renders link-styled blue.
+                    prompt: Text("https://example.com/recipe")
+                        .foregroundStyle(AppColor.textTertiary)
+                )
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -226,10 +234,10 @@ struct RecipeEditorView: View {
         HStack(spacing: AppSpacing.md) {
             LlamaMascot(size: 44)
             VStack(alignment: .leading, spacing: 2) {
-                Text(recipe == nil ? "New recipe" : "Edit recipe")
+                Text(recipe == nil ? "New Recipe" : "Edit Recipe")
                     .font(.system(size: 20, weight: .bold, design: .serif))
                     .foregroundStyle(AppColor.textPrimary)
-                Text("Start with a name — the rest is up to you.")
+                Text("What are we cookin'?")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textSecondary)
             }
@@ -249,7 +257,8 @@ struct RecipeEditorView: View {
                     .tracking(0.8)
                     .foregroundStyle(AppColor.accent)
             }
-            TextField("e.g. Grandma's Sunday pasta", text: $draft.title)
+            TextField("", text: $draft.title)
+                .textInputAutocapitalization(.words)
                 .submitLabel(.done)
                 .padding(AppSpacing.md)
                 .background(AppColor.surface)
@@ -280,16 +289,16 @@ struct RecipeEditorView: View {
 
     private var optionalDetails: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text("Optional details")
+            Text("Optional Details")
                 .font(.system(size: 16, weight: .semibold, design: .serif))
                 .foregroundStyle(AppColor.textPrimary)
-            Text("Set servings so you can scale ingredients while cooking. Set Cook time to start a timer on the matching step.")
+            Text("Set servings so you can scale ingredients while cooking.")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
 
-            HStack(spacing: AppSpacing.sm) {
+            HStack(alignment: .bottom, spacing: AppSpacing.sm) {
                 numberField(label: "Servings", text: $draft.servings, placeholder: "4")
-                numberField(label: "Cook time (min)", text: $draft.cookTimeMinutes, placeholder: "30")
+                okButton
             }
             .padding(.top, AppSpacing.xs)
         }
@@ -301,6 +310,29 @@ struct RecipeEditorView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         .padding(.top, AppSpacing.xl)
+    }
+
+    /// Dismisses the numeric keyboard. Sits next to Servings and pairs
+    /// with `numberField`'s label+field vertical rhythm via an invisible
+    /// spacer label so both columns align at the bottom.
+    private var okButton: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text(" ")
+                .font(AppFont.caption)
+            Button {
+                Haptics.selection()
+                isNumericFocused = false
+            } label: {
+                Text("OK")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AppColor.onAccent)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(AppColor.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func numberField(label: String, text: Binding<String>, placeholder: String) -> some View {
@@ -343,8 +375,8 @@ struct RecipeEditorView: View {
 
     private var headerTitle: String {
         let trimmed = draft.title.trimmed
-        if !trimmed.isEmpty { return trimmed }
-        return recipe == nil ? "New recipe" : "Edit recipe"
+        if !trimmed.isEmpty { return StringCase.titleCase(trimmed) }
+        return recipe == nil ? "New Recipe" : "Edit Recipe"
     }
 
     private func attemptCancel() {

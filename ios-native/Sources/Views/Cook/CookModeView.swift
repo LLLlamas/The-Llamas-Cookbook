@@ -185,7 +185,7 @@ struct CookModeView: View {
                     .clipShape(Circle())
             }
 
-            Text(recipe.title)
+            Text(StringCase.titleCase(recipe.title))
                 .font(.system(size: 18, weight: .bold, design: .serif))
                 .foregroundStyle(AppColor.textPrimary)
                 .lineLimit(1)

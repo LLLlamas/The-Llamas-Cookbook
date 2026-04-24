@@ -134,11 +134,28 @@ enum StringCase {
     }
 
     /// Proper title case — uppercase the first letter of each word,
-    /// lowercase the rest ("gluten-free" → "Gluten-Free",
-    /// "COMFORT FOOD" → "Comfort Food"). Used for tag display so
-    /// storage can be lowercase-normalized but the UI always reads
-    /// like a proper label.
+    /// leave the rest of each word untouched. Apostrophes do **not**
+    /// start a new word (so "grandma's" → "Grandma's", not the
+    /// `.capitalized` bug "Grandma'S"). Hyphens do ("gluten-free" →
+    /// "Gluten-Free"). Already-uppercase characters are preserved, so
+    /// acronyms survive if the user typed them that way.
     static func titleCase(_ s: String) -> String {
-        s.capitalized
+        var result = ""
+        var capitalizeNext = true
+        for ch in s {
+            if ch == " " || ch == "-" {
+                result.append(ch)
+                capitalizeNext = true
+            } else if ch == "'" || ch == "\u{2019}" {
+                // Apostrophe / curly apostrophe — next letter stays as-typed.
+                result.append(ch)
+            } else if capitalizeNext {
+                result.append(ch.isLowercase ? Character(ch.uppercased()) : ch)
+                capitalizeNext = false
+            } else {
+                result.append(ch)
+            }
+        }
+        return result
     }
 }
