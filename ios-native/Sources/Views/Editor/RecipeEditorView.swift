@@ -8,13 +8,18 @@ struct RecipeEditorView: View {
 
     /// nil when creating a new recipe; the target when editing.
     let recipe: Recipe?
+    /// Optional override for the post-save dismissal. When the editor is pushed
+    /// inside another sheet (e.g. the Import flow), the parent sets this to
+    /// dismiss the *whole* sheet on Save instead of just popping the editor.
+    let onSaved: (() -> Void)?
 
     @State private var draft: DraftRecipe
     @State private var showDiscardAlert = false
     @FocusState private var isNumericFocused: Bool
 
-    init(recipe: Recipe?, initialDraft: DraftRecipe? = nil) {
+    init(recipe: Recipe?, initialDraft: DraftRecipe? = nil, onSaved: (() -> Void)? = nil) {
         self.recipe = recipe
+        self.onSaved = onSaved
         _draft = State(initialValue: initialDraft ?? recipe?.toDraft() ?? DraftRecipe())
     }
 
@@ -306,7 +311,11 @@ struct RecipeEditorView: View {
             let newRecipe = Recipe.new(from: draft)
             modelContext.insert(newRecipe)
         }
-        dismiss()
+        if let onSaved {
+            onSaved()
+        } else {
+            dismiss()
+        }
     }
 }
 

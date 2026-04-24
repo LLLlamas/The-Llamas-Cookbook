@@ -97,7 +97,11 @@ struct ImportRecipeView: View {
         }
         .navigationDestination(isPresented: $showEditor) {
             if let draft = parsedDraft {
-                RecipeEditorView(recipe: nil, initialDraft: draft)
+                RecipeEditorView(recipe: nil, initialDraft: draft) {
+                    // Save inside the import flow should dismiss the whole
+                    // sheet, not just pop the editor back to this view.
+                    dismiss()
+                }
             }
         }
     }

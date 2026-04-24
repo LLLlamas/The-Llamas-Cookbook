@@ -23,7 +23,16 @@ enum RecipeImporter {
             let lower = line.lowercased()
 
             if !titleSet {
-                draft.title = line
+                // "Title" / "Title:" alone on a line is just the section
+                // identifier — the actual value is the next non-empty line.
+                if lower == "title" || lower == "title:" { continue }
+                // "Title: Cookie", "Title - Cookie", "Title Cookie" → strip
+                // the identifier and keep just the value.
+                if let match = try? #/^[Tt]itle(?:\s*[:\-]\s*|\s+)(.+)$/#.wholeMatch(in: line) {
+                    draft.title = String(match.output.1).trimmingCharacters(in: .whitespaces)
+                } else {
+                    draft.title = line
+                }
                 titleSet = true
                 continue
             }
