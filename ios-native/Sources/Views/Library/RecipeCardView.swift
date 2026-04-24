@@ -4,7 +4,7 @@ struct RecipeCardView: View {
     let recipe: Recipe
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
             HStack(alignment: .top, spacing: AppSpacing.md) {
                 Text(recipe.title)
                     .font(AppFont.sectionHeading)
@@ -13,6 +13,7 @@ struct RecipeCardView: View {
                 Spacer(minLength: 0)
                 if recipe.favorite {
                     Image(systemName: "heart.fill")
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(AppColor.accent)
                 }
             }
@@ -24,12 +25,8 @@ struct RecipeCardView: View {
                     .lineLimit(2)
             }
 
-            if !metaParts.isEmpty {
-                Text(metaParts.joined(separator: " · "))
-                    .font(AppFont.caption)
-                    .foregroundStyle(AppColor.textSecondary)
-                    .padding(.top, AppSpacing.xs / 2)
-            }
+            metaFooter
+                .padding(.top, 2)
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,14 +46,65 @@ struct RecipeCardView: View {
         .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
     }
 
-    private var metaParts: [String] {
-        var parts: [String] = []
-        if let last = recipe.lastCookedAt {
-            parts.append("Last cooked \(last.formatted(.dateTime.month(.twoDigits).day(.twoDigits).year()))")
+    // MARK: - Meta footer
+
+    /// Tag chips on the leading side, dates on the trailing side. Collapses
+    /// to single-line when it fits, wraps to a second line on narrower
+    /// titles or long tag lists.
+    private var metaFooter: some View {
+        HStack(alignment: .center, spacing: AppSpacing.sm) {
+            if !recipe.tags.isEmpty {
+                tagChips
+            }
+            Spacer(minLength: AppSpacing.xs)
+            dateStack
         }
-        if recipe.cookCount > 0 {
-            parts.append("Cooked \(recipe.cookCount) time\(recipe.cookCount == 1 ? "" : "s")")
-        }
-        return parts
     }
+
+    private var tagChips: some View {
+        HStack(spacing: 4) {
+            ForEach(recipe.tags.prefix(2), id: \.self) { tag in
+                Text(StringCase.titleCase(tag))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppColor.accentDeep)
+                    .padding(.horizontal, AppSpacing.sm)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(AppColor.accentSoft.opacity(0.7))
+                    )
+            }
+            if recipe.tags.count > 2 {
+                Text("+\(recipe.tags.count - 2)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+        }
+    }
+
+    private var dateStack: some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            Text("Added \(Self.shortDate.string(from: recipe.createdAt))")
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(AppColor.textSecondary)
+                .monospacedDigit()
+            if let last = recipe.lastCookedAt {
+                Text("Cooked \(Self.shortDate.string(from: last))")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(AppColor.textTertiary)
+                    .monospacedDigit()
+            } else {
+                Text("Not cooked yet")
+                    .font(.system(size: 10.5))
+                    .italic()
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+        }
+    }
+
+    /// Shared formatter — M/d/yy keeps the card's right side compact.
+    private static let shortDate: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "M/d/yy"
+        return f
+    }()
 }

@@ -17,6 +17,7 @@ struct LibraryView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
+            mascotWatermark
             content
             addButton
         }
@@ -80,6 +81,20 @@ struct LibraryView: View {
         }
     }
 
+    /// Faint mascot watermark sitting behind everything. Pinned toward
+    /// the bottom-center so it feels like an emblem rather than a pattern,
+    /// and low-opacity enough that cards stay legible on top.
+    private var mascotWatermark: some View {
+        VStack {
+            Spacer(minLength: 0)
+            LlamaMascot(size: 300)
+                .opacity(0.06)
+                .padding(.bottom, 120)
+        }
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+    }
+
     private var recipeList: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
@@ -106,28 +121,48 @@ struct LibraryView: View {
                     .padding(.trailing, AppSpacing.lg + 16)
                     .padding(.vertical, AppSpacing.lg)
                 }
-                .background(AppColor.background)
+                // No explicit background here — we want the faint mascot
+                // watermark sitting behind the list to peek through the
+                // gaps between recipe cards.
+                .scrollContentBackground(.hidden)
 
-                if availableLetters.count > 1 {
-                    LetterIndex(letters: availableLetters) { letter in
-                        guard let target = firstRecipe(startingWith: letter) else { return }
-                        Haptics.selection()
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            proxy.scrollTo(target.id, anchor: .top)
-                        }
+                LetterIndex(
+                    letters: Self.allLetters,
+                    populated: populatedLetters
+                ) { letter in
+                    guard let target = firstRecipe(atOrAfter: letter) else { return }
+                    Haptics.selection()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(target.id, anchor: .top)
                     }
-                    .padding(.trailing, 4)
                 }
+                .padding(.trailing, 2)
             }
         }
     }
 
-    private var availableLetters: [String] {
-        Array(Set(filtered.map(Self.sectionLetter))).sorted(by: Self.letterOrder)
+    /// Full A–Z (plus `#` for non-letter starts) — always rendered so the
+    /// strip has a consistent, filled-out look. Letters without any recipe
+    /// are dimmed; tapping one scrolls to the next available letter.
+    private static let allLetters: [String] = {
+        let az = (0..<26).map { String(UnicodeScalar(UInt8(65 + $0))) }
+        return az + ["#"]
+    }()
+
+    private var populatedLetters: Set<String> {
+        Set(filtered.map(Self.sectionLetter))
     }
 
-    private func firstRecipe(startingWith letter: String) -> Recipe? {
-        filtered.first { Self.sectionLetter(for: $0) == letter }
+    /// Find the first recipe whose section letter is `letter` or the next
+    /// populated letter after it. Keeps taps on empty letters useful
+    /// instead of no-ops.
+    private func firstRecipe(atOrAfter letter: String) -> Recipe? {
+        guard let startIndex = Self.allLetters.firstIndex(of: letter) else { return nil }
+        let populated = populatedLetters
+        for candidate in Self.allLetters[startIndex...] where populated.contains(candidate) {
+            return filtered.first { Self.sectionLetter(for: $0) == candidate }
+        }
+        return nil
     }
 
     private static func sectionLetter(for recipe: Recipe) -> String {
@@ -141,13 +176,6 @@ struct LibraryView: View {
         guard let first = title.first else { return "#" }
         let s = String(first).uppercased()
         return s.rangeOfCharacter(from: .letters) != nil ? s : "#"
-    }
-
-    /// Sort letters A–Z, with "#" at the end so the alphabet reads normally.
-    private static func letterOrder(_ lhs: String, _ rhs: String) -> Bool {
-        if lhs == "#" { return false }
-        if rhs == "#" { return true }
-        return lhs < rhs
     }
 
     private var filterStrip: some View {
@@ -303,54 +331,63 @@ private struct RecipeCardButtonStyle: ButtonStyle {
     }
 }
 
-/// Vertical A–Z strip on the trailing edge of the library list. Tap a
-/// letter to jump. Drag a finger up/down to scrub through letters —
-/// matches the behavior of iOS Contacts' side index.
+/// Vertical A–Z strip on the trailing edge of the library list. Renders
+/// the whole alphabet (+ `#`) for a consistent full look; letters that
+/// match at least one recipe are fully opaque, the rest are dimmed.
+/// Tap or drag your finger up/down to scrub through letters.
 private struct LetterIndex: View {
     let letters: [String]
+    let populated: Set<String>
     let onSelect: (String) -> Void
 
     @State private var lastScrubbed: String?
 
+    private let rowHeight: CGFloat = 11
+    private let stripWidth: CGFloat = 14
+    private let verticalPadding: CGFloat = 4
+
     var body: some View {
-        GeometryReader { geo in
-            VStack(spacing: 0) {
-                ForEach(letters, id: \.self) { letter in
-                    Text(letter)
-                        .font(.system(size: 10, weight: .heavy, design: .serif))
-                        .foregroundStyle(AppColor.accentDeep)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+        let strip = VStack(spacing: 0) {
+            ForEach(letters, id: \.self) { letter in
+                Text(letter)
+                    .font(.system(size: 9, weight: .bold, design: .serif))
+                    .foregroundStyle(AppColor.accentDeep.opacity(populated.contains(letter) ? 0.85 : 0.3))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: rowHeight)
             }
-            .frame(width: 20)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(AppColor.surface.opacity(0.9))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(AppColor.divider, lineWidth: 0.5)
-                    )
-            )
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        // Map y-position within the strip to a letter index.
-                        let h = geo.size.height - 12  // minus vertical padding
-                        let per = h / CGFloat(max(letters.count, 1))
-                        let raw = Int((value.location.y - 6) / per)
-                        let idx = max(0, min(letters.count - 1, raw))
-                        let letter = letters[idx]
-                        if letter != lastScrubbed {
-                            lastScrubbed = letter
-                            onSelect(letter)
-                        }
-                    }
-                    .onEnded { _ in lastScrubbed = nil }
-            )
         }
-        .frame(width: 22)
+        .frame(width: stripWidth)
+        .padding(.vertical, verticalPadding)
+        .background(
+            Capsule()
+                .fill(AppColor.surface.opacity(0.35))
+        )
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let idx = max(
+                        0,
+                        min(
+                            letters.count - 1,
+                            Int((value.location.y - verticalPadding) / rowHeight)
+                        )
+                    )
+                    let letter = letters[idx]
+                    if letter != lastScrubbed {
+                        lastScrubbed = letter
+                        onSelect(letter)
+                    }
+                }
+                .onEnded { _ in lastScrubbed = nil }
+        )
+
+        // Vertically center the strip in the trailing edge of the list.
+        return VStack {
+            Spacer(minLength: 0)
+            strip
+            Spacer(minLength: 0)
+        }
     }
 }
 
