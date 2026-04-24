@@ -3,6 +3,7 @@ import UIKit
 
 struct ImportRecipeView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(EditorCoordinator.self) private var editor
 
     @State private var pastedText = ""
     @State private var parsedDraft: DraftRecipe?
@@ -106,6 +107,13 @@ struct ImportRecipeView: View {
                     hasSeenImportHelp = true
                 }
             }
+            editor.hasUnsavedChanges = !pastedText.trimmed.isEmpty
+        }
+        .onChange(of: pastedText) { _, newValue in
+            editor.hasUnsavedChanges = !newValue.trimmed.isEmpty
+        }
+        .onDisappear {
+            editor.hasUnsavedChanges = false
         }
     }
 

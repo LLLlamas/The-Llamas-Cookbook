@@ -6,10 +6,10 @@ struct RecipeDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(CookingSession.self) private var session
+    @Environment(EditorCoordinator.self) private var editor
 
     let recipe: Recipe
 
-    @State private var showingEditor = false
     @State private var showingDeleteAlert = false
     @State private var showingConversions = false
 
@@ -130,7 +130,7 @@ struct RecipeDetailView: View {
                             .foregroundStyle(AppColor.textPrimary)
                     }
                     Button {
-                        showingEditor = true
+                        editor.startEdit(recipe)
                     } label: {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 17, weight: .bold))
@@ -138,14 +138,6 @@ struct RecipeDetailView: View {
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showingEditor) {
-            NavigationStack {
-                RecipeEditorView(recipe: recipe)
-            }
-            .presentationDetents([.large, .height(80)])
-            .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
-            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingConversions) {
             ConversionsView()

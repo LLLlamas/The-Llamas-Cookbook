@@ -9,11 +9,10 @@ private enum LibraryFilter: Equatable, Hashable {
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(EditorCoordinator.self) private var editor
     @Query(sort: \Recipe.createdAt, order: .reverse) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
-    @State private var showingNewEditor = false
-    @State private var showingImport = false
     @State private var deletingRecipe: Recipe?
 
     var body: some View {
@@ -37,24 +36,6 @@ struct LibraryView: View {
         .toolbarBackground(AppColor.background, for: .navigationBar)
         .navigationDestination(for: Recipe.self) { recipe in
             RecipeDetailView(recipe: recipe)
-        }
-        .sheet(isPresented: $showingNewEditor) {
-            NavigationStack {
-                RecipeEditorView(recipe: nil)
-            }
-            // `.large` first so the sheet opens fully expanded every time
-            // (SwiftUI picks the first detent on initial present).
-            .presentationDetents([.large, .height(80)])
-            .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showingImport) {
-            NavigationStack {
-                ImportRecipeView()
-            }
-            .presentationDetents([.large, .height(80)])
-            .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
-            .presentationDragIndicator(.visible)
         }
         .alert(
             "Delete recipe?",
@@ -190,13 +171,13 @@ struct LibraryView: View {
         Menu {
             Button {
                 Haptics.impact(.light)
-                showingNewEditor = true
+                editor.startNew()
             } label: {
                 Label("New recipe", systemImage: "square.and.pencil")
             }
             Button {
                 Haptics.impact(.light)
-                showingImport = true
+                editor.startImport()
             } label: {
                 Label("Import from text", systemImage: "doc.on.clipboard")
             }
@@ -274,12 +255,14 @@ private struct RecipeCardButtonStyle: ButtonStyle {
     NavigationStack { LibraryView() }
         .modelContainer(previewContainer(populated: true))
         .environment(CookingSession())
+        .environment(EditorCoordinator())
 }
 
 #Preview("Empty") {
     NavigationStack { LibraryView() }
         .modelContainer(previewContainer(populated: false))
         .environment(CookingSession())
+        .environment(EditorCoordinator())
 }
 
 @MainActor

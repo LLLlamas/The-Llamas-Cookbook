@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct RecipeEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(EditorCoordinator.self) private var editor
 
     /// nil when creating a new recipe; the target when editing.
     let recipe: Recipe?
@@ -202,6 +203,20 @@ struct RecipeEditorView: View {
             Button("Discard", role: .destructive) { dismiss() }
         } message: {
             Text("Your edits will be lost.")
+        }
+        .onAppear { syncDirty() }
+        .onChange(of: draft) { _, _ in syncDirty() }
+        .onDisappear { editor.hasUnsavedChanges = false }
+    }
+
+    /// Keep EditorCoordinator's dirty flag in sync with the live draft.
+    /// The coordinator uses it to gate switch-to-a-different-sheet
+    /// attempts behind the discard alert at RootView.
+    private func syncDirty() {
+        if let existing = recipe {
+            editor.hasUnsavedChanges = (existing.toDraft() != draft)
+        } else {
+            editor.hasUnsavedChanges = draft.hasAnyContent
         }
     }
 
