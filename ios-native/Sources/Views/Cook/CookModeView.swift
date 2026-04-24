@@ -20,6 +20,7 @@ struct CookModeView: View {
     @State private var now = Date()
 
     @State private var alarmTask: Task<Void, Never>?
+    @State private var liveActivity = TimerLiveActivityController()
 
     @State private var showingExitConfirm = false
     @State private var showingTimerSheet = false
@@ -113,7 +114,14 @@ struct CookModeView: View {
                 stopAlarm()
             }
         }
-        .onDisappear { stopAlarm() }
+        .onDisappear {
+            stopAlarm()
+            // Tear down the Live Activity when the user leaves Cook Mode —
+            // otherwise an orphan countdown keeps ticking in the Dynamic
+            // Island with no corresponding in-app state.
+            liveActivity.end()
+            TimerNotifications.cancel()
+        }
         .fullScreenCover(isPresented: $timerExpired) {
             TimerReadyOverlay(
                 label: timerLabel,
@@ -129,6 +137,7 @@ struct CookModeView: View {
                     timerStepId = nil
                     timerExpired = false
                     TimerNotifications.cancel()
+                    liveActivity.end()
                 }
             )
         }
@@ -614,6 +623,15 @@ struct CookModeView: View {
         now = Date()
         Haptics.impact(.medium)
         TimerNotifications.schedule(endDate: endsAt, label: label)
+
+        let stepNumber = (sortedSteps.firstIndex(where: { $0.id == stepId }) ?? 0) + 1
+        liveActivity.end() // clear any lingering activity from a prior step
+        liveActivity.start(
+            recipeTitle: recipe.title,
+            endDate: endsAt,
+            label: label,
+            stepNumber: stepNumber
+        )
     }
 
     /// Initial timer duration for a step. Priority:
@@ -645,6 +663,7 @@ struct CookModeView: View {
         timerEndsAt = nil
         timerStepId = nil
         TimerNotifications.cancel()
+        liveActivity.end()
     }
 
     /// Shift the current timer by `minutes` — positive extends, negative
@@ -664,9 +683,14 @@ struct CookModeView: View {
         now = Date()
         timerExpired = false
         Haptics.impact(.medium)
-        // Reschedule the background notification to match the new end time.
+        // Reschedule the background notification + Live Activity to match
+        // the new end time.
         if let end = timerEndsAt {
             TimerNotifications.schedule(endDate: end, label: timerLabel)
+            let stepNumber = timerStepId
+                .flatMap { id in sortedSteps.firstIndex(where: { $0.id == id }) }
+                .map { $0 + 1 } ?? 0
+            liveActivity.update(endDate: end, label: timerLabel, stepNumber: stepNumber)
         }
     }
 

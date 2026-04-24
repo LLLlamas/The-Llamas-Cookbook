@@ -51,7 +51,7 @@ struct IngredientRowEditor: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.vertical, AppSpacing.sm + 2)
+            .padding(.vertical, 4)
             .padding(.horizontal, AppSpacing.md)
             .background(AppColor.surface)
             .overlay(
@@ -59,6 +59,7 @@ struct IngredientRowEditor: View {
                     .stroke(AppColor.divider, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .shadow(color: AppColor.shadowSoft, radius: 3, x: 0, y: 1)
         }
         .buttonStyle(.plain)
     }

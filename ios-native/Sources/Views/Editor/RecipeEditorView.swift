@@ -37,7 +37,7 @@ struct RecipeEditorView: View {
                 sectionHint("Fill in quantity, unit, and ingredient — all three are required before you add the row.")
                 IngredientQuickAdd(numericFocus: $isNumericFocused) { draft.ingredients.append($0) }
                 if !draft.ingredients.isEmpty {
-                    VStack(spacing: AppSpacing.xs) {
+                    VStack(spacing: 3) {
                         ForEach($draft.ingredients) { $ingredient in
                             IngredientRowEditor(ingredient: $ingredient, numericFocus: $isNumericFocused) {
                                 draft.ingredients.removeAll { $0.id == ingredient.id }

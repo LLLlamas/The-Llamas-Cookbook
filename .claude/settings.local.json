@@ -17,7 +17,9 @@
       "Bash(npx --yes eas-cli@latest build:list --platform ios --limit 5 --non-interactive --json)",
       "Bash(gh repo *)",
       "Bash(gh secret *)",
-      "WebFetch(domain:www.southernliving.com)"
+      "WebFetch(domain:www.southernliving.com)",
+      "PowerShell(if \\(Test-Path \"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\) { [Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\)\\) | Set-Clipboard; Write-Host \"Base64 of Cookbook_Timer_Widget.mobileprovision copied to clipboard\" } else { Write-Host \"File not found\" })",
+      "PowerShell([Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\)\\) | Set-Clipboard; Write-Host \"Copied\")"
     ]
   }
 }
