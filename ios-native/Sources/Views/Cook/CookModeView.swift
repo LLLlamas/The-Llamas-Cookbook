@@ -119,8 +119,16 @@ struct CookModeView: View {
                 label: timerLabel,
                 onExtend: { minutes in extendTimer(by: minutes) },
                 onStop: {
+                    // Confirming Stop = confirming this step is done.
+                    // That's why handleStepTap deliberately doesn't check
+                    // the step off when starting the timer — it waits for
+                    // this moment.
+                    if let id = timerStepId {
+                        struckSteps.insert(id)
+                    }
                     timerStepId = nil
                     timerExpired = false
+                    TimerNotifications.cancel()
                 }
             )
         }
@@ -366,20 +374,15 @@ struct CookModeView: View {
                 let anotherTiming = timerEndsAt != nil && timerStepId != step.id
 
                 VStack(spacing: 0) {
-                    Button {
-                        toggleStep(step.id)
-                    } label: {
-                        HStack(alignment: .top, spacing: AppSpacing.md) {
-                            stepBadge(idx: idx, struck: struck)
-                            Text(step.text)
-                                .font(AppFont.ingredientCook)
-                                .foregroundStyle(struck ? AppColor.textSecondary : AppColor.textPrimary)
-                                .strikethrough(struck)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(AppSpacing.md)
+                    HStack(alignment: .top, spacing: AppSpacing.md) {
+                        stepBadge(idx: idx, struck: struck)
+                        Text(step.text)
+                            .font(AppFont.ingredientCook)
+                            .foregroundStyle(struck ? AppColor.textSecondary : AppColor.textPrimary)
+                            .strikethrough(struck)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
+                    .padding(AppSpacing.md)
 
                     if step.needsTimer, canTimer, !thisTiming, !anotherTiming {
                         timerStartChip(keyword: label, step: step)
@@ -397,6 +400,10 @@ struct CookModeView: View {
                         )
                 )
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    handleStepTap(step)
+                }
             }
         }
     }
@@ -568,28 +575,45 @@ struct CookModeView: View {
         }
     }
 
-    private func toggleStep(_ id: UUID) {
+    /// Tap handler for a step in the cook-phase list. The rule:
+    /// - Already struck → always un-strike. Easy undo.
+    /// - Needs a timer and no timer running → start the timer.
+    ///   The step stays unchecked; check-off waits for Stop on the ready
+    ///   overlay, so users don't get "done" early by tapping to kick off a
+    ///   countdown.
+    /// - This step's timer is running → open the adjust sheet (same as
+    ///   tapping the floating banner).
+    /// - Anything else → strike the step.
+    private func handleStepTap(_ step: RecipeStep) {
         Haptics.selection()
-        let wasStruck = struckSteps.contains(id)
-        if wasStruck {
-            struckSteps.remove(id)
-        } else {
-            struckSteps.insert(id)
+
+        if struckSteps.contains(step.id) {
+            struckSteps.remove(step.id)
+            return
         }
-        if !wasStruck, canTimer, timerEndsAt == nil,
-           let step = sortedSteps.first(where: { $0.id == id }),
-           step.needsTimer {
+
+        if step.needsTimer, canTimer, timerEndsAt == nil {
             let label = Self.extractTimerKeyword(step.text) ?? "cook"
-            startTimer(stepId: id, label: label, durationSeconds: timerSeconds(for: step))
+            startTimer(stepId: step.id, label: label, durationSeconds: timerSeconds(for: step))
+            return
         }
+
+        if step.needsTimer, timerStepId == step.id, timerEndsAt != nil {
+            showingTimerSheet = true
+            return
+        }
+
+        struckSteps.insert(step.id)
     }
 
     private func startTimer(stepId: UUID, label: String, durationSeconds: TimeInterval) {
         timerStepId = stepId
         timerLabel = label
-        timerEndsAt = Date().addingTimeInterval(durationSeconds)
+        let endsAt = Date().addingTimeInterval(durationSeconds)
+        timerEndsAt = endsAt
         now = Date()
         Haptics.impact(.medium)
+        TimerNotifications.schedule(endDate: endsAt, label: label)
     }
 
     /// Initial timer duration for a step. Priority:
@@ -620,21 +644,30 @@ struct CookModeView: View {
     private func cancelTimer() {
         timerEndsAt = nil
         timerStepId = nil
+        TimerNotifications.cancel()
     }
 
-    /// Add minutes to the current timer, or (if the timer already expired)
-    /// restart a fresh timer with just those minutes.
+    /// Shift the current timer by `minutes` — positive extends, negative
+    /// subtracts. If the timer already expired, only positive values
+    /// restart a fresh countdown (can't subtract time from nothing).
+    /// Subtraction is clamped so the timer can't be pushed into the past
+    /// and trigger the ready overlay unintentionally.
     private func extendTimer(by minutes: Int) {
-        guard minutes > 0 else { return }
-        let additional = TimeInterval(minutes * 60)
+        guard minutes != 0 else { return }
+        let delta = TimeInterval(minutes * 60)
         if let end = timerEndsAt {
-            timerEndsAt = end.addingTimeInterval(additional)
-        } else {
-            timerEndsAt = Date().addingTimeInterval(additional)
+            let proposed = end.addingTimeInterval(delta)
+            timerEndsAt = max(proposed, Date().addingTimeInterval(1))
+        } else if minutes > 0 {
+            timerEndsAt = Date().addingTimeInterval(delta)
         }
         now = Date()
         timerExpired = false
         Haptics.impact(.medium)
+        // Reschedule the background notification to match the new end time.
+        if let end = timerEndsAt {
+            TimerNotifications.schedule(endDate: end, label: timerLabel)
+        }
     }
 
     // Timer ticker — runs while timerEndsAt is set, updates `now` every second.
@@ -824,27 +857,46 @@ private struct RunningTimerSheet: View {
             .padding(.top, AppSpacing.md)
 
             VStack(spacing: AppSpacing.sm) {
-                Text("Add more time")
+                Text("Adjust time")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(AppColor.textPrimary)
 
                 MinutePicker(selection: $extendMinutes, tint: AppColor.textPrimary)
                     .frame(height: 120)
 
-                Button {
-                    onExtend(extendMinutes)
-                } label: {
-                    HStack(spacing: AppSpacing.xs) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .bold))
-                        Text("Extend by \(extendMinutes) min")
-                            .font(.system(size: 16, weight: .semibold))
+                HStack(spacing: AppSpacing.sm) {
+                    Button {
+                        onExtend(-extendMinutes)
+                    } label: {
+                        HStack(spacing: AppSpacing.xs) {
+                            Image(systemName: "minus")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("\(extendMinutes) min")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundStyle(AppColor.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, AppSpacing.md)
+                        .background(AppColor.surface)
+                        .overlay(Capsule().stroke(AppColor.accent, lineWidth: 1.5))
+                        .clipShape(Capsule())
                     }
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppSpacing.md)
-                    .background(AppColor.accent)
-                    .clipShape(Capsule())
+
+                    Button {
+                        onExtend(extendMinutes)
+                    } label: {
+                        HStack(spacing: AppSpacing.xs) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("\(extendMinutes) min")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, AppSpacing.md)
+                        .background(AppColor.accent)
+                        .clipShape(Capsule())
+                    }
                 }
             }
 

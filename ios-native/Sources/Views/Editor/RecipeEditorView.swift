@@ -140,7 +140,9 @@ struct RecipeEditorView: View {
                 optionalDetails
             }
             .padding(AppSpacing.lg)
-            .padding(.bottom, AppSpacing.xxl)
+            // Extra bottom runway so the focused TextField sits well above
+            // the keyboard, not crammed right against its top edge.
+            .padding(.bottom, 120)
             .contentShape(Rectangle())
             .onTapGesture {
                 UIApplication.shared.sendAction(
@@ -150,6 +152,15 @@ struct RecipeEditorView: View {
                 editingStepId = nil
             }
         }
+        .simultaneousGesture(
+            DragGesture().onChanged { _ in
+                // Any scroll gesture collapses step edit mode (paired with
+                // scrollDismissesKeyboard, which handles the keyboard itself).
+                if editingStepId != nil {
+                    editingStepId = nil
+                }
+            }
+        )
         .scrollDismissesKeyboard(.immediately)
         .background(AppColor.background)
         .navigationTitle(headerTitle)

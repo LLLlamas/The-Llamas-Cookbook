@@ -6,6 +6,8 @@ struct StepRowEditor: View {
     @Binding var isEditing: Bool
     let onDelete: () -> Void
 
+    @FocusState private var fieldFocused: Bool
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm + 2) {
             Text("\(index + 1).")
@@ -48,6 +50,22 @@ struct StepRowEditor: View {
                 isEditing = true
             }
         }
+        .onChange(of: isEditing) { _, newValue in
+            // Chain edit-mode ↔ TextField focus. Entering edit pops the
+            // keyboard automatically; losing focus (scroll, tap away,
+            // keyboard Return, another step tapped) collapses edit mode
+            // without the caller having to orchestrate it.
+            if newValue {
+                fieldFocused = true
+            } else {
+                fieldFocused = false
+            }
+        }
+        .onChange(of: fieldFocused) { _, focused in
+            if !focused && isEditing {
+                isEditing = false
+            }
+        }
     }
 
     @ViewBuilder
@@ -69,6 +87,7 @@ struct StepRowEditor: View {
             .font(AppFont.body)
             .foregroundStyle(AppColor.textPrimary)
             .submitLabel(.done)
+            .focused($fieldFocused)
             .onSubmit { isEditing = false }
             .tint(AppColor.accent)
             .frame(maxWidth: .infinity, alignment: .leading)
