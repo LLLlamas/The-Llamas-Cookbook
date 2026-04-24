@@ -19,7 +19,9 @@
       "Bash(gh secret *)",
       "WebFetch(domain:www.southernliving.com)",
       "PowerShell(if \\(Test-Path \"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\) { [Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\)\\) | Set-Clipboard; Write-Host \"Base64 of Cookbook_Timer_Widget.mobileprovision copied to clipboard\" } else { Write-Host \"File not found\" })",
-      "PowerShell([Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\)\\) | Set-Clipboard; Write-Host \"Copied\")"
+      "PowerShell([Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\)\\) | Set-Clipboard; Write-Host \"Copied\")",
+      "PowerShell(if \\(Test-Path \"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\) { [Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"\\)\\) | Set-Clipboard; Write-Host \"Ready: updated base64 copied to clipboard \\(paste over the existing IOS_WIDGET_PROVISIONING_PROFILE_BASE64 secret\\)\" } else { Write-Host \"File not found at that path — confirm the new download landed at C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision \\(not Cookbook_Timer_Widget \\(1\\).mobileprovision etc.\\)\" })",
+      "PowerShell($path = \"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"; if \\(Test-Path $path\\) { [Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\($path\\)\\) | Set-Clipboard; $info = Get-Item $path; Write-Host \"Copied. File modified: $\\($info.LastWriteTime\\), size: $\\($info.Length\\) bytes\" } else { Write-Host \"Not found — check for a \\(1\\) suffix or similar\" })"
     ]
   }
 }
