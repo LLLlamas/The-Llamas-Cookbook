@@ -49,7 +49,7 @@ struct RecipeEditorView: View {
                 }
 
                 sectionHeader("Steps")
-                sectionHint("One step per line. They'll be numbered and you'll check them off while cooking.")
+                sectionHint("One step per line. Long-press and drag a step to reorder — numbers renumber automatically.")
                 StepQuickAdd(nextNumber: draft.steps.count + 1) {
                     draft.steps.append($0)
                 }
@@ -66,6 +66,12 @@ struct RecipeEditorView: View {
                                 insertion: .move(edge: .leading).combined(with: .opacity),
                                 removal: .opacity.combined(with: .scale(scale: 0.9))
                             ))
+                            .draggable(step.id.uuidString) {
+                                stepDragPreview(for: step)
+                            }
+                            .dropDestination(for: String.self) { items, _ in
+                                reorderStep(draggedIdString: items.first, ontoId: step.id)
+                            }
                         }
                     }
                     .animation(.spring(response: 0.42, dampingFraction: 0.82), value: draft.steps.count)
@@ -316,6 +322,47 @@ struct RecipeEditorView: View {
         } else {
             dismiss()
         }
+    }
+
+    // MARK: - Step reordering
+
+    @ViewBuilder
+    private func stepDragPreview(for step: DraftStep) -> some View {
+        let indexLabel = (draft.steps.firstIndex(where: { $0.id == step.id }) ?? 0) + 1
+        HStack(spacing: AppSpacing.sm) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(AppColor.accent)
+            Text("\(indexLabel). \(step.text.isEmpty ? "Step" : step.text)")
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textPrimary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, AppSpacing.md)
+        .padding(.vertical, AppSpacing.sm)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.accent, lineWidth: 1.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .shadow(color: AppColor.shadow, radius: 12, x: 0, y: 4)
+    }
+
+    private func reorderStep(draggedIdString: String?, ontoId: UUID) -> Bool {
+        guard let idStr = draggedIdString,
+              let fromId = UUID(uuidString: idStr),
+              fromId != ontoId,
+              let fromIdx = draft.steps.firstIndex(where: { $0.id == fromId }),
+              let toIdx = draft.steps.firstIndex(where: { $0.id == ontoId })
+        else { return false }
+
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+            let moved = draft.steps.remove(at: fromIdx)
+            draft.steps.insert(moved, at: toIdx)
+        }
+        Haptics.impact(.medium)
+        return true
     }
 }
 
