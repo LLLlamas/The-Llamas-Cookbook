@@ -94,9 +94,12 @@ enum RecipeImporter {
         s = s.trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty else { return nil }
 
-        // Normalize spacing around "&" so "1 &1/2 cup flour" and
-        // "1&1/2 cup flour" and "1 & 1/2 cup flour" all tokenize the same.
+        // Normalize spacing around "&" so "1 &1/2 cup flour" and variants
+        // tokenize the same.
         s = s.replacingOccurrences(of: "&", with: " & ")
+        // Repair broken fractions — "1 /3" and "1/ 3" both become "1/3".
+        s = s.replacingOccurrences(of: #"(\d)\s+/(\d)"#, with: "$1/$2", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(\d)/\s+(\d)"#, with: "$1/$2", options: .regularExpression)
         s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
 
@@ -114,9 +117,18 @@ enum RecipeImporter {
         if idx < tokens.count {
             let candidate = tokens[idx].lowercased().trimmingCharacters(in: .punctuationCharacters)
             if knownUnits.contains(candidate) {
-                unit = tokens[idx]
+                // Canonicalize plural → singular so display pluralization
+                // via `Plural.unit(_, for:)` stays internally consistent.
+                unit = unitSingularMap[candidate] ?? candidate
                 idx += 1
             }
+        }
+
+        // "3 cups of flour" / "1 teaspoon of salt" — the connector "of"
+        // isn't part of the ingredient name. Skip it so names don't get
+        // polluted with stray prepositions.
+        if idx < tokens.count, tokens[idx].lowercased() == "of" {
+            idx += 1
         }
 
         let nameTokens = tokens[idx...].joined(separator: " ")
@@ -157,11 +169,57 @@ enum RecipeImporter {
     }
 
     private static let knownUnits: Set<String> = [
-        "cup", "cups", "tbsp", "tsp", "oz", "lb", "lbs",
-        "g", "kg", "mg", "ml", "l",
+        // Volume
+        "cup", "cups",
+        "tbsp", "tablespoon", "tablespoons",
+        "tsp", "teaspoon", "teaspoons",
+        "fl oz",
+        "ml", "milliliter", "milliliters",
+        "l", "liter", "liters", "litre", "litres",
+        "pint", "pints", "quart", "quarts", "gallon", "gallons",
+        // Weight
+        "oz", "ounce", "ounces",
+        "lb", "lbs", "pound", "pounds",
+        "g", "gram", "grams",
+        "kg", "kilogram", "kilograms",
+        "mg", "milligram", "milligrams",
+        // Discrete
         "clove", "cloves", "pinch", "pinches", "dash", "dashes",
         "slice", "slices", "piece", "pieces", "can", "cans",
         "stick", "sticks", "sprig", "sprigs", "head", "heads",
-        "bunch", "bunches",
+        "bunch", "bunches", "handful", "handfuls",
+    ]
+
+    /// Maps plural user-typed units back to their singular canonical form
+    /// so storage stays consistent and `Plural.unit(_, for:)` can pluralize
+    /// on display based on the actual quantity (avoids weird results like
+    /// "1 cups" or "2 pieces" getting stuck).
+    private static let unitSingularMap: [String: String] = [
+        "cups": "cup",
+        "tablespoons": "tablespoon",
+        "teaspoons": "teaspoon",
+        "ounces": "ounce",
+        "pounds": "pound",
+        "lbs": "lb",
+        "grams": "gram",
+        "kilograms": "kilogram",
+        "milligrams": "milligram",
+        "milliliters": "milliliter",
+        "liters": "liter",
+        "litres": "litre",
+        "pints": "pint",
+        "quarts": "quart",
+        "gallons": "gallon",
+        "cloves": "clove",
+        "pinches": "pinch",
+        "dashes": "dash",
+        "slices": "slice",
+        "pieces": "piece",
+        "cans": "can",
+        "sticks": "stick",
+        "sprigs": "sprig",
+        "heads": "head",
+        "bunches": "bunch",
+        "handfuls": "handful",
     ]
 }

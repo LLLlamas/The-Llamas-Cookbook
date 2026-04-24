@@ -7,7 +7,9 @@ struct ImportRecipeView: View {
     @State private var pastedText = ""
     @State private var parsedDraft: DraftRecipe?
     @State private var showEditor = false
+    @State private var showHelp = false
     @FocusState private var editorFocused: Bool
+    @AppStorage("hasSeenImportHelp") private var hasSeenImportHelp = false
 
     var body: some View {
         let parsed = RecipeImporter.parse(pastedText)
@@ -70,11 +72,38 @@ struct ImportRecipeView: View {
                 Button("Cancel") { dismiss() }
                     .foregroundStyle(AppColor.textPrimary)
             }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Haptics.selection()
+                    showHelp = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(AppColor.accent)
+                }
+                .accessibilityLabel("How import works")
+            }
         }
         .navigationDestination(isPresented: $showEditor) {
             if let draft = parsedDraft {
                 RecipeEditorView(recipe: nil, initialDraft: draft) {
                     dismiss()
+                }
+            }
+        }
+        .sheet(isPresented: $showHelp) {
+            ImportHelpView { showHelp = false }
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            if !hasSeenImportHelp {
+                // Delay slightly so the sheet-presentation animation finishes
+                // before the nested help sheet slides up.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    showHelp = true
+                    hasSeenImportHelp = true
                 }
             }
         }

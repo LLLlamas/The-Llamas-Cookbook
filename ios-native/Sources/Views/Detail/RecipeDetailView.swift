@@ -53,7 +53,7 @@ struct RecipeDetailView: View {
 
                     if !sortedSteps.isEmpty {
                         section("Steps") {
-                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                            VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
                                     stepRow(idx: idx, step: step)
                                 }
@@ -247,7 +247,7 @@ struct RecipeDetailView: View {
                 .foregroundStyle(AppColor.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, AppSpacing.sm - 1)
+        .padding(.vertical, 5)
         .padding(.horizontal, AppSpacing.md)
         .background(AppColor.surface)
         .overlay(
