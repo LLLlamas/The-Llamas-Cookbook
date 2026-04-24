@@ -24,10 +24,17 @@ struct RootView: View {
                 .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
+                // Explicit environment re-injection: @Observable values
+                // don't always propagate through sheets reliably, and the
+                // children of cook mode may read them. Cheap to be safe.
+                .environment(session)
+                .environment(editor)
             }
         }
         .sheet(item: editorBinding) { sheet in
             EditorSheetHost(sheet: sheet, onClose: { editor.end() })
+                .environment(editor)
+                .environment(session)
         }
         .alert(
             "Discard changes?",
