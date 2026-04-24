@@ -57,7 +57,7 @@ struct RecipeEditorView: View {
                     draft.steps.append($0)
                 }
                 if !draft.steps.isEmpty {
-                    VStack(spacing: 2) {
+                    VStack(spacing: AppSpacing.xs) {
                         ForEach($draft.steps) { $step in
                             let stepId = step.id
                             StepRowEditor(
@@ -66,9 +66,10 @@ struct RecipeEditorView: View {
                                 isEditing: Binding(
                                     get: { editingStepId == stepId },
                                     set: { newValue in
-                                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                                            editingStepId = newValue ? stepId : nil
-                                        }
+                                        // No animation — the user wants the
+                                        // pill to instantly switch state, not
+                                        // spring between view and edit.
+                                        editingStepId = newValue ? stepId : nil
                                     }
                                 )
                             ) {
@@ -79,6 +80,10 @@ struct RecipeEditorView: View {
                                 removal: .opacity.combined(with: .scale(scale: 0.9))
                             ))
                             .onDrag {
+                                // Starting a drag should pull every step out
+                                // of edit mode so the keyboard gets out of
+                                // the way and rows can slide around cleanly.
+                                editingStepId = nil
                                 draggingStepId = stepId
                                 return NSItemProvider(object: stepId.uuidString as NSString)
                             } preview: {
@@ -142,6 +147,7 @@ struct RecipeEditorView: View {
                     #selector(UIResponder.resignFirstResponder),
                     to: nil, from: nil, for: nil
                 )
+                editingStepId = nil
             }
         }
         .scrollDismissesKeyboard(.immediately)

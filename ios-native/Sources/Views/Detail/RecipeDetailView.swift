@@ -247,7 +247,7 @@ struct RecipeDetailView: View {
                 .foregroundStyle(AppColor.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 3)
         .padding(.horizontal, AppSpacing.md)
         .background(AppColor.surface)
         .overlay(
