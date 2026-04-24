@@ -3,9 +3,8 @@ import SwiftUI
 struct StepRowEditor: View {
     let index: Int
     @Binding var step: DraftStep
+    @Binding var isEditing: Bool
     let onDelete: () -> Void
-
-    @State private var isEditing = false
 
     var body: some View {
         if isEditing {

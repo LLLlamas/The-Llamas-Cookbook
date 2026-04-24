@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import UniformTypeIdentifiers
 
 struct RecipeEditorView: View {
     @Environment(\.modelContext) private var modelContext
@@ -15,6 +16,8 @@ struct RecipeEditorView: View {
 
     @State private var draft: DraftRecipe
     @State private var showDiscardAlert = false
+    @State private var editingStepId: UUID? = nil
+    @State private var draggingStepId: UUID? = nil
     @FocusState private var isNumericFocused: Bool
 
     init(recipe: Recipe?, initialDraft: DraftRecipe? = nil, onSaved: (() -> Void)? = nil) {
@@ -56,22 +59,36 @@ struct RecipeEditorView: View {
                 if !draft.steps.isEmpty {
                     VStack(spacing: 2) {
                         ForEach($draft.steps) { $step in
+                            let stepId = step.id
                             StepRowEditor(
-                                index: draft.steps.firstIndex(where: { $0.id == step.id }) ?? 0,
-                                step: $step
+                                index: draft.steps.firstIndex(where: { $0.id == stepId }) ?? 0,
+                                step: $step,
+                                isEditing: Binding(
+                                    get: { editingStepId == stepId },
+                                    set: { newValue in
+                                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                            editingStepId = newValue ? stepId : nil
+                                        }
+                                    }
+                                )
                             ) {
-                                draft.steps.removeAll { $0.id == step.id }
+                                draft.steps.removeAll { $0.id == stepId }
                             }
                             .transition(.asymmetric(
                                 insertion: .move(edge: .leading).combined(with: .opacity),
                                 removal: .opacity.combined(with: .scale(scale: 0.9))
                             ))
-                            .draggable(step.id.uuidString) {
+                            .onDrag {
+                                draggingStepId = stepId
+                                return NSItemProvider(object: stepId.uuidString as NSString)
+                            } preview: {
                                 stepDragPreview(for: step)
                             }
-                            .dropDestination(for: String.self) { items, _ in
-                                reorderStep(draggedIdString: items.first, ontoId: step.id)
-                            }
+                            .onDrop(of: [.text], delegate: StepDropDelegate(
+                                targetId: stepId,
+                                draft: $draft,
+                                draggingId: $draggingStepId
+                            ))
                         }
                     }
                     .animation(.spring(response: 0.42, dampingFraction: 0.82), value: draft.steps.count)
@@ -349,14 +366,27 @@ struct RecipeEditorView: View {
         .shadow(color: AppColor.shadow, radius: 12, x: 0, y: 4)
     }
 
-    private func reorderStep(draggedIdString: String?, ontoId: UUID) -> Bool {
-        guard let idStr = draggedIdString,
-              let fromId = UUID(uuidString: idStr),
-              fromId != ontoId,
-              let fromIdx = draft.steps.firstIndex(where: { $0.id == fromId }),
-              let toIdx = draft.steps.firstIndex(where: { $0.id == ontoId })
-        else { return false }
+}
 
+/// Drop delegate that reports `.move` semantics to iOS — which suppresses the
+/// green "+" copy indicator on the drag preview. `.dropDestination(for:)`
+/// always defaults to `.copy`, so we drop back to `onDrop(delegate:)` here.
+private struct StepDropDelegate: DropDelegate {
+    let targetId: UUID
+    @Binding var draft: DraftRecipe
+    @Binding var draggingId: UUID?
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingId = nil }
+        guard let fromId = draggingId,
+              fromId != targetId,
+              let fromIdx = draft.steps.firstIndex(where: { $0.id == fromId }),
+              let toIdx = draft.steps.firstIndex(where: { $0.id == targetId })
+        else { return false }
         withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
             let moved = draft.steps.remove(at: fromIdx)
             draft.steps.insert(moved, at: toIdx)

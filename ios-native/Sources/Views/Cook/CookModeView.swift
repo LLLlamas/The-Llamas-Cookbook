@@ -348,7 +348,8 @@ struct CookModeView: View {
         let scaled = Quantity.scale(ingredient.quantity, by: scaleFactor) ?? ingredient.quantity ?? ""
         let qty = Quantity.displayFormat(scaled)
         let unit = Plural.unit(ingredient.unit ?? "", for: scaled)
-        return [qty, unit, ingredient.name]
+        let connector = (!unit.isEmpty && Plural.needsConnector(unit)) ? "of" : ""
+        return [qty, unit, connector, ingredient.name]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }

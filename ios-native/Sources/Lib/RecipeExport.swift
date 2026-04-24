@@ -25,7 +25,8 @@ extension Recipe {
             for i in sortedIngredients {
                 let qty = Quantity.displayFormat(i.quantity)
                 let unit = Plural.unit(i.unit ?? "", for: i.quantity)
-                let parts = [qty, unit, i.name].filter { !$0.isEmpty }
+                let connector = (!unit.isEmpty && Plural.needsConnector(unit)) ? "of" : ""
+                let parts = [qty, unit, connector, i.name].filter { !$0.isEmpty }
                 lines.append("• " + parts.joined(separator: " "))
             }
             lines.append("")

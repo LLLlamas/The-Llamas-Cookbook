@@ -214,6 +214,7 @@ struct RecipeDetailView: View {
         let qty = Quantity.displayFormat(ingredient.quantity)
         let unit = Plural.unit(ingredient.unit ?? "", for: ingredient.quantity)
         let measure = [qty, unit].filter { !$0.isEmpty }.joined(separator: " ")
+        let takesOf = !unit.isEmpty && Plural.needsConnector(unit)
 
         return HStack(alignment: .center, spacing: AppSpacing.sm + 2) {
             Circle()
@@ -228,10 +229,18 @@ struct RecipeDetailView: View {
                 .minimumScaleFactor(0.7)
                 .frame(width: 120, alignment: .leading)
 
-            Text("—")
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(AppColor.dividerStrong)
-                .opacity(measure.isEmpty ? 0 : 1)
+            Group {
+                if takesOf {
+                    Text("of")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppColor.textSecondary)
+                } else {
+                    Text("—")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(AppColor.dividerStrong)
+                        .opacity(measure.isEmpty ? 0 : 1)
+                }
+            }
 
             Text(ingredient.name)
                 .font(AppFont.ingredient)

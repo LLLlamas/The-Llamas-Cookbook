@@ -4,77 +4,56 @@ import UIKit
 struct ImportRecipeView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var titleText = ""
-    @State private var ingredientsText = ""
-    @State private var stepsText = ""
+    @State private var pastedText = ""
     @State private var parsedDraft: DraftRecipe?
     @State private var showEditor = false
-    @FocusState private var focused: Field?
-
-    private enum Field: Hashable { case title, ingredients, steps }
-
-    private var ingredientCount: Int { RecipeImporter.countIngredients(in: ingredientsText) }
-    private var stepCount: Int { RecipeImporter.countSteps(in: stepsText) }
-
-    private var titleDone: Bool { !titleText.trimmed.isEmpty }
-    private var ingredientsDone: Bool { ingredientCount > 0 }
-    private var stepsDone: Bool { stepCount > 0 }
-
-    private var canPreview: Bool {
-        titleDone || ingredientsDone || stepsDone
-    }
+    @FocusState private var editorFocused: Bool
 
     var body: some View {
+        let parsed = RecipeImporter.parse(pastedText)
+        let checks = Checks(
+            title: !parsed.title.trimmed.isEmpty,
+            ingredients: !parsed.ingredients.isEmpty,
+            steps: !parsed.steps.isEmpty
+        )
+
         ScrollView {
-            VStack(alignment: .leading, spacing: AppSpacing.lg) {
+            VStack(alignment: .leading, spacing: AppSpacing.md) {
                 heroRow
                     .padding(.top, AppSpacing.md)
 
-                inputSection(
-                    prompt: "What are we cooking?",
-                    done: titleDone,
-                    field: .title
-                ) {
-                    TextField("", text: $titleText, prompt: Text("What are we cooking?")
-                        .foregroundStyle(AppColor.textTertiary))
-                        .focused($focused, equals: .title)
-                        .font(.system(size: 20, weight: .semibold, design: .serif))
+                formatHint(checks: checks, parsed: parsed)
+
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $pastedText)
+                        .focused($editorFocused)
+                        .font(AppFont.body)
                         .foregroundStyle(AppColor.textPrimary)
-                        .submitLabel(.next)
-                        .onSubmit { focused = .ingredients }
+                        .scrollContentBackground(.hidden)
+                        .padding(AppSpacing.sm)
+
+                    if pastedText.isEmpty {
+                        Text("Paste a recipe here…")
+                            .font(AppFont.body)
+                            .foregroundStyle(AppColor.textTertiary)
+                            .padding(AppSpacing.md)
+                            .allowsHitTesting(false)
+                    }
                 }
+                .frame(minHeight: 320)
+                .background(AppColor.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppRadius.md)
+                        .stroke(AppColor.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
-                dottedDivider
-
-                inputSection(
-                    prompt: "List the ingredients here",
-                    done: ingredientsDone,
-                    field: .ingredients,
-                    secondary: ingredientCount > 0 ? "\(ingredientCount) detected" : nil
-                ) {
-                    editor(text: $ingredientsText, placeholder: "List the ingredients here\n(one per line)", field: .ingredients)
-                        .frame(minHeight: 140)
-                }
-
-                dottedDivider
-
-                inputSection(
-                    prompt: "List the steps here!",
-                    done: stepsDone,
-                    field: .steps,
-                    secondary: stepCount > 0 ? "\(stepCount) detected" : nil
-                ) {
-                    editor(text: $stepsText, placeholder: "List the steps here!\n(one per line)", field: .steps)
-                        .frame(minHeight: 160)
-                }
-
-                actionRow
-                    .padding(.top, AppSpacing.md)
+                actionRow(canPreview: !pastedText.trimmed.isEmpty)
             }
             .padding(AppSpacing.lg)
             .contentShape(Rectangle())
             .onTapGesture {
-                focused = nil
+                editorFocused = false
                 UIApplication.shared.sendAction(
                     #selector(UIResponder.resignFirstResponder),
                     to: nil, from: nil, for: nil
@@ -90,14 +69,6 @@ struct ImportRecipeView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
                     .foregroundStyle(AppColor.textPrimary)
-            }
-            ToolbarItemGroup(placement: .keyboard) {
-                if focused != nil {
-                    Spacer()
-                    Button("Done") { focused = nil }
-                        .foregroundStyle(AppColor.accent)
-                        .font(.system(size: 16, weight: .semibold))
-                }
             }
         }
         .navigationDestination(isPresented: $showEditor) {
@@ -127,86 +98,65 @@ struct ImportRecipeView: View {
         }
     }
 
-    private func inputSection<Content: View>(
-        prompt: String,
-        done: Bool,
-        field: Field,
-        secondary: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
+    private func formatHint(checks: Checks, parsed: DraftRecipe) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
-            HStack(spacing: AppSpacing.xs + 2) {
-                Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(done ? AppColor.success : AppColor.textSecondary.opacity(0.6))
-                    .contentTransition(.symbolEffect(.replace))
-                Text(prompt)
-                    .font(.system(size: 12, weight: .heavy))
-                    .tracking(0.6)
-                    .foregroundStyle(done ? AppColor.textPrimary : AppColor.textSecondary)
-                Spacer(minLength: 0)
-                if let secondary {
-                    Text(secondary)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(AppColor.textTertiary)
-                        .monospacedDigit()
-                        .transition(.opacity)
-                }
+            HStack(spacing: AppSpacing.sm) {
+                checkPill(label: "Title", done: checks.title, secondary: parsed.title.trimmed.isEmpty ? nil : parsed.title.trimmed)
             }
-            content()
+            HStack(spacing: AppSpacing.sm) {
+                checkPill(label: "Ingredients", done: checks.ingredients, secondary: checks.ingredients ? "\(parsed.ingredients.count) detected" : nil)
+            }
+            HStack(spacing: AppSpacing.sm) {
+                checkPill(label: "Steps", done: checks.steps, secondary: checks.steps ? "\(parsed.steps.count) detected" : nil)
+            }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: done)
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: checks)
     }
 
-    private func editor(text: Binding<String>, placeholder: String, field: Field) -> some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: text)
-                .focused($focused, equals: field)
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(AppSpacing.xs)
-            if text.wrappedValue.isEmpty {
-                Text(placeholder)
-                    .font(AppFont.body)
+    private func checkPill(label: String, done: Bool, secondary: String?) -> some View {
+        HStack(spacing: AppSpacing.xs + 2) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(done ? AppColor.success : AppColor.textSecondary.opacity(0.6))
+                .contentTransition(.symbolEffect(.replace))
+            Text(label)
+                .font(.system(size: 12, weight: .heavy))
+                .tracking(0.6)
+                .foregroundStyle(done ? AppColor.textPrimary : AppColor.textSecondary)
+            if let secondary {
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppColor.divider)
+                Text(secondary)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(AppColor.textTertiary)
-                    .padding(AppSpacing.sm + 4)
-                    .allowsHitTesting(false)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
+            Spacer(minLength: 0)
         }
     }
 
-    private var dottedDivider: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(height: 1)
-            .overlay(
-                GeometryReader { geo in
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: 0.5))
-                        path.addLine(to: CGPoint(x: geo.size.width, y: 0.5))
-                    }
-                    .stroke(
-                        AppColor.dividerStrong.opacity(0.6),
-                        style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [1, 5])
-                    )
-                }
-            )
-            .padding(.vertical, AppSpacing.xs)
-    }
-
-    private var actionRow: some View {
+    private func actionRow(canPreview: Bool) -> some View {
         HStack(spacing: AppSpacing.sm) {
             Button {
                 if let clipboard = UIPasteboard.general.string {
-                    pasteIntoFocused(clipboard)
+                    pastedText = clipboard
                     Haptics.selection()
                 }
             } label: {
                 HStack(spacing: AppSpacing.xs) {
                     Image(systemName: "doc.on.clipboard")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Paste")
+                    Text("Paste from clipboard")
                         .font(.system(size: 14, weight: .semibold))
                 }
                 .foregroundStyle(AppColor.accent)
@@ -221,12 +171,8 @@ struct ImportRecipeView: View {
 
             Button {
                 Haptics.impact(.light)
-                focused = nil
-                parsedDraft = RecipeImporter.build(
-                    title: titleText,
-                    ingredientsText: ingredientsText,
-                    stepsText: stepsText
-                )
+                editorFocused = false
+                parsedDraft = RecipeImporter.parse(pastedText)
                 showEditor = true
             } label: {
                 HStack(spacing: AppSpacing.xs) {
@@ -246,14 +192,9 @@ struct ImportRecipeView: View {
         }
     }
 
-    /// When user taps Paste, route clipboard content into the currently
-    /// focused field. If nothing is focused, assume they mean ingredients
-    /// (the most common paste target).
-    private func pasteIntoFocused(_ text: String) {
-        switch focused ?? .ingredients {
-        case .title: titleText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .ingredients: ingredientsText = text
-        case .steps: stepsText = text
-        }
+    private struct Checks: Equatable {
+        let title: Bool
+        let ingredients: Bool
+        let steps: Bool
     }
 }

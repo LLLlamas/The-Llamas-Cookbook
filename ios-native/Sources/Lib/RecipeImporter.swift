@@ -75,39 +75,6 @@ enum RecipeImporter {
         return draft
     }
 
-    /// Build a draft from three already-separated inputs. Used by the three-
-    /// section Import view, where the user supplies title / ingredients /
-    /// steps in their own fields and we don't need to hunt for section
-    /// headers inside a single blob.
-    static func build(title: String, ingredientsText: String, stepsText: String) -> DraftRecipe {
-        var draft = DraftRecipe()
-        draft.title = title.trimmingCharacters(in: .whitespaces)
-        for line in nonEmptyLines(of: ingredientsText) {
-            if let ing = parseIngredient(line) { draft.ingredients.append(ing) }
-        }
-        for line in nonEmptyLines(of: stepsText) {
-            if let step = parseStep(line) { draft.steps.append(step) }
-        }
-        return draft
-    }
-
-    /// Count how many parseable ingredient lines are in the given text — used
-    /// by the Import view's live checklist without actually committing a draft.
-    static func countIngredients(in text: String) -> Int {
-        nonEmptyLines(of: text).filter { parseIngredient($0) != nil }.count
-    }
-
-    /// Same, for steps.
-    static func countSteps(in text: String) -> Int {
-        nonEmptyLines(of: text).filter { parseStep($0) != nil }.count
-    }
-
-    private static func nonEmptyLines(of text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline)
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-
     private enum Section { case header, ingredients, steps, notes }
 
     private static func sectionMatches(_ line: String, _ names: [String]) -> Bool {
@@ -126,6 +93,12 @@ enum RecipeImporter {
         var s = stripLeadingBullet(line)
         s = s.trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty else { return nil }
+
+        // Normalize spacing around "&" so "1 &1/2 cup flour" and
+        // "1&1/2 cup flour" and "1 & 1/2 cup flour" all tokenize the same.
+        s = s.replacingOccurrences(of: "&", with: " & ")
+        s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
 
         let tokens = s.split(separator: " ").map(String.init)
         guard !tokens.isEmpty else { return nil }
