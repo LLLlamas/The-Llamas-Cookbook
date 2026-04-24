@@ -143,8 +143,8 @@ struct RecipeDetailView: View {
             NavigationStack {
                 RecipeEditorView(recipe: recipe)
             }
-            .presentationDetents([.large, .medium])
-            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            .presentationDetents([.large, .height(80)])
+            .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingConversions) {

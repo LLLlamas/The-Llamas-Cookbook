@@ -42,14 +42,19 @@ struct LibraryView: View {
             NavigationStack {
                 RecipeEditorView(recipe: nil)
             }
-            .presentationDetents([.large, .medium])
-            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            // `.large` first so the sheet opens fully expanded every time
+            // (SwiftUI picks the first detent on initial present).
+            .presentationDetents([.large, .height(80)])
+            .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingImport) {
             NavigationStack {
                 ImportRecipeView()
             }
+            .presentationDetents([.large, .height(80)])
+            .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
+            .presentationDragIndicator(.visible)
         }
         .alert(
             "Delete recipe?",

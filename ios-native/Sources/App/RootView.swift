@@ -15,10 +15,12 @@ struct RootView: View {
                     session.end()
                 }
                 // Two detents: full-screen while actively cooking, and a
-                // compact strip so the user can peek at / navigate the
-                // Library or another recipe without losing cook state.
-                .presentationDetents([.large, .medium])
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                // tab-sized strip at the very bottom so the user can
+                // navigate the Library or other recipes with the cook
+                // session tucked out of the way. `.large` is listed
+                // first so the sheet opens full-height every time.
+                .presentationDetents([.large, .height(80)])
+                .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
                 .presentationDragIndicator(.visible)
                 // Prevents accidental swipe-down-to-dismiss — cook sessions
                 // end explicitly via the close button, Mark-as-cooked, or
