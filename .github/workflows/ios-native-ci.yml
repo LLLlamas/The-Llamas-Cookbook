@@ -168,10 +168,10 @@ jobs:
           # that those $(...) references resolve to at archive time, so
           # each target gets its own profile without any fragile global
           # override.
-          # CODE_SIGN_IDENTITY is intentionally not set here — let xcodebuild
-          # derive it from the provisioning profile's embedded cert. That
-          # way it works whether the .p12 is an "Apple Distribution" or a
-          # legacy "iPhone Distribution" cert without us having to guess.
+          # CODE_SIGN_IDENTITY="Apple Distribution" is a magic value that
+          # matches either "Apple Distribution" or legacy "iPhone
+          # Distribution" certs — not a guess, it's what the main app
+          # was using before the widget existed.
           xcodebuild \
             -project LlamasCookbookNative.xcodeproj \
             -scheme LlamasCookbookNative \
@@ -179,6 +179,7 @@ jobs:
             -archivePath "$RUNNER_TEMP/app.xcarchive" \
             -destination "generic/platform=iOS" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             MAIN_PROFILE_NAME="$PROFILE_NAME" \
             WIDGET_PROFILE_NAME="$WIDGET_PROFILE_NAME" \
