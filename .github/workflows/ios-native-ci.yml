@@ -161,22 +161,24 @@ jobs:
           # stay comfortably above any previous offset-based build numbers.
           BUILD_NUMBER=$(date -u +%s)
           echo "Using CFBundleVersion: $BUILD_NUMBER"
-          # No PROVISIONING_PROFILE_SPECIFIER on the CLI — that would
-          # force a single profile across all targets, which breaks the
-          # widget extension (it needs its own). Both profiles are
-          # installed in ~/Library/MobileDevice/Provisioning Profiles/
-          # and xcodebuild picks the right one per-target by matching
-          # bundle id + team id automatically.
+          # Per-target profiles — project.yml sets
+          # PROVISIONING_PROFILE_SPECIFIER to $(MAIN_PROFILE_NAME) on the
+          # main app target and $(WIDGET_PROFILE_NAME) on the widget.
+          # xcodebuild treats these CLI args as top-level build settings
+          # that those $(...) references resolve to at archive time, so
+          # each target gets its own profile without any fragile global
+          # override.
           xcodebuild \
             -project LlamasCookbookNative.xcodeproj \
             -scheme LlamasCookbookNative \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/app.xcarchive" \
             -destination "generic/platform=iOS" \
-            CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            MAIN_PROFILE_NAME="$PROFILE_NAME" \
+            WIDGET_PROFILE_NAME="$WIDGET_PROFILE_NAME" \
             archive
 
       - name: Export .ipa
