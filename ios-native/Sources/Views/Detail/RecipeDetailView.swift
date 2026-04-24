@@ -5,12 +5,12 @@ import UIKit
 struct RecipeDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(CookingSession.self) private var session
 
     let recipe: Recipe
 
     @State private var showingEditor = false
     @State private var showingDeleteAlert = false
-    @State private var showingCookMode = false
     @State private var showingConversions = false
 
     var body: some View {
@@ -143,9 +143,9 @@ struct RecipeDetailView: View {
             NavigationStack {
                 RecipeEditorView(recipe: recipe)
             }
-        }
-        .fullScreenCover(isPresented: $showingCookMode) {
-            CookModeView(recipe: recipe)
+            .presentationDetents([.large, .medium])
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingConversions) {
             ConversionsView()
@@ -329,7 +329,7 @@ struct RecipeDetailView: View {
         VStack {
             Button {
                 Haptics.impact(.light)
-                showingCookMode = true
+                session.start(recipe)
             } label: {
                 HStack(spacing: AppSpacing.sm) {
                     Image(systemName: "fork.knife")

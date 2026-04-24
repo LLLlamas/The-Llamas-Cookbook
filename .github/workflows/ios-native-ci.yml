@@ -124,6 +124,33 @@ jobs:
           echo "WIDGET_PROFILE_NAME=$WIDGET_NAME" >> "$GITHUB_ENV"
           echo "Installed widget profile: $WIDGET_NAME ($WIDGET_UUID)"
 
+      - name: Generate timer alarm sound
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            echo "Installing ffmpeg..."
+            brew install ffmpeg
+          fi
+          mkdir -p Resources
+          # Three short beeps at 880 Hz with gaps, total ~1.9s.
+          # ima4-encoded .caf is Apple's preferred format for
+          # UNNotificationSound — stays under the 30s notification limit
+          # and loops cleanly when AVAudioPlayer replays it in-app.
+          ffmpeg -y \
+            -f lavfi -i "sine=frequency=880:duration=0.3" \
+            -f lavfi -i "anullsrc=duration=0.15:channel_layout=mono:sample_rate=44100" \
+            -f lavfi -i "sine=frequency=880:duration=0.3" \
+            -f lavfi -i "anullsrc=duration=0.15:channel_layout=mono:sample_rate=44100" \
+            -f lavfi -i "sine=frequency=880:duration=0.3" \
+            -f lavfi -i "anullsrc=duration=0.7:channel_layout=mono:sample_rate=44100" \
+            -filter_complex "[0:a][1:a][2:a][3:a][4:a][5:a]concat=n=6:v=0:a=1[out]" \
+            -map "[out]" \
+            -ac 1 -ar 44100 -c:a pcm_s16le \
+            Resources/timer-alarm.wav
+          afconvert Resources/timer-alarm.wav Resources/timer-alarm.caf -d ima4 -f caff -v
+          rm Resources/timer-alarm.wav
+          ls -la Resources/timer-alarm.caf
+
       - name: Generate placeholder app icon
         run: |
           set -euo pipefail

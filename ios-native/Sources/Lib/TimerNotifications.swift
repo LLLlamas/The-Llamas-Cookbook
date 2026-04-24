@@ -25,7 +25,14 @@ enum TimerNotifications {
         let content = UNMutableNotificationContent()
         content.title = "\(capitalizedFirst(label)) timer ready!"
         content.body = "Time's up — check on your food."
-        content.sound = .default
+        // Bundled beep-pattern CAF (see workflow's "Generate timer alarm
+        // sound" step). Falls back to the system default ding if the
+        // file is missing (e.g. a local dev build that skipped CI).
+        if let _ = Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName("timer-alarm.caf"))
+        } else {
+            content.sound = .default
+        }
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)

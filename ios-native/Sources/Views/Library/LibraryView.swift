@@ -42,6 +42,9 @@ struct LibraryView: View {
             NavigationStack {
                 RecipeEditorView(recipe: nil)
             }
+            .presentationDetents([.large, .medium])
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingImport) {
             NavigationStack {
@@ -265,11 +268,13 @@ private struct RecipeCardButtonStyle: ButtonStyle {
 #Preview("Populated") {
     NavigationStack { LibraryView() }
         .modelContainer(previewContainer(populated: true))
+        .environment(CookingSession())
 }
 
 #Preview("Empty") {
     NavigationStack { LibraryView() }
         .modelContainer(previewContainer(populated: false))
+        .environment(CookingSession())
 }
 
 @MainActor

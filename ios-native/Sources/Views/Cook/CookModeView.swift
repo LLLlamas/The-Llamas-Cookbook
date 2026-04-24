@@ -4,9 +4,13 @@ import UIKit
 import AudioToolbox
 
 struct CookModeView: View {
-    @Environment(\.dismiss) private var dismiss
-
     let recipe: Recipe
+    /// End the app-level cook session. Called from the close button,
+    /// Mark-as-cooked, and the exit confirm dialog. The sheet is driven
+    /// by `CookingSession.activeRecipe` at the RootView level, so we
+    /// don't use `@Environment(\.dismiss)` — tearing down the session
+    /// handles both dismissal and state cleanup in one place.
+    let onClose: () -> Void
 
     @State private var phase: Phase
     @State private var currentServings: Int
@@ -20,6 +24,7 @@ struct CookModeView: View {
     @State private var now = Date()
 
     @State private var alarmTask: Task<Void, Never>?
+    @State private var alarmPlayer = AlarmPlayer()
     @State private var liveActivity = TimerLiveActivityController()
 
     @State private var showingExitConfirm = false
@@ -27,8 +32,9 @@ struct CookModeView: View {
 
     private enum Phase { case prep, cook }
 
-    init(recipe: Recipe) {
+    init(recipe: Recipe, onClose: @escaping () -> Void) {
         self.recipe = recipe
+        self.onClose = onClose
         _phase = State(initialValue: recipe.ingredients.isEmpty ? .cook : .prep)
         _currentServings = State(initialValue: recipe.servings ?? 0)
     }
@@ -158,10 +164,10 @@ struct CookModeView: View {
             .presentationDragIndicator(.visible)
         }
         .alert("Mark as cooked?", isPresented: $showingExitConfirm) {
-            Button("Not this time", role: .cancel) { dismiss() }
+            Button("Not this time", role: .cancel) { onClose() }
             Button("Mark cooked") {
                 recipe.markCooked()
-                dismiss()
+                onClose()
             }
         } message: {
             Text("Record this as a time you cooked this recipe.")
@@ -531,7 +537,7 @@ struct CookModeView: View {
                 Button {
                     recipe.markCooked()
                     Haptics.success()
-                    dismiss()
+                    onClose()
                 } label: {
                     HStack(spacing: AppSpacing.sm) {
                         Image(systemName: "checkmark")
@@ -571,7 +577,7 @@ struct CookModeView: View {
         if didAnything {
             showingExitConfirm = true
         } else {
-            dismiss()
+            onClose()
         }
     }
 
@@ -709,6 +715,7 @@ struct CookModeView: View {
     }
 
     private func startAlarm() {
+        alarmPlayer.start()
         alarmTask?.cancel()
         alarmTask = Task { @MainActor in
             while !Task.isCancelled {
@@ -720,6 +727,7 @@ struct CookModeView: View {
     }
 
     private func stopAlarm() {
+        alarmPlayer.stop()
         alarmTask?.cancel()
         alarmTask = nil
     }

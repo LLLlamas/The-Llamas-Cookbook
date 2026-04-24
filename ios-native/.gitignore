@@ -19,5 +19,9 @@ Package.resolved
 # CocoaPods (unused for now but just in case)
 Pods/
 
+# Generated at CI time by ffmpeg + afconvert — not committed
+Resources/timer-alarm.caf
+Resources/timer-alarm.wav
+
 # Misc
 .DS_Store
