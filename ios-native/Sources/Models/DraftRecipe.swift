@@ -69,19 +69,17 @@ extension Recipe {
             notes: notes,
             tags: tags,
             favorite: favorite,
-            ingredients: ingredients
-                .sorted { $0.order < $1.order }
-                .map {
-                    DraftIngredient(
-                        id: $0.id,
-                        quantity: $0.quantity ?? "",
-                        unit: $0.unit ?? "",
-                        name: $0.name
-                    )
-                },
-            steps: steps
-                .sorted { $0.order < $1.order }
-                .map { DraftStep(id: $0.id, text: $0.text, needsTimer: $0.needsTimer) }
+            ingredients: sortedIngredients.map {
+                DraftIngredient(
+                    id: $0.id,
+                    quantity: $0.quantity ?? "",
+                    unit: $0.unit ?? "",
+                    name: $0.name
+                )
+            },
+            steps: sortedSteps.map {
+                DraftStep(id: $0.id, text: $0.text, needsTimer: $0.needsTimer)
+            }
         )
     }
 

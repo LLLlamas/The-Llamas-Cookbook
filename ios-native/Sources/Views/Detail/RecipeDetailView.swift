@@ -203,10 +203,9 @@ struct RecipeDetailView: View {
     }
 
     private func ingredientRow(_ ingredient: Ingredient) -> some View {
-        let qty = Quantity.displayFormat(ingredient.quantity)
-        let unit = Plural.unit(ingredient.unit ?? "", for: ingredient.quantity)
-        let measure = [qty, unit].filter { !$0.isEmpty }.joined(separator: " ")
-        let takesOf = !unit.isEmpty && Plural.needsConnector(unit)
+        let display = ingredient.display()
+        let measure = display.measure
+        let takesOf = display.takesOf
 
         return HStack(alignment: .center, spacing: AppSpacing.sm + 2) {
             Circle()
@@ -328,7 +327,7 @@ struct RecipeDetailView: View {
                     Text("Start Cooking")
                         .font(.system(size: 17, weight: .semibold))
                 }
-                .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                .foregroundStyle(AppColor.onAccent)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppSpacing.md)
                 .background(AppColor.accent)
@@ -345,13 +344,8 @@ struct RecipeDetailView: View {
 
     // MARK: Computed
 
-    private var sortedIngredients: [Ingredient] {
-        recipe.ingredients.sorted { $0.order < $1.order }
-    }
-
-    private var sortedSteps: [RecipeStep] {
-        recipe.steps.sorted { $0.order < $1.order }
-    }
+    private var sortedIngredients: [Ingredient] { recipe.sortedIngredients }
+    private var sortedSteps: [RecipeStep] { recipe.sortedSteps }
 
     private var timeParts: [String] {
         var parts: [String] = []

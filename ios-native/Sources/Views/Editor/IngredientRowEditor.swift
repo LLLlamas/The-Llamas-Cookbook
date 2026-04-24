@@ -90,7 +90,7 @@ struct IngredientRowEditor: View {
                 } label: {
                     Text("Done")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                        .foregroundStyle(AppColor.onAccent)
                         .padding(.horizontal, AppSpacing.lg)
                         .padding(.vertical, AppSpacing.sm)
                         .background(AppColor.accent)

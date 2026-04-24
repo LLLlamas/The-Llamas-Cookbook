@@ -58,6 +58,17 @@ final class Recipe {
         cookCount += 1
         updatedAt = now
     }
+
+    /// Relationships come back in insertion order; the editor assigns an
+    /// explicit `order` on save. Views and the export all want the same
+    /// user-intended sequence, so expose it once here.
+    var sortedIngredients: [Ingredient] {
+        ingredients.sorted { $0.order < $1.order }
+    }
+
+    var sortedSteps: [RecipeStep] {
+        steps.sorted { $0.order < $1.order }
+    }
 }
 
 @Model

@@ -69,7 +69,7 @@ struct TimerToggleButton: View {
         } label: {
             Image(systemName: "timer")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(isOn ? Color(red: 1, green: 0.992, blue: 0.972) : AppColor.accent)
+                .foregroundStyle(isOn ? AppColor.onAccent : AppColor.accent)
                 .frame(width: 36, height: 36)
                 .background(isOn ? AppColor.accent : AppColor.background)
                 .overlay(

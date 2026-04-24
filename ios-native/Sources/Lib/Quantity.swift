@@ -114,6 +114,16 @@ enum Quantity {
     }
 }
 
+enum ClockFormat {
+    /// Render whole seconds as "M:SS" — "0:07", "12:34". Used by the running
+    /// timer banner, the adjust sheet, and anywhere else a countdown shows.
+    static func mmss(_ seconds: Int) -> String {
+        let m = max(0, seconds) / 60
+        let s = max(0, seconds) % 60
+        return String(format: "%d:%02d", m, s)
+    }
+}
+
 enum StringCase {
     /// Uppercase the first character only, preserve the rest ("oven" → "Oven",
     /// "iOS recipe" → "IOS recipe"). Use for timer labels and other short

@@ -70,7 +70,7 @@ struct TagInputView: View {
                     } label: {
                         Text(StringCase.titleCase(preset))
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(isActive ? Color(red: 1, green: 0.992, blue: 0.972) : AppColor.textPrimary)
+                            .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.vertical, AppSpacing.xs + 2)
                             .background(isActive ? AppColor.accent : AppColor.surface)

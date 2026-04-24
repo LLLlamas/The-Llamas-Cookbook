@@ -264,7 +264,7 @@ struct LibraryView: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                .foregroundStyle(AppColor.onAccent)
                 .frame(width: 60, height: 60)
                 .background(AppColor.accent)
                 .clipShape(Circle())
@@ -314,7 +314,7 @@ private struct FilterChip: View {
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
             .background(isActive ? AppColor.accent : AppColor.surface)
-            .foregroundStyle(isActive ? Color(red: 1, green: 0.992, blue: 0.972) : AppColor.textPrimary)
+            .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
             .overlay(
                 Capsule().stroke(isActive ? AppColor.accent : AppColor.divider, lineWidth: 1)
             )

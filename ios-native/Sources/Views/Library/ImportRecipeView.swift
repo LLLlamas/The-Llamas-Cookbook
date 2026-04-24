@@ -218,7 +218,7 @@ struct ImportRecipeView: View {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 13, weight: .bold))
                 }
-                .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                .foregroundStyle(AppColor.onAccent)
                 .padding(.horizontal, AppSpacing.lg)
                 .padding(.vertical, AppSpacing.sm + 2)
                 .background(AppColor.accent)

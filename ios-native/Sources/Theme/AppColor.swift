@@ -16,6 +16,11 @@ enum AppColor {
     static let accent = Color(red: 0.788, green: 0.486, blue: 0.365)           // #C97C5D — primary
     static let accentDeep = Color(red: 0.624, green: 0.353, blue: 0.247)       // #9F5A3F — headings, hover/pressed
     static let accentSoft = Color(red: 0.969, green: 0.890, blue: 0.847)       // #F7E3D8 — tinted backgrounds, subtle highlights
+    /// Cream text/iconography sitting on top of `accent`-filled surfaces
+    /// (filled buttons, phase pills, chip fills, timer-ready overlay).
+    /// Same hex as `surface` but named semantically so the callsite reads
+    /// as "foreground on accent" instead of "surface color used as text."
+    static let onAccent = Color(red: 1.000, green: 0.992, blue: 0.972)         // #FFFDF8
 
     // MARK: Status
     static let success = Color(red: 0.541, green: 0.651, blue: 0.541)          // #8AA68A

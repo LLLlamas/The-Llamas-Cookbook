@@ -23,7 +23,7 @@ enum TimerNotifications {
         guard seconds > 0 else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "\(capitalizedFirst(label)) timer ready!"
+        content.title = "\(StringCase.capitalizeFirst(label)) timer ready!"
         content.body = "Time's up — check on your food."
         // Bundled beep-pattern CAF (see workflow's "Generate timer alarm
         // sound" step). Falls back to the system default ding if the
@@ -51,10 +51,5 @@ enum TimerNotifications {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
-    }
-
-    private static func capitalizedFirst(_ s: String) -> String {
-        guard let first = s.first else { return s }
-        return first.uppercased() + s.dropFirst()
     }
 }

@@ -26,7 +26,7 @@ struct ImportHelpView: View {
             } label: {
                 Text("Got it")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                    .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
                     .background(AppColor.accent)

@@ -178,7 +178,7 @@ struct RecipeEditorView: View {
                 } label: {
                     Text("Save")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                        .foregroundStyle(AppColor.onAccent)
                         .padding(.horizontal, AppSpacing.md)
                         .padding(.vertical, 6)
                         .background(AppColor.accent)

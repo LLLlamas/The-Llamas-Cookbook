@@ -19,23 +19,19 @@ extension Recipe {
             lines.append("")
         }
 
-        let sortedIngredients = ingredients.sorted { $0.order < $1.order }
-        if !sortedIngredients.isEmpty {
+        let orderedIngredients = sortedIngredients
+        if !orderedIngredients.isEmpty {
             lines.append("Ingredients")
-            for i in sortedIngredients {
-                let qty = Quantity.displayFormat(i.quantity)
-                let unit = Plural.unit(i.unit ?? "", for: i.quantity)
-                let connector = (!unit.isEmpty && Plural.needsConnector(unit)) ? "of" : ""
-                let parts = [qty, unit, connector, i.name].filter { !$0.isEmpty }
-                lines.append("• " + parts.joined(separator: " "))
+            for i in orderedIngredients {
+                lines.append("• " + i.display().fullLine)
             }
             lines.append("")
         }
 
-        let sortedSteps = steps.sorted { $0.order < $1.order }
-        if !sortedSteps.isEmpty {
+        let orderedSteps = sortedSteps
+        if !orderedSteps.isEmpty {
             lines.append("Steps")
-            for (idx, s) in sortedSteps.enumerated() {
+            for (idx, s) in orderedSteps.enumerated() {
                 lines.append("\(idx + 1). \(s.text)")
             }
             lines.append("")

@@ -31,7 +31,7 @@ struct QuantityChips: View {
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.vertical, AppSpacing.xs + 2)
                             .frame(minWidth: isWhole ? 44 : 40)
-                            .foregroundStyle(active ? Color(red: 1, green: 0.992, blue: 0.972) : AppColor.textPrimary)
+                            .foregroundStyle(active ? AppColor.onAccent : AppColor.textPrimary)
                             .background(active ? AppColor.accent : AppColor.surface)
                             .overlay(
                                 Capsule().stroke(active ? AppColor.accent : AppColor.divider, lineWidth: 1)

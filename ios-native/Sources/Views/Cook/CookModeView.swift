@@ -41,12 +41,8 @@ struct CookModeView: View {
 
     // MARK: Derived
 
-    private var sortedIngredients: [Ingredient] {
-        recipe.ingredients.sorted { $0.order < $1.order }
-    }
-    private var sortedSteps: [RecipeStep] {
-        recipe.steps.sorted { $0.order < $1.order }
-    }
+    private var sortedIngredients: [Ingredient] { recipe.sortedIngredients }
+    private var sortedSteps: [RecipeStep] { recipe.sortedSteps }
     private var originalServings: Int { recipe.servings ?? 0 }
     private var canScale: Bool { originalServings > 0 }
     private var scaleFactor: Double {
@@ -345,7 +341,7 @@ struct CookModeView: View {
                             if struck {
                                 Image(systemName: "checkmark")
                                     .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                                    .foregroundStyle(AppColor.onAccent)
                             }
                         }
                         Text(ingredientDisplay(ingredient))
@@ -368,13 +364,7 @@ struct CookModeView: View {
     }
 
     private func ingredientDisplay(_ ingredient: Ingredient) -> String {
-        let scaled = Quantity.scale(ingredient.quantity, by: scaleFactor) ?? ingredient.quantity ?? ""
-        let qty = Quantity.displayFormat(scaled)
-        let unit = Plural.unit(ingredient.unit ?? "", for: scaled)
-        let connector = (!unit.isEmpty && Plural.needsConnector(unit)) ? "of" : ""
-        return [qty, unit, connector, ingredient.name]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        ingredient.display(scaledBy: scaleFactor).fullLine
     }
 
     // MARK: Steps (cook phase)
@@ -432,7 +422,7 @@ struct CookModeView: View {
             if struck {
                 Image(systemName: "checkmark")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                    .foregroundStyle(AppColor.onAccent)
             } else {
                 Text("\(idx + 1)")
                     .font(.system(size: 15, weight: .bold, design: .serif))
@@ -482,7 +472,7 @@ struct CookModeView: View {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
                         .opacity(0.9)
-                    Text(formatClock(secondsLeft))
+                    Text(ClockFormat.mmss(secondsLeft))
                         .font(.system(size: 22, weight: .bold, design: .serif))
                         .monospacedDigit()
                 }
@@ -495,7 +485,7 @@ struct CookModeView: View {
                 }
                 .opacity(0.9)
             }
-            .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+            .foregroundStyle(AppColor.onAccent)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm + 2)
             .background(AppColor.accent)
@@ -503,13 +493,7 @@ struct CookModeView: View {
             .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Timer running, \(formatClock(secondsLeft)) left, tap to adjust or cancel")
-    }
-
-    private func formatClock(_ secs: Int) -> String {
-        let m = secs / 60
-        let s = secs % 60
-        return String(format: "%d:%02d", m, s)
+        .accessibilityLabel("Timer running, \(ClockFormat.mmss(secondsLeft)) left, tap to adjust or cancel")
     }
 
     // MARK: Bottom bar
@@ -527,7 +511,7 @@ struct CookModeView: View {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 15, weight: .bold))
                     }
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                    .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
                     .background(AppColor.accent)
@@ -545,7 +529,7 @@ struct CookModeView: View {
                         Text("Mark as cooked")
                             .font(.system(size: 17, weight: .semibold))
                     }
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                    .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
                     .background(AppColor.success)
@@ -792,19 +776,19 @@ private struct TimerReadyOverlay: View {
             VStack(spacing: AppSpacing.md) {
                 ZStack {
                     Circle()
-                        .stroke(Color(red: 1, green: 0.992, blue: 0.972), lineWidth: 3)
+                        .stroke(AppColor.onAccent, lineWidth: 3)
                         .frame(width: 112, height: 112)
                     Image(systemName: "bell.and.waves.left.and.right.fill")
                         .font(.system(size: 48, weight: .semibold))
-                        .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                        .foregroundStyle(AppColor.onAccent)
                 }
                 Text("\(StringCase.capitalizeFirst(label)) timer ready!")
                     .font(.system(size: 32, weight: .bold, design: .serif))
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                    .foregroundStyle(AppColor.onAccent)
                     .multilineTextAlignment(.center)
                 Text("Check on your food — time's up.")
                     .font(.system(size: 17))
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972).opacity(0.9))
+                    .foregroundStyle(AppColor.onAccent.opacity(0.9))
                     .multilineTextAlignment(.center)
             }
 
@@ -814,9 +798,9 @@ private struct TimerReadyOverlay: View {
                 Text("Need more time?")
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(0.6)
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972).opacity(0.85))
+                    .foregroundStyle(AppColor.onAccent.opacity(0.85))
 
-                MinutePicker(selection: $extendMinutes, tint: Color(red: 1, green: 0.992, blue: 0.972))
+                MinutePicker(selection: $extendMinutes, tint: AppColor.onAccent)
                     .frame(height: 120)
 
                 Button {
@@ -832,7 +816,7 @@ private struct TimerReadyOverlay: View {
                     .foregroundStyle(AppColor.accent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
-                    .background(Color(red: 1, green: 0.992, blue: 0.972))
+                    .background(AppColor.onAccent)
                     .clipShape(Capsule())
                 }
             }
@@ -849,11 +833,11 @@ private struct TimerReadyOverlay: View {
             } label: {
                 Text("Stop")
                     .font(.system(size: 20, weight: .bold, design: .serif))
-                    .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                    .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md + 2)
                     .overlay(
-                        Capsule().stroke(Color(red: 1, green: 0.992, blue: 0.972), lineWidth: 2)
+                        Capsule().stroke(AppColor.onAccent, lineWidth: 2)
                     )
             }
             .padding(.horizontal, AppSpacing.xl)
@@ -881,7 +865,7 @@ private struct RunningTimerSheet: View {
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(0.6)
                     .foregroundStyle(AppColor.textSecondary)
-                Text(formatClock(secondsLeft))
+                Text(ClockFormat.mmss(secondsLeft))
                     .font(.system(size: 44, weight: .bold, design: .serif))
                     .foregroundStyle(AppColor.accent)
                     .monospacedDigit()
@@ -923,7 +907,7 @@ private struct RunningTimerSheet: View {
                             Text("\(extendMinutes) min")
                                 .font(.system(size: 16, weight: .semibold))
                         }
-                        .foregroundStyle(Color(red: 1, green: 0.992, blue: 0.972))
+                        .foregroundStyle(AppColor.onAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppSpacing.md)
                         .background(AppColor.accent)
@@ -954,12 +938,6 @@ private struct RunningTimerSheet: View {
         }
         .padding(AppSpacing.lg)
         .background(AppColor.background)
-    }
-
-    private func formatClock(_ secs: Int) -> String {
-        let m = secs / 60
-        let s = secs % 60
-        return String(format: "%d:%02d", m, s)
     }
 }
 
