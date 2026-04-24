@@ -115,8 +115,20 @@ enum Quantity {
 }
 
 enum StringCase {
+    /// Uppercase the first character only, preserve the rest ("oven" → "Oven",
+    /// "iOS recipe" → "IOS recipe"). Use for timer labels and other short
+    /// words where we don't want to rewrite the user's casing.
     static func capitalizeFirst(_ s: String) -> String {
         guard let first = s.first else { return s }
         return first.uppercased() + s.dropFirst()
+    }
+
+    /// Proper title case — uppercase the first letter of each word,
+    /// lowercase the rest ("gluten-free" → "Gluten-Free",
+    /// "COMFORT FOOD" → "Comfort Food"). Used for tag display so
+    /// storage can be lowercase-normalized but the UI always reads
+    /// like a proper label.
+    static func titleCase(_ s: String) -> String {
+        s.capitalized
     }
 }

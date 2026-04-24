@@ -10,7 +10,7 @@ private enum LibraryFilter: Equatable, Hashable {
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EditorCoordinator.self) private var editor
-    @Query(sort: \Recipe.createdAt, order: .reverse) private var recipes: [Recipe]
+    @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
     @State private var deletingRecipe: Recipe?
@@ -74,28 +74,80 @@ struct LibraryView: View {
                 if filtered.isEmpty {
                     emptyFilterState
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: AppSpacing.md) {
-                            ForEach(filtered) { recipe in
-                                NavigationLink(value: recipe) {
-                                    RecipeCardView(recipe: recipe)
-                                }
-                                .buttonStyle(RecipeCardButtonStyle())
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        deletingRecipe = recipe
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                        .padding(AppSpacing.lg)
-                    }
-                    .background(AppColor.background)
+                    recipeList
                 }
             }
         }
+    }
+
+    private var recipeList: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    LazyVStack(spacing: AppSpacing.md) {
+                        ForEach(filtered) { recipe in
+                            NavigationLink(value: recipe) {
+                                RecipeCardView(recipe: recipe)
+                            }
+                            .buttonStyle(RecipeCardButtonStyle())
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    deletingRecipe = recipe
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .id(recipe.id)
+                        }
+                    }
+                    // Right padding leaves room for the letter index so
+                    // it doesn't overlap card content.
+                    .padding(.leading, AppSpacing.lg)
+                    .padding(.trailing, AppSpacing.lg + 16)
+                    .padding(.vertical, AppSpacing.lg)
+                }
+                .background(AppColor.background)
+
+                if availableLetters.count > 1 {
+                    LetterIndex(letters: availableLetters) { letter in
+                        guard let target = firstRecipe(startingWith: letter) else { return }
+                        Haptics.selection()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(target.id, anchor: .top)
+                        }
+                    }
+                    .padding(.trailing, 4)
+                }
+            }
+        }
+    }
+
+    private var availableLetters: [String] {
+        Array(Set(filtered.map(Self.sectionLetter))).sorted(by: Self.letterOrder)
+    }
+
+    private func firstRecipe(startingWith letter: String) -> Recipe? {
+        filtered.first { Self.sectionLetter(for: $0) == letter }
+    }
+
+    private static func sectionLetter(for recipe: Recipe) -> String {
+        sectionLetter(for: recipe.title)
+    }
+
+    /// First character of the title, uppercased. Non-letters (digits,
+    /// punctuation, emoji) collapse into a "#" bucket — matches the
+    /// convention iOS's Contacts app uses for its side index.
+    private static func sectionLetter(for title: String) -> String {
+        guard let first = title.first else { return "#" }
+        let s = String(first).uppercased()
+        return s.rangeOfCharacter(from: .letters) != nil ? s : "#"
+    }
+
+    /// Sort letters A–Z, with "#" at the end so the alphabet reads normally.
+    private static func letterOrder(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == "#" { return false }
+        if rhs == "#" { return true }
+        return lhs < rhs
     }
 
     private var filterStrip: some View {
@@ -122,7 +174,7 @@ struct LibraryView: View {
                 ForEach(allTags, id: \.self) { tag in
                     let count = recipes.filter { $0.tags.contains(tag) }.count
                     FilterChip(
-                        label: "\(StringCase.capitalizeFirst(tag))  ·  \(count)",
+                        label: "\(StringCase.titleCase(tag))  ·  \(count)",
                         isActive: filter == .tag(tag),
                         iconName: nil
                     ) {
@@ -163,7 +215,7 @@ struct LibraryView: View {
         switch filter {
         case .all: return ""
         case .favorites: return "Nothing favorited yet"
-        case .tag(let tag): return "No recipes tagged \"\(StringCase.capitalizeFirst(tag))\""
+        case .tag(let tag): return "No recipes tagged \"\(StringCase.titleCase(tag))\""
         }
     }
 
@@ -248,6 +300,57 @@ private struct RecipeCardButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Vertical A–Z strip on the trailing edge of the library list. Tap a
+/// letter to jump. Drag a finger up/down to scrub through letters —
+/// matches the behavior of iOS Contacts' side index.
+private struct LetterIndex: View {
+    let letters: [String]
+    let onSelect: (String) -> Void
+
+    @State private var lastScrubbed: String?
+
+    var body: some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                ForEach(letters, id: \.self) { letter in
+                    Text(letter)
+                        .font(.system(size: 10, weight: .heavy, design: .serif))
+                        .foregroundStyle(AppColor.accentDeep)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(width: 20)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(AppColor.surface.opacity(0.9))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(AppColor.divider, lineWidth: 0.5)
+                    )
+            )
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        // Map y-position within the strip to a letter index.
+                        let h = geo.size.height - 12  // minus vertical padding
+                        let per = h / CGFloat(max(letters.count, 1))
+                        let raw = Int((value.location.y - 6) / per)
+                        let idx = max(0, min(letters.count - 1, raw))
+                        let letter = letters[idx]
+                        if letter != lastScrubbed {
+                            lastScrubbed = letter
+                            onSelect(letter)
+                        }
+                    }
+                    .onEnded { _ in lastScrubbed = nil }
+            )
+        }
+        .frame(width: 22)
     }
 }
 

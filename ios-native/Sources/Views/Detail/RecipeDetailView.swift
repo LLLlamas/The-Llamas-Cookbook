@@ -36,7 +36,7 @@ struct RecipeDetailView: View {
                     if !recipe.tags.isEmpty {
                         FlowRow(spacing: AppSpacing.xs) {
                             ForEach(recipe.tags, id: \.self) { tag in
-                                TagPill(label: StringCase.capitalizeFirst(tag))
+                                TagPill(label: StringCase.titleCase(tag))
                             }
                         }
                     }
