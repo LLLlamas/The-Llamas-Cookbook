@@ -104,13 +104,18 @@ struct RecipeEditorView: View {
                 TagInputView(tags: $draft.tags)
 
                 sectionHeader("Notes")
+                // axis: .vertical + no .submitLabel lets the keyboard's
+                // return key insert newlines instead of dismissing, so the
+                // field grows as the user writes a real paragraph. Keyboard
+                // still dismisses via scroll or tap-outside (scrollDismissesKeyboard + outer onTapGesture).
                 TextField(
                     "Optional notes — e.g. use less salt next time",
-                    text: $draft.notes
+                    text: $draft.notes,
+                    axis: .vertical
                 )
-                .submitLabel(.done)
+                .lineLimit(3...12)
                 .padding(AppSpacing.md)
-                .frame(minHeight: 64, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
                 .background(AppColor.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: AppRadius.md)
@@ -119,6 +124,8 @@ struct RecipeEditorView: View {
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textPrimary)
+
+                SpecialNotesEditor(steps: $draft.steps)
 
                 sectionHeader("Reference Link")
                 sectionHint("Optional. Paste a URL if you adapted this from somewhere online.")

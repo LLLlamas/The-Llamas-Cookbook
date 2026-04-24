@@ -36,11 +36,15 @@ extension Ingredient {
     /// Build a `Display` for this ingredient. `scaledBy` multiplies the
     /// stored quantity before formatting — used by Cook Mode's servings
     /// scaler. Default 1 leaves the quantity untouched for Detail/Export.
+    ///
+    /// Name is lowercased on display — standard recipe-writing convention
+    /// ("2 cups flour", not "2 cups Flour") and keeps the detail row's
+    /// right-hand side visually calm regardless of how the user typed it.
     func display(scaledBy factor: Double = 1) -> Display {
         let scaled = Quantity.scale(quantity, by: factor) ?? quantity ?? ""
         let qty = Quantity.displayFormat(scaled)
         let pluralized = Plural.unit(unit ?? "", for: scaled)
         let takesOf = !pluralized.isEmpty && Plural.needsConnector(pluralized)
-        return Display(quantity: qty, unit: pluralized, takesOf: takesOf, name: name)
+        return Display(quantity: qty, unit: pluralized, takesOf: takesOf, name: name.lowercased())
     }
 }

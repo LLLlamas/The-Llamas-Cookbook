@@ -389,6 +389,13 @@ struct CookModeView: View {
                     }
                     .padding(AppSpacing.md)
 
+                    if let note = step.specialNote?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !note.isEmpty {
+                        specialNoteCallout(note)
+                            .padding(.horizontal, AppSpacing.md)
+                            .padding(.bottom, AppSpacing.md)
+                    }
+
                     if step.needsTimer, canTimer, !thisTiming, !anotherTiming {
                         timerStartChip(keyword: label, step: step)
                             .padding(.horizontal, AppSpacing.md)
@@ -430,6 +437,31 @@ struct CookModeView: View {
                     .monospacedDigit()
             }
         }
+    }
+
+    /// Inline reminder rendered directly under a step whenever the user
+    /// attached a `specialNote` in the editor. Accent-soft background +
+    /// lightbulb glyph so it reads as advice, not as another step.
+    private func specialNoteCallout(_ note: String) -> some View {
+        HStack(alignment: .top, spacing: AppSpacing.sm) {
+            Image(systemName: "lightbulb.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AppColor.accentDeep)
+                .padding(.top, 2)
+            Text(note)
+                .font(.system(size: 15, weight: .regular, design: .serif))
+                .italic()
+                .foregroundStyle(AppColor.accentDeep)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+        }
+        .padding(AppSpacing.sm + 2)
+        .background(AppColor.accentSoft.opacity(0.6))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.accent.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     private func timerStartChip(keyword: String, step: RecipeStep) -> some View {

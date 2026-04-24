@@ -402,70 +402,40 @@ struct FlowRow: Layout {
     }
 }
 
-/// One step in the detail-view numbered list. Measures its own text height
-/// with a PreferenceKey so the large step number can scale up on wrapped
-/// steps (1-line = base size; multi-line text pulls the number larger,
-/// capped so it doesn't get absurd on long paragraphs). Underline spans
-/// the full row width.
+/// One step in the detail-view numbered list. Step number is a fixed
+/// size for visual consistency across all steps, vertically centered
+/// against the step text no matter how many lines it wraps to.
+/// Underline spans the full row width.
 private struct StepDetailRow: View {
     let idx: Int
     let step: RecipeStep
 
-    @State private var textHeight: CGFloat = 24
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: AppSpacing.md) {
+            HStack(alignment: .center, spacing: AppSpacing.md) {
                 Text("\(idx + 1).")
-                    .font(.system(size: numberSize, weight: .bold, design: .serif))
+                    .font(AppFont.sectionHeading)
                     .foregroundStyle(AppColor.accent)
                     .monospacedDigit()
-                    .frame(minWidth: 36, alignment: .leading)
-                    .animation(.easeOut(duration: 0.15), value: numberSize)
+                    .frame(minWidth: 28, alignment: .leading)
 
                 Text(step.text)
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)
                     .lineSpacing(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: StepTextHeightKey.self,
-                                value: proxy.size.height
-                            )
-                        }
-                    )
 
                 if step.needsTimer {
                     Image(systemName: "timer")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(AppColor.accent.opacity(0.8))
-                        .padding(.top, 4)
                 }
             }
-            .onPreferenceChange(StepTextHeightKey.self) { textHeight = $0 }
 
             Capsule()
                 .fill(AppColor.accent.opacity(0.35))
                 .frame(maxWidth: .infinity)
                 .frame(height: 1.5)
         }
-    }
-
-    /// ~20pt for a single line; grows with wrapped text up to 36pt.
-    /// Based on measured text height, not line count, so dynamic type
-    /// and non-Latin scripts both scale correctly.
-    private var numberSize: CGFloat {
-        let base: CGFloat = 20
-        let extra = max(0, textHeight - 26) * 0.35
-        return min(36, base + extra)
-    }
-}
-
-private struct StepTextHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }

@@ -100,12 +100,17 @@ final class RecipeStep {
     var order: Int
     var text: String
     var needsTimer: Bool = false
+    /// Optional per-step reminder shown in Cook Mode when this step is
+    /// active — e.g. "Don't forget to cut vertically". Authored from the
+    /// editor's Notes section via `SpecialNotesEditor`.
+    var specialNote: String? = nil
     var recipe: Recipe?
 
-    init(text: String, order: Int, needsTimer: Bool = false) {
+    init(text: String, order: Int, needsTimer: Bool = false, specialNote: String? = nil) {
         self.id = UUID()
         self.order = order
         self.text = text
         self.needsTimer = needsTimer
+        self.specialNote = specialNote
     }
 }

@@ -46,11 +46,15 @@ struct DraftStep: Identifiable, Equatable {
     let id: UUID
     var text: String = ""
     var needsTimer: Bool = false
+    /// Per-step reminder. Nil = no note; empty string is normalized to nil
+    /// at save time so an empty text field doesn't persist as "has note".
+    var specialNote: String? = nil
 
-    init(id: UUID = UUID(), text: String = "", needsTimer: Bool = false) {
+    init(id: UUID = UUID(), text: String = "", needsTimer: Bool = false, specialNote: String? = nil) {
         self.id = id
         self.text = text
         self.needsTimer = needsTimer
+        self.specialNote = specialNote
     }
 }
 
@@ -78,7 +82,12 @@ extension Recipe {
                 )
             },
             steps: sortedSteps.map {
-                DraftStep(id: $0.id, text: $0.text, needsTimer: $0.needsTimer)
+                DraftStep(
+                    id: $0.id,
+                    text: $0.text,
+                    needsTimer: $0.needsTimer,
+                    specialNote: $0.specialNote
+                )
             }
         )
     }
@@ -108,7 +117,12 @@ extension Recipe {
 
         steps.removeAll()
         for (idx, item) in draft.steps.enumerated() where !item.text.trimmed.isEmpty {
-            let step = RecipeStep(text: item.text.trimmed, order: idx, needsTimer: item.needsTimer)
+            let step = RecipeStep(
+                text: item.text.trimmed,
+                order: idx,
+                needsTimer: item.needsTimer,
+                specialNote: item.specialNote?.trimmed.nilIfEmpty
+            )
             steps.append(step)
         }
     }
