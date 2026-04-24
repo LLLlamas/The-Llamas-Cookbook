@@ -13,6 +13,7 @@ struct ImportRecipeView: View {
 
         VStack(alignment: .leading, spacing: AppSpacing.md) {
             heroRow
+                .padding(.top, AppSpacing.md)
             formatHint(checks: checks)
 
             ZStack(alignment: .topLeading) {
@@ -109,13 +110,14 @@ struct ImportRecipeView: View {
     private var heroRow: some View {
         HStack(spacing: AppSpacing.md) {
             LlamaMascot(size: 44)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("From notes")
                     .font(.system(size: 20, weight: .bold, design: .serif))
                     .foregroundStyle(AppColor.textPrimary)
-                Text("Paste a recipe and we'll pre-fill the editor.")
+                Text("Paste a recipe, type in the key words, and we'll pre-fill everything for you!")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -175,9 +177,22 @@ struct ImportRecipeView: View {
     private var checklist: Checklist {
         let draft = RecipeImporter.parse(pastedText)
         return Checklist(
-            title: !draft.title.trimmed.isEmpty,
+            title: hasTitleKeyword && !draft.title.trimmed.isEmpty,
             ingredients: !draft.ingredients.isEmpty,
             steps: !draft.steps.isEmpty
         )
+    }
+
+    /// The title check only ticks when the user has explicitly typed the
+    /// `Title` keyword on the first non-empty line — matching the pattern
+    /// used for `Ingredients` and `Steps`. The parser itself still accepts
+    /// a keyword-less first line as a fallback so saved recipes don't end
+    /// up titleless, but the checklist mirrors the *format*, not the parse.
+    private var hasTitleKeyword: Bool {
+        let firstLine = pastedText
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first(where: { !$0.isEmpty }) ?? ""
+        return (try? #/^[Tt]itle\b/#.firstMatch(in: firstLine)) != nil
     }
 }
