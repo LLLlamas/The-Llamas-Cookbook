@@ -30,10 +30,6 @@ concurrency:
 env:
   APPLE_TEAM_ID: GYFN949Q5E
   BUNDLE_ID: com.llamascookbook.app
-  # Swift workflow needs a CFBundleVersion that never collides with a previous
-  # RN upload. RN runs number ~= single digits at time of writing. 10000+
-  # gives decades of headroom for both workflows to coexist.
-  BUILD_NUMBER_OFFSET: 10000
 
 jobs:
   build:
@@ -139,7 +135,12 @@ jobs:
       - name: Archive
         run: |
           set -euo pipefail
-          BUILD_NUMBER=$(( ${{ github.run_number }} + BUILD_NUMBER_OFFSET ))
+          # Unix timestamp as CFBundleVersion — always unique, always
+          # monotonically increasing. Solves the collision on workflow
+          # re-runs (same github.run_number would produce the same build
+          # number and TestFlight rejects duplicates). Timestamps also
+          # stay comfortably above any previous offset-based build numbers.
+          BUILD_NUMBER=$(date -u +%s)
           echo "Using CFBundleVersion: $BUILD_NUMBER"
           xcodebuild \
             -project LlamasCookbookNative.xcodeproj \

@@ -259,7 +259,7 @@ The RN workflow and the Swift workflow share these secrets. Don't run both TestF
 
 ### Build number strategy
 
-Swift `CFBundleVersion` = `github.run_number + 10000`. The offset keeps Swift builds in a different number range than the old RN workflow ever used (RN was at single digits when we pivoted), so App Store Connect's build history stays coherent across the cutover.
+Swift `CFBundleVersion` = `date -u +%s` (Unix timestamp, seconds). Always unique, always monotonically increasing, and survives workflow re-runs (which reuse `github.run_number` and would otherwise produce duplicate build numbers that TestFlight rejects). Timestamps are comfortably above any legacy offset-based build number (the previous scheme was `run_number + 10000`, which hit `10020` on run 20 before we switched).
 
 `MARKETING_VERSION` is `0.1.0` in [project.yml](./ios-native/project.yml) — bump manually when promoting to a new user-facing version.
 
