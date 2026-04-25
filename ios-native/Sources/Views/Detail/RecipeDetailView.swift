@@ -14,6 +14,7 @@ struct RecipeDetailView: View {
     @State private var showingDeleteAlert = false
     @State private var showingConversions = false
     @State private var showingAppearance = false
+    @State private var showingSourdough = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -45,7 +46,7 @@ struct RecipeDetailView: View {
                     }
 
                     if !sortedIngredients.isEmpty {
-                        section("Ingredients", accessory: { conversionsChip }) {
+                        section("Ingredients", accessory: { ingredientAccessories }) {
                             VStack(spacing: AppSpacing.sm) {
                                 ForEach(sortedIngredients) { ingredient in
                                     ingredientRow(ingredient)
@@ -160,6 +161,17 @@ struct RecipeDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingSourdough) {
+            SourdoughCalculatorView { row in
+                addSourdoughIngredients(from: row)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            // .sheet inherits the parent's environment, but @Observable
+            // values can drop out across sheet boundaries — re-injecting
+            // is cheap insurance.
+            .environment(appearance)
+        }
         .alert("Delete recipe?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -202,6 +214,26 @@ struct RecipeDetailView: View {
         }
     }
 
+    /// Trailing accessories for the Ingredients section header. Sourdough
+    /// chip is gated on the recipe carrying a "sourdough" tag — Conversions
+    /// is always shown.
+    @ViewBuilder
+    private var ingredientAccessories: some View {
+        HStack(spacing: AppSpacing.xs) {
+            if isSourdoughRecipe {
+                sourdoughChip
+            }
+            conversionsChip
+        }
+    }
+
+    /// Tag presence drives the sourdough chip + calculator availability.
+    /// Tags are stored lowercase by `TagInputView.normalize`, so we
+    /// compare lowercased to be tolerant of legacy data.
+    private var isSourdoughRecipe: Bool {
+        recipe.tags.contains { $0.lowercased() == "sourdough" }
+    }
+
     private var conversionsChip: some View {
         Button {
             Haptics.selection()
@@ -213,14 +245,35 @@ struct RecipeDetailView: View {
                 Text("Conversions")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(AppColor.accent)
+            .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, AppSpacing.xs + 1)
-            .overlay(Capsule().stroke(AppColor.accent, lineWidth: 1))
+            .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open kitchen conversions reference")
+    }
+
+    private var sourdoughChip: some View {
+        Button {
+            Haptics.selection()
+            showingSourdough = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Sourdough")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(appearance.accentColor)
+            .padding(.horizontal, AppSpacing.sm + 2)
+            .padding(.vertical, AppSpacing.xs + 1)
+            .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open sourdough feeding calculator")
     }
 
     private func ingredientRow(_ ingredient: Ingredient) -> some View {
@@ -381,6 +434,31 @@ struct RecipeDetailView: View {
             parts.append("Cooked \(recipe.cookCount) time\(recipe.cookCount == 1 ? "" : "s")")
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// Tail-append starter / water / flour ingredients computed from the
+    /// chosen ratio + total. Order numbers continue from the highest
+    /// existing ingredient so the new entries land at the bottom of the
+    /// list. The relationship's inverse handles SwiftData registration —
+    /// no explicit `modelContext.insert` needed since `recipe` is already
+    /// managed.
+    private func addSourdoughIngredients(from row: SourdoughCalculator.Row) {
+        let nextOrder = (recipe.ingredients.map(\.order).max() ?? -1) + 1
+        let entries: [(name: String, value: Double)] = [
+            ("active starter", row.starter),
+            ("water",          row.water),
+            ("flour",          row.flour),
+        ]
+        for (offset, entry) in entries.enumerated() {
+            let ingredient = Ingredient(
+                quantity: SourdoughCalculator.gramsValue(entry.value),
+                unit: "g",
+                name: entry.name,
+                order: nextOrder + offset
+            )
+            recipe.ingredients.append(ingredient)
+        }
+        recipe.updatedAt = .now
     }
 
 }
