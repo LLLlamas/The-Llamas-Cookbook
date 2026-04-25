@@ -19,7 +19,8 @@ struct RecipeDetailView: View {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
                     Text(StringCase.titleCase(recipe.title))
                         .font(AppFont.recipeTitle)
-                        .foregroundStyle(AppColor.textPrimary)
+                        .foregroundStyle(AppColor.accent)
+                        .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
                     if let summary = recipe.summary, !summary.isEmpty {
                         Text(summary)
@@ -58,24 +59,6 @@ struct RecipeDetailView: View {
                                     StepDetailRow(idx: idx, step: step)
                                 }
                             }
-                        }
-                    }
-
-                    if !recipe.notes.trimmed.isEmpty {
-                        section("Notes") {
-                            HStack(alignment: .top, spacing: AppSpacing.md) {
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(AppColor.accent)
-                                    .frame(width: 3)
-                                Text(recipe.notes)
-                                    .font(AppFont.body)
-                                    .foregroundStyle(AppColor.textPrimary)
-                                    .lineSpacing(3)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .padding(AppSpacing.md)
-                            .background(AppColor.surfaceSunken)
-                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                         }
                     }
 
@@ -217,9 +200,9 @@ struct RecipeDetailView: View {
                 .fill(AppColor.accent)
                 .frame(width: 6, height: 6)
 
-            // Qty stacked over unit, both centered under each other in a
-            // fixed-width column so the column edges line up across rows.
-            VStack(alignment: .center, spacing: 1) {
+            // Qty + unit on the same line, left-aligned in a fixed-width
+            // column so the em-dashes between rows line up.
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 if !display.quantity.isEmpty {
                     Text(display.quantity)
                         .font(.system(size: 16, weight: .semibold))
@@ -229,12 +212,12 @@ struct RecipeDetailView: View {
                 }
                 if !display.unit.isEmpty {
                     Text(display.unit)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(AppColor.accentDeep.opacity(0.78))
                         .lineLimit(1)
                 }
             }
-            .frame(width: 78)
+            .frame(width: 110, alignment: .leading)
 
             Group {
                 if takesOf {
@@ -444,8 +427,8 @@ private struct StepDetailRow: View {
 
             if step.needsTimer {
                 Image(systemName: "timer")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppColor.accent.opacity(0.8))
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(AppColor.accent.opacity(0.85))
             }
         }
         .padding(.vertical, AppSpacing.md)

@@ -21,7 +21,7 @@ struct IngredientRowEditor: View {
             isEditing = true
         } label: {
             HStack(spacing: AppSpacing.md) {
-                VStack(alignment: .center, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
                     if !ingredient.quantity.trimmed.isEmpty {
                         Text(Quantity.displayFormat(ingredient.quantity))
                             .font(AppFont.ingredient)
@@ -34,7 +34,7 @@ struct IngredientRowEditor: View {
                             .foregroundStyle(AppColor.textSecondary)
                     }
                 }
-                .frame(width: 80, alignment: .center)
+                .frame(minWidth: 96, alignment: .leading)
 
                 Text(ingredient.name)
                     .font(AppFont.ingredient)

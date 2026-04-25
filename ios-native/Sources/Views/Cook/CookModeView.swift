@@ -187,7 +187,8 @@ struct CookModeView: View {
 
             Text(StringCase.titleCase(recipe.title))
                 .font(.system(size: 18, weight: .bold, design: .serif))
-                .foregroundStyle(AppColor.textPrimary)
+                .foregroundStyle(AppColor.accent)
+                .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
 

@@ -51,16 +51,16 @@ struct SpecialNotesEditor: View {
     // MARK: - Subviews
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
             Text("Special Notes")
-                .font(.system(size: 15, weight: .semibold, design: .serif))
+                .font(AppFont.sectionHeading)
                 .foregroundStyle(AppColor.textPrimary)
             Text("Pin a reminder to a specific step — it appears in Cook Mode when you reach that step.")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.top, AppSpacing.sm)
+        .padding(.top, AppSpacing.md)
     }
 
     private var addButton: some View {

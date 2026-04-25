@@ -37,12 +37,6 @@ extension Recipe {
             lines.append("")
         }
 
-        if !notes.isEmpty {
-            lines.append("Notes")
-            lines.append(notes)
-            lines.append("")
-        }
-
         if let url = sourceUrl, !url.isEmpty {
             lines.append("Source: \(url)")
         }

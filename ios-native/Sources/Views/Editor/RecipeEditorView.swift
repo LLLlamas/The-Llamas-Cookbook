@@ -103,28 +103,6 @@ struct RecipeEditorView: View {
                 sectionHeader("Categories")
                 TagInputView(tags: $draft.tags)
 
-                sectionHeader("Notes")
-                // axis: .vertical + no .submitLabel lets the keyboard's
-                // return key insert newlines instead of dismissing, so the
-                // field grows as the user writes a real paragraph. Keyboard
-                // still dismisses via scroll or tap-outside (scrollDismissesKeyboard + outer onTapGesture).
-                TextField(
-                    "Optional notes — e.g. use less salt next time",
-                    text: $draft.notes,
-                    axis: .vertical
-                )
-                .lineLimit(3...12)
-                .padding(AppSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .background(AppColor.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppRadius.md)
-                        .stroke(AppColor.divider, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textPrimary)
-
                 SpecialNotesEditor(steps: $draft.steps)
 
                 sectionHeader("Reference Link")
@@ -156,9 +134,11 @@ struct RecipeEditorView: View {
                 optionalDetails
             }
             .padding(AppSpacing.lg)
-            // Extra bottom runway so the focused TextField sits well above
-            // the keyboard, not crammed right against its top edge.
-            .padding(.bottom, 120)
+            // Generous bottom runway so iOS's keyboard auto-scroll can
+            // settle the focused field high in the visible area instead
+            // of crammed against the keyboard's top edge — the user can
+            // see what they're typing with breathing room below.
+            .padding(.bottom, 320)
             .contentShape(Rectangle())
             .onTapGesture {
                 UIApplication.shared.sendAction(
@@ -177,7 +157,11 @@ struct RecipeEditorView: View {
                 }
             }
         )
-        .scrollDismissesKeyboard(.immediately)
+        // .interactively lets the keyboard follow a downward drag (Messages
+        // style) instead of dismissing the moment any scroll begins —
+        // pairs with the bigger bottom runway so the user can scroll the
+        // focused field higher on screen without losing the keyboard.
+        .scrollDismissesKeyboard(.interactively)
         .background(AppColor.background)
         .navigationTitle(headerTitle)
         .navigationBarTitleDisplayMode(.inline)

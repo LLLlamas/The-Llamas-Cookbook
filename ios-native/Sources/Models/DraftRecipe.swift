@@ -8,7 +8,6 @@ struct DraftRecipe: Equatable {
     var sourceUrl: String = ""
     var servings: String = ""
     var cookTimeMinutes: String = ""
-    var notes: String = ""
     var tags: [String] = []
     var favorite: Bool = false
     var ingredients: [DraftIngredient] = []
@@ -17,7 +16,6 @@ struct DraftRecipe: Equatable {
     var hasAnyContent: Bool {
         !title.trimmed.isEmpty ||
         !summary.trimmed.isEmpty ||
-        !notes.trimmed.isEmpty ||
         !sourceUrl.trimmed.isEmpty ||
         !ingredients.isEmpty ||
         !steps.isEmpty
@@ -70,7 +68,6 @@ extension Recipe {
             sourceUrl: sourceUrl ?? "",
             servings: servings.map(String.init) ?? "",
             cookTimeMinutes: cookTimeMinutes.map(String.init) ?? "",
-            notes: notes,
             tags: tags,
             favorite: favorite,
             ingredients: sortedIngredients.map {
@@ -98,7 +95,10 @@ extension Recipe {
         sourceUrl = draft.sourceUrl.trimmed.nilIfEmpty
         servings = Int(draft.servings.trimmed)
         cookTimeMinutes = Int(draft.cookTimeMinutes.trimmed)
-        notes = draft.notes
+        // `notes` field is no longer surfaced — UI uses per-step special
+        // notes instead. We deliberately don't write here, so any legacy
+        // notes data on existing recipes survives untouched until the
+        // model field is dropped in a future migration.
         tags = draft.tags
         favorite = draft.favorite
         updatedAt = .now

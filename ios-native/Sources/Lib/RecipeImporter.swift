@@ -15,7 +15,6 @@ enum RecipeImporter {
         var section: Section = .header
         var titleSet = false
         var summaryLines: [String] = []
-        var notesLines: [String] = []
 
         for rawLine in lines {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -39,7 +38,6 @@ enum RecipeImporter {
 
             if sectionMatches(lower, ["ingredients"]) { section = .ingredients; continue }
             if sectionMatches(lower, ["steps", "instructions", "directions", "method"]) { section = .steps; continue }
-            if sectionMatches(lower, ["notes"]) { section = .notes; continue }
 
             if let s = extractNumber(after: #"(?i)^serves?\s*:?\s*"#, in: line) {
                 draft.servings = s
@@ -61,21 +59,16 @@ enum RecipeImporter {
                 if let ing = parseIngredient(line) { draft.ingredients.append(ing) }
             case .steps:
                 if let step = parseStep(line) { draft.steps.append(step) }
-            case .notes:
-                notesLines.append(line)
             }
         }
 
         if !summaryLines.isEmpty {
             draft.summary = summaryLines.joined(separator: " ")
         }
-        if !notesLines.isEmpty {
-            draft.notes = notesLines.joined(separator: "\n")
-        }
         return draft
     }
 
-    private enum Section { case header, ingredients, steps, notes }
+    private enum Section { case header, ingredients, steps }
 
     private static func sectionMatches(_ line: String, _ names: [String]) -> Bool {
         let stripped = line.trimmingCharacters(in: CharacterSet(charactersIn: " :"))

@@ -8,7 +8,8 @@ struct RecipeCardView: View {
             HStack(alignment: .top, spacing: AppSpacing.md) {
                 Text(StringCase.titleCase(recipe.title))
                     .font(AppFont.sectionHeading)
-                    .foregroundStyle(AppColor.textPrimary)
+                    .foregroundStyle(AppColor.accent)
+                    .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                     .lineLimit(2)
                 Spacer(minLength: 0)
                 if recipe.favorite {

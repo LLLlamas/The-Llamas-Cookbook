@@ -11,21 +11,16 @@ struct RootView: View {
         .tint(AppColor.accent)
         .environment(session)
         .environment(editor)
-        .sheet(isPresented: cookingSheetPresented) {
+        .fullScreenCover(isPresented: cookingSheetPresented) {
             if let recipe = session.activeRecipe {
                 CookModeView(recipe: recipe) {
                     session.end()
                 }
-                // `.large` first so SwiftUI starts the sheet fully expanded.
-                // Tab-sized `.height(80)` lets the user tuck it to the
-                // bottom of the screen, keep cooking state, and browse
-                // Library / other recipes underneath.
-                .presentationDetents([.large, .height(80)])
-                .presentationBackgroundInteraction(.enabled(upThrough: .height(80)))
-                .presentationDragIndicator(.visible)
-                .interactiveDismissDisabled()
+                // Cook Mode owns the entire screen — no sheet chrome,
+                // no swipe-to-dismiss, no rounded corners. Exit goes
+                // through the in-view close (X) or Mark-as-cooked.
                 // Explicit environment re-injection: @Observable values
-                // don't always propagate through sheets reliably, and the
+                // don't always propagate through covers reliably, and the
                 // children of cook mode may read them. Cheap to be safe.
                 .environment(session)
                 .environment(editor)
