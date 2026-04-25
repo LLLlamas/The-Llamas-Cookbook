@@ -4,6 +4,8 @@ import UIKit
 import AudioToolbox
 
 struct CookModeView: View {
+    @Environment(AppearanceSettings.self) private var appearance
+
     let recipe: Recipe
     /// End the app-level cook session. Called from the close button,
     /// Mark-as-cooked, and the exit confirm dialog. The sheet is driven
@@ -187,7 +189,7 @@ struct CookModeView: View {
 
             Text(StringCase.titleCase(recipe.title))
                 .font(.system(size: 18, weight: .bold, design: .serif))
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)

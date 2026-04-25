@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RootView: View {
+    @Environment(AppearanceSettings.self) private var appearance
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
 
@@ -8,7 +9,7 @@ struct RootView: View {
         NavigationStack {
             LibraryView()
         }
-        .tint(AppColor.accent)
+        .tint(appearance.accentColor)
         .environment(session)
         .environment(editor)
         .fullScreenCover(isPresented: cookingSheetPresented) {
@@ -22,12 +23,14 @@ struct RootView: View {
                 // Explicit environment re-injection: @Observable values
                 // don't always propagate through covers reliably, and the
                 // children of cook mode may read them. Cheap to be safe.
+                .environment(appearance)
                 .environment(session)
                 .environment(editor)
             }
         }
         .sheet(item: editorBinding) { sheet in
             EditorSheetHost(sheet: sheet, onClose: { editor.end() })
+                .environment(appearance)
                 .environment(editor)
                 .environment(session)
         }
@@ -107,4 +110,5 @@ private struct EditorSheetHost: View {
 #Preview {
     RootView()
         .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self], inMemory: true)
+        .environment(AppearanceSettings())
 }

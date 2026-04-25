@@ -7,6 +7,7 @@ struct RecipeEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(EditorCoordinator.self) private var editor
+    @Environment(AppearanceSettings.self) private var appearance
 
     /// nil when creating a new recipe; the target when editing.
     let recipe: Recipe?
@@ -180,7 +181,7 @@ struct RecipeEditorView: View {
                         .foregroundStyle(AppColor.onAccent)
                         .padding(.horizontal, AppSpacing.md)
                         .padding(.vertical, 6)
-                        .background(AppColor.accent)
+                        .background(appearance.accentColor)
                         .clipShape(Capsule())
                         .opacity(draft.canSave ? 1 : 0.4)
                 }
@@ -318,7 +319,7 @@ struct RecipeEditorView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(AppColor.accent)
+                    .background(appearance.accentColor)
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             }
             .buttonStyle(.plain)

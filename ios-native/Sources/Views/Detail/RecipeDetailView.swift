@@ -7,11 +7,13 @@ struct RecipeDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(CookingSession.self) private var session
     @Environment(EditorCoordinator.self) private var editor
+    @Environment(AppearanceSettings.self) private var appearance
 
     let recipe: Recipe
 
     @State private var showingDeleteAlert = false
     @State private var showingConversions = false
+    @State private var showingAppearance = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -19,7 +21,7 @@ struct RecipeDetailView: View {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
                     Text(StringCase.titleCase(recipe.title))
                         .font(AppFont.recipeTitle)
-                        .foregroundStyle(AppColor.accent)
+                        .foregroundStyle(appearance.accentColor)
                         .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
                     if let summary = recipe.summary, !summary.isEmpty {
@@ -93,38 +95,61 @@ struct RecipeDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: AppSpacing.md) {
-                    Button {
-                        Haptics.selection()
-                        recipe.favorite.toggle()
-                        recipe.updatedAt = .now
-                    } label: {
-                        Image(systemName: recipe.favorite ? "heart.fill" : "heart")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(AppColor.accent)
-                    }
-                    ShareLink(
-                        item: recipe.exportText,
-                        subject: Text(recipe.title),
-                        message: Text("Recipe from Llamas Cookbook")
-                    ) {
-                        Image(systemName: "square.and.arrow.up")
-                            .foregroundStyle(AppColor.textPrimary)
-                    }
-                    Button {
-                        editor.startEdit(recipe)
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(AppColor.textPrimary)
-                    }
+            // Center: llama icon → opens accent-color picker. Sits between
+            // the back button ("Llamas Cookbook") and the trailing trio so
+            // every toolbar control lives on the same horizontal axis.
+            ToolbarItem(placement: .principal) {
+                Button {
+                    Haptics.selection()
+                    showingAppearance = true
+                } label: {
+                    LlamaMascot(size: 30, color: appearance.accentColor)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Customize accent color")
+            }
+            // Trailing trio — each its own ToolbarItem so iOS spreads them
+            // out evenly along the right side instead of cramming them
+            // together inside one HStack.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.selection()
+                    recipe.favorite.toggle()
+                    recipe.updatedAt = .now
+                } label: {
+                    Image(systemName: recipe.favorite ? "heart.fill" : "heart")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(appearance.accentColor)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(
+                    item: recipe.exportText,
+                    subject: Text(recipe.title),
+                    message: Text("Recipe from Llamas Cookbook")
+                ) {
+                    Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(appearance.accentColor)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    editor.startEdit(recipe)
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(appearance.accentColor)
                 }
             }
         }
         .sheet(isPresented: $showingConversions) {
             ConversionsView()
                 .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingAppearance) {
+            AccentColorPicker(settings: appearance)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .alert("Delete recipe?", isPresented: $showingDeleteAlert) {
@@ -307,7 +332,7 @@ struct RecipeDetailView: View {
                 .foregroundStyle(AppColor.onAccent)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppSpacing.md)
-                .background(AppColor.accent)
+                .background(appearance.accentColor)
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             }
         }

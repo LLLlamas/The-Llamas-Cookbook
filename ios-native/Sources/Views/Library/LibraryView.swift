@@ -10,10 +10,12 @@ private enum LibraryFilter: Equatable, Hashable {
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EditorCoordinator.self) private var editor
+    @Environment(AppearanceSettings.self) private var appearance
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
     @State private var deletingRecipe: Recipe?
+    @State private var showingAppearance = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -26,13 +28,25 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: AppSpacing.xs + 2) {
-                    LlamaMascot(size: 28)
+                    Button {
+                        Haptics.selection()
+                        showingAppearance = true
+                    } label: {
+                        LlamaMascot(size: 28, color: appearance.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Customize accent color")
                     Text("Llamas Cookbook")
                         .font(.system(size: 22, weight: .heavy, design: .serif))
                         .foregroundStyle(AppColor.accentDeep)
                         .tracking(0.3)
                 }
             }
+        }
+        .sheet(isPresented: $showingAppearance) {
+            AccentColorPicker(settings: appearance)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .toolbarBackground(AppColor.background, for: .navigationBar)
         .navigationDestination(for: Recipe.self) { recipe in
@@ -184,7 +198,8 @@ struct LibraryView: View {
                 FilterChip(
                     label: "All  ·  \(recipes.count)",
                     isActive: filter == .all,
-                    iconName: nil
+                    iconName: nil,
+                    accent: appearance.accentColor
                 ) {
                     filter = .all
                 }
@@ -193,7 +208,8 @@ struct LibraryView: View {
                     FilterChip(
                         label: "Favorites  ·  \(favoriteCount)",
                         isActive: filter == .favorites,
-                        iconName: "heart.fill"
+                        iconName: "heart.fill",
+                        accent: appearance.accentColor
                     ) {
                         filter = filter == .favorites ? .all : .favorites
                     }
@@ -204,7 +220,8 @@ struct LibraryView: View {
                     FilterChip(
                         label: "\(StringCase.titleCase(tag))  ·  \(count)",
                         isActive: filter == .tag(tag),
-                        iconName: nil
+                        iconName: nil,
+                        accent: appearance.accentColor
                     ) {
                         filter = filter == .tag(tag) ? .all : .tag(tag)
                     }
@@ -266,7 +283,7 @@ struct LibraryView: View {
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(AppColor.onAccent)
                 .frame(width: 60, height: 60)
-                .background(AppColor.accent)
+                .background(appearance.accentColor)
                 .clipShape(Circle())
                 .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
         }
@@ -299,6 +316,7 @@ private struct FilterChip: View {
     let label: String
     let isActive: Bool
     let iconName: String?
+    let accent: Color
     let action: () -> Void
 
     var body: some View {
@@ -313,10 +331,10 @@ private struct FilterChip: View {
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
-            .background(isActive ? AppColor.accent : AppColor.surface)
+            .background(isActive ? accent : AppColor.surface)
             .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
             .overlay(
-                Capsule().stroke(isActive ? AppColor.accent : AppColor.divider, lineWidth: 1)
+                Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
             )
             .clipShape(Capsule())
         }
@@ -396,6 +414,7 @@ private struct LetterIndex: View {
         .modelContainer(previewContainer(populated: true))
         .environment(CookingSession())
         .environment(EditorCoordinator())
+        .environment(AppearanceSettings())
 }
 
 #Preview("Empty") {
@@ -403,6 +422,7 @@ private struct LetterIndex: View {
         .modelContainer(previewContainer(populated: false))
         .environment(CookingSession())
         .environment(EditorCoordinator())
+        .environment(AppearanceSettings())
 }
 
 @MainActor
