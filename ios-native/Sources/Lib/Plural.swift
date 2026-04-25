@@ -27,15 +27,39 @@ enum Plural {
         "handful", "handfuls",
     ]
 
+    /// Display abbreviations for verbose cooking units. Storage stays in
+    /// canonical singular form ("teaspoon"), but the recipe rows show
+    /// "tsp" so qty + unit fits in tight column widths without ellipsis.
+    /// Cup/pint/quart/gallon stay full-word — they read naturally and
+    /// are short enough already.
+    private static let abbreviations: [String: String] = [
+        "teaspoon":   "tsp",  "teaspoons":   "tsp",
+        "tablespoon": "tbsp", "tablespoons": "tbsp",
+        "ounce":      "oz",   "ounces":      "oz",
+        "pound":      "lb",   "pounds":      "lb",
+        "gram":       "g",    "grams":       "g",
+        "kilogram":   "kg",   "kilograms":   "kg",
+        "milligram":  "mg",   "milligrams":  "mg",
+        "milliliter": "ml",   "milliliters": "ml",
+        "liter":      "L",    "liters":      "L",
+        "litre":      "L",    "litres":      "L",
+    ]
+
     /// Pluralize a cooking unit to match the quantity. "1 cup" vs "2 cups",
-    /// but never "2 tbsps". Freeform quantities ("a pinch of") stay singular
-    /// since we can't tell how many.
+    /// but never "2 tbsps". Verbose units ("teaspoon", "tablespoon",
+    /// "ounce", …) collapse to their abbreviation regardless of quantity
+    /// so the column can stay tight without truncating with "…".
+    /// Freeform quantities ("a pinch of") stay singular since we can't
+    /// tell how many.
     static func unit(_ unit: String, for quantity: String?) -> String {
         let trimmed = unit.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return trimmed }
-        guard let qty = Quantity.parse(quantity), qty > 1 else { return trimmed }
 
         let lower = trimmed.lowercased()
+        if let abbr = abbreviations[lower] { return abbr }
+
+        guard let qty = Quantity.parse(quantity), qty > 1 else { return trimmed }
+
         if invariants.contains(lower) { return trimmed }
         if lower.hasSuffix("s") { return trimmed }
 

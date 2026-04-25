@@ -38,7 +38,7 @@ struct LibraryView: View {
                     .accessibilityLabel("Customize accent color")
                     Text("Llamas Cookbook")
                         .font(.system(size: 22, weight: .heavy, design: .serif))
-                        .foregroundStyle(AppColor.accentDeep)
+                        .foregroundStyle(appearance.accentColor)
                         .tracking(0.3)
                 }
             }
@@ -142,7 +142,8 @@ struct LibraryView: View {
 
                 LetterIndex(
                     letters: Self.allLetters,
-                    populated: populatedLetters
+                    populated: populatedLetters,
+                    accent: appearance.accentColor
                 ) { letter in
                     guard let target = firstRecipe(atOrAfter: letter) else { return }
                     Haptics.selection()
@@ -323,16 +324,20 @@ private struct FilterChip: View {
         Button(action: action) {
             HStack(spacing: AppSpacing.xs) {
                 if let iconName {
+                    // Icon foregroundStyle is set explicitly so the
+                    // heart can keep its accent fill on the inactive
+                    // chip while the label text stays neutral.
                     Image(systemName: iconName)
                         .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isActive ? AppColor.onAccent : accent)
                 }
                 Text(label)
                     .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
             .background(isActive ? accent : AppColor.surface)
-            .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
             .overlay(
                 Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
             )
@@ -352,60 +357,93 @@ private struct RecipeCardButtonStyle: ButtonStyle {
 /// Vertical A–Z strip on the trailing edge of the library list. Renders
 /// the whole alphabet (+ `#`) for a consistent full look; letters that
 /// match at least one recipe are fully opaque, the rest are dimmed.
-/// Tap or drag your finger up/down to scrub through letters.
+/// Tap or drag your finger up/down to scrub through letters — while
+/// scrubbing, a magnified accent-tinted badge floats just to the left
+/// of the strip showing the current letter at a clearly readable size.
 private struct LetterIndex: View {
     let letters: [String]
     let populated: Set<String>
+    let accent: Color
     let onSelect: (String) -> Void
 
-    @State private var lastScrubbed: String?
+    @State private var activeIndex: Int? = nil
 
     private let rowHeight: CGFloat = 11
     private let stripWidth: CGFloat = 14
     private let verticalPadding: CGFloat = 4
+    private let badgeSize: CGFloat = 56
 
     var body: some View {
-        let strip = VStack(spacing: 0) {
-            ForEach(letters, id: \.self) { letter in
+        VStack {
+            Spacer(minLength: 0)
+            strip
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var strip: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(letters.enumerated()), id: \.element) { index, letter in
                 Text(letter)
                     .font(.system(size: 9, weight: .bold, design: .serif))
-                    .foregroundStyle(AppColor.accentDeep.opacity(populated.contains(letter) ? 0.85 : 0.3))
+                    .foregroundStyle(letterColor(for: letter, isActive: index == activeIndex))
                     .frame(maxWidth: .infinity)
                     .frame(height: rowHeight)
             }
         }
         .frame(width: stripWidth)
         .padding(.vertical, verticalPadding)
-        .background(
-            Capsule()
-                .fill(AppColor.surface.opacity(0.35))
-        )
+        .background(Capsule().fill(AppColor.surface.opacity(0.35)))
+        .overlay(alignment: .topTrailing) {
+            if let activeIndex, letters.indices.contains(activeIndex) {
+                magnifiedBadge(letter: letters[activeIndex])
+                    .offset(
+                        x: -stripWidth - 12,
+                        y: badgeYOffset(for: activeIndex)
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
+                    .allowsHitTesting(false)
+            }
+        }
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    let idx = max(
-                        0,
-                        min(
-                            letters.count - 1,
-                            Int((value.location.y - verticalPadding) / rowHeight)
-                        )
-                    )
-                    let letter = letters[idx]
-                    if letter != lastScrubbed {
-                        lastScrubbed = letter
-                        onSelect(letter)
+                    let raw = (value.location.y - verticalPadding) / rowHeight
+                    let idx = max(0, min(letters.count - 1, Int(raw)))
+                    if idx != activeIndex {
+                        activeIndex = idx
+                        onSelect(letters[idx])
                     }
                 }
-                .onEnded { _ in lastScrubbed = nil }
+                .onEnded { _ in activeIndex = nil }
         )
+        .animation(.easeOut(duration: 0.12), value: activeIndex)
+    }
 
-        // Vertically center the strip in the trailing edge of the list.
-        return VStack {
-            Spacer(minLength: 0)
-            strip
-            Spacer(minLength: 0)
-        }
+    private func letterColor(for letter: String, isActive: Bool) -> Color {
+        // Active row pops at full saturation; inactive rows still preserve
+        // the populated-vs-empty distinction (good cue), just tinted with
+        // the user's chosen accent instead of the default brown.
+        if isActive { return accent }
+        return accent.opacity(populated.contains(letter) ? 0.85 : 0.3)
+    }
+
+    private func magnifiedBadge(letter: String) -> some View {
+        Text(letter)
+            .font(.system(size: 30, weight: .heavy, design: .serif))
+            .foregroundStyle(AppColor.onAccent)
+            .frame(width: badgeSize, height: badgeSize)
+            .background(Circle().fill(accent))
+            .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 3)
+    }
+
+    /// Vertically aligns the badge's center on the active letter's center.
+    /// `.overlay(alignment: .topTrailing)` plants the badge with its top
+    /// at the strip top, so we offset down by (letterCenterY - badgeSize/2).
+    private func badgeYOffset(for index: Int) -> CGFloat {
+        let letterCenterY = verticalPadding + CGFloat(index) * rowHeight + rowHeight / 2
+        return letterCenterY - badgeSize / 2
     }
 }
 

@@ -95,22 +95,26 @@ struct RecipeDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Center: llama icon → opens accent-color picker. Sits between
-            // the back button ("Llamas Cookbook") and the trailing trio so
-            // every toolbar control lives on the same horizontal axis.
+            // Center: llama icon → opens accent-color picker. Slightly
+            // larger than the trailing icons so the mascot reads as the
+            // headline element rather than just another toolbar button.
             ToolbarItem(placement: .principal) {
                 Button {
                     Haptics.selection()
                     showingAppearance = true
                 } label: {
-                    LlamaMascot(size: 30, color: appearance.accentColor)
+                    LlamaMascot(size: 38, color: appearance.accentColor)
+                        .frame(width: 38, height: 38)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")
             }
             // Trailing trio — each its own ToolbarItem so iOS spreads them
-            // out evenly along the right side instead of cramming them
-            // together inside one HStack.
+            // out, each wrapped in an identical frame so heart/share/edit
+            // all sit on exactly the same horizontal axis (without the
+            // explicit frame, the share-link image renders at a slightly
+            // different intrinsic height and ends up a hair below the
+            // others). All three use the same font + accent.
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Haptics.selection()
@@ -118,8 +122,9 @@ struct RecipeDetailView: View {
                     recipe.updatedAt = .now
                 } label: {
                     Image(systemName: recipe.favorite ? "heart.fill" : "heart")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 19, weight: .bold))
                         .foregroundStyle(appearance.accentColor)
+                        .frame(width: 30, height: 30)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -129,7 +134,9 @@ struct RecipeDetailView: View {
                     message: Text("Recipe from Llamas Cookbook")
                 ) {
                     Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 19, weight: .bold))
                         .foregroundStyle(appearance.accentColor)
+                        .frame(width: 30, height: 30)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -137,8 +144,9 @@ struct RecipeDetailView: View {
                     editor.startEdit(recipe)
                 } label: {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 19, weight: .bold))
                         .foregroundStyle(appearance.accentColor)
+                        .frame(width: 30, height: 30)
                 }
             }
         }
@@ -183,7 +191,7 @@ struct RecipeDetailView: View {
                     .padding(.bottom, 6)
                     .background(alignment: .bottom) {
                         Capsule()
-                            .fill(AppColor.accent.opacity(0.55))
+                            .fill(appearance.accentColor.opacity(0.55))
                             .frame(height: 2)
                     }
                 Spacer(minLength: AppSpacing.sm)
@@ -226,23 +234,27 @@ struct RecipeDetailView: View {
                 .frame(width: 6, height: 6)
 
             // Qty + unit on the same line, left-aligned in a fixed-width
-            // column so the em-dashes between rows line up.
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            // column so the em-dashes between rows line up. Long words
+            // (rare now that units are abbreviated to tsp/tbsp/oz/etc)
+            // shrink via minimumScaleFactor instead of truncating with "…".
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
                 if !display.quantity.isEmpty {
                     Text(display.quantity)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(AppColor.accentDeep)
                         .monospacedDigit()
                         .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
                 if !display.unit.isEmpty {
                     Text(display.unit)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(AppColor.accentDeep.opacity(0.78))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(AppColor.accentDeep.opacity(0.75))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
-            .frame(width: 110, alignment: .leading)
+            .frame(width: 96, alignment: .leading)
 
             Group {
                 if takesOf {
@@ -429,10 +441,13 @@ struct FlowRow: Layout {
 }
 
 /// One step in the detail-view numbered list. The row sits inside a
-/// gradient "bubble" pill — cream shading into a soft terracotta on the
-/// bottom-trailing corner, with layered shadows to lift it off the page.
-/// Number is a fixed size, vertically centered against the wrapping text.
+/// gradient "bubble" pill — cream shading into a soft tint of the user's
+/// accent at the bottom-trailing corner, with layered shadows to lift
+/// it off the page. Number is a fixed size, vertically centered against
+/// the wrapping text.
 private struct StepDetailRow: View {
+    @Environment(AppearanceSettings.self) private var appearance
+
     let idx: Int
     let step: RecipeStep
 
@@ -440,7 +455,7 @@ private struct StepDetailRow: View {
         HStack(alignment: .center, spacing: AppSpacing.md) {
             Text("\(idx + 1).")
                 .font(AppFont.sectionHeading)
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .monospacedDigit()
                 .frame(minWidth: 28, alignment: .leading)
 
@@ -453,7 +468,7 @@ private struct StepDetailRow: View {
             if step.needsTimer {
                 Image(systemName: "timer")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(AppColor.accent.opacity(0.85))
+                    .foregroundStyle(appearance.accentColor.opacity(0.85))
             }
         }
         .padding(.vertical, AppSpacing.md)
@@ -463,7 +478,7 @@ private struct StepDetailRow: View {
             LinearGradient(
                 colors: [
                     AppColor.surfaceRaised,
-                    AppColor.accentSoft.opacity(0.55)
+                    appearance.accentColor.opacity(0.22)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -471,7 +486,7 @@ private struct StepDetailRow: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
-                .stroke(AppColor.accent.opacity(0.22), lineWidth: 0.8)
+                .stroke(appearance.accentColor.opacity(0.28), lineWidth: 0.8)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 2)
