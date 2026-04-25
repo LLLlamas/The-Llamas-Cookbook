@@ -24,6 +24,10 @@ struct CookModeView: View {
     @State private var timerLabel = "cook"
     @State private var timerExpired = false
     @State private var now = Date()
+    /// Length the timer was started with, in minutes. Drives the upper
+    /// bound of the running-timer adjust picker so the user can subtract
+    /// the full original duration even on long timers (>60 min).
+    @State private var timerOriginalMinutes = 0
 
     @State private var alarmTask: Task<Void, Never>?
     @State private var alarmPlayer = AlarmPlayer()
@@ -149,6 +153,7 @@ struct CookModeView: View {
             RunningTimerSheet(
                 secondsLeft: secondsLeft,
                 label: timerLabel,
+                originalMinutes: timerOriginalMinutes,
                 onExtend: { minutes in
                     extendTimer(by: minutes)
                     showingTimerSheet = false
@@ -643,6 +648,7 @@ struct CookModeView: View {
     private func startTimer(stepId: UUID, label: String, durationSeconds: TimeInterval) {
         timerStepId = stepId
         timerLabel = label
+        timerOriginalMinutes = Int((durationSeconds / 60).rounded(.up))
         let endsAt = Date().addingTimeInterval(durationSeconds)
         timerEndsAt = endsAt
         now = Date()
@@ -888,10 +894,19 @@ private struct TimerReadyOverlay: View {
 private struct RunningTimerSheet: View {
     let secondsLeft: Int
     let label: String
+    /// Length the timer was started with, in minutes. Stretches the
+    /// picker's upper bound so the user can subtract the full timer
+    /// duration in one shot on longer timers (>60 min).
+    let originalMinutes: Int
     let onExtend: (Int) -> Void
     let onCancel: () -> Void
 
     @State private var extendMinutes: Int = 5
+
+    /// Minimum 60 keeps the dial useful for short timers; for longer
+    /// originals (90 min bread, etc.) the dial extends to match so the
+    /// user can subtract the whole thing in one move.
+    private var pickerMax: Int { max(60, originalMinutes) }
 
     var body: some View {
         VStack(spacing: AppSpacing.lg) {
@@ -912,7 +927,7 @@ private struct RunningTimerSheet: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(AppColor.textPrimary)
 
-                MinutePicker(selection: $extendMinutes, tint: AppColor.textPrimary)
+                MinutePicker(selection: $extendMinutes, tint: AppColor.textPrimary, max: pickerMax)
                     .frame(height: 120)
 
                 HStack(spacing: AppSpacing.sm) {
@@ -981,12 +996,14 @@ private struct RunningTimerSheet: View {
 private struct MinutePicker: View {
     @Binding var selection: Int
     let tint: Color
-
-    private let range: ClosedRange<Int> = 1...60
+    /// Upper bound (inclusive) of the wheel range. Defaults to 60 — used
+    /// by the post-expiry extend overlay where there's no original
+    /// duration to scale from.
+    var max: Int = 60
 
     var body: some View {
         Picker("Minutes", selection: $selection) {
-            ForEach(range, id: \.self) { m in
+            ForEach(1...max, id: \.self) { m in
                 Text("\(m) min")
                     .foregroundStyle(tint)
                     .tag(m)

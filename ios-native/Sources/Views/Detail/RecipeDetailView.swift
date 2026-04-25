@@ -233,30 +233,30 @@ struct RecipeDetailView: View {
                 .fill(AppColor.accent)
                 .frame(width: 6, height: 6)
 
-            // Qty + unit on the same line, left-aligned in a fixed-width
-            // column so the em-dashes between rows line up. Long words
-            // (rare now that units are abbreviated to tsp/tbsp/oz/etc)
-            // shrink via minimumScaleFactor instead of truncating with "…".
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                if !display.quantity.isEmpty {
-                    Text(display.quantity)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(AppColor.accentDeep)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+            // Measure column is rendered only when the ingredient actually
+            // has a quantity or unit. Bare names (vanilla, salt, …) skip
+            // the column entirely so the name sits flush with the bullet
+            // instead of after a 96pt gap.
+            if hasMeasure {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    if !display.quantity.isEmpty {
+                        Text(display.quantity)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(AppColor.accentDeep)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    if !display.unit.isEmpty {
+                        Text(display.unit)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppColor.accentDeep.opacity(0.75))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
                 }
-                if !display.unit.isEmpty {
-                    Text(display.unit)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(AppColor.accentDeep.opacity(0.75))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-            }
-            .frame(width: 96, alignment: .leading)
+                .frame(width: 96, alignment: .leading)
 
-            Group {
                 if takesOf {
                     Text("of")
                         .font(.system(size: 13, weight: .medium))
@@ -265,7 +265,6 @@ struct RecipeDetailView: View {
                     Text("—")
                         .font(.system(size: 15, weight: .regular))
                         .foregroundStyle(AppColor.dividerStrong)
-                        .opacity(hasMeasure ? 1 : 0)
                 }
             }
 

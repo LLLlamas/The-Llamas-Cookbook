@@ -23,6 +23,10 @@ struct LibraryView: View {
             content
             addButton
         }
+        // Explicit cream behind everything so the recipeList — which uses
+        // .scrollContentBackground(.hidden) so the mascot watermark can
+        // peek through — never falls through to the system background.
+        .background(AppColor.background)
         .navigationTitle("Llamas Cookbook")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

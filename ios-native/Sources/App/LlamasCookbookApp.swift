@@ -23,6 +23,13 @@ struct LlamasCookbookApp: App {
         WindowGroup {
             RootView()
                 .environment(appearance)
+                // The cream + terracotta palette has no dark-mode variant
+                // (AppColor values are hard sRGB, not asset-catalog system
+                // colors). Locking to light keeps SwiftUI's default fills
+                // and sheet backgrounds rendering consistently — without
+                // this, a tester whose phone is in dark mode sees the
+                // Library scroll area fall through to system black.
+                .preferredColorScheme(.light)
         }
         .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self])
     }

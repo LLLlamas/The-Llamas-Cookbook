@@ -118,14 +118,12 @@ struct IngredientQuickAdd: View {
     }
 
     private func submit() {
-        var missing: [Field] = []
-        if quantity.trimmed.isEmpty { missing.append(.qty) }
-        if unit.trimmed.isEmpty { missing.append(.unit) }
-        if name.trimmed.isEmpty { missing.append(.name) }
-
-        if !missing.isEmpty {
-            flashErrors(missing)
-            focused = missing.first
+        // Only ingredient name is required — qty/unit are optional so
+        // bare entries like "vanilla", "salt", or "olive oil" don't need
+        // a placeholder measurement.
+        guard !name.trimmed.isEmpty else {
+            flashErrors([.name])
+            focused = .name
             return
         }
 

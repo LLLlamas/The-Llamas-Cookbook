@@ -16,25 +16,28 @@ struct IngredientRowEditor: View {
     }
 
     private var viewMode: some View {
-        Button {
+        let hasMeasure = !ingredient.quantity.trimmed.isEmpty || !ingredient.unit.trimmed.isEmpty
+        return Button {
             Haptics.selection()
             isEditing = true
         } label: {
             HStack(spacing: AppSpacing.md) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    if !ingredient.quantity.trimmed.isEmpty {
-                        Text(Quantity.displayFormat(ingredient.quantity))
-                            .font(AppFont.ingredient)
-                            .foregroundStyle(AppColor.textPrimary)
-                            .monospacedDigit()
+                if hasMeasure {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        if !ingredient.quantity.trimmed.isEmpty {
+                            Text(Quantity.displayFormat(ingredient.quantity))
+                                .font(AppFont.ingredient)
+                                .foregroundStyle(AppColor.textPrimary)
+                                .monospacedDigit()
+                        }
+                        if !ingredient.unit.trimmed.isEmpty {
+                            Text(Plural.unit(ingredient.unit, for: ingredient.quantity))
+                                .font(AppFont.caption)
+                                .foregroundStyle(AppColor.textSecondary)
+                        }
                     }
-                    if !ingredient.unit.trimmed.isEmpty {
-                        Text(Plural.unit(ingredient.unit, for: ingredient.quantity))
-                            .font(AppFont.caption)
-                            .foregroundStyle(AppColor.textSecondary)
-                    }
+                    .frame(minWidth: 96, alignment: .leading)
                 }
-                .frame(minWidth: 96, alignment: .leading)
 
                 Text(ingredient.name)
                     .font(AppFont.ingredient)

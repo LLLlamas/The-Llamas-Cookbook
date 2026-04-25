@@ -7,19 +7,19 @@ struct RecipeCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
             HStack(alignment: .top, spacing: AppSpacing.md) {
-                // Outline = four hard-edged shadows in cardinal directions
-                // (radius 0, ±0.6pt offsets) painted onto the text before
-                // the soft drop shadow. SwiftUI composes shadows in order,
-                // so the outline copies are tightest to the glyph and the
-                // warm drop shadow lifts the whole thing off the card.
+                // Subtle outline = four hard-edged shadows in cardinal
+                // directions, painted under the soft drop shadow. Low
+                // opacity + small offsets so it just lifts the glyph
+                // edge against the cream gradient without looking
+                // letterpressed.
                 Text(StringCase.titleCase(recipe.title))
                     .font(AppFont.sectionHeading)
                     .foregroundStyle(appearance.accentColor)
                     .lineLimit(2)
-                    .shadow(color: AppColor.textPrimary.opacity(0.55), radius: 0, x: -0.6, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.55), radius: 0, x: 0.6,  y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.55), radius: 0, x: 0,    y: -0.6)
-                    .shadow(color: AppColor.textPrimary.opacity(0.55), radius: 0, x: 0,    y: 0.6)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4,  y: 0)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: -0.4)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: 0.4)
                     .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 Spacer(minLength: 0)
                 if recipe.favorite {
