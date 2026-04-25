@@ -104,5 +104,10 @@ struct TimerLiveActivity: Widget {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        // Tap deep-links into Cook Mode for this recipe via the
+        // `llamascookbook://cook/<uuid>` scheme registered in the main
+        // app's Info.plist; the app's `onOpenURL` handler resolves the
+        // recipe and re-presents Cook Mode.
+        .widgetURL(URL(string: "llamascookbook://cook/\(context.attributes.recipeID.uuidString)"))
     }
 }

@@ -16,18 +16,18 @@ struct CookModeView: View {
 
     @State private var phase: Phase
     @State private var currentServings: Int
-    @State private var struckIngredients: Set<UUID> = []
-    @State private var struckSteps: Set<UUID> = []
+    @State private var struckIngredients: Set<UUID>
+    @State private var struckSteps: Set<UUID>
 
     @State private var timerEndsAt: Date?
     @State private var timerStepId: UUID?
-    @State private var timerLabel = "cook"
-    @State private var timerExpired = false
+    @State private var timerLabel: String
+    @State private var timerExpired: Bool
     @State private var now = Date()
     /// Length the timer was started with, in minutes. Drives the upper
     /// bound of the running-timer adjust picker so the user can subtract
     /// the full original duration even on long timers (>60 min).
-    @State private var timerOriginalMinutes = 0
+    @State private var timerOriginalMinutes: Int
 
     @State private var alarmTask: Task<Void, Never>?
     @State private var alarmPlayer = AlarmPlayer()
@@ -38,11 +38,42 @@ struct CookModeView: View {
 
     private enum Phase { case prep, cook }
 
-    init(recipe: Recipe, onClose: @escaping () -> Void) {
+    init(recipe: Recipe, restoration: CookingSessionState? = nil, onClose: @escaping () -> Void) {
         self.recipe = recipe
         self.onClose = onClose
-        _phase = State(initialValue: recipe.ingredients.isEmpty ? .cook : .prep)
-        _currentServings = State(initialValue: recipe.servings ?? 0)
+
+        if let r = restoration, r.recipeID == recipe.id {
+            _phase = State(initialValue: r.phase == .cook ? .cook : .prep)
+            _currentServings = State(initialValue: r.currentServings)
+            _struckIngredients = State(initialValue: Set(r.struckIngredientIDs))
+            _struckSteps = State(initialValue: Set(r.struckStepIDs))
+            _timerLabel = State(initialValue: r.timerLabel)
+            _timerOriginalMinutes = State(initialValue: r.timerOriginalMinutes)
+            _timerStepId = State(initialValue: r.timerStepID)
+
+            // Timer-while-killed: if the saved end date is already past,
+            // surface the ready overlay on first render rather than ticking
+            // toward a date that's already gone. The alarm doesn't auto-
+            // restart (timerExpired starts true, so onChange won't fire)
+            // — re-opening to a screaming app would be hostile.
+            if let end = r.timerEndsAt, end <= Date() {
+                _timerEndsAt = State(initialValue: nil)
+                _timerExpired = State(initialValue: true)
+            } else {
+                _timerEndsAt = State(initialValue: r.timerEndsAt)
+                _timerExpired = State(initialValue: false)
+            }
+        } else {
+            _phase = State(initialValue: recipe.ingredients.isEmpty ? .cook : .prep)
+            _currentServings = State(initialValue: recipe.servings ?? 0)
+            _struckIngredients = State(initialValue: [])
+            _struckSteps = State(initialValue: [])
+            _timerEndsAt = State(initialValue: nil)
+            _timerStepId = State(initialValue: nil)
+            _timerLabel = State(initialValue: "cook")
+            _timerExpired = State(initialValue: false)
+            _timerOriginalMinutes = State(initialValue: 0)
+        }
     }
 
     // MARK: Derived
@@ -122,6 +153,18 @@ struct CookModeView: View {
                 stopAlarm()
             }
         }
+        // Persist on every meaningful change so a kill / crash / forced
+        // relaunch from a Live Activity tap can resume here. `now` is
+        // deliberately not in this list — it ticks every second and the
+        // snapshot it would produce is identical to the previous one.
+        .onChange(of: phase) { _, _ in persistSnapshot() }
+        .onChange(of: currentServings) { _, _ in persistSnapshot() }
+        .onChange(of: struckIngredients) { _, _ in persistSnapshot() }
+        .onChange(of: struckSteps) { _, _ in persistSnapshot() }
+        .onChange(of: timerEndsAt) { _, _ in persistSnapshot() }
+        .onChange(of: timerStepId) { _, _ in persistSnapshot() }
+        .onChange(of: timerLabel) { _, _ in persistSnapshot() }
+        .onChange(of: timerOriginalMinutes) { _, _ in persistSnapshot() }
         .onDisappear {
             stopAlarm()
             // Tear down the Live Activity when the user leaves Cook Mode —
@@ -596,6 +639,24 @@ struct CookModeView: View {
 
     // MARK: Actions
 
+    /// Write the current cook progress to disk. Cheap (UserDefaults +
+    /// JSON encode of a small struct) so we can call it on every
+    /// meaningful state change without worrying about cost.
+    private func persistSnapshot() {
+        let snapshot = CookingSessionState(
+            recipeID: recipe.id,
+            phase: phase == .cook ? .cook : .prep,
+            currentServings: currentServings,
+            struckIngredientIDs: Array(struckIngredients),
+            struckStepIDs: Array(struckSteps),
+            timerEndsAt: timerEndsAt,
+            timerStepID: timerStepId,
+            timerLabel: timerLabel,
+            timerOriginalMinutes: timerOriginalMinutes
+        )
+        CookingSessionStore.save(snapshot)
+    }
+
     private func handleExit() {
         let didAnything = !struckIngredients.isEmpty || !struckSteps.isEmpty
         if didAnything {
@@ -658,6 +719,7 @@ struct CookModeView: View {
         let stepNumber = (sortedSteps.firstIndex(where: { $0.id == stepId }) ?? 0) + 1
         liveActivity.end() // clear any lingering activity from a prior step
         liveActivity.start(
+            recipeID: recipe.id,
             recipeTitle: recipe.title,
             endDate: endsAt,
             label: label,

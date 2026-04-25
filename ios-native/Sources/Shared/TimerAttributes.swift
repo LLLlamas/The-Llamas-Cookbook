@@ -28,4 +28,9 @@ struct TimerAttributes: ActivityAttributes {
     /// Recipe title shown in the Lock Screen / expanded Dynamic Island
     /// presentations. Immutable during the activity.
     public var recipeTitle: String
+
+    /// Identifier the widget bakes into its `widgetURL` so a tap deep-links
+    /// the user back into Cook Mode for the exact recipe whose timer fired,
+    /// not just "the foreground app".
+    public var recipeID: UUID
 }

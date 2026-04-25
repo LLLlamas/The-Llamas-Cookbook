@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 struct RootView: View {
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(\.modelContext) private var modelContext
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
 
@@ -12,9 +14,32 @@ struct RootView: View {
         .tint(appearance.accentColor)
         .environment(session)
         .environment(editor)
+        .task {
+            // Cold launch (or relaunch after iOS killed us) — pull any
+            // saved cook session back into memory before the first frame
+            // settles so the user lands directly in Cook Mode if they
+            // were mid-cooking when the app went away.
+            session.restore(using: lookupRecipe)
+        }
+        .onOpenURL { url in
+            // Live Activity tap → `llamascookbook://cook/<uuid>`. We
+            // re-run `restore` first so persisted struck-step state is
+            // re-attached when this is the cold-launch path that beat
+            // `.task` to the punch. Falls through to opening the URL's
+            // recipe directly if the persisted session is for something
+            // else (or got cleared).
+            guard let recipeID = parseCookDeepLink(url) else { return }
+            session.restore(using: lookupRecipe)
+            if session.activeRecipe == nil, let recipe = lookupRecipe(recipeID) {
+                session.activeRecipe = recipe
+            }
+        }
         .fullScreenCover(isPresented: cookingSheetPresented) {
             if let recipe = session.activeRecipe {
-                CookModeView(recipe: recipe) {
+                CookModeView(
+                    recipe: recipe,
+                    restoration: session.pendingRestoration
+                ) {
                     session.end()
                 }
                 // Cook Mode owns the entire screen — no sheet chrome,
@@ -73,6 +98,23 @@ struct RootView: View {
             get: { editor.pendingSwitch != nil },
             set: { if !$0 { editor.cancelDiscard() } }
         )
+    }
+
+    private func lookupRecipe(_ id: UUID) -> Recipe? {
+        let descriptor = FetchDescriptor<Recipe>(predicate: #Predicate { $0.id == id })
+        return try? modelContext.fetch(descriptor).first
+    }
+
+    /// Parses `llamascookbook://cook/<uuid>` and returns the UUID, or
+    /// nil if the URL doesn't match (other scheme, missing host, malformed
+    /// path). Defensive — anything unparseable just no-ops the deep link
+    /// rather than crashing, since this runs from `onOpenURL` which iOS
+    /// can deliver at any moment with arbitrary input.
+    private func parseCookDeepLink(_ url: URL) -> UUID? {
+        guard url.scheme == "llamascookbook", url.host == "cook" else { return nil }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard let first = parts.first else { return nil }
+        return UUID(uuidString: first)
     }
 }
 

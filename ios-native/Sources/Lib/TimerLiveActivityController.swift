@@ -10,10 +10,20 @@ import Foundation
 final class TimerLiveActivityController {
     private var activity: Activity<TimerAttributes>?
 
+    init() {
+        // Adopt any activity that's still alive in iOS from a previous
+        // app session — without this, a kill-and-restore mid-timer
+        // leaves the lock-screen widget visible but unreachable from
+        // the new controller, and the next `end()` becomes a no-op
+        // while the orphan keeps ticking until its staleDate.
+        activity = Activity<TimerAttributes>.activities.first
+    }
+
     /// Begin a live activity tied to the given timer. No-op if one is
     /// already running — the caller should `end()` first if they want
     /// to replace it.
     func start(
+        recipeID: UUID,
         recipeTitle: String,
         endDate: Date,
         label: String,
@@ -22,7 +32,7 @@ final class TimerLiveActivityController {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard activity == nil else { return }
 
-        let attributes = TimerAttributes(recipeTitle: recipeTitle)
+        let attributes = TimerAttributes(recipeTitle: recipeTitle, recipeID: recipeID)
         let state = TimerAttributes.ContentState(
             endDate: endDate,
             label: label,

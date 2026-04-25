@@ -56,7 +56,7 @@ enum RecipeImporter {
             case .header:
                 summaryLines.append(line)
             case .ingredients:
-                if let ing = parseIngredient(line) { draft.ingredients.append(ing) }
+                draft.ingredients.append(contentsOf: parseIngredients(line))
             case .steps:
                 if let step = parseStep(line) { draft.steps.append(step) }
             }
@@ -82,28 +82,38 @@ enum RecipeImporter {
         return digits.isEmpty ? nil : String(digits)
     }
 
-    private static func parseIngredient(_ line: String) -> DraftIngredient? {
-        var s = stripLeadingBullet(line)
-        s = s.trimmingCharacters(in: .whitespaces)
-        guard !s.isEmpty else { return nil }
+    /// One pasted line can produce zero, one, or many ingredients:
+    /// "75g milk + 75g water" splits in two, "•" (bullet only) drops out,
+    /// "150g butter" produces one. The conjunction split runs only when
+    /// the line carries two or more measurements — that way a compound
+    /// quantity like "1 & 1/2 cup flour" stays a single ingredient even
+    /// though it contains an `&`.
+    private static func parseIngredients(_ line: String) -> [DraftIngredient] {
+        var s = stripLeadingBullet(line).trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty else { return [] }
 
         // Guard: lines that are only bullets, dashes, or punctuation
         // ("•", "- - -", "···") shouldn't become a named ingredient.
-        // Require at least one letter or digit after bullet stripping.
-        guard s.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
+        guard s.contains(where: { $0.isLetter || $0.isNumber }) else { return [] }
 
-        // Normalize spacing around "&" so "1 &1/2 cup flour" and variants
-        // tokenize the same.
+        // Order matters: Unicode fractions first so "1½cup" becomes
+        // "1 1/2 cup" before the fused-unit splitter looks at it.
+        s = normalizeUnicodeFractions(s)
         s = s.replacingOccurrences(of: "&", with: " & ")
-        // Repair broken fractions — "1 /3" and "1/ 3" both become "1/3".
-        s = s.replacingOccurrences(of: #"(\d)\s+/(\d)"#, with: "$1/$2", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"(\d)/\s+(\d)"#, with: "$1/$2", options: .regularExpression)
+        s = splitFusedNumberUnit(s)
+        // Repair broken fractions — "1 /3", "1/ 3", "1 / 3" all become "1/3".
+        s = s.replacingOccurrences(of: #"(\d)\s*/\s*(\d)"#, with: "$1/$2", options: .regularExpression)
         s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
 
         let tokens = s.split(separator: " ").map(String.init)
-        guard !tokens.isEmpty else { return nil }
+        guard !tokens.isEmpty else { return [] }
 
+        return splitMeasurementSegments(tokens: tokens)
+            .compactMap(buildIngredient(tokens:))
+    }
+
+    private static func buildIngredient(tokens: [String]) -> DraftIngredient? {
         var qtyTokens: [String] = []
         var idx = 0
         while idx < tokens.count, isQuantityToken(tokens[idx]) {
@@ -143,6 +153,12 @@ enum RecipeImporter {
             nameTokens = hoisted.remaining
         }
 
+        // Strip a stray leading conjunction left over from segment splitting
+        // (e.g. "and 2 tbsp salt" if a user puts "and" before a measurement).
+        while let first = nameTokens.first, isConjunctionToken(first) {
+            nameTokens.removeFirst()
+        }
+
         let name = nameTokens.joined(separator: " ").trimmingCharacters(in: .whitespaces)
         if name.isEmpty { return nil }
 
@@ -150,6 +166,87 @@ enum RecipeImporter {
             quantity: qtyTokens.joined(separator: " "),
             unit: unit,
             name: name
+        )
+    }
+
+    /// Returns the indices in `tokens` where a `<quantity-run> <known-unit>`
+    /// pair begins. Two or more starts means the line packs multiple
+    /// ingredients ("75g milk + 75g water"); one start (or zero) means the
+    /// line is a single ingredient and stays whole.
+    private static func findMeasurementStarts(in tokens: [String]) -> [Int] {
+        var starts: [Int] = []
+        var i = 0
+        while i < tokens.count {
+            guard isQuantityToken(tokens[i]) else { i += 1; continue }
+            var qtyEnd = i
+            while qtyEnd + 1 < tokens.count && isQuantityToken(tokens[qtyEnd + 1]) {
+                qtyEnd += 1
+            }
+            if qtyEnd + 1 < tokens.count {
+                let candidate = tokens[qtyEnd + 1]
+                    .lowercased()
+                    .trimmingCharacters(in: .punctuationCharacters)
+                if knownUnits.contains(candidate) {
+                    starts.append(i)
+                    i = qtyEnd + 2
+                    continue
+                }
+            }
+            i = qtyEnd + 1
+        }
+        return starts
+    }
+
+    private static func splitMeasurementSegments(tokens: [String]) -> [[String]] {
+        let starts = findMeasurementStarts(in: tokens)
+        guard starts.count >= 2 else { return [tokens] }
+
+        var segments: [[String]] = []
+        for k in 0..<starts.count {
+            let start = starts[k]
+            let end = (k + 1 < starts.count) ? starts[k + 1] : tokens.count
+            var seg = Array(tokens[start..<end])
+            while let last = seg.last, isConjunctionToken(last) {
+                seg.removeLast()
+            }
+            if !seg.isEmpty {
+                segments.append(seg)
+            }
+        }
+        return segments
+    }
+
+    private static func isConjunctionToken(_ s: String) -> Bool {
+        let t = s.lowercased()
+        return t == "+" || t == "&" || t == "and" || t == "or"
+    }
+
+    /// Replaces vulgar-fraction characters (½, ⅓, …) with ASCII fractions,
+    /// padded with spaces so a fused "1½cup" tokenizes cleanly into
+    /// "1 1/2 cup". The trailing whitespace collapse later re-tightens it.
+    private static func normalizeUnicodeFractions(_ s: String) -> String {
+        var result = ""
+        for ch in s {
+            if let ascii = unicodeFractionMap[ch] {
+                result.append(" ")
+                result.append(ascii)
+                result.append(" ")
+            } else {
+                result.append(ch)
+            }
+        }
+        return result
+    }
+
+    /// Inserts a space between a number and a known-unit suffix so "150g"
+    /// becomes "150 g" and "2tbsp" becomes "2 tbsp". Constrained to the
+    /// `knownUnits` set so we don't fragment arbitrary digit-letter
+    /// sequences inside ingredient names (e.g. "Vitamin B12").
+    private static func splitFusedNumberUnit(_ s: String) -> String {
+        s.replacingOccurrences(
+            of: fusedUnitPattern,
+            with: "$1 $2",
+            options: [.regularExpression, .caseInsensitive]
         )
     }
 
@@ -236,6 +333,27 @@ enum RecipeImporter {
         "slice", "slices", "piece", "pieces", "can", "cans",
         "stick", "sticks", "sprig", "sprigs", "head", "heads",
         "bunch", "bunches", "handful", "handfuls",
+    ]
+
+    /// Built once from `knownUnits`, longest-first so "grams" wins over "g"
+    /// when both could match a fused suffix. Word-boundary terminator (\b)
+    /// prevents bleeding into adjacent letters — "150grain" stays intact
+    /// because "g" doesn't sit on a word boundary inside that token.
+    private static let fusedUnitPattern: String = {
+        let units = knownUnits
+            .filter { !$0.contains(" ") }
+            .sorted { $0.count > $1.count }
+            .joined(separator: "|")
+        return "(\\d)(\(units))\\b"
+    }()
+
+    private static let unicodeFractionMap: [Character: String] = [
+        "\u{00BC}": "1/4", "\u{00BD}": "1/2", "\u{00BE}": "3/4",
+        "\u{2150}": "1/7", "\u{2151}": "1/9", "\u{2152}": "1/10",
+        "\u{2153}": "1/3", "\u{2154}": "2/3",
+        "\u{2155}": "1/5", "\u{2156}": "2/5", "\u{2157}": "3/5", "\u{2158}": "4/5",
+        "\u{2159}": "1/6", "\u{215A}": "5/6",
+        "\u{215B}": "1/8", "\u{215C}": "3/8", "\u{215D}": "5/8", "\u{215E}": "7/8",
     ]
 
     /// Maps plural user-typed units back to their singular canonical form
