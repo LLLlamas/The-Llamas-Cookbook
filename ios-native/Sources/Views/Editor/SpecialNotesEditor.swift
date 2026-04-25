@@ -108,7 +108,7 @@ struct SpecialNotesEditor: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: AppSpacing.xs) {
-                        ForEach(availableSteps, id: \.id) { entry in
+                        ForEach(availableSteps, id: \.step.id) { entry in
                             stepChip(number: entry.number, stepId: entry.step.id)
                         }
                     }
