@@ -16,15 +16,23 @@ enum TimerNotifications {
             .requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
+    /// `userInfo` key for the recipe UUID — the AppDelegate's
+    /// `didReceive` handler reads it on tap and routes through the
+    /// existing `llamascookbook://cook/<uuid>` deep link so the user
+    /// lands directly back in Cook Mode.
+    static let recipeIDUserInfoKey = "recipeID"
+
     /// Schedule (or replace) the timer notification to fire at `date`.
     /// The copy folds in the recipe title, step number, and a snippet of
     /// the step text so the banner reads as "Brownies — Step 4 done /
     /// Bake at 350°F for 25 min" rather than a generic "Step X is done".
     /// `stepText` is optional — when blank we fall back to a label-based
-    /// hint ("Your bake timer is ready").
+    /// hint ("Your bake timer is ready"). `recipeID` rides along in
+    /// `userInfo` so a tap can deep-link back to the right recipe.
     static func schedule(
         endDate date: Date,
         label: String,
+        recipeID: UUID,
         recipeTitle: String,
         stepNumber: Int,
         stepText: String?
@@ -35,6 +43,7 @@ enum TimerNotifications {
         let content = UNMutableNotificationContent()
         content.title = formatTitle(recipeTitle: recipeTitle, stepNumber: stepNumber)
         content.body = formatBody(label: label, stepText: stepText)
+        content.userInfo = [recipeIDUserInfoKey: recipeID.uuidString]
         // Bundled beep-pattern CAF (see workflow's "Generate timer alarm
         // sound" step). Falls back to the system default ding if the
         // file is missing (e.g. a local dev build that skipped CI).

@@ -31,13 +31,13 @@ struct IngredientRowEditor: View {
                         if !ingredient.quantity.trimmed.isEmpty {
                             Text(Quantity.displayFormat(ingredient.quantity))
                                 .font(AppFont.ingredient)
-                                .foregroundStyle(AppColor.textPrimary)
+                                .foregroundStyle(appearance.accentColor)
                                 .monospacedDigit()
                         }
                         if !ingredient.unit.trimmed.isEmpty {
                             Text(Plural.unit(ingredient.unit, for: ingredient.quantity))
                                 .font(AppFont.caption)
-                                .foregroundStyle(AppColor.textSecondary)
+                                .foregroundStyle(appearance.accentColor.opacity(0.75))
                         }
                     }
                     .frame(minWidth: 96, alignment: .leading)

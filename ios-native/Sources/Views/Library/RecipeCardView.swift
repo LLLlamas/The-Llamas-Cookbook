@@ -41,9 +41,15 @@ struct RecipeCardView: View {
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Slight translucency so the mascot watermark + cream background
+        // bleed through — gives the row a layered "frosted card" feel
+        // without losing legibility against the page.
         .background(
             LinearGradient(
-                colors: [AppColor.surfaceRaised, AppColor.surface],
+                colors: [
+                    AppColor.surfaceRaised.opacity(0.85),
+                    AppColor.surface.opacity(0.85)
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )

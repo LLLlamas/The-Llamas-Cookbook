@@ -745,6 +745,7 @@ struct CookModeView: View {
         TimerNotifications.schedule(
             endDate: endsAt,
             label: label,
+            recipeID: recipe.id,
             recipeTitle: recipe.title,
             stepNumber: stepNumber,
             stepText: stepText
@@ -821,6 +822,7 @@ struct CookModeView: View {
             TimerNotifications.schedule(
                 endDate: end,
                 label: timerLabel,
+                recipeID: recipe.id,
                 recipeTitle: recipe.title,
                 stepNumber: stepNumber,
                 stepText: stepText

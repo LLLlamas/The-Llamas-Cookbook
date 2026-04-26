@@ -11,6 +11,7 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(CookingSession.self) private var session
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
@@ -288,12 +289,47 @@ struct LibraryView: View {
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(AppColor.onAccent)
                 .frame(width: 60, height: 60)
-                .background(appearance.accentColor)
+                // Vertical gradient + slight translucency reads as a
+                // raised disc rather than a flat fill — paired with the
+                // top-edge highlight stroke and double shadow below.
+                .background(
+                    LinearGradient(
+                        colors: [
+                            appearance.accentColor.opacity(0.95),
+                            appearance.accentColor.opacity(0.80)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .clipShape(Circle())
-                .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
+                .overlay(
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.45), Color.clear],
+                                startPoint: .top,
+                                endPoint: .center
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                // Coloured ambient + neutral contact shadow → the disc
+                // looks like it's hovering above the cream background.
+                .shadow(color: appearance.accentColor.opacity(0.35), radius: 14, y: 6)
+                .shadow(color: .black.opacity(0.10), radius: 4, y: 2)
         }
         .padding(AppSpacing.xl)
+        // When Cook Mode is minimized, the resume pill at the bottom
+        // would otherwise overlap the FAB. Push it up just enough to
+        // clear the pill (its rendered height + safe-area padding).
+        .padding(.bottom, isCookMinimized ? 64 : 0)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isCookMinimized)
         .accessibilityLabel("Add or import recipe")
+    }
+
+    private var isCookMinimized: Bool {
+        session.activeRecipe != nil && !session.isCookModeVisible
     }
 
     // MARK: Derived

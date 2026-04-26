@@ -240,11 +240,11 @@ struct RecipeEditorView: View {
 
     private var heroRow: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaMascot(size: 44)
+            LlamaMascot(size: 44, color: appearance.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(recipe == nil ? "New Recipe" : "Edit Recipe")
                     .font(.system(size: 20, weight: .bold, design: .serif))
-                    .foregroundStyle(AppColor.textPrimary)
+                    .foregroundStyle(appearance.accentColor)
                 Text("What are we cookin'?")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textSecondary)
@@ -259,7 +259,7 @@ struct RecipeEditorView: View {
                 Text("RECIPE NAME")
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(AppColor.textPrimary)
+                    .foregroundStyle(appearance.accentColor)
                 Text("REQUIRED")
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.8)
@@ -276,15 +276,17 @@ struct RecipeEditorView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 .font(AppFont.recipeTitle)
-                .foregroundStyle(AppColor.textPrimary)
+                .foregroundStyle(appearance.accentColor)
+                .tint(appearance.accentColor)
         }
     }
 
     private var summaryField: some View {
         TextField("Short description (optional)", text: $draft.summary)
             .submitLabel(.done)
-            .padding(AppSpacing.md)
-            .frame(minHeight: 56, alignment: .topLeading)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm)
+            .frame(minHeight: 40, alignment: .topLeading)
             .background(AppColor.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
@@ -308,15 +310,15 @@ struct RecipeEditorView: View {
                 TextField("4", text: $draft.servings)
                     .keyboardType(.numberPad)
                     .focused($isNumericFocused)
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.sm)
-                    .frame(maxWidth: 120, minHeight: 44)
+                    .padding(.horizontal, AppSpacing.sm + 2)
+                    .padding(.vertical, AppSpacing.xs + 2)
+                    .frame(maxWidth: 90, minHeight: 36)
                     .background(AppColor.surface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
+                        RoundedRectangle(cornerRadius: AppRadius.sm)
                             .stroke(AppColor.divider, lineWidth: 1)
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)
                 Text("Set servings so you can scale ingredients while cooking.")
