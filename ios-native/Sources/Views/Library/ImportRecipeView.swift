@@ -22,7 +22,7 @@ struct ImportRecipeView: View {
     @State private var urlEnrichment: DraftRecipe?
     @FocusState private var urlFocused: Bool
 
-    private enum ScrollAnchor: Hashable { case linkSection, pasteSection }
+    private enum ScrollAnchor: Hashable { case linkSection, pasteSection, editorBottom }
 
     var body: some View {
         let parsed = mergedDraft(from: pastedText)
@@ -47,10 +47,12 @@ struct ImportRecipeView: View {
 
                     actionRow(canPreview: canPreview)
 
-                    // Keep the paste editor reachable above the keyboard
-                    // when focused — the safe area shrink alone doesn't
-                    // always leave room for the cursor on shorter devices.
-                    Color.clear.frame(height: 32)
+                    // Anchor used to scroll the editor's bottom edge
+                    // (== where the cursor lives) above the keyboard
+                    // when the user starts typing.
+                    Color.clear
+                        .frame(height: pasteFocused ? 360 : 32)
+                        .id(ScrollAnchor.editorBottom)
                 }
                 .padding(AppSpacing.lg)
                 .contentShape(Rectangle())
@@ -59,8 +61,28 @@ struct ImportRecipeView: View {
             .scrollDismissesKeyboard(.never)
             .onChange(of: pasteFocused) { _, focused in
                 if focused {
+                    // Two scrolls: the spring brings the editor's bottom
+                    // edge above the keyboard, anchored .bottom so the
+                    // cursor (which sits at the bottom of fresh content)
+                    // ends up just above the keyboard rather than buried
+                    // behind it. The 32→360 buffer-height bump above
+                    // gives the ScrollView the runway it needs to scroll
+                    // that far — without it, the system can only push
+                    // up by 32pt and gives up.
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        proxy.scrollTo(ScrollAnchor.pasteSection, anchor: .top)
+                        proxy.scrollTo(ScrollAnchor.editorBottom, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: pastedText) { _, _ in
+                // Keep the cursor visible as the editor grows. Without
+                // this, typing past the editor's visible bottom slides
+                // the cursor under the keyboard until the user manually
+                // scrolls. Only re-scrolls while focused so a paste-
+                // from-clipboard doesn't yank the view around.
+                if pasteFocused {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo(ScrollAnchor.editorBottom, anchor: .bottom)
                     }
                 }
             }

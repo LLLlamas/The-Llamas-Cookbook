@@ -197,20 +197,69 @@ enum RecipeURLImporter {
 
     // MARK: - AI parsing bridge
 
-    /// Run the on-device LLM against a free-form caption / summary and
-    /// return a draft when it yields something usable. Centralized here
-    /// so each platform path (TikTok, Pinterest, OG-fallback) calls one
-    /// line and shares the same iOS-26 availability gate. Returns nil
-    /// on older OSes, on devices without Apple Intelligence, on model
-    /// errors, or when the AI's output fails the parser's quality gate
-    /// — every "no" path drops the caller back to the existing seed-
-    /// text-and-edit flow rather than forcing the user to stare at an
-    /// empty preview.
+    /// Best-of parse: run *both* the LLM (when available) and the regex
+    /// pipeline against the same caption, then pick whichever produced
+    /// the more usable draft. Centralized here so each platform path
+    /// (TikTok, Pinterest, OG-fallback) calls one line.
+    ///
+    /// Returns nil only when *both* parsers produce nothing worth
+    /// previewing — at which point each call site falls back to the
+    /// existing seed-text-and-edit flow rather than dropping the user
+    /// into an empty editor.
+    ///
+    /// **Why best-of, not AI-first**: the LLM occasionally mashes
+    /// several actions into one step (we saw a 13-step sourdough
+    /// caption come back as four steps with everything glued onto
+    /// step four). The regex pipeline has been tightened enough that
+    /// it's a strong baseline; if the AI loses on step count or
+    /// produces a giant blob-step, we use the regex result instead.
     private static func aiParse(_ text: String, sourceUrl: String) async -> DraftRecipe? {
+        let regexDraft = makeRegexDraft(text, sourceUrl: sourceUrl)
         guard #available(iOS 26.0, *), RecipeAIParser.isAvailable else {
-            return nil
+            return regexDraft
         }
-        return await RecipeAIParser.parse(text, sourceUrl: sourceUrl)
+        let aiDraft = await RecipeAIParser.parse(text, sourceUrl: sourceUrl)
+        return pickBetterDraft(ai: aiDraft, regex: regexDraft)
+    }
+
+    /// Run the regex pipeline and stamp the source URL on it, gated
+    /// by the same minimum bar the AI quality gate uses (title + at
+    /// least one ingredient or step). Anything weaker isn't worth
+    /// auto-jumping to the editor for.
+    private static func makeRegexDraft(_ text: String, sourceUrl: String) -> DraftRecipe? {
+        var draft = RecipeImporter.parse(text)
+        if !sourceUrl.isEmpty { draft.sourceUrl = sourceUrl }
+        let hasTitle = !draft.title.trimmed.isEmpty
+        let hasContent = !draft.ingredients.isEmpty || !draft.steps.isEmpty
+        return (hasTitle && hasContent) ? draft : nil
+    }
+
+    /// Compare two parser outputs and pick the higher-quality one.
+    /// Heuristics, in order:
+    ///
+    /// 1. If only one side produced a draft, use it.
+    /// 2. If the AI's longest step is implausibly long (> 300 chars)
+    ///    it almost certainly mashed several actions together — regex
+    ///    wins.
+    /// 3. If the regex pulled out 5+ steps and the AI got fewer than
+    ///    70% of that count, the AI under-split — regex wins.
+    /// 4. Otherwise the AI wins. It generally beats regex on title
+    ///    cleanup, ingredient quantity/unit splitting, and lifting
+    ///    "while X" reminders into special notes.
+    private static func pickBetterDraft(ai: DraftRecipe?, regex: DraftRecipe?) -> DraftRecipe? {
+        guard let ai = ai else { return regex }
+        guard let regex = regex else { return ai }
+
+        let aiLongest = ai.steps.map(\.text.count).max() ?? 0
+        if aiLongest > 300 { return regex }
+
+        let aiSteps = ai.steps.count
+        let regexSteps = regex.steps.count
+        if regexSteps >= 5, aiSteps * 10 < regexSteps * 7 {
+            return regex
+        }
+
+        return ai
     }
 
     // MARK: - URL hygiene + networking

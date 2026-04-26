@@ -88,11 +88,17 @@ enum RecipeAIParser {
        "salt to taste" -> quantity "", unit "", name "salt to taste". \
        "1 1/2 tbsp butter" -> quantity "1 1/2", unit "tbsp", name "butter". \
        Use canonical singular units (cup, tbsp, tsp, oz, lb, g, kg, ml, l).
-    4. Steps: one cooking action per step. Strip leading numbering like \
-       "Step 1:" or "1." — the order is implicit. Split paragraphs that \
-       glue several actions together.
+    4. Steps: ONE cooking action per step — never glue multiple \
+       actions into a single step. Each line break, each "then", each \
+       comma-then transition, and each separate sentence is its own \
+       step. "Let sit for 1 hour, then do 8 stretch and folds" is TWO \
+       steps. "Mix dough. Wait 1 hour. Bake 30 min." is THREE steps. \
+       Strip leading numbering like "Step 1:" or "1.". When in doubt, \
+       split into MORE steps rather than fewer — keeping waits and \
+       actions on separate lines is what makes Cook Mode work.
     5. needsTimer: true when a step mentions a duration ("for 30 \
-       minutes", "1-2 hours"). False otherwise.
+       minutes", "1-2 hours"). False when the duration is part of a \
+       compound noun ("8 hour sourdough", "30 minute meal").
     6. specialNote: only set this when the step has a parenthetical \
        reminder or a "while X is happening" clause. Move that phrase \
        to specialNote and keep the main action in the step text. \
