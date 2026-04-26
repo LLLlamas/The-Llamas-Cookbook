@@ -547,17 +547,9 @@ struct ImportRecipeView: View {
         if draft.ingredients.isEmpty { draft.ingredients = enrichment.ingredients }
         if draft.steps.isEmpty { draft.steps = enrichment.steps }
 
-        // Tags merge (de-duped) rather than replace — gives the user
-        // any keyword tags from the schema plus anything the text
-        // parser pulled from a hashtag run.
-        var seen = Set(draft.tags.map { $0.lowercased() })
-        for tag in enrichment.tags {
-            let key = tag.lowercased()
-            if !seen.contains(key) {
-                draft.tags.append(tag)
-                seen.insert(key)
-            }
-        }
+        // Tags are intentionally not merged from the URL fetch — the
+        // import path no longer auto-populates categories so the user
+        // picks them themselves from the preset list in the editor.
         return draft
     }
 

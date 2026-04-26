@@ -882,29 +882,55 @@ struct CookModeView: View {
     /// hour(s)/hr(s), minute(s)/min(s), second(s)/sec(s).
     /// Single-letter aliases (h/m/s) intentionally excluded — they false-match
     /// too easily inside ordinary words.
-    /// When multiple times appear ("stir 30 sec then bake 10 min"), the
-    /// longest wins — usually the main cooking action, not the prep beat.
+    ///
+    /// Range handling: `"3-4 hours"` / `"30 to 45 minutes"` resolve to the
+    /// **smaller** number (3 hours, 30 min). Rationale: the user can extend
+    /// the running timer if they need more, but they can't take time back
+    /// once it's elapsed past the food's done point.
+    ///
+    /// When multiple separate times appear ("stir 30 sec then bake 10 min"),
+    /// the longest wins — usually the main cooking action, not the prep beat.
     static func extractDurationSeconds(_ text: String) -> Int? {
-        let pattern = #/(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/#
+        let rangePattern = #/(\d+(?:\.\d+)?)\s*(?:[-–—]|to)\s*(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/#
+        let singlePattern = #/(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/#
         let lower = text.lowercased()
+
+        // Pass 1: ranges. Use the smaller endpoint and remember the byte
+        // ranges we've consumed so the single-pattern pass below doesn't
+        // re-count the upper endpoint as its own duration ("3-4 hours" =>
+        // 3 hours total, not max(3 hours, 4 hours)).
         var maxSeconds: Double = 0
-        for match in lower.matches(of: pattern) {
+        var consumed: [Range<String.Index>] = []
+        for match in lower.matches(of: rangePattern) {
+            guard let lo = Double(match.output.1),
+                  let hi = Double(match.output.2)
+            else { continue }
+            let unit = String(match.output.3)
+            let smaller = min(lo, hi)
+            let seconds = secondsFor(value: smaller, unit: unit)
+            if seconds > maxSeconds { maxSeconds = seconds }
+            consumed.append(match.range)
+        }
+
+        // Pass 2: standalone durations not already swallowed by a range.
+        for match in lower.matches(of: singlePattern) {
+            if consumed.contains(where: { $0.overlaps(match.range) }) { continue }
             guard let value = Double(match.output.1) else { continue }
             let unit = String(match.output.2)
-            let seconds: Double
-            switch unit {
-            case "hour", "hours", "hr", "hrs":
-                seconds = value * 3600
-            case "minute", "minutes", "min", "mins":
-                seconds = value * 60
-            case "second", "seconds", "sec", "secs":
-                seconds = value
-            default:
-                continue
-            }
+            let seconds = secondsFor(value: value, unit: unit)
             if seconds > maxSeconds { maxSeconds = seconds }
         }
+
         return maxSeconds > 0 ? Int(maxSeconds.rounded()) : nil
+    }
+
+    private static func secondsFor(value: Double, unit: String) -> Double {
+        switch unit {
+        case "hour", "hours", "hr", "hrs": return value * 3600
+        case "minute", "minutes", "min", "mins": return value * 60
+        case "second", "seconds", "sec", "secs": return value
+        default: return 0
+        }
     }
 }
 

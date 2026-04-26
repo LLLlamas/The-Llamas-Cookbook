@@ -105,12 +105,15 @@ enum RecipeSchemaParser {
             .flatMap { RecipeImporter.parseIngredientLine($0) }
 
         // Instructions — recursive because schemas nest steps inside
-        // `HowToSection.itemListElement` for multi-part recipes.
+        // `HowToSection.itemListElement` for multi-part recipes. Each
+        // extracted string runs through `parseStepLines` so a publisher
+        // who jams several steps into one `HowToStep.text` paragraph
+        // still ends up with separate steps in the editor.
         if let instr = recipe["recipeInstructions"] {
             draft.steps = extractInstructions(instr)
                 .map { decodeHTMLEntities($0).trimmed }
                 .filter { !$0.isEmpty }
-                .compactMap { RecipeImporter.parseStepLine($0) }
+                .flatMap { RecipeImporter.parseStepLines($0) }
         }
 
         if let servings = extractServings(recipe["recipeYield"]) {
@@ -125,8 +128,10 @@ enum RecipeSchemaParser {
             draft.cookTimeMinutes = String(mins)
         }
 
-        let keywordTags = extractKeywords(recipe["keywords"])
-        if !keywordTags.isEmpty { draft.tags = keywordTags }
+        // Keywords from the schema (often SEO terms like "easy", "quick",
+        // "30-minute meal") are intentionally not consumed — categories
+        // are the user's call, picked from the editor's preset list, so
+        // the import doesn't pre-load anything they'd then clean up.
     }
 
     // MARK: - Field extractors
@@ -153,9 +158,12 @@ enum RecipeSchemaParser {
         return []
     }
 
+    /// Walk the JSON-LD instruction tree and emit raw step strings —
+    /// `parseStepLines` downstream handles any further splitting (when
+    /// a publisher stuffs multiple steps into one `HowToStep.text`).
     private static func extractInstructions(_ value: Any) -> [String] {
         if let s = value as? String {
-            return splitInstructionString(s)
+            return [s]
         }
         if let arr = value as? [Any] {
             return arr.flatMap { extractInstructions($0) }
@@ -165,86 +173,10 @@ enum RecipeSchemaParser {
             if type == "HowToSection", let items = dict["itemListElement"] {
                 return extractInstructions(items)
             }
-            // HowToStep `text` and the `name` fallback both go through
-            // splitInstructionString — some publishers stuff multiple
-            // steps into a single HowToStep.text rather than emitting
-            // separate HowToStep entries.
-            if let text = dict["text"] as? String { return splitInstructionString(text) }
-            if let name = dict["name"] as? String { return splitInstructionString(name) }
+            if let text = dict["text"] as? String { return [text] }
+            if let name = dict["name"] as? String { return [name] }
         }
         return []
-    }
-
-    /// Split one instruction string into separate steps using
-    /// progressively weaker signals. Without this, sites that ship
-    /// `recipeInstructions` as a single paragraph end up with every
-    /// step glued onto Step 1 in the editor.
-    ///
-    /// 1. **Newlines** — cleanest signal; respect publisher layout.
-    /// 2. **Numbered markers** — "Step 1:", "Step 1.", "1.", "1)".
-    ///    `\b` anchors the marker to a word boundary so "mix1." won't
-    ///    fragment, and the trailing `\s+` requirement prevents
-    ///    matching mid-decimal: "1.5 cups" has "5" after the period,
-    ///    not whitespace, so it's left alone.
-    /// 3. **Sentence boundaries** — last resort. Letter + period +
-    ///    whitespace + capital. The leading letter (consumed as part
-    ///    of the match, since Swift Regex literals don't support
-    ///    lookbehind) excludes "1.5" splits while still catching
-    ///    "350°F. Cream butter…" because F is a letter.
-    private static func splitInstructionString(_ raw: String) -> [String] {
-        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return [] }
-
-        // 1. Newlines.
-        let byNewline = s
-            .split(whereSeparator: { $0.isNewline })
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        if byNewline.count > 1 { return byNewline }
-
-        // 2. Numbered step markers — drop the marker entirely.
-        let markerRegex = #/\b(?:[Ss]tep\s+\d+\s*[:.)]|\d+\s*[.)])\s+/#
-        let markers = Array(s.matches(of: markerRegex))
-        if markers.count >= 2 {
-            var pieces: [String] = []
-            var cursor = s.startIndex
-            for m in markers {
-                let segment = s[cursor..<m.range.lowerBound]
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !segment.isEmpty { pieces.append(segment) }
-                cursor = m.range.upperBound
-            }
-            let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !tail.isEmpty { pieces.append(tail) }
-            if pieces.count >= 2 { return pieces }
-        }
-
-        // 3. Sentence boundary fallback. Match consumes the letter
-        // and period (no lookbehind support), so we keep the first
-        // two characters of each match with the previous piece —
-        // "Foo. Bar" becomes ["Foo.", "Bar"].
-        let sentenceRegex = #/[a-zA-Z]\.\s+(?=[A-Z])/#
-        let sentences = Array(s.matches(of: sentenceRegex))
-        if !sentences.isEmpty {
-            var pieces: [String] = []
-            var cursor = s.startIndex
-            for m in sentences {
-                let prevEnd = s.index(
-                    m.range.lowerBound,
-                    offsetBy: 2,
-                    limitedBy: m.range.upperBound
-                ) ?? m.range.upperBound
-                let segment = s[cursor..<prevEnd]
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !segment.isEmpty { pieces.append(segment) }
-                cursor = m.range.upperBound
-            }
-            let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !tail.isEmpty { pieces.append(tail) }
-            if pieces.count >= 2 { return pieces }
-        }
-
-        return [s]
     }
 
     private static func extractServings(_ value: Any?) -> String? {
@@ -264,21 +196,6 @@ enum RecipeSchemaParser {
             }
         }
         return nil
-    }
-
-    private static func extractKeywords(_ value: Any?) -> [String] {
-        if let s = value as? String {
-            return s
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-        }
-        if let arr = value as? [String] {
-            return arr
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-        }
-        return []
     }
 
     /// Parse ISO 8601 duration (the schema.org time format). `PT1H30M`

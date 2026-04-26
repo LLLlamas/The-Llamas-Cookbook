@@ -71,7 +71,19 @@ enum RecipeImporter {
     /// leading numbering or bullet so a JSON-LD `HowToStep.text` like
     /// "1. Preheat oven" comes out clean.
     static func parseStepLine(_ line: String) -> DraftStep? {
-        parseStep(line)
+        parseStep(line).map(enrichStep)
+    }
+
+    /// Parse one input string into one *or more* `DraftStep`s. Use this
+    /// when the input might glue several steps together — TikTok captions
+    /// and JSON-LD `HowToStep.text` fields where publishers stuff a whole
+    /// recipe into one paragraph. Splits via `splitIntoSteps` first, then
+    /// runs each piece through the standard step parser + enrichment
+    /// (timer flag, "while X" → special note).
+    static func parseStepLines(_ line: String) -> [DraftStep] {
+        splitIntoSteps(line)
+            .compactMap { parseStep($0) }
+            .map(enrichStep)
     }
 
     // MARK: - Labeled format
@@ -118,7 +130,7 @@ enum RecipeImporter {
             case .ingredients:
                 draft.ingredients.append(contentsOf: parseIngredients(line))
             case .steps:
-                if let step = parseStep(line) { draft.steps.append(step) }
+                draft.steps.append(contentsOf: parseStepLines(line))
             }
         }
 
@@ -164,11 +176,15 @@ enum RecipeImporter {
             }
         }
 
-        // --- Block 3+: steps (extra blocks fold into the step list)
+        // --- Block 3+: steps (extra blocks fold into the step list).
+        // Each line goes through `parseStepLines` rather than `parseStep`
+        // so a single line that mashes several steps together — common
+        // with TikTok captions like "Step 1: Combine. Step 2: Rest …" —
+        // splits into separate steps instead of becoming one giant blob.
         if blocks.count >= 3 {
             for blockIdx in 2..<blocks.count {
                 for line in blocks[blockIdx] {
-                    if let step = parseStep(line) { draft.steps.append(step) }
+                    draft.steps.append(contentsOf: parseStepLines(line))
                 }
             }
         }
@@ -472,9 +488,138 @@ enum RecipeImporter {
         if let range = s.range(of: #"^\d+[.)]\s*"#, options: .regularExpression) {
             s = String(s[range.upperBound...])
         }
+        // "Step 1:", "Step 1." — same idea, drop the marker entirely so
+        // it doesn't bleed into the visible step text.
+        if let range = s.range(of: #"^(?i)step\s+\d+\s*[:.)\-]\s*"#, options: .regularExpression) {
+            s = String(s[range.upperBound...])
+        }
         s = stripLeadingBullet(s).trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty else { return nil }
         return DraftStep(text: s)
+    }
+
+    /// Split one instruction string into separate steps using
+    /// progressively weaker signals. Without this, a TikTok caption or
+    /// schema field that ships multiple steps glued into one paragraph
+    /// ends up as a single step in the editor.
+    ///
+    /// 1. **Newlines** — cleanest signal; respect publisher layout.
+    /// 2. **Numbered markers** — "Step 1:", "Step 1.", "1.", "1)".
+    ///    `\b` anchors the marker to a word boundary so "mix1." won't
+    ///    fragment, and the trailing `\s+` requirement prevents
+    ///    matching mid-decimal: "1.5 cups" has "5" after the period,
+    ///    not whitespace, so it's left alone.
+    /// 3. **Sentence boundaries** — last resort. Letter + period +
+    ///    whitespace + capital. The leading letter (consumed as part
+    ///    of the match, since Swift Regex literals don't support
+    ///    lookbehind) excludes "1.5" splits while still catching
+    ///    "350°F. Cream butter…" because F is a letter.
+    static func splitIntoSteps(_ raw: String) -> [String] {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return [] }
+
+        // 1. Newlines.
+        let byNewline = s
+            .split(whereSeparator: { $0.isNewline })
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if byNewline.count > 1 { return byNewline }
+
+        // 2. Numbered step markers — drop the marker entirely.
+        let markerRegex = #/\b(?:[Ss]tep\s+\d+\s*[:.)]|\d+\s*[.)])\s+/#
+        let markers = Array(s.matches(of: markerRegex))
+        if markers.count >= 2 {
+            var pieces: [String] = []
+            var cursor = s.startIndex
+            for m in markers {
+                let segment = s[cursor..<m.range.lowerBound]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !segment.isEmpty { pieces.append(segment) }
+                cursor = m.range.upperBound
+            }
+            let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tail.isEmpty { pieces.append(tail) }
+            if pieces.count >= 2 { return pieces }
+        }
+
+        // 3. Sentence boundary fallback. Match consumes the letter
+        // and period (no lookbehind support), so we keep the first
+        // two characters of each match with the previous piece —
+        // "Foo. Bar" becomes ["Foo.", "Bar"]. The lookahead accepts
+        // either a capital letter OR a digit so a paragraph that ends
+        // with "…30 minutes. 8 more stretch and folds" splits into
+        // two steps instead of one (the digit-led sentence is the
+        // start of the next instruction in caption-style writing).
+        let sentenceRegex = #/[a-zA-Z]\.\s+(?=[A-Z]|\d)/#
+        let sentences = Array(s.matches(of: sentenceRegex))
+        if !sentences.isEmpty {
+            var pieces: [String] = []
+            var cursor = s.startIndex
+            for m in sentences {
+                let prevEnd = s.index(
+                    m.range.lowerBound,
+                    offsetBy: 2,
+                    limitedBy: m.range.upperBound
+                ) ?? m.range.upperBound
+                let segment = s[cursor..<prevEnd]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !segment.isEmpty { pieces.append(segment) }
+                cursor = m.range.upperBound
+            }
+            let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tail.isEmpty { pieces.append(tail) }
+            if pieces.count >= 2 { return pieces }
+        }
+
+        return [s]
+    }
+
+    /// Layer the post-parse enrichments onto a freshly-parsed step:
+    /// auto-flag a timer if the step mentions a duration, and lift any
+    /// `while X` clause out of the body and into `specialNote` so it
+    /// shows in the dedicated callout instead of cluttering the step.
+    private static func enrichStep(_ step: DraftStep) -> DraftStep {
+        var s = liftWhileClause(step)
+        if !s.needsTimer, hasTimerSignal(s.text) {
+            s.needsTimer = true
+        }
+        return s
+    }
+
+    /// Move a "while X …" suffix out of the step text and into the
+    /// special note. Best-effort: matches the *last* "while" in the
+    /// string so that the main action (everything before it) stays in
+    /// the step. We require the main action to be substantive — short
+    /// stub like "Stir" stays whole rather than getting hollowed out
+    /// into a bare verb with all its detail in the note.
+    private static func liftWhileClause(_ step: DraftStep) -> DraftStep {
+        // Don't disturb steps that already carry a special note — the
+        // note is the user's, not ours to overwrite.
+        guard step.specialNote == nil else { return step }
+        let text = step.text
+        guard let range = text.range(of: #"(?i)\s+while\s+"#, options: .regularExpression) else {
+            return step
+        }
+        let main = String(text[..<range.lowerBound])
+            .trimmingCharacters(in: .whitespaces)
+        let tail = String(text[range.upperBound...])
+            .trimmingCharacters(in: .whitespaces)
+        guard main.split(separator: " ").count >= 2,
+              !tail.isEmpty
+        else { return step }
+        var copy = step
+        copy.text = main
+        copy.specialNote = "While " + tail
+        return copy
+    }
+
+    /// Quick check for "this step mentions a timer-shaped duration":
+    /// any `<number> <hour|min|sec>` pair, including ranges. Used to
+    /// auto-flag `needsTimer` so imported recipes light up in Cook Mode
+    /// without the user manually toggling each step.
+    private static func hasTimerSignal(_ text: String) -> Bool {
+        let pattern = #/(?i)\d+(?:\.\d+)?(?:\s*[-–—]\s*\d+(?:\.\d+)?)?\s*(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/#
+        return (try? pattern.firstMatch(in: text)) != nil
     }
 
     private static func stripLeadingBullet(_ s: String) -> String {

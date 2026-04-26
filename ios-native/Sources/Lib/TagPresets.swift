@@ -12,5 +12,6 @@ enum TagPresets {
         "bread",
         "baking",
         "breakfast",
+        "sourdough",
     ]
 }

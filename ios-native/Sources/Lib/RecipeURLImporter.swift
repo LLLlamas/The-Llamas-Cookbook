@@ -152,10 +152,11 @@ enum RecipeURLImporter {
             guard !caption.isEmpty else {
                 return blocked(url: url, platform: "TikTok")
             }
-            // Lift hashtags into tags and strip them from the caption so
+            // Strip hashtags (and creator @-handle) from the caption so
             // the user isn't left with `#fyp #cooking` glued to a step.
-            let (cleaned, tags) = liftHashtags(from: caption)
-            enrichment.tags = tags
+            // Tags are deliberately NOT auto-populated — categories are
+            // the user's call, not the import path's.
+            let (cleaned, _) = liftHashtags(from: caption)
             return .partial(
                 enrichment: enrichment,
                 seedText: cleaned,
