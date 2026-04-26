@@ -229,6 +229,6 @@ private struct CookingResumePill: View {
 
 #Preview {
     RootView()
-        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self], inMemory: true)
+        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self], inMemory: true)
         .environment(AppearanceSettings())
 }

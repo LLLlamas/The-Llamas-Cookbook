@@ -12,6 +12,11 @@ struct DraftRecipe: Equatable {
     var favorite: Bool = false
     var ingredients: [DraftIngredient] = []
     var steps: [DraftStep] = []
+    /// Gallery photos. Bytes are carried through the draft so
+    /// `apply(_:)` can rebuild the photo relationship without losing
+    /// images on save. Without this, the relationship's `removeAll()`
+    /// would cascade-delete every photo's external-storage sidecar.
+    var photos: [DraftPhoto] = []
     /// Free-form note shown above the first step in detail / cook view.
     var prefaceNote: String = ""
     /// Free-form note shown below the last step.
@@ -26,6 +31,7 @@ struct DraftRecipe: Equatable {
         !sourceUrl.trimmed.isEmpty ||
         !ingredients.isEmpty ||
         !steps.isEmpty ||
+        !photos.isEmpty ||
         !prefaceNote.trimmed.isEmpty ||
         !epilogueNote.trimmed.isEmpty ||
         !generalNote.trimmed.isEmpty
@@ -57,12 +63,38 @@ struct DraftStep: Identifiable, Equatable {
     /// Per-step reminder. Nil = no note; empty string is normalized to nil
     /// at save time so an empty text field doesn't persist as "has note".
     var specialNote: String? = nil
+    /// Optional photo bytes. Carried through the draft so the
+    /// `RecipeStep` rebuild in `Recipe.apply(_:)` doesn't lose images
+    /// on every save (the steps relationship is wiped + recreated each
+    /// time). Bytes flow Recipe -> toDraft -> editor -> apply -> Recipe.
+    var image: Data? = nil
 
-    init(id: UUID = UUID(), text: String = "", needsTimer: Bool = false, specialNote: String? = nil) {
+    init(
+        id: UUID = UUID(),
+        text: String = "",
+        needsTimer: Bool = false,
+        specialNote: String? = nil,
+        image: Data? = nil
+    ) {
         self.id = id
         self.text = text
         self.needsTimer = needsTimer
         self.specialNote = specialNote
+        self.image = image
+    }
+}
+
+/// Editor-side mirror of `RecipePhoto`. Same shape as the persisted
+/// model; carrying it as a separate struct keeps the editor decoupled
+/// from SwiftData (the gallery sheet doesn't need a `ModelContext`)
+/// and lets Cancel discard the in-progress add without touching disk.
+struct DraftPhoto: Identifiable, Equatable {
+    let id: UUID
+    var image: Data?
+
+    init(id: UUID = UUID(), image: Data? = nil) {
+        self.id = id
+        self.image = image
     }
 }
 
@@ -93,8 +125,12 @@ extension Recipe {
                     id: $0.id,
                     text: $0.text,
                     needsTimer: $0.needsTimer,
-                    specialNote: $0.specialNote
+                    specialNote: $0.specialNote,
+                    image: $0.image
                 )
+            },
+            photos: sortedPhotos.map {
+                DraftPhoto(id: $0.id, image: $0.image)
             },
             prefaceNote: prefaceNote ?? "",
             epilogueNote: epilogueNote ?? "",
@@ -137,9 +173,21 @@ extension Recipe {
                 text: item.text.trimmed,
                 order: idx,
                 needsTimer: item.needsTimer,
-                specialNote: item.specialNote?.trimmed.nilIfEmpty
+                specialNote: item.specialNote?.trimmed.nilIfEmpty,
+                image: item.image
             )
             steps.append(step)
+        }
+
+        // Photos. `removeAll()` cascade-deletes the external-storage
+        // sidecars; we then rebuild from the draft, copying bytes back
+        // in. Without this carry-through, every Save would silently
+        // drop every photo. Drafts whose `image` ended up nil
+        // (e.g. picker cancel mid-add) are filtered out so empty rows
+        // don't persist as "has photo, but it's nothing".
+        photos.removeAll()
+        for (idx, item) in draft.photos.enumerated() where item.image != nil {
+            photos.append(RecipePhoto(image: item.image, order: idx))
         }
     }
 
