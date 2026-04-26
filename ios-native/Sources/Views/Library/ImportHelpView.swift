@@ -4,21 +4,44 @@ struct ImportHelpView: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: AppSpacing.lg) {
-            mascotHeader
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: AppSpacing.lg) {
+                    mascotHeader
 
-            VStack(alignment: .leading, spacing: AppSpacing.md) {
-                helpRow(1, "Paste directly from your **Notes** app.")
-                helpRow(2, "First line = the **recipe name**.")
-                helpRow(3, "Type **\"Ingredients\"** above your first ingredient.")
-                helpRow(4, "Type **\"Steps\"** above your first step.")
+                    VStack(alignment: .leading, spacing: AppSpacing.lg) {
+                        section(
+                            eyebrow: "FROM A LINK",
+                            rows: [
+                                "Paste a recipe blog URL — I'll pull title, ingredients, steps, and times automatically.",
+                                "Pinterest pins work too — I'll grab the description, or follow it to the source recipe.",
+                                "TikTok captions come through, but you may need to label \"Ingredients\" and \"Steps\" yourself.",
+                                "Instagram and Facebook block link previews — paste the caption text in the box below instead."
+                            ]
+                        )
+
+                        section(
+                            eyebrow: "FROM TEXT",
+                            rows: [
+                                "First non-empty line becomes the **recipe name**.",
+                                "Type **\"Ingredients\"** above your first ingredient.",
+                                "Type **\"Steps\"** above your first step.",
+                                "Bullets, numbers, fractions (½, 1/4), and units (g, tbsp, cup) all parse cleanly."
+                            ]
+                        )
+                    }
+                    .padding(.horizontal, AppSpacing.sm)
+
+                    Text("You can always edit everything before saving.")
+                        .font(.system(size: 13))
+                        .italic()
+                        .foregroundStyle(AppColor.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(AppSpacing.lg)
+                .padding(.top, AppSpacing.md)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, AppSpacing.sm)
-
-            Text("That's it — I'll handle the rest.")
-                .font(.system(size: 13))
-                .italic()
-                .foregroundStyle(AppColor.textSecondary)
 
             Button {
                 Haptics.selection()
@@ -32,26 +55,35 @@ struct ImportHelpView: View {
                     .background(AppColor.accent)
                     .clipShape(Capsule())
             }
-
-            Spacer(minLength: 0)
+            .padding(.horizontal, AppSpacing.lg)
+            .padding(.vertical, AppSpacing.md)
+            .background(AppColor.background)
         }
-        .padding(AppSpacing.lg)
-        .padding(.top, AppSpacing.md)
-        .frame(maxWidth: .infinity)
         .background(AppColor.background)
     }
 
     private var mascotHeader: some View {
         VStack(spacing: AppSpacing.sm) {
-            LlamaMascot(size: 72)
+            LlamaMascot(size: 64)
             VStack(spacing: 2) {
                 Text("Hi there!")
-                    .font(.system(size: 24, weight: .bold, design: .serif))
+                    .font(.system(size: 22, weight: .bold, design: .serif))
                     .foregroundStyle(AppColor.accentDeep)
-                Text("Here's how I parse your notes")
+                Text("Two ways to import a recipe")
                     .font(.system(size: 13, weight: .medium))
                     .tracking(0.3)
                     .foregroundStyle(AppColor.textSecondary)
+            }
+        }
+    }
+
+    private func section(eyebrow: String, rows: [String]) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            Text(eyebrow).eyebrowStyle()
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
+                    helpRow(idx + 1, row)
+                }
             }
         }
     }
@@ -61,13 +93,13 @@ struct ImportHelpView: View {
             ZStack {
                 Circle()
                     .fill(AppColor.accentSoft)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 24, height: 24)
                 Text("\(number)")
-                    .font(.system(size: 13, weight: .heavy, design: .serif))
+                    .font(.system(size: 12, weight: .heavy, design: .serif))
                     .foregroundStyle(AppColor.accentDeep)
             }
             Text(LocalizedStringKey(markdown))
-                .font(AppFont.body)
+                .font(.system(size: 14))
                 .foregroundStyle(AppColor.textPrimary)
                 .tint(AppColor.accentDeep)
                 .fixedSize(horizontal: false, vertical: true)
