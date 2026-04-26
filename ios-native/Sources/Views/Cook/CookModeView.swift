@@ -320,12 +320,12 @@ struct CookModeView: View {
                         .font(.system(size: 12, weight: .bold))
                 }
             }
-            .foregroundStyle(AppColor.accent)
+            .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
             .background(AppColor.surface)
             .overlay(
-                Capsule().stroke(AppColor.accent, lineWidth: 1.5)
+                Capsule().stroke(appearance.accentColor, lineWidth: 1.5)
             )
             .clipShape(Capsule())
         }
@@ -407,7 +407,7 @@ struct CookModeView: View {
                     HStack(spacing: AppSpacing.md) {
                         ZStack {
                             RoundedRectangle(cornerRadius: AppRadius.sm)
-                                .stroke(struck ? AppColor.success : AppColor.accent, lineWidth: 2)
+                                .stroke(struck ? AppColor.success : appearance.accentColor, lineWidth: 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: AppRadius.sm)
                                         .fill(struck ? AppColor.success : AppColor.background)
@@ -482,7 +482,7 @@ struct CookModeView: View {
                     RoundedRectangle(cornerRadius: AppRadius.md)
                         .stroke(
                             struck ? AppColor.success
-                                : (isCurrent ? AppColor.accent : AppColor.divider),
+                                : (isCurrent ? appearance.accentColor : AppColor.divider),
                             lineWidth: 2
                         )
                 )
@@ -499,7 +499,7 @@ struct CookModeView: View {
         ZStack {
             Circle()
                 .fill(struck ? AppColor.success : AppColor.background)
-                .overlay(Circle().stroke(struck ? AppColor.success : AppColor.accent, lineWidth: 2))
+                .overlay(Circle().stroke(struck ? AppColor.success : appearance.accentColor, lineWidth: 2))
                 .frame(width: 30, height: 30)
             if struck {
                 Image(systemName: "checkmark")
@@ -508,7 +508,7 @@ struct CookModeView: View {
             } else {
                 Text("\(idx + 1)")
                     .font(.system(size: 15, weight: .bold, design: .serif))
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                     .monospacedDigit()
             }
         }
@@ -551,13 +551,13 @@ struct CookModeView: View {
                 Text("Start \(StringCase.capitalizeFirst(keyword)) timer (\(formatDuration(seconds)))")
                     .font(.system(size: 14, weight: .semibold))
             }
-            .foregroundStyle(AppColor.accent)
+            .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
             .background(AppColor.background)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(AppColor.accent, lineWidth: 1)
+                    .stroke(appearance.accentColor, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         }
@@ -596,7 +596,7 @@ struct CookModeView: View {
             .foregroundStyle(AppColor.onAccent)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm + 2)
-            .background(AppColor.accent)
+            .background(appearance.accentColor)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
         }
@@ -622,7 +622,7 @@ struct CookModeView: View {
                     .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
-                    .background(AppColor.accent)
+                    .background(appearance.accentColor)
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 }
             } else {
@@ -911,6 +911,7 @@ struct CookModeView: View {
 // MARK: - Timer-ready full-screen overlay
 
 private struct TimerReadyOverlay: View {
+    @Environment(AppearanceSettings.self) private var appearance
     let label: String
     let onExtend: (Int) -> Void
     let onStop: () -> Void
@@ -960,7 +961,7 @@ private struct TimerReadyOverlay: View {
                         Text("Extend by \(extendMinutes) min")
                             .font(.system(size: 17, weight: .semibold))
                     }
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
                     .background(AppColor.onAccent)
@@ -991,13 +992,14 @@ private struct TimerReadyOverlay: View {
             .padding(.bottom, AppSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppColor.accent.ignoresSafeArea())
+        .background(appearance.accentColor.ignoresSafeArea())
     }
 }
 
 // MARK: - Running-timer adjust sheet
 
 private struct RunningTimerSheet: View {
+    @Environment(AppearanceSettings.self) private var appearance
     let secondsLeft: Int
     let label: String
     /// Length the timer was started with, in minutes. Stretches the
@@ -1023,7 +1025,7 @@ private struct RunningTimerSheet: View {
                     .foregroundStyle(AppColor.textSecondary)
                 Text(ClockFormat.mmss(secondsLeft))
                     .font(.system(size: 44, weight: .bold, design: .serif))
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                     .monospacedDigit()
             }
             .padding(.top, AppSpacing.md)
@@ -1046,11 +1048,11 @@ private struct RunningTimerSheet: View {
                             Text("\(extendMinutes) min")
                                 .font(.system(size: 16, weight: .semibold))
                         }
-                        .foregroundStyle(AppColor.accent)
+                        .foregroundStyle(appearance.accentColor)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppSpacing.md)
                         .background(AppColor.surface)
-                        .overlay(Capsule().stroke(AppColor.accent, lineWidth: 1.5))
+                        .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1.5))
                         .clipShape(Capsule())
                     }
 
@@ -1066,7 +1068,7 @@ private struct RunningTimerSheet: View {
                         .foregroundStyle(AppColor.onAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppSpacing.md)
-                        .background(AppColor.accent)
+                        .background(appearance.accentColor)
                         .clipShape(Capsule())
                     }
                 }

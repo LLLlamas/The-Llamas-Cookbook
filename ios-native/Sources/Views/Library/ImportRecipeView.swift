@@ -4,6 +4,7 @@ import UIKit
 struct ImportRecipeView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(EditorCoordinator.self) private var editor
+    @Environment(AppearanceSettings.self) private var appearance
 
     @State private var pastedText = ""
     @State private var parsedDraft: DraftRecipe?
@@ -21,6 +22,8 @@ struct ImportRecipeView: View {
     @State private var urlEnrichment: DraftRecipe?
     @FocusState private var urlFocused: Bool
 
+    private enum ScrollAnchor: Hashable { case linkSection, pasteSection }
+
     var body: some View {
         let parsed = mergedDraft(from: pastedText)
         let checks = Checks(
@@ -30,22 +33,45 @@ struct ImportRecipeView: View {
         )
         let canPreview = checks.title || checks.ingredients || checks.steps
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                heroRow
-                    .padding(.top, AppSpacing.md)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AppSpacing.lg) {
+                    heroRow
+                        .padding(.top, AppSpacing.md)
 
-                linkImportSection
+                    linkImportSection
+                        .id(ScrollAnchor.linkSection)
 
-                pasteImportSection(checks: checks, parsed: parsed)
+                    pasteImportSection(checks: checks, parsed: parsed)
+                        .id(ScrollAnchor.pasteSection)
 
-                actionRow(canPreview: canPreview)
+                    actionRow(canPreview: canPreview)
+
+                    // Keep the paste editor reachable above the keyboard
+                    // when focused — the safe area shrink alone doesn't
+                    // always leave room for the cursor on shorter devices.
+                    Color.clear.frame(height: 32)
+                }
+                .padding(AppSpacing.lg)
+                .contentShape(Rectangle())
+                .onTapGesture { dismissKeyboards() }
             }
-            .padding(AppSpacing.lg)
-            .contentShape(Rectangle())
-            .onTapGesture { dismissKeyboards() }
+            .scrollDismissesKeyboard(.never)
+            .onChange(of: pasteFocused) { _, focused in
+                if focused {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        proxy.scrollTo(ScrollAnchor.pasteSection, anchor: .top)
+                    }
+                }
+            }
+            .onChange(of: urlFocused) { _, focused in
+                if focused {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        proxy.scrollTo(ScrollAnchor.linkSection, anchor: .top)
+                    }
+                }
+            }
         }
-        .scrollDismissesKeyboard(.immediately)
         .background(AppColor.background)
         .navigationTitle("Import recipe")
         .navigationBarTitleDisplayMode(.inline)
@@ -62,9 +88,23 @@ struct ImportRecipeView: View {
                 } label: {
                     Image(systemName: "questionmark.circle")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(AppColor.accent)
+                        .foregroundStyle(appearance.accentColor)
                 }
                 .accessibilityLabel("How import works")
+            }
+            // Done button above the keyboard — explicit dismiss now that
+            // scroll-to-dismiss is off. Themed with the user's accent so
+            // it visually pairs with the other primary actions.
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    Haptics.selection()
+                    dismissKeyboards()
+                } label: {
+                    Text("Done")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(appearance.accentColor)
+                }
             }
         }
         .navigationDestination(isPresented: $showEditor) {
@@ -100,7 +140,7 @@ struct ImportRecipeView: View {
 
     private var heroRow: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaMascot(size: 44)
+            LlamaMascot(size: 44, color: appearance.accentColor)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Import a recipe")
                     .font(.system(size: 20, weight: .bold, design: .serif))
@@ -190,7 +230,7 @@ struct ImportRecipeView: View {
                 }
             }
             .frame(width: 76, height: 44)
-            .background(AppColor.accent)
+            .background(appearance.accentColor)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .opacity(canFetch ? 1 : 0.4)
         }
@@ -201,7 +241,7 @@ struct ImportRecipeView: View {
         HStack(alignment: .top, spacing: AppSpacing.sm) {
             Image(systemName: banner.kind.icon)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(banner.kind.tint)
+                .foregroundStyle(bannerTint(for: banner.kind))
                 .padding(.top, 2)
             Text(banner.message)
                 .font(.system(size: 13))
@@ -213,14 +253,37 @@ struct ImportRecipeView: View {
         .background(AppColor.surface)
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(banner.kind.border, lineWidth: 1)
+                .stroke(bannerTint(for: banner.kind).opacity(0.45), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
+    /// Resolves a banner kind to a concrete tint. `.info` follows the
+    /// user-chosen accent (it's primary chrome); status colors stay
+    /// semantic so a custom accent doesn't accidentally turn warnings
+    /// invisible.
+    private func bannerTint(for kind: URLBanner.Kind) -> Color {
+        switch kind {
+        case .info: return appearance.accentColor
+        case .warning: return AppColor.accentDeep
+        case .error: return AppColor.destructive
+        case .success: return AppColor.success
+        }
+    }
+
     private func pasteImportSection(checks: Checks, parsed: DraftRecipe) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            Text("From text").eyebrowStyle()
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs) {
+                Text("From text").eyebrowStyle()
+                Spacer(minLength: 0)
+            }
+
+            // One-line reminder of the new convention. Verbose enough to
+            // be self-explanatory without making the user open the help
+            // sheet every time.
+            Text("Title · blank line · ingredients · blank line · steps")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(AppColor.textTertiary)
 
             formatHint(checks: checks, parsed: parsed)
 
@@ -233,7 +296,7 @@ struct ImportRecipeView: View {
                     .padding(AppSpacing.sm)
 
                 if pastedText.isEmpty {
-                    Text("Paste a recipe here…")
+                    Text(placeholderText)
                         .font(AppFont.body)
                         .foregroundStyle(AppColor.textTertiary)
                         .padding(AppSpacing.md)
@@ -244,10 +307,25 @@ struct ImportRecipeView: View {
             .background(AppColor.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(AppColor.divider, lineWidth: 1)
+                    .stroke(pasteFocused ? appearance.accentColor.opacity(0.6) : AppColor.divider, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .animation(.easeInOut(duration: 0.15), value: pasteFocused)
         }
+    }
+
+    private var placeholderText: String {
+        """
+        Recipe Title
+
+        2 cups flour
+        1 cup sugar
+        3 eggs
+
+        Mix dry ingredients
+        Cream butter and sugar
+        Bake 350° for 12 min
+        """
     }
 
     private func formatHint(checks: Checks, parsed: DraftRecipe) -> some View {
@@ -311,11 +389,11 @@ struct ImportRecipeView: View {
                     Text("Paste from clipboard")
                         .font(.system(size: 14, weight: .semibold))
                 }
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.sm)
                 .background(AppColor.surface)
-                .overlay(Capsule().stroke(AppColor.accent, lineWidth: 1))
+                .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1))
                 .clipShape(Capsule())
             }
 
@@ -336,7 +414,7 @@ struct ImportRecipeView: View {
                 .foregroundStyle(AppColor.onAccent)
                 .padding(.horizontal, AppSpacing.lg)
                 .padding(.vertical, AppSpacing.sm + 2)
-                .background(AppColor.accent)
+                .background(appearance.accentColor)
                 .clipShape(Capsule())
                 .opacity(canPreview ? 1 : 0.4)
             }
@@ -465,22 +543,6 @@ struct ImportRecipeView: View {
                 case .warning: return "exclamationmark.triangle.fill"
                 case .error: return "xmark.octagon.fill"
                 case .success: return "checkmark.circle.fill"
-                }
-            }
-            var tint: Color {
-                switch self {
-                case .info: return AppColor.accent
-                case .warning: return AppColor.accentDeep
-                case .error: return AppColor.destructive
-                case .success: return AppColor.success
-                }
-            }
-            var border: Color {
-                switch self {
-                case .info: return AppColor.accent.opacity(0.4)
-                case .warning: return AppColor.accentDeep.opacity(0.45)
-                case .error: return AppColor.destructive.opacity(0.45)
-                case .success: return AppColor.success.opacity(0.45)
                 }
             }
         }

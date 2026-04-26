@@ -1,11 +1,42 @@
 import Foundation
 
-/// Best-effort parser for pasted recipe text. Handles what users typically
-/// keep in Notes: title on top, labeled sections ("Ingredients", "Steps"),
-/// bulleted ingredient lines, numbered step lines. Missing fields default
-/// to empty — the editor is shown for manual fixup before saving.
+/// Best-effort parser for pasted recipe text. Two paths:
+///
+/// 1. **Block format (default)** — the new convention pushed in the help
+///    sheet. Blank lines separate the recipe into ordered sections:
+///    *title block*, *ingredients block*, *steps block*. No keywords
+///    needed — saves the user from typing "Ingredients" / "Steps".
+///
+/// 2. **Labeled format (fallback)** — for users who paste from Notes
+///    with explicit `Ingredients` / `Steps` headers (or from the schema
+///    importer, which produces clean labeled sections). Detected by
+///    scanning for any of the canonical section keywords on their own
+///    line; when present, takes precedence.
 enum RecipeImporter {
     static func parse(_ text: String) -> DraftRecipe {
+        if hasExplicitSectionLabels(text) {
+            return parseLabeled(text)
+        }
+        return parseBlocks(text)
+    }
+
+    /// Parse a single ingredient line into one or more `DraftIngredient`s.
+    /// Exposed for the schema-based URL importer, which already knows it
+    /// has an ingredient and just needs the qty/unit/name split.
+    static func parseIngredientLine(_ line: String) -> [DraftIngredient] {
+        parseIngredients(line)
+    }
+
+    /// Parse a single instruction string into a `DraftStep`. Strips any
+    /// leading numbering or bullet so a JSON-LD `HowToStep.text` like
+    /// "1. Preheat oven" comes out clean.
+    static func parseStepLine(_ line: String) -> DraftStep? {
+        parseStep(line)
+    }
+
+    // MARK: - Labeled format
+
+    private static func parseLabeled(_ text: String) -> DraftRecipe {
         var draft = DraftRecipe()
         let lines = text
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -39,18 +70,7 @@ enum RecipeImporter {
             if sectionMatches(lower, ["ingredients"]) { section = .ingredients; continue }
             if sectionMatches(lower, ["steps", "instructions", "directions", "method"]) { section = .steps; continue }
 
-            if let s = extractNumber(after: #"(?i)^serves?\s*:?\s*"#, in: line) {
-                draft.servings = s
-                continue
-            }
-            if let s = extractNumber(after: #"(?i)^cook(?:\s+time)?\s*:?\s*"#, in: line) {
-                draft.cookTimeMinutes = s
-                continue
-            }
-            if lower.hasPrefix("source:") {
-                draft.sourceUrl = String(line.dropFirst("source:".count)).trimmingCharacters(in: .whitespaces)
-                continue
-            }
+            if applyHeaderField(line, lower: lower, into: &draft) { continue }
 
             switch section {
             case .header:
@@ -67,6 +87,126 @@ enum RecipeImporter {
         }
         return draft
     }
+
+    // MARK: - Block format
+
+    /// Walk the input as blank-line-separated blocks. Block 1 is the
+    /// title (line 1) plus optional summary (lines 2+); block 2 is the
+    /// ingredients; block 3+ is the steps. Header-field lines (Source:,
+    /// Serves:, Cook time:) inside the title block are lifted out so
+    /// they don't pollute the summary.
+    private static func parseBlocks(_ text: String) -> DraftRecipe {
+        var draft = DraftRecipe()
+        let blocks = splitIntoBlocks(text)
+        guard !blocks.isEmpty else { return draft }
+
+        // --- Block 1: title (+ summary)
+        let titleBlock = blocks[0]
+        if let firstLine = titleBlock.first {
+            draft.title = stripTitleLabel(firstLine)
+        }
+        if titleBlock.count > 1 {
+            var summaryLines: [String] = []
+            for line in titleBlock.dropFirst() {
+                let lower = line.lowercased()
+                if applyHeaderField(line, lower: lower, into: &draft) { continue }
+                summaryLines.append(line)
+            }
+            if !summaryLines.isEmpty {
+                draft.summary = summaryLines.joined(separator: " ")
+            }
+        }
+
+        // --- Block 2: ingredients
+        if blocks.count >= 2 {
+            for line in blocks[1] {
+                draft.ingredients.append(contentsOf: parseIngredients(line))
+            }
+        }
+
+        // --- Block 3+: steps (extra blocks fold into the step list)
+        if blocks.count >= 3 {
+            for blockIdx in 2..<blocks.count {
+                for line in blocks[blockIdx] {
+                    if let step = parseStep(line) { draft.steps.append(step) }
+                }
+            }
+        }
+        return draft
+    }
+
+    /// Split into trimmed-line blocks separated by one or more blank
+    /// lines. Lines that are purely whitespace count as blank, so a
+    /// pasted block with stray spaces still parses cleanly.
+    private static func splitIntoBlocks(_ text: String) -> [[String]] {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        let rawLines = normalized
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+
+        var blocks: [[String]] = []
+        var current: [String] = []
+        for raw in rawLines {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                if !current.isEmpty {
+                    blocks.append(current)
+                    current = []
+                }
+            } else {
+                current.append(trimmed)
+            }
+        }
+        if !current.isEmpty { blocks.append(current) }
+        return blocks
+    }
+
+    private static func stripTitleLabel(_ line: String) -> String {
+        if let match = try? #/^[Tt]itle(?:\s*[:\-]\s*|\s+)(.+)$/#.wholeMatch(in: line) {
+            return String(match.output.1).trimmingCharacters(in: .whitespaces)
+        }
+        return line
+    }
+
+    /// Try to interpret `line` as a header-style metadata row (Source:,
+    /// Serves:, Cook time:). Returns true when consumed so the caller
+    /// can skip it in the summary / block flow.
+    private static func applyHeaderField(_ line: String, lower: String, into draft: inout DraftRecipe) -> Bool {
+        if let s = extractNumber(after: #"(?i)^serves?\s*:?\s*"#, in: line) {
+            draft.servings = s
+            return true
+        }
+        if let s = extractNumber(after: #"(?i)^cook(?:\s+time)?\s*:?\s*"#, in: line) {
+            draft.cookTimeMinutes = s
+            return true
+        }
+        if lower.hasPrefix("source:") {
+            draft.sourceUrl = String(line.dropFirst("source:".count))
+                .trimmingCharacters(in: .whitespaces)
+            return true
+        }
+        return false
+    }
+
+    /// Cheap pre-scan: does any line in the input look like an explicit
+    /// section header? When yes, the labeled parser wins because the
+    /// user clearly knows the older convention; when no, fall through
+    /// to block parsing so users who only put blank-line separators get
+    /// the friendlier outcome.
+    private static func hasExplicitSectionLabels(_ text: String) -> Bool {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        for raw in normalized.split(separator: "\n") {
+            let cleaned = raw
+                .trimmingCharacters(in: CharacterSet(charactersIn: " :"))
+                .lowercased()
+            if Self.sectionHeaderKeywords.contains(cleaned) { return true }
+        }
+        return false
+    }
+
+    private static let sectionHeaderKeywords: Set<String> = [
+        "ingredients", "steps", "instructions", "directions", "method"
+    ]
 
     /// Parse a single ingredient line into one or more `DraftIngredient`s.
     /// Exposed for the schema-based URL importer, which already knows it

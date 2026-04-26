@@ -174,6 +174,10 @@ enum RecipeURLImporter {
         }
         let stripped = text
             .replacing(#/#[\p{L}\p{N}_]+/#, with: "")
+            // Strip any @user / @user.name mentions — TikTok oEmbed often
+            // suffixes the caption with the creator's handle, which has
+            // no business being in the recipe text.
+            .replacing(#/@[\p{L}\p{N}_.]+/#, with: "")
             .replacing(#/[ \t]{2,}/#, with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (stripped, tags)

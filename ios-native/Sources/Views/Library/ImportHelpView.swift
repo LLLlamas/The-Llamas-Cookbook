@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ImportHelpView: View {
+    @Environment(AppearanceSettings.self) private var appearance
     let onDismiss: () -> Void
 
     var body: some View {
@@ -15,20 +16,22 @@ struct ImportHelpView: View {
                             rows: [
                                 "Paste a recipe blog URL — I'll pull title, ingredients, steps, and times automatically.",
                                 "Pinterest pins work too — I'll grab the description, or follow it to the source recipe.",
-                                "TikTok captions come through, but you may need to label \"Ingredients\" and \"Steps\" yourself.",
+                                "TikTok captions come through. The body fills automatically; tidy it using the format below.",
                                 "Instagram and Facebook block link previews — paste the caption text in the box below instead."
                             ]
                         )
 
                         section(
-                            eyebrow: "FROM TEXT",
+                            eyebrow: "FROM TEXT — JUST 3 BLOCKS",
                             rows: [
-                                "First non-empty line becomes the **recipe name**.",
-                                "Type **\"Ingredients\"** above your first ingredient.",
-                                "Type **\"Steps\"** above your first step.",
-                                "Bullets, numbers, fractions (½, 1/4), and units (g, tbsp, cup) all parse cleanly."
+                                "**Line 1** is the **recipe name**.",
+                                "Leave a **blank line**, then list each **ingredient** on its own line.",
+                                "Leave **another blank line**, then list each **step** on its own line.",
+                                "No keywords needed — bullets, numbers, fractions (½, 1/4), and units (g, tbsp, cup) all parse automatically."
                             ]
                         )
+
+                        formatExample
                     }
                     .padding(.horizontal, AppSpacing.sm)
 
@@ -52,7 +55,7 @@ struct ImportHelpView: View {
                     .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
-                    .background(AppColor.accent)
+                    .background(appearance.accentColor)
                     .clipShape(Capsule())
             }
             .padding(.horizontal, AppSpacing.lg)
@@ -64,17 +67,64 @@ struct ImportHelpView: View {
 
     private var mascotHeader: some View {
         VStack(spacing: AppSpacing.sm) {
-            LlamaMascot(size: 64)
+            LlamaMascot(size: 64, color: appearance.accentColor)
             VStack(spacing: 2) {
                 Text("Hi there!")
                     .font(.system(size: 22, weight: .bold, design: .serif))
-                    .foregroundStyle(AppColor.accentDeep)
+                    .foregroundStyle(appearance.accentColor)
                 Text("Two ways to import a recipe")
                     .font(.system(size: 13, weight: .medium))
                     .tracking(0.3)
                     .foregroundStyle(AppColor.textSecondary)
             }
         }
+    }
+
+    /// Compact visual of the expected paste shape — easier to grok than
+    /// the prose rules above when the user is half-paying-attention.
+    private var formatExample: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("EXAMPLE").eyebrowStyle()
+                .padding(.bottom, 2)
+            exampleLine("Garlic Butter Pasta", emphasis: true)
+            exampleSpacer()
+            exampleLine("8 oz spaghetti")
+            exampleLine("4 tbsp butter")
+            exampleLine("3 cloves garlic, minced")
+            exampleSpacer()
+            exampleLine("Boil pasta until al dente")
+            exampleLine("Melt butter, sauté garlic")
+            exampleLine("Toss pasta in garlic butter")
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surfaceSunken)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private func exampleLine(_ text: String, emphasis: Bool = false) -> some View {
+        Text(text)
+            .font(.system(
+                size: emphasis ? 14 : 13,
+                weight: emphasis ? .bold : .regular,
+                design: .monospaced
+            ))
+            .foregroundStyle(emphasis ? appearance.accentColor : AppColor.textPrimary)
+    }
+
+    private func exampleSpacer() -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 12)
+            .overlay(
+                Text("(blank line)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(AppColor.textTertiary.opacity(0.7))
+            )
     }
 
     private func section(eyebrow: String, rows: [String]) -> some View {
@@ -92,22 +142,18 @@ struct ImportHelpView: View {
         HStack(alignment: .top, spacing: AppSpacing.sm + 2) {
             ZStack {
                 Circle()
-                    .fill(AppColor.accentSoft)
+                    .fill(appearance.accentColor.opacity(0.18))
                     .frame(width: 24, height: 24)
                 Text("\(number)")
                     .font(.system(size: 12, weight: .heavy, design: .serif))
-                    .foregroundStyle(AppColor.accentDeep)
+                    .foregroundStyle(appearance.accentColor)
             }
             Text(LocalizedStringKey(markdown))
                 .font(.system(size: 14))
                 .foregroundStyle(AppColor.textPrimary)
-                .tint(AppColor.accentDeep)
+                .tint(appearance.accentColor)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
     }
-}
-
-#Preview {
-    ImportHelpView(onDismiss: {})
 }
