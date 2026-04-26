@@ -15,6 +15,7 @@ struct RecipeDetailView: View {
     @State private var showingConversions = false
     @State private var showingAppearance = false
     @State private var showingSourdough = false
+    @State private var showingPhotoCarousel = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -44,6 +45,8 @@ struct RecipeDetailView: View {
                             }
                         }
                     }
+
+                    photosButton
 
                     if !sortedIngredients.isEmpty {
                         section("Ingredients", accessory: { ingredientAccessories }) {
@@ -205,6 +208,17 @@ struct RecipeDetailView: View {
             }
         } message: {
             Text("\"\(recipe.title)\" will be permanently removed.")
+        }
+        .fullScreenCover(isPresented: $showingPhotoCarousel) {
+            PhotoCarouselView(
+                photoData: recipe.sortedPhotos.compactMap(\.image),
+                onAdd: { rawDataArray in
+                    await addPhotos(from: rawDataArray)
+                },
+                onDelete: { index in
+                    deletePhoto(at: index)
+                }
+            )
         }
     }
 
@@ -430,6 +444,82 @@ struct RecipeDetailView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         }
+    }
+
+    /// Photos entry-point. Same shape and position as the editor's
+    /// gallery button so the user reaches photos through the same row
+    /// regardless of which surface they're on. Mutations from the
+    /// carousel persist immediately (live `@Model` Recipe relationship)
+    /// — same persistence model as the favorite-toggle.
+    private var photosButton: some View {
+        Button {
+            Haptics.selection()
+            showingPhotoCarousel = true
+        } label: {
+            HStack(spacing: AppSpacing.sm + 2) {
+                Image(systemName: "photo.stack")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(appearance.accentColor)
+                    .frame(width: 24)
+                Text(photoButtonLabel)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm + 2)
+            .background(AppColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.divider, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(recipe.photos.isEmpty
+            ? "Add photos"
+            : "Photos, \(recipe.photos.count)"
+        )
+    }
+
+    private var photoButtonLabel: String {
+        let count = recipe.photos.count
+        if count == 0 { return "Add Photos" }
+        return "Photos (\(count))"
+    }
+
+    /// Process picked bytes through ImageProcessing and append
+    /// RecipePhoto rows to the live relationship. Order extends from
+    /// the current count so newest lands at the end of the carousel,
+    /// matching the editor.
+    private func addPhotos(from rawDataArray: [Data]) async {
+        var processedBytes: [Data] = []
+        for raw in rawDataArray {
+            if let processed = await ImageProcessing.prepare(raw, for: .gallery) {
+                processedBytes.append(processed)
+            }
+        }
+        await MainActor.run {
+            let baseOrder = recipe.photos.count
+            for (offset, data) in processedBytes.enumerated() {
+                recipe.photos.append(
+                    RecipePhoto(image: data, order: baseOrder + offset)
+                )
+            }
+            if !processedBytes.isEmpty {
+                recipe.updatedAt = .now
+            }
+        }
+    }
+
+    private func deletePhoto(at index: Int) {
+        let sorted = recipe.sortedPhotos
+        guard sorted.indices.contains(index) else { return }
+        modelContext.delete(sorted[index])
+        recipe.updatedAt = .now
     }
 
     private var signatureRow: some View {

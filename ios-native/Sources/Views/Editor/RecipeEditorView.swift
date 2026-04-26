@@ -21,6 +21,7 @@ struct RecipeEditorView: View {
     @State private var editingStepId: UUID? = nil
     @State private var editingIngredientId: UUID? = nil
     @State private var draggingStepId: UUID? = nil
+    @State private var showingPhotoCarousel = false
     @FocusState private var isNumericFocused: Bool
 
     init(recipe: Recipe?, initialDraft: DraftRecipe? = nil, onSaved: (() -> Void)? = nil) {
@@ -37,6 +38,8 @@ struct RecipeEditorView: View {
                 summaryField
 
                 servingsField
+
+                photosButton
 
                 sectionHeader("Categories")
                 TagInputView(tags: $draft.tags)
@@ -220,6 +223,17 @@ struct RecipeEditorView: View {
         } message: {
             Text("Your edits will be lost.")
         }
+        .fullScreenCover(isPresented: $showingPhotoCarousel) {
+            PhotoCarouselView(
+                photoData: draft.photos.compactMap(\.image),
+                onAdd: { rawDataArray in
+                    await addPhotos(from: rawDataArray)
+                },
+                onDelete: { index in
+                    deletePhoto(at: index)
+                }
+            )
+        }
         .onAppear { syncDirty() }
         .onChange(of: draft) { _, _ in syncDirty() }
         .onDisappear { editor.hasUnsavedChanges = false }
@@ -328,6 +342,73 @@ struct RecipeEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// Photos entry-point. Same vertical position as in Detail (below
+    /// the times/servings row, above Categories) so the user finds the
+    /// gallery in the same place whether they're editing or browsing.
+    /// Count is only shown when there's something to count — the empty
+    /// label reads "Add photos" so the affordance is its own call to
+    /// action rather than just a label.
+    private var photosButton: some View {
+        Button {
+            Haptics.selection()
+            showingPhotoCarousel = true
+        } label: {
+            HStack(spacing: AppSpacing.sm + 2) {
+                Image(systemName: "photo.stack")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(appearance.accentColor)
+                    .frame(width: 24)
+                Text(photoButtonLabel)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm + 2)
+            .background(AppColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.divider, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(draft.photos.isEmpty
+            ? "Add photos"
+            : "Photos, \(draft.photos.count)"
+        )
+    }
+
+    private var photoButtonLabel: String {
+        let count = draft.photos.count
+        if count == 0 { return "Add Photos" }
+        return "Photos (\(count))"
+    }
+
+    /// Process newly-picked photo bytes through `ImageProcessing` and
+    /// append `DraftPhoto`s. Bytes that fail to encode are silently
+    /// dropped (the user just won't see that pick in the gallery —
+    /// safer than persisting unreadable data).
+    private func addPhotos(from rawDataArray: [Data]) async {
+        var newPhotos: [DraftPhoto] = []
+        for raw in rawDataArray {
+            if let processed = await ImageProcessing.prepare(raw, for: .gallery) {
+                newPhotos.append(DraftPhoto(image: processed))
+            }
+        }
+        await MainActor.run {
+            draft.photos.append(contentsOf: newPhotos)
+        }
+    }
+
+    private func deletePhoto(at index: Int) {
+        guard draft.photos.indices.contains(index) else { return }
+        draft.photos.remove(at: index)
     }
 
     private func sectionHeader(_ title: String) -> some View {
