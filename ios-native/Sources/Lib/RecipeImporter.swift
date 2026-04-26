@@ -217,11 +217,38 @@ enum RecipeImporter {
         return blocks
     }
 
+    /// Tidy a raw title line into something fit to display. Three
+    /// passes, each independently optional:
+    ///
+    /// 1. `"Title: Foo"` / `"Title - Foo"` / `"Title Foo"` — old-school
+    ///    labeled prefix; keep the value side.
+    /// 2. `"Recipe👇 Foo"` / `"Recipe: Foo"` — TikTok-style intros where
+    ///    "Recipe" is followed by an arrow emoji or colon used as a
+    ///    pointer to the actual content. Strip the marker plus any
+    ///    emoji / punctuation glyphs that immediately follow it.
+    /// 3. Trailing emoji / exclamation runs ("Sourdough!😍🙌🏻") —
+    ///    chop until the string ends on a letter or digit so the
+    ///    library row doesn't carry social-media ornamentation.
     private static func stripTitleLabel(_ line: String) -> String {
-        if let match = try? #/^[Tt]itle(?:\s*[:\-]\s*|\s+)(.+)$/#.wholeMatch(in: line) {
-            return String(match.output.1).trimmingCharacters(in: .whitespaces)
+        var s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let match = try? #/^[Tt]itle(?:\s*[:\-]\s*|\s+)(.+)$/#.wholeMatch(in: s) {
+            s = String(match.output.1).trimmingCharacters(in: .whitespaces)
         }
-        return line
+        // \p{S} = Symbol (covers emoji), \p{P} = Punctuation,
+        // \p{Z} = Separator (incl. spaces). Together they swallow the
+        // arrow-emoji-and-colon decoration TikTok captions stack
+        // between "Recipe" and the dish name.
+        if let match = try? #/^[Rr]ecipe[\p{P}\p{S}\p{Z}]*(.+)$/#.wholeMatch(in: s) {
+            let candidate = String(match.output.1).trimmingCharacters(in: .whitespaces)
+            if !candidate.isEmpty { s = candidate }
+        }
+        while let last = s.last,
+              !last.isLetter,
+              !last.isNumber,
+              !last.isWhitespace {
+            s = String(s.dropLast())
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Try to interpret `line` as a header-style metadata row (Source:,
@@ -495,6 +522,13 @@ enum RecipeImporter {
         }
         s = stripLeadingBullet(s).trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty else { return nil }
+        // Capitalize the first letter. After `splitIntoSteps` cuts on a
+        // ", then …" boundary the second piece begins with lowercase
+        // "then …"; in Detail / Cook view that reads as a typo, so
+        // bring it up to sentence case before the step ships.
+        if let first = s.first, first.isLowercase {
+            s = String(first).uppercased() + s.dropFirst()
+        }
         return DraftStep(text: s)
     }
 
@@ -509,11 +543,15 @@ enum RecipeImporter {
     ///    fragment, and the trailing `\s+` requirement prevents
     ///    matching mid-decimal: "1.5 cups" has "5" after the period,
     ///    not whitespace, so it's left alone.
-    /// 3. **Sentence boundaries** — last resort. Letter + period +
-    ///    whitespace + capital. The leading letter (consumed as part
-    ///    of the match, since Swift Regex literals don't support
-    ///    lookbehind) excludes "1.5" splits while still catching
-    ///    "350°F. Cream butter…" because F is a letter.
+    /// 3. **Comma-then / comma-digit boundary** — caption authors glue
+    ///    a wait and the next action with a comma ("…1 hour, then do
+    ///    8 folds"). Lookahead requires "then" or a digit so we don't
+    ///    shatter prose lists ("flour, salt, water").
+    /// 4. **Sentence boundaries** — last resort. Letter + period +
+    ///    whitespace + capital or digit. The leading letter (consumed
+    ///    as part of the match, since Swift Regex literals don't
+    ///    support lookbehind) excludes "1.5" splits while still
+    ///    catching "350°F. Cream butter…" because F is a letter.
     static func splitIntoSteps(_ raw: String) -> [String] {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return [] }
@@ -542,7 +580,32 @@ enum RecipeImporter {
             if pieces.count >= 2 { return pieces }
         }
 
-        // 3. Sentence boundary fallback. Match consumes the letter
+        // 3. Comma-then / comma-digit boundary. Caption authors very
+        // often glue a wait and a follow-up action with a comma:
+        //   "Let sit for 30 minutes, 8 more stretch and folds"
+        //   "Let sit for 1 hour, then do 8 stretch and folds"
+        // Splitting on `,` alone would shatter ingredient-style lists
+        // ("flour, salt, water"), so the lookahead requires either the
+        // word "then" or a digit — both strong "next instruction"
+        // signals in caption prose. Lookahead keeps the trigger word
+        // with the second piece so it reads naturally.
+        let commaBoundaryRegex = #/,\s+(?=[Tt]hen\b|\d)/#
+        let commas = Array(s.matches(of: commaBoundaryRegex))
+        if !commas.isEmpty {
+            var pieces: [String] = []
+            var cursor = s.startIndex
+            for m in commas {
+                let segment = s[cursor..<m.range.lowerBound]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !segment.isEmpty { pieces.append(segment) }
+                cursor = m.range.upperBound
+            }
+            let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tail.isEmpty { pieces.append(tail) }
+            if pieces.count >= 2 { return pieces }
+        }
+
+        // 4. Sentence boundary fallback. Match consumes the letter
         // and period (no lookbehind support), so we keep the first
         // two characters of each match with the previous piece —
         // "Foo. Bar" becomes ["Foo.", "Bar"]. The lookahead accepts
@@ -586,17 +649,50 @@ enum RecipeImporter {
         return s
     }
 
-    /// Move a "while X …" suffix out of the step text and into the
-    /// special note. Best-effort: matches the *last* "while" in the
-    /// string so that the main action (everything before it) stays in
-    /// the step. We require the main action to be substantive — short
-    /// stub like "Stir" stays whole rather than getting hollowed out
-    /// into a bare verb with all its detail in the note.
+    /// Lift a parenthetical aside or "while X …" suffix out of the step
+    /// text and into the special note. Two passes:
+    ///
+    /// 1. **Parenthetical first**: `"Preheat oven (start while X)"` →
+    ///    text becomes `"Preheat oven"`, note becomes `"Start while X"`.
+    ///    Doing this *before* the bare-while split is what fixes the
+    ///    trailing-`)` bug — a "while" that lives inside parens used to
+    ///    split the step in the wrong place, leaving an unmatched `(`
+    ///    on the left and a dangling `)` on the right.
+    /// 2. **Bare-while fallback**: `"Stir while butter melts"` →
+    ///    `"Stir"` + note `"While butter melts"`. Only fires when no
+    ///    parens were available.
+    ///
+    /// The main action must be substantive (≥ 2 words) so a short stub
+    /// like `"Stir"` doesn't get hollowed out into a bare verb with all
+    /// its detail in the note.
     private static func liftWhileClause(_ step: DraftStep) -> DraftStep {
         // Don't disturb steps that already carry a special note — the
         // note is the user's, not ours to overwrite.
         guard step.specialNote == nil else { return step }
         let text = step.text
+
+        // 1. Parenthetical extraction. The captured group is the inside
+        //    of the parens; the surrounding `\s*` consumes the gap on
+        //    either side so we don't leave a double space behind.
+        if let parens = try? #/\s*\(([^()]+)\)\s*/#.firstMatch(in: text) {
+            let inside = String(parens.output.1)
+                .trimmingCharacters(in: .whitespaces)
+            let before = String(text[..<parens.range.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+            let after = String(text[parens.range.upperBound...])
+                .trimmingCharacters(in: .whitespaces)
+            let main = [before, after]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            if !main.isEmpty, !inside.isEmpty {
+                var copy = step
+                copy.text = main
+                copy.specialNote = capitalizingFirst(inside)
+                return copy
+            }
+        }
+
+        // 2. Bare "while" fallback.
         guard let range = text.range(of: #"(?i)\s+while\s+"#, options: .regularExpression) else {
             return step
         }
@@ -613,12 +709,27 @@ enum RecipeImporter {
         return copy
     }
 
+    /// Capitalize the first letter without touching the rest. Used on
+    /// lifted parenthetical content so `"start preheating …"` reads as
+    /// `"Start preheating …"` in the special-note callout.
+    private static func capitalizingFirst(_ s: String) -> String {
+        guard let first = s.first else { return s }
+        return String(first).uppercased() + s.dropFirst()
+    }
+
     /// Quick check for "this step mentions a timer-shaped duration":
     /// any `<number> <hour|min|sec>` pair, including ranges. Used to
     /// auto-flag `needsTimer` so imported recipes light up in Cook Mode
     /// without the user manually toggling each step.
+    ///
+    /// The trailing alternation is the false-positive guard: a duration
+    /// only counts as a timer cue when it's followed by punctuation, a
+    /// connector word (`with`, `then`, `until`, …), or end-of-text.
+    /// Without that, compound adjectives where the duration modifies
+    /// a noun ("8 hour sourdough", "30 minute meal") would all trip
+    /// the flag and leave the user with bogus timers in Cook Mode.
     private static func hasTimerSignal(_ text: String) -> Bool {
-        let pattern = #/(?i)\d+(?:\.\d+)?(?:\s*[-–—]\s*\d+(?:\.\d+)?)?\s*(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/#
+        let pattern = #/(?i)\d+(?:\.\d+)?(?:\s*[-–—]\s*\d+(?:\.\d+)?)?\s*(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\b(?:\s*[.,;:!?]|\s+(?:with|then|and|or|until|in|at|on|of|before|after)\b|\s*$)/#
         return (try? pattern.firstMatch(in: text)) != nil
     }
 

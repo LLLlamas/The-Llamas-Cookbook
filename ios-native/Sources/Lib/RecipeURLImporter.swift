@@ -100,6 +100,10 @@ enum RecipeURLImporter {
         guard hasMeta else {
             return .failed(message: "No recipe content found on that page.")
         }
+        if !enrichment.summary.isEmpty,
+           let aiDraft = await aiParse(enrichment.summary, sourceUrl: url.absoluteString) {
+            return .full(aiDraft)
+        }
         return .partial(
             enrichment: enrichment,
             seedText: enrichment.summary,
@@ -123,6 +127,10 @@ enum RecipeURLImporter {
         var enrichment = result.draft
         enrichment.sourceUrl = url.absoluteString
         let seed = enrichment.summary
+        if !seed.isEmpty,
+           let aiDraft = await aiParse(seed, sourceUrl: url.absoluteString) {
+            return .full(aiDraft)
+        }
         return .partial(
             enrichment: enrichment,
             seedText: seed,
@@ -157,6 +165,9 @@ enum RecipeURLImporter {
             // Tags are deliberately NOT auto-populated — categories are
             // the user's call, not the import path's.
             let (cleaned, _) = liftHashtags(from: caption)
+            if let aiDraft = await aiParse(cleaned, sourceUrl: url.absoluteString) {
+                return .full(aiDraft)
+            }
             return .partial(
                 enrichment: enrichment,
                 seedText: cleaned,
@@ -182,6 +193,24 @@ enum RecipeURLImporter {
             .replacing(#/[ \t]{2,}/#, with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (stripped, tags)
+    }
+
+    // MARK: - AI parsing bridge
+
+    /// Run the on-device LLM against a free-form caption / summary and
+    /// return a draft when it yields something usable. Centralized here
+    /// so each platform path (TikTok, Pinterest, OG-fallback) calls one
+    /// line and shares the same iOS-26 availability gate. Returns nil
+    /// on older OSes, on devices without Apple Intelligence, on model
+    /// errors, or when the AI's output fails the parser's quality gate
+    /// — every "no" path drops the caller back to the existing seed-
+    /// text-and-edit flow rather than forcing the user to stare at an
+    /// empty preview.
+    private static func aiParse(_ text: String, sourceUrl: String) async -> DraftRecipe? {
+        guard #available(iOS 26.0, *), RecipeAIParser.isAvailable else {
+            return nil
+        }
+        return await RecipeAIParser.parse(text, sourceUrl: sourceUrl)
     }
 
     // MARK: - URL hygiene + networking
