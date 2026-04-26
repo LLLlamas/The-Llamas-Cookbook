@@ -109,8 +109,32 @@ jobs:
       # cross-checks simulator runtimes regardless of --platform iphoneos.
       # `xcodebuild -downloadPlatform iOS` is idempotent: ~5s no-op if a
       # matching runtime is already present, ~3 min download if not.
+      #
+      # The `runFirstLaunch` is load-bearing: without it, the freshly
+      # `xcode-select`'d Xcode hasn't registered its tooling and seeded
+      # the simulator runtime catalog, and `-downloadPlatform` exits 70
+      # with the misleading "Unable to connect to simulator." (the
+      # daemon it's querying just hasn't been initialized yet). Retry
+      # the download itself because Apple's content endpoint is flaky
+      # from CI runners — three attempts with backoff covers the usual
+      # transient outages without making a real failure wait forever.
       - name: Ensure iOS Simulator runtime
-        run: xcodebuild -downloadPlatform iOS
+        run: |
+          set -euo pipefail
+          sudo xcodebuild -runFirstLaunch
+          for attempt in 1 2 3; do
+            if xcodebuild -downloadPlatform iOS; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              wait_seconds=$((attempt * 30))
+              echo "::warning::xcodebuild -downloadPlatform iOS attempt $attempt failed; retrying in ${wait_seconds}s"
+              sleep "$wait_seconds"
+            fi
+          done
+          echo "::error::iOS simulator runtime download failed after 3 attempts"
+          xcrun simctl runtime list || true
+          exit 1
 
       - name: Install XcodeGen
         run: brew install xcodegen
