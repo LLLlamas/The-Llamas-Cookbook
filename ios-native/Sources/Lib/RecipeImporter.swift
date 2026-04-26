@@ -14,10 +14,50 @@ import Foundation
 ///    line; when present, takes precedence.
 enum RecipeImporter {
     static func parse(_ text: String) -> DraftRecipe {
-        if hasExplicitSectionLabels(text) {
-            return parseLabeled(text)
+        let cleaned = stripTrailingHandle(text)
+        if hasExplicitSectionLabels(cleaned) {
+            return parseLabeled(cleaned)
         }
-        return parseBlocks(text)
+        return parseBlocks(cleaned)
+    }
+
+    /// Strip TikTok-style `@handle` decorations from a pasted caption.
+    /// TikTok captions copied directly from the app — and some share
+    /// sheets — append the creator's handle after the recipe text,
+    /// which has no business in the recipe model.
+    ///
+    /// Conservative scope: only the trailing handle (very end of
+    /// text) and entire-line handle rows are stripped. Inline
+    /// `@mentions` mid-text are left alone — that avoids false
+    /// positives on email addresses and on attribution lines like
+    /// "Adapted from @smittenkitchen's brownie recipe", where the
+    /// mention is part of meaningful prose.
+    ///
+    /// Note: the URL-import path strips handles more aggressively in
+    /// `RecipeURLImporter.liftHashtags` because we already know it's
+    /// a TikTok caption. This text-paste path can't make that
+    /// assumption, hence the lighter touch.
+    private static func stripTrailingHandle(_ text: String) -> String {
+        // 1. Drop any line whose only content is a handle.
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        let dehandled = normalized
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if (try? #/^@[\p{L}\p{N}_.]+$/#.wholeMatch(in: trimmed)) != nil {
+                    return ""
+                }
+                return line
+            }
+            .joined(separator: "\n")
+
+        // 2. Strip a trailing handle (and absorb the punctuation /
+        // whitespace gap that typically separates it from the recipe
+        // text — e.g. "…Bake 12 min. @creator" or "…cookies! @creator").
+        return dehandled.replacing(
+            #/[\s,;:.\-—–]*@[\p{L}\p{N}_.]+\s*$/#,
+            with: ""
+        )
     }
 
     /// Parse a single ingredient line into one or more `DraftIngredient`s.

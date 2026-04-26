@@ -155,12 +155,7 @@ enum RecipeSchemaParser {
 
     private static func extractInstructions(_ value: Any) -> [String] {
         if let s = value as? String {
-            // Some sites stuff the whole method into one string with
-            // newlines. Splitting here gives RecipeImporter a chance at
-            // each sentence.
-            return s
-                .split(whereSeparator: { $0.isNewline })
-                .map(String.init)
+            return splitInstructionString(s)
         }
         if let arr = value as? [Any] {
             return arr.flatMap { extractInstructions($0) }
@@ -170,10 +165,85 @@ enum RecipeSchemaParser {
             if type == "HowToSection", let items = dict["itemListElement"] {
                 return extractInstructions(items)
             }
-            if let text = dict["text"] as? String { return [text] }
-            if let name = dict["name"] as? String { return [name] }
+            // HowToStep `text` and the `name` fallback both go through
+            // splitInstructionString — some publishers stuff multiple
+            // steps into a single HowToStep.text rather than emitting
+            // separate HowToStep entries.
+            if let text = dict["text"] as? String { return splitInstructionString(text) }
+            if let name = dict["name"] as? String { return splitInstructionString(name) }
         }
         return []
+    }
+
+    /// Split one instruction string into separate steps using
+    /// progressively weaker signals. Without this, sites that ship
+    /// `recipeInstructions` as a single paragraph end up with every
+    /// step glued onto Step 1 in the editor.
+    ///
+    /// 1. **Newlines** — cleanest signal; respect publisher layout.
+    /// 2. **Numbered markers** — "Step 1:", "Step 1.", "1.", "1)".
+    ///    Lookbehind `(?<=\s)` keeps the marker bound to a real word
+    ///    boundary, and the trailing `\s+` requirement prevents
+    ///    matching mid-decimal: "1.5 cups" has "5" after the period,
+    ///    not whitespace, so it's left alone.
+    /// 3. **Sentence boundaries** — last resort. Period after a
+    ///    *letter* + whitespace + capital. The letter-before-period
+    ///    lookbehind excludes "1.5" splits while still catching
+    ///    "350°F. Cream butter…" because F is a letter.
+    private static func splitInstructionString(_ raw: String) -> [String] {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return [] }
+
+        // 1. Newlines.
+        let byNewline = s
+            .split(whereSeparator: { $0.isNewline })
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if byNewline.count > 1 { return byNewline }
+
+        // 2. Numbered step markers.
+        let markerRegex = #/(?:^|(?<=\s))(?:[Ss]tep\s+\d+\s*[:.)]|\d+\s*[.)])\s+/#
+        let markers = Array(s.matches(of: markerRegex))
+        if markers.count >= 2 {
+            let pieces = splitByMatches(s, matches: markers, includeMatchTrailingChar: false)
+            if pieces.count >= 2 { return pieces }
+        }
+
+        // 3. Sentence boundary fallback.
+        let sentenceRegex = #/(?<=[a-zA-Z])\.\s+(?=[A-Z])/#
+        let sentences = Array(s.matches(of: sentenceRegex))
+        if !sentences.isEmpty {
+            let pieces = splitByMatches(s, matches: sentences, includeMatchTrailingChar: true)
+            if pieces.count >= 2 { return pieces }
+        }
+
+        return [s]
+    }
+
+    /// Carve `s` into pieces around `matches`, dropping the matched
+    /// delimiters. When `includeMatchTrailingChar` is true the first
+    /// character of the match (the period, for sentence-boundary
+    /// matches) is appended to the piece *before* the match — so
+    /// "Foo. Bar" → ["Foo.", "Bar"] rather than ["Foo", "Bar"].
+    private static func splitByMatches<R>(
+        _ s: String,
+        matches: [Regex<R>.Match],
+        includeMatchTrailingChar: Bool
+    ) -> [String] {
+        var pieces: [String] = []
+        var cursor = s.startIndex
+        for m in matches {
+            let segmentEnd = includeMatchTrailingChar
+                ? s.index(after: m.range.lowerBound)
+                : m.range.lowerBound
+            let segment = s[cursor..<segmentEnd]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !segment.isEmpty { pieces.append(segment) }
+            cursor = m.range.upperBound
+        }
+        let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty { pieces.append(tail) }
+        return pieces
     }
 
     private static func extractServings(_ value: Any?) -> String? {

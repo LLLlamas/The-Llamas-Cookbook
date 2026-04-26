@@ -1,6 +1,6 @@
 # Llamas Cookbook — State of the App
 
-> Snapshot: **2026-04-24**. Supersedes the "current status" and layout
+> Snapshot: **2026-04-26**. Supersedes the "current status" and layout
 > sections of [PROJECT.md](./PROJECT.md). The product vision and UX
 > principles in [llamas-cookbook-plan.md](./llamas-cookbook-plan.md)
 > remain authoritative; everything tech-stack / implementation-detail
@@ -59,8 +59,9 @@ The foundation is tight, deduped, and themed. The next pass is
 | Haptics | [Haptics](ios-native/Sources/Lib/Haptics.swift) wrapper around UIKit feedback generators. |
 | Icons | SF Symbols only. |
 | Project file | [XcodeGen](https://github.com/yonaskolb/XcodeGen) — [`project.yml`](ios-native/project.yml), `.xcodeproj` gitignored, generated per CI run. |
-| Build | GitHub Actions `macos-latest` → `xcodebuild archive` → TestFlight upload via `xcrun altool`. |
-| Min iOS | 18.0. |
+| Build | GitHub Actions `macos-26` → `xcodebuild archive` → TestFlight upload via `xcrun altool`. Workflow globs for stable Xcode 26.x (skips betas; see §11) and runs `xcodebuild -downloadPlatform iOS` defensively. |
+| Build SDK | **iOS 26.x** (currently 26.4 SDK from `Xcode_26.4.1.app`). Required by Apple's 2026-04-28 ITMS-90725 cutoff. |
+| Min iOS | 18.0. (Build SDK and deployment target are independent — see §11.) |
 | Devices | iPhone only (portrait). |
 
 What the app doesn't use and won't without a clear reason: **no UIKit
@@ -316,12 +317,25 @@ From [PROJECT.md §6](./PROJECT.md) and [llamas-cookbook-plan.md](./llamas-cookb
 
 ---
 
-## 7. Signing & CI (unchanged)
+## 7. Signing & CI
 
 - **Bundle id**: `com.llamascookbook.app` (widget: `com.llamascookbook.app.widget`).
 - **Team**: `GYFN949Q5E`. **ASC app id**: `6762527184`.
 - **CFBundleVersion** = Unix timestamp (`date -u +%s`).
 - **MARKETING_VERSION** = `0.1.0` (bump in `project.yml` to promote).
+- **Runner**: `macos-26` (arm64). Pinned explicitly — `macos-latest`
+  still resolves to macOS 15 / Xcode 16, which won't satisfy ITMS-90725.
+- **Xcode picker**: globs `/Applications/Xcode_26*.app`, filters out
+  anything with `beta` in the name, picks the highest stable via
+  `sort -V`. Falls back to beta with a `::warning::` only if no stable
+  exists. **Do not replace this with a hardcoded path** — Apple ships
+  point releases (`26.0.1`, `26.1.1`, `26.4.1`, …) and the picker
+  needs to keep working as the runner image rotates. See §11 for the
+  full incident.
+- **Simulator runtime download**: `xcodebuild -downloadPlatform iOS`
+  runs after Xcode selection. Idempotent no-op when the runtime is
+  preinstalled; pulls the matching runtime when we end up on a beta
+  Xcode whose iphonesimulator SDK doesn't match anything on disk.
 - **Secrets** (GitHub Actions): `IOS_DIST_CERT_P12_BASE64/_PASSWORD`,
   `IOS_PROVISIONING_PROFILE_BASE64`, `IOS_WIDGET_PROVISIONING_PROFILE_BASE64`,
   `APPSTORE_API_KEY_P8_BASE64`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_ISSUER_ID`.
@@ -409,3 +423,49 @@ Captured here so a future session doesn't re-do this work:
 
 Result: ~60 LOC removed net, zero behavior change, single source of
 truth for each transformation.
+
+---
+
+## 11. SDK 26 + Liquid Glass opt-out (2026-04-26)
+
+> **Why this section exists:** Apple's ITMS-90725 cutoff on
+> **2026-04-28** required all TestFlight uploads to be built with the
+> iOS 26 SDK. The bump itself was three small file edits, but CI
+> surfaced two surprises that cost real cycles. Capturing the
+> lessons here so the next image rotation / Xcode beta drop doesn't
+> re-bite. Companion doc: [SDK-Update-Plan.md](./SDK-Update-Plan.md).
+
+### What changed in code
+
+- **[`.github/workflows/ios-native-ci.yml`](./.github/workflows/ios-native-ci.yml)** — runner pinned to `macos-26`, added `Select Xcode 26` (stable-preferring glob), `Print toolchain` (logs `iphoneos --show-sdk-version` so the SDK is provable from the log alone), and `Ensure iOS Simulator runtime` (`xcodebuild -downloadPlatform iOS`).
+- **[`ios-native/Resources/AppInfo.plist`](./ios-native/Resources/AppInfo.plist)** — added `UIDesignRequiresCompatibility = true` next to `ITSAppUsesNonExemptEncryption`. Lives in the plist (not as an `INFOPLIST_KEY_*` setting in `project.yml`) because the main app already uses an explicit Info.plist via `GENERATE_INFOPLIST_FILE: NO`.
+- **`Generate placeholder app icon` step** — hardened the ImageMagick command with `-alpha off`, `-colorspace sRGB`, and `-define png:color-type=2` so the icon ships as opaque sRGB. Apple has always required this; Xcode 16 tolerated RGBA, Xcode 27 likely won't.
+- **`IPHONEOS_DEPLOYMENT_TARGET` stays at 18.0.** Build SDK and deployment target are different things — we build *with* iOS 26 SDK, we still run *on* iOS 18+.
+
+### Surprise #1 — naive `sort -V` picks the beta
+
+`actions/runner-images` ships **six** Xcodes side-by-side on `macos-26`: `26.0.1`, `26.1.1`, `26.2`, `26.3`, `26.4.1`, plus the latest beta (currently `Xcode_26.5_beta_2.app`). A glob + `sort -V | tail -1` picks the beta because `26.5 > 26.4`. Fix: filter out anything with `beta` in the filename first, fall back to beta only if no stable matches. **Do not** hardcode the app name — point releases roll forward (`26.4` → `26.4.1` → `26.5.x`) and a hardcoded path fails fast.
+
+### Surprise #2 — beta SDKs trip actool on device archives
+
+When the picker landed on `Xcode_26.5_beta_2.app`, `actool` failed `CompileAssetCatalogVariant thinned` with:
+
+```
+error: No simulator runtime version from ["23B86", "23C54", "23E254a"]
+available to use with iphonesimulator SDK version 23F5054d
+```
+
+`actool` cross-checks simulator runtimes during asset thinning — even on `--platform iphoneos` (device) archives, where simulator should be irrelevant. Beta Xcode SDKs ship with build numbers that don't match any preinstalled runtime. Two-part defense:
+
+1. Prefer stable Xcode (Surprise #1's fix sidesteps this in practice).
+2. `xcodebuild -downloadPlatform iOS` as belt-and-suspenders — fast no-op when runtimes match, ~3 min download when they don't.
+
+### Liquid Glass — deferred deliberately
+
+Building with the iOS 26 SDK auto-opts the app into Liquid Glass on iOS 26 devices. `UIDesignRequiresCompatibility = true` keeps the legacy chrome rendering. The flag is **temporary** — Apple has signaled removal in iOS 27. Adoption is queued as part of the aesthetic / UX pass in §9; until then we keep the terracotta + cream system intact and audit deliberately on a real device.
+
+### What to watch for next
+
+- **Image rotation**: when `actions/runner-images` ships a new `macos-26` image, the `Print toolchain` step's `iphoneos --show-sdk-version` line is the canary. If it drops below 26.x, ITMS-90725 returns. The picker's `::warning::` line will also appear in the log if only a beta is available.
+- **Xcode 27 release**: `UIDesignRequiresCompatibility` goes away. Liquid Glass adoption needs to land before that build SDK becomes mandatory (analogous deadline pattern).
+- **Icon flags**: leave the `-alpha off` / `sRGB` / `color-type=2` flags in even when we replace the placeholder with real artwork. They're correct regardless.
