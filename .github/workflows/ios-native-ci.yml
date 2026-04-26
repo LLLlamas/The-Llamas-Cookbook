@@ -192,15 +192,32 @@ jobs:
           # Fonts' static paths). Apple's validation only cares that the
           # 1024x1024 PNG exists; the content is cosmetic. Use pure drawing
           # primitives so this step cannot fail on missing fonts.
+          #
+          # Xcode 26's actool got strict about icon PNG format. Apple has
+          # always required app icons to be opaque sRGB with no alpha
+          # channel; Xcode 16 tolerated RGBA with a warning, Xcode 26
+          # rejects it as a hard "CompileAssetCatalogVariant thinned"
+          # archive failure. The three flags below force the right output:
+          # -alpha off drops the alpha channel, -colorspace sRGB sets the
+          # color profile actool expects, and png:color-type=2 forces an
+          # RGB (no-alpha) PNG encoding regardless of ImageMagick defaults.
           "$IM" -size 1024x1024 xc:"#C97C5D" \
             -fill "#FFFDF8" \
             -draw "circle 512,512 512,180" \
             -fill "#2B2320" \
             -draw "circle 440,440 440,420" \
             -draw "circle 584,440 584,420" \
+            -alpha off \
+            -colorspace sRGB \
+            -define png:color-type=2 \
             "$ICON_PATH"
           echo "Generated $ICON_PATH"
           ls -la "$ICON_PATH"
+          # Print the actual encoded format so the next actool failure is
+          # quick to diagnose. Want to see "PNG 1024x1024 ... sRGB" with
+          # no mention of "Matte" / alpha. If alpha sneaks back in, the
+          # identify line will say so and we can iterate without guessing.
+          "$IM" identify "$ICON_PATH"
 
       - name: Archive
         run: |
