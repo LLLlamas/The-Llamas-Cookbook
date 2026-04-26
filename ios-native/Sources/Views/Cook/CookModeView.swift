@@ -5,6 +5,7 @@ import AudioToolbox
 
 struct CookModeView: View {
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(CookingSession.self) private var session
 
     let recipe: Recipe
     /// End the app-level cook session. Called from the close button,
@@ -166,12 +167,18 @@ struct CookModeView: View {
         .onChange(of: timerLabel) { _, _ in persistSnapshot() }
         .onChange(of: timerOriginalMinutes) { _, _ in persistSnapshot() }
         .onDisappear {
+            // The in-app alarm task uses local @State that's destroyed
+            // either way; stop it on every disappear so it doesn't leak.
             stopAlarm()
-            // Tear down the Live Activity when the user leaves Cook Mode —
-            // otherwise an orphan countdown keeps ticking in the Dynamic
-            // Island with no corresponding in-app state.
-            liveActivity.end()
-            TimerNotifications.cancel()
+            // Only tear down the Live Activity + scheduled notification
+            // when the session actually ended (close X / Mark cooked /
+            // Stop after timer). Minimize keeps `activeRecipe` set so the
+            // timer can keep ticking on the lock screen and re-attach to
+            // a fresh CookModeView when the user resumes.
+            if session.activeRecipe == nil {
+                liveActivity.end()
+                TimerNotifications.cancel()
+            }
         }
         .fullScreenCover(isPresented: $timerExpired) {
             TimerReadyOverlay(
@@ -234,6 +241,23 @@ struct CookModeView: View {
                     .background(AppColor.surface)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Exit cook mode")
+
+            // Minimize: hide the cover but keep the timer + Live Activity
+            // running. The user can resume from the Library's cooking
+            // pill or by tapping the Live Activity.
+            Button {
+                Haptics.selection()
+                session.minimize()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(AppColor.textPrimary)
+                    .frame(width: 40, height: 40)
+                    .background(AppColor.surface)
+                    .clipShape(Circle())
+            }
+            .accessibilityLabel("Minimize cook mode")
 
             Text(StringCase.titleCase(recipe.title))
                 .font(.system(size: 18, weight: .bold, design: .serif))
@@ -491,26 +515,27 @@ struct CookModeView: View {
     }
 
     /// Inline reminder rendered directly under a step whenever the user
-    /// attached a `specialNote` in the editor. Accent-soft background +
-    /// lightbulb glyph so it reads as advice, not as another step.
+    /// attached a `specialNote` in the editor. Lightbulb + tinted box use
+    /// the user's accent so the same callout shape reads consistently
+    /// from editor preview → detail view → cook mode.
     private func specialNoteCallout(_ note: String) -> some View {
         HStack(alignment: .top, spacing: AppSpacing.sm) {
             Image(systemName: "lightbulb.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(AppColor.accentDeep)
+                .foregroundStyle(appearance.accentColor)
                 .padding(.top, 2)
             Text(note)
                 .font(.system(size: 15, weight: .regular, design: .serif))
                 .italic()
-                .foregroundStyle(AppColor.accentDeep)
+                .foregroundStyle(AppColor.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
         }
         .padding(AppSpacing.sm + 2)
-        .background(AppColor.accentSoft.opacity(0.6))
+        .background(appearance.accentColor.opacity(0.12))
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.accent.opacity(0.35), lineWidth: 1)
+                .stroke(appearance.accentColor.opacity(0.30), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
@@ -714,9 +739,17 @@ struct CookModeView: View {
         timerEndsAt = endsAt
         now = Date()
         Haptics.impact(.medium)
-        TimerNotifications.schedule(endDate: endsAt, label: label)
 
         let stepNumber = (sortedSteps.firstIndex(where: { $0.id == stepId }) ?? 0) + 1
+        let stepText = sortedSteps.first(where: { $0.id == stepId })?.text
+        TimerNotifications.schedule(
+            endDate: endsAt,
+            label: label,
+            recipeTitle: recipe.title,
+            stepNumber: stepNumber,
+            stepText: stepText
+        )
+
         liveActivity.end() // clear any lingering activity from a prior step
         liveActivity.start(
             recipeID: recipe.id,
@@ -779,10 +812,19 @@ struct CookModeView: View {
         // Reschedule the background notification + Live Activity to match
         // the new end time.
         if let end = timerEndsAt {
-            TimerNotifications.schedule(endDate: end, label: timerLabel)
             let stepNumber = timerStepId
                 .flatMap { id in sortedSteps.firstIndex(where: { $0.id == id }) }
                 .map { $0 + 1 } ?? 0
+            let stepText = timerStepId.flatMap { id in
+                sortedSteps.first(where: { $0.id == id })?.text
+            }
+            TimerNotifications.schedule(
+                endDate: end,
+                label: timerLabel,
+                recipeTitle: recipe.title,
+                stepNumber: stepNumber,
+                stepText: stepText
+            )
             liveActivity.update(endDate: end, label: timerLabel, stepNumber: stepNumber)
         }
     }

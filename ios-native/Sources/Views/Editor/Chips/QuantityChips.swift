@@ -3,6 +3,8 @@ import SwiftUI
 struct QuantityChips: View {
     @Binding var value: String
 
+    @Environment(AppearanceSettings.self) private var appearance
+
     private let wholes = ["1", "2", "3", "4", "5", "6", "8", "10", "12"]
     private let fracs = ["1/8", "1/4", "1/3", "1/2", "2/3", "3/4"]
 
@@ -32,9 +34,9 @@ struct QuantityChips: View {
                             .padding(.vertical, AppSpacing.xs + 2)
                             .frame(minWidth: isWhole ? 44 : 40)
                             .foregroundStyle(active ? AppColor.onAccent : AppColor.textPrimary)
-                            .background(active ? AppColor.accent : AppColor.surface)
+                            .background(active ? appearance.accentColor : AppColor.surface)
                             .overlay(
-                                Capsule().stroke(active ? AppColor.accent : AppColor.divider, lineWidth: 1)
+                                Capsule().stroke(active ? appearance.accentColor : AppColor.divider, lineWidth: 1)
                             )
                             .clipShape(Capsule())
                     }

@@ -12,13 +12,23 @@ struct DraftRecipe: Equatable {
     var favorite: Bool = false
     var ingredients: [DraftIngredient] = []
     var steps: [DraftStep] = []
+    /// Free-form note shown above the first step in detail / cook view.
+    var prefaceNote: String = ""
+    /// Free-form note shown below the last step.
+    var epilogueNote: String = ""
+    /// Free-form note not tied to a position — surfaces in detail view in a
+    /// dedicated "Note" callout, separate from per-step reminders.
+    var generalNote: String = ""
 
     var hasAnyContent: Bool {
         !title.trimmed.isEmpty ||
         !summary.trimmed.isEmpty ||
         !sourceUrl.trimmed.isEmpty ||
         !ingredients.isEmpty ||
-        !steps.isEmpty
+        !steps.isEmpty ||
+        !prefaceNote.trimmed.isEmpty ||
+        !epilogueNote.trimmed.isEmpty ||
+        !generalNote.trimmed.isEmpty
     }
 
     var canSave: Bool {
@@ -85,7 +95,10 @@ extension Recipe {
                     needsTimer: $0.needsTimer,
                     specialNote: $0.specialNote
                 )
-            }
+            },
+            prefaceNote: prefaceNote ?? "",
+            epilogueNote: epilogueNote ?? "",
+            generalNote: generalNote ?? ""
         )
     }
 
@@ -101,6 +114,9 @@ extension Recipe {
         // model field is dropped in a future migration.
         tags = draft.tags
         favorite = draft.favorite
+        prefaceNote = draft.prefaceNote.trimmed.nilIfEmpty
+        epilogueNote = draft.epilogueNote.trimmed.nilIfEmpty
+        generalNote = draft.generalNote.trimmed.nilIfEmpty
         updatedAt = .now
 
         // Replace children — SwiftData cascade-deletes via inverse relationship.

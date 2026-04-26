@@ -14,6 +14,19 @@ struct RootView: View {
         .tint(appearance.accentColor)
         .environment(session)
         .environment(editor)
+        .overlay(alignment: .bottom) {
+            // Floats above Library / Detail / any pushed nav screens
+            // while a cook session is minimized. Tap to re-present Cook
+            // Mode where the user left off (struck steps + running timer
+            // re-attach via `pendingRestoration`).
+            if session.activeRecipe != nil && !session.isCookModeVisible {
+                CookingResumePill(session: session, accent: appearance.accentColor)
+                    .padding(.horizontal, AppSpacing.lg)
+                    .padding(.bottom, AppSpacing.md)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: session.isCookModeVisible)
         .task {
             // Cold launch (or relaunch after iOS killed us) — pull any
             // saved cook session back into memory before the first frame
@@ -22,16 +35,24 @@ struct RootView: View {
             session.restore(using: lookupRecipe)
         }
         .onOpenURL { url in
-            // Live Activity tap → `llamascookbook://cook/<uuid>`. We
-            // re-run `restore` first so persisted struck-step state is
-            // re-attached when this is the cold-launch path that beat
-            // `.task` to the punch. Falls through to opening the URL's
-            // recipe directly if the persisted session is for something
-            // else (or got cleared).
+            // Live Activity tap → `llamascookbook://cook/<uuid>`.
+            // Three cases this needs to handle:
+            //   1. Cold launch: `restore` rehydrates from disk, sets the
+            //      cover visible.
+            //   2. Warm app, session minimized: `resume()` brings the
+            //      cover back without re-reading disk.
+            //   3. No persisted session at all (rare — Live Activity
+            //      outlived the cook session) — fall back to opening the
+            //      URL's recipe directly.
             guard let recipeID = parseCookDeepLink(url) else { return }
-            session.restore(using: lookupRecipe)
+            if session.activeRecipe == nil {
+                session.restore(using: lookupRecipe)
+            }
             if session.activeRecipe == nil, let recipe = lookupRecipe(recipeID) {
                 session.activeRecipe = recipe
+                session.isCookModeVisible = true
+            } else {
+                session.resume()
             }
         }
         .fullScreenCover(isPresented: cookingSheetPresented) {
@@ -72,10 +93,16 @@ struct RootView: View {
     }
 
     private var cookingSheetPresented: Binding<Bool> {
+        // The cover follows `isCookModeVisible` rather than just "do we
+        // have an active recipe?" — minimize hides the cover without
+        // tearing down the session, and the resume pill / Live Activity
+        // tap can flip it back on. SwiftUI may write `false` here when
+        // the user dismisses (which we have disabled for cook mode), so
+        // we route through `minimize()` to keep the session alive.
         Binding(
-            get: { session.activeRecipe != nil },
+            get: { session.isCookModeVisible && session.activeRecipe != nil },
             set: { newValue in
-                if !newValue { session.end() }
+                if !newValue { session.minimize() }
             }
         )
     }
@@ -146,6 +173,57 @@ private struct EditorSheetHost: View {
         // editor is Save, Cancel (with the existing discard alert), or
         // confirming the switch-discard alert at RootView.
         .interactiveDismissDisabled()
+    }
+}
+
+/// Floating pill shown when Cook Mode is minimized. Surfaces recipe
+/// name + live countdown so the user can tell at a glance which recipe
+/// is mid-flight. Tapping resumes Cook Mode in place.
+private struct CookingResumePill: View {
+    let session: CookingSession
+    let accent: Color
+
+    var body: some View {
+        Button {
+            Haptics.selection()
+            session.resume()
+        } label: {
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: "fork.knife")
+                    .font(.system(size: 16, weight: .bold))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("COOKING")
+                        .font(.system(size: 10, weight: .heavy))
+                        .tracking(0.8)
+                        .opacity(0.9)
+                    if let title = session.activeRecipe?.title {
+                        Text(StringCase.titleCase(title))
+                            .font(.system(size: 14, weight: .semibold, design: .serif))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: AppSpacing.sm)
+                if let endsAt = CookingSessionStore.load()?.timerEndsAt, endsAt > Date() {
+                    // System timer text counts down on its own once a
+                    // second without our app pushing updates — same
+                    // mechanism the Live Activity widget uses.
+                    Text(timerInterval: Date()...endsAt, countsDown: true)
+                        .font(.system(size: 14, weight: .bold, design: .serif))
+                        .monospacedDigit()
+                        .frame(maxWidth: 64)
+                }
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 12, weight: .bold))
+            }
+            .foregroundStyle(AppColor.onAccent)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm + 2)
+            .background(accent)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Resume cooking")
     }
 }
 

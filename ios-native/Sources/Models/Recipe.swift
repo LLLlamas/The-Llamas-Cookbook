@@ -20,6 +20,15 @@ final class Recipe {
     var createdAt: Date
     var updatedAt: Date
 
+    /// Stand-alone notes that don't belong to any single step. The editor
+    /// surfaces these as alternative slots in the Special Notes picker:
+    /// `prefaceNote` rides above step 1, `epilogueNote` after the last
+    /// step, and `generalNote` is a roving reminder not tied to position.
+    /// Optional + nil-default so existing recipes don't need migration.
+    var prefaceNote: String?
+    var epilogueNote: String?
+    var generalNote: String?
+
     @Relationship(deleteRule: .cascade, inverse: \Ingredient.recipe)
     var ingredients: [Ingredient] = []
 

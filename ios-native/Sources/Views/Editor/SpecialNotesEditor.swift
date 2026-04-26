@@ -1,16 +1,22 @@
 import SwiftUI
 
-/// Per-step reminder editor. Sits under the Notes section of the recipe
-/// editor. Three states:
-///   1. idle — shows existing notes (if any) + "+ Special Note" button
-///   2. pickingStep — user picked the button; chips for each step appear
-///   3. typing(stepId:) — user picked a step; text field + Save/Cancel
+/// Reminder editor with four placement slots:
+///   • `preface`    — pinned above the first step
+///   • `step(id:)`  — pinned to a specific step
+///   • `epilogue`   — pinned after the last step
+///   • `general`    — free-floating recipe-wide note
 ///
-/// Data is written straight into the bound `[DraftStep]`: each step's
-/// `specialNote` is nil (no note) or a non-empty string. Empty strings
-/// are normalized to nil on save so they don't persist as "has note".
+/// Each slot can carry at most one reminder. The picker only offers
+/// slots that are currently empty so users don't accidentally overwrite
+/// existing notes via the +Special Note flow — to edit, they tap the
+/// existing row, which puts that slot back into typing mode.
 struct SpecialNotesEditor: View {
     @Binding var steps: [DraftStep]
+    @Binding var prefaceNote: String
+    @Binding var epilogueNote: String
+    @Binding var generalNote: String
+
+    @Environment(AppearanceSettings.self) private var appearance
 
     @State private var mode: Mode = .idle
     @State private var draftText: String = ""
@@ -18,18 +24,28 @@ struct SpecialNotesEditor: View {
 
     enum Mode: Equatable {
         case idle
-        case pickingStep
-        case typing(stepId: UUID)
+        case picking
+        case typing(target: NoteTarget)
+    }
+
+    /// Where a reminder is attached. `step` carries the step UUID so the
+    /// note follows the step through reorderings rather than locking to
+    /// a position index.
+    enum NoteTarget: Hashable {
+        case preface
+        case step(UUID)
+        case epilogue
+        case general
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             header
 
-            if !stepsWithNotes.isEmpty {
+            if !existingTargets.isEmpty {
                 VStack(spacing: AppSpacing.xs) {
-                    ForEach(stepsWithNotes, id: \.id) { step in
-                        existingRow(for: step)
+                    ForEach(existingTargets, id: \.self) { target in
+                        existingRow(for: target)
                     }
                 }
                 .transition(.opacity)
@@ -38,14 +54,14 @@ struct SpecialNotesEditor: View {
             switch mode {
             case .idle:
                 addButton
-            case .pickingStep:
-                stepPicker
-            case .typing(let stepId):
-                typingRow(stepId: stepId)
+            case .picking:
+                targetPicker
+            case .typing(let target):
+                typingRow(target: target)
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: mode)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: stepsWithNotes.map(\.id))
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: existingTargets)
     }
 
     // MARK: - Subviews
@@ -55,7 +71,7 @@ struct SpecialNotesEditor: View {
             Text("Special Notes")
                 .font(AppFont.sectionHeading)
                 .foregroundStyle(AppColor.textPrimary)
-            Text("Pin a reminder to a specific step — it appears in Cook Mode when you reach that step.")
+            Text("Pin a reminder before, after, or to a specific step — or leave a free-floating note.")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -66,30 +82,33 @@ struct SpecialNotesEditor: View {
     private var addButton: some View {
         Button {
             Haptics.selection()
-            mode = .pickingStep
+            mode = .picking
         } label: {
             HStack(spacing: AppSpacing.xs) {
-                Image(systemName: "lightbulb.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .bold))
                 Text("Special Note")
                     .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(AppColor.accent)
+            .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
             .background(AppColor.surface)
-            .overlay(Capsule().stroke(AppColor.accent, lineWidth: 1))
+            .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(availableSteps.isEmpty)
-        .opacity(availableSteps.isEmpty ? 0.4 : 1)
+        .disabled(availableTargets.isEmpty)
+        .opacity(availableTargets.isEmpty ? 0.4 : 1)
     }
 
-    private var stepPicker: some View {
+    private var targetPicker: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack {
-                Text("Which step?")
+                Text("Where should it go?")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(AppColor.textPrimary)
                 Spacer()
@@ -101,15 +120,15 @@ struct SpecialNotesEditor: View {
                 .foregroundStyle(AppColor.textSecondary)
             }
 
-            if availableSteps.isEmpty {
-                Text("Every step already has a note — remove one to reassign.")
+            if availableTargets.isEmpty {
+                Text("Every slot already has a note — remove one to reassign.")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: AppSpacing.xs) {
-                        ForEach(availableSteps, id: \.step.id) { entry in
-                            stepChip(number: entry.number, stepId: entry.step.id)
+                        ForEach(availableTargets, id: \.self) { target in
+                            targetChip(target)
                         }
                     }
                     .padding(.vertical, 2)
@@ -120,35 +139,34 @@ struct SpecialNotesEditor: View {
         .background(AppColor.surface)
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.accent.opacity(0.5), lineWidth: 1)
+                .stroke(appearance.accentColor.opacity(0.5), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         .transition(.opacity)
     }
 
-    private func stepChip(number: Int, stepId: UUID) -> some View {
+    private func targetChip(_ target: NoteTarget) -> some View {
         Button {
             Haptics.selection()
             draftText = ""
-            mode = .typing(stepId: stepId)
+            mode = .typing(target: target)
             noteFieldFocused = true
         } label: {
-            Text("Step \(number)")
+            Text(label(for: target))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(AppColor.onAccent)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
-                .background(AppColor.accent)
+                .background(appearance.accentColor)
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
 
-    private func typingRow(stepId: UUID) -> some View {
-        let number = (steps.firstIndex(where: { $0.id == stepId }) ?? 0) + 1
-        return VStack(alignment: .leading, spacing: AppSpacing.sm) {
+    private func typingRow(target: NoteTarget) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack(spacing: AppSpacing.xs) {
-                Text("Step \(number)")
+                Text(label(for: target))
                     .font(.system(size: 13, weight: .heavy))
                     .tracking(0.6)
                     .foregroundStyle(AppColor.accentDeep)
@@ -160,7 +178,7 @@ struct SpecialNotesEditor: View {
             }
 
             TextField(
-                "e.g. Don't forget to cut vertically",
+                placeholder(for: target),
                 text: $draftText,
                 axis: .vertical
             )
@@ -189,14 +207,14 @@ struct SpecialNotesEditor: View {
                 Spacer()
 
                 Button {
-                    saveNote(forStep: stepId)
+                    saveNote(target: target)
                 } label: {
                     Text("Save")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(AppColor.onAccent)
                         .padding(.horizontal, AppSpacing.lg)
                         .padding(.vertical, AppSpacing.xs + 2)
-                        .background(AppColor.accent)
+                        .background(appearance.accentColor)
                         .clipShape(Capsule())
                         .opacity(draftText.trimmed.isEmpty ? 0.4 : 1)
                 }
@@ -208,23 +226,22 @@ struct SpecialNotesEditor: View {
         .background(AppColor.surface)
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.accent.opacity(0.5), lineWidth: 1)
+                .stroke(appearance.accentColor.opacity(0.5), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         .transition(.opacity)
     }
 
-    private func existingRow(for step: DraftStep) -> some View {
-        let number = (steps.firstIndex(where: { $0.id == step.id }) ?? 0) + 1
-        let note = step.specialNote ?? ""
+    private func existingRow(for target: NoteTarget) -> some View {
+        let note = currentText(for: target)
         return Button {
             Haptics.selection()
             draftText = note
-            mode = .typing(stepId: step.id)
+            mode = .typing(target: target)
             noteFieldFocused = true
         } label: {
             HStack(alignment: .top, spacing: AppSpacing.sm) {
-                Text("Step \(number)")
+                Text(label(for: target))
                     .font(.system(size: 12, weight: .heavy))
                     .tracking(0.6)
                     .foregroundStyle(AppColor.accentDeep)
@@ -242,7 +259,7 @@ struct SpecialNotesEditor: View {
 
                 Button {
                     Haptics.impact(.light)
-                    clearNote(forStep: step.id)
+                    clearNote(target: target)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 16))
@@ -261,32 +278,84 @@ struct SpecialNotesEditor: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Derived
+    // MARK: - Targets / labels
 
-    /// Steps that currently carry a note, in recipe order.
-    private var stepsWithNotes: [DraftStep] {
-        steps.filter { !(($0.specialNote ?? "").trimmed.isEmpty) }
+    /// Targets currently carrying a non-empty note, in display order:
+    /// preface → steps in recipe order → epilogue → general.
+    private var existingTargets: [NoteTarget] {
+        var out: [NoteTarget] = []
+        if !prefaceNote.trimmed.isEmpty { out.append(.preface) }
+        for step in steps where !(step.specialNote ?? "").trimmed.isEmpty {
+            out.append(.step(step.id))
+        }
+        if !epilogueNote.trimmed.isEmpty { out.append(.epilogue) }
+        if !generalNote.trimmed.isEmpty { out.append(.general) }
+        return out
     }
 
-    /// Step-picker candidates. Excludes steps with blank text (nothing to
-    /// reference) and — when adding fresh — excludes steps that already
-    /// have a note. When *editing* an existing note, that step stays
-    /// selectable via its row, so we don't need it in the picker.
-    private var availableSteps: [(number: Int, step: DraftStep)] {
-        steps.enumerated()
-            .filter { _, step in
-                !step.text.trimmed.isEmpty && (step.specialNote ?? "").trimmed.isEmpty
+    /// Empty slots offered in the picker. "Before" leads, then steps with
+    /// content but no existing note, then "After", then the free-floating
+    /// "Note" — matches the order the user dictated.
+    private var availableTargets: [NoteTarget] {
+        var out: [NoteTarget] = []
+        if prefaceNote.trimmed.isEmpty { out.append(.preface) }
+        for step in steps {
+            if step.text.trimmed.isEmpty { continue }
+            if (step.specialNote ?? "").trimmed.isEmpty {
+                out.append(.step(step.id))
             }
-            .map { (number: $0.offset + 1, step: $0.element) }
+        }
+        if epilogueNote.trimmed.isEmpty { out.append(.epilogue) }
+        if generalNote.trimmed.isEmpty { out.append(.general) }
+        return out
+    }
+
+    private func label(for target: NoteTarget) -> String {
+        switch target {
+        case .preface: return "Before"
+        case .step(let id):
+            let n = (steps.firstIndex(where: { $0.id == id }) ?? 0) + 1
+            return "Step \(n)"
+        case .epilogue: return "After"
+        case .general: return "Note"
+        }
+    }
+
+    private func placeholder(for target: NoteTarget) -> String {
+        switch target {
+        case .preface: return "e.g. Take eggs and butter out 1 hour before"
+        case .step: return "e.g. Don't forget to cut vertically"
+        case .epilogue: return "e.g. Let it rest 10 minutes before slicing"
+        case .general: return "e.g. Doubles well for a crowd"
+        }
+    }
+
+    private func currentText(for target: NoteTarget) -> String {
+        switch target {
+        case .preface: return prefaceNote
+        case .step(let id):
+            return steps.first(where: { $0.id == id })?.specialNote ?? ""
+        case .epilogue: return epilogueNote
+        case .general: return generalNote
+        }
     }
 
     // MARK: - Actions
 
-    private func saveNote(forStep stepId: UUID) {
+    private func saveNote(target: NoteTarget) {
         let trimmed = draftText.trimmed
         guard !trimmed.isEmpty else { return }
-        if let idx = steps.firstIndex(where: { $0.id == stepId }) {
-            steps[idx].specialNote = trimmed
+        switch target {
+        case .preface:
+            prefaceNote = trimmed
+        case .step(let id):
+            if let idx = steps.firstIndex(where: { $0.id == id }) {
+                steps[idx].specialNote = trimmed
+            }
+        case .epilogue:
+            epilogueNote = trimmed
+        case .general:
+            generalNote = trimmed
         }
         Haptics.success()
         noteFieldFocused = false
@@ -294,9 +363,18 @@ struct SpecialNotesEditor: View {
         mode = .idle
     }
 
-    private func clearNote(forStep stepId: UUID) {
-        if let idx = steps.firstIndex(where: { $0.id == stepId }) {
-            steps[idx].specialNote = nil
+    private func clearNote(target: NoteTarget) {
+        switch target {
+        case .preface:
+            prefaceNote = ""
+        case .step(let id):
+            if let idx = steps.firstIndex(where: { $0.id == id }) {
+                steps[idx].specialNote = nil
+            }
+        case .epilogue:
+            epilogueNote = ""
+        case .general:
+            generalNote = ""
         }
     }
 }

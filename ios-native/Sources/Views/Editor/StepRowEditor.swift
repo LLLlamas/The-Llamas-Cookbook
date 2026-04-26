@@ -6,13 +6,14 @@ struct StepRowEditor: View {
     @Binding var isEditing: Bool
     let onDelete: () -> Void
 
+    @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm + 2) {
             Text("\(index + 1).")
                 .font(AppFont.sectionHeading)
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .monospacedDigit()
                 .frame(minWidth: 28, alignment: .leading)
 
@@ -38,7 +39,7 @@ struct StepRowEditor: View {
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
                 .stroke(
-                    isEditing ? AppColor.accent : AppColor.divider,
+                    isEditing ? appearance.accentColor : AppColor.divider,
                     lineWidth: isEditing ? 1.5 : 1
                 )
         )
@@ -77,7 +78,7 @@ struct StepRowEditor: View {
         if step.needsTimer {
             Image(systemName: "timer")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppColor.accent.opacity(0.8))
+                .foregroundStyle(appearance.accentColor.opacity(0.8))
         }
     }
 
@@ -89,7 +90,7 @@ struct StepRowEditor: View {
             .submitLabel(.done)
             .focused($fieldFocused)
             .onSubmit { isEditing = false }
-            .tint(AppColor.accent)
+            .tint(appearance.accentColor)
             .frame(maxWidth: .infinity, alignment: .leading)
         TimerToggleButton(isOn: $step.needsTimer)
     }

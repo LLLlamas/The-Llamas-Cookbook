@@ -10,9 +10,17 @@ import SwiftUI
 @Observable
 final class CookingSession {
     /// The recipe currently being cooked, if any. Setting this to a
-    /// non-nil Recipe causes RootView to present the Cook Mode sheet.
-    /// Setting it back to nil dismisses.
+    /// non-nil Recipe causes RootView to present the Cook Mode sheet
+    /// (when `isCookModeVisible` is also true). Setting it back to nil
+    /// dismisses and tears down the session.
     var activeRecipe: Recipe?
+
+    /// Whether the Cook Mode cover is currently presented. Decoupled from
+    /// `activeRecipe` so the user can minimize Cook Mode (cover dismisses,
+    /// session keeps running, timer keeps ticking, Live Activity stays up)
+    /// and resume later via the Library's resume pill or the Live Activity
+    /// tap. False whenever `activeRecipe` is nil.
+    var isCookModeVisible: Bool = false
 
     /// Snapshot from disk waiting to be applied to a freshly-presented
     /// CookModeView. Set by `restore(...)`, consumed by CookModeView's
@@ -22,6 +30,7 @@ final class CookingSession {
 
     func start(_ recipe: Recipe) {
         activeRecipe = recipe
+        isCookModeVisible = true
         pendingRestoration = nil
         // Seed the persisted state immediately so a crash before the
         // user does anything still leaves us with a recipe ID to recover.
@@ -41,8 +50,29 @@ final class CookingSession {
 
     func end() {
         activeRecipe = nil
+        isCookModeVisible = false
         pendingRestoration = nil
         CookingSessionStore.clear()
+    }
+
+    /// Hide the Cook Mode cover but keep the session alive. The timer +
+    /// Live Activity keep running; the user can resume from the Library
+    /// resume pill or by tapping the Live Activity.
+    func minimize() {
+        isCookModeVisible = false
+    }
+
+    /// Re-present the Cook Mode cover for an already-active session.
+    /// Called from the Library resume pill and from the Live Activity
+    /// deep-link path when the session was minimized rather than killed.
+    /// Pulls the latest snapshot off disk before flipping `isCookModeVisible`
+    /// so a fresh CookModeView init reads the user's struck steps + timer
+    /// state from `pendingRestoration` (the previous CookModeView instance
+    /// was deallocated when the cover dismissed on minimize).
+    func resume() {
+        guard activeRecipe != nil else { return }
+        pendingRestoration = CookingSessionStore.load()
+        isCookModeVisible = true
     }
 
     /// Re-hydrate from disk on app launch. If there's a saved snapshot
@@ -58,5 +88,6 @@ final class CookingSession {
         }
         pendingRestoration = state
         activeRecipe = recipe
+        isCookModeVisible = true
     }
 }

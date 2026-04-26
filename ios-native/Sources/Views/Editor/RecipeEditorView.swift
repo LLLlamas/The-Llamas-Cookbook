@@ -19,6 +19,7 @@ struct RecipeEditorView: View {
     @State private var draft: DraftRecipe
     @State private var showDiscardAlert = false
     @State private var editingStepId: UUID? = nil
+    @State private var editingIngredientId: UUID? = nil
     @State private var draggingStepId: UUID? = nil
     @FocusState private var isNumericFocused: Bool
 
@@ -35,14 +36,29 @@ struct RecipeEditorView: View {
                 titleBlock
                 summaryField
 
+                servingsField
+
+                sectionHeader("Categories")
+                TagInputView(tags: $draft.tags)
+
                 sectionHeader("Ingredients")
                 sectionHint("Only the ingredient name is required. Leave quantity and unit blank for items like vanilla, salt, or pepper.")
                 IngredientQuickAdd(numericFocus: $isNumericFocused) { draft.ingredients.append($0) }
                 if !draft.ingredients.isEmpty {
                     VStack(spacing: 3) {
                         ForEach($draft.ingredients) { $ingredient in
-                            IngredientRowEditor(ingredient: $ingredient, numericFocus: $isNumericFocused) {
-                                draft.ingredients.removeAll { $0.id == ingredient.id }
+                            let ingId = ingredient.id
+                            IngredientRowEditor(
+                                ingredient: $ingredient,
+                                isEditing: Binding(
+                                    get: { editingIngredientId == ingId },
+                                    set: { newValue in
+                                        editingIngredientId = newValue ? ingId : nil
+                                    }
+                                ),
+                                numericFocus: $isNumericFocused
+                            ) {
+                                draft.ingredients.removeAll { $0.id == ingId }
                             }
                             .transition(.asymmetric(
                                 insertion: .move(edge: .leading).combined(with: .opacity),
@@ -101,10 +117,12 @@ struct RecipeEditorView: View {
                     .animation(.spring(response: 0.42, dampingFraction: 0.82), value: draft.steps.count)
                 }
 
-                sectionHeader("Categories")
-                TagInputView(tags: $draft.tags)
-
-                SpecialNotesEditor(steps: $draft.steps)
+                SpecialNotesEditor(
+                    steps: $draft.steps,
+                    prefaceNote: $draft.prefaceNote,
+                    epilogueNote: $draft.epilogueNote,
+                    generalNote: $draft.generalNote
+                )
 
                 sectionHeader("Reference Link")
                 sectionHint("Optional. Paste a URL if you adapted this from somewhere online.")
@@ -131,8 +149,6 @@ struct RecipeEditorView: View {
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)
-
-                optionalDetails
             }
             .padding(AppSpacing.lg)
             // Generous bottom runway so iOS's keyboard auto-scroll can
@@ -147,22 +163,22 @@ struct RecipeEditorView: View {
                     to: nil, from: nil, for: nil
                 )
                 editingStepId = nil
+                editingIngredientId = nil
             }
         }
         .simultaneousGesture(
             DragGesture().onChanged { _ in
-                // Any scroll gesture collapses step edit mode (paired with
-                // scrollDismissesKeyboard, which handles the keyboard itself).
-                if editingStepId != nil {
-                    editingStepId = nil
-                }
+                // Any scroll gesture also collapses inline edit modes so the
+                // keyboard isn't fighting the user's scroll.
+                if editingStepId != nil { editingStepId = nil }
+                if editingIngredientId != nil { editingIngredientId = nil }
             }
         )
-        // .interactively lets the keyboard follow a downward drag (Messages
-        // style) instead of dismissing the moment any scroll begins —
-        // pairs with the bigger bottom runway so the user can scroll the
-        // focused field higher on screen without losing the keyboard.
-        .scrollDismissesKeyboard(.interactively)
+        // Snap the keyboard down the moment a scroll begins — matches
+        // the Import flow and lines up with the user's expectation across
+        // every text field in this editor (qty/unit/ingredient, edit
+        // ingredients, servings, custom category, reference link).
+        .scrollDismissesKeyboard(.immediately)
         .background(AppColor.background)
         .navigationTitle(headerTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -193,7 +209,7 @@ struct RecipeEditorView: View {
                     Button("Done") {
                         isNumericFocused = false
                     }
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                     .font(.system(size: 16, weight: .semibold))
                 }
             }
@@ -247,7 +263,7 @@ struct RecipeEditorView: View {
                 Text("REQUIRED")
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
             }
             TextField("", text: $draft.title)
                 .textInputAutocapitalization(.words)
@@ -256,7 +272,7 @@ struct RecipeEditorView: View {
                 .background(AppColor.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: AppRadius.md)
-                        .stroke(AppColor.accent, lineWidth: 2)
+                        .stroke(appearance.accentColor, lineWidth: 2)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 .font(AppFont.recipeTitle)
@@ -279,74 +295,37 @@ struct RecipeEditorView: View {
             .foregroundStyle(AppColor.textPrimary)
     }
 
-    private var optionalDetails: some View {
+    /// Compact servings input that lives right under the summary so the
+    /// scaling control is visible without scrolling. Numeric keyboard,
+    /// constrained width — the rest of the row is intentionally empty so
+    /// it doesn't compete with the more important Categories block below.
+    private var servingsField: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text("Optional Details")
-                .font(.system(size: 16, weight: .semibold, design: .serif))
-                .foregroundStyle(AppColor.textPrimary)
-            Text("Set servings so you can scale ingredients while cooking.")
+            Text("Servings")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
-
-            HStack(alignment: .bottom, spacing: AppSpacing.sm) {
-                numberField(label: "Servings", text: $draft.servings, placeholder: "4")
-                okButton
-            }
-            .padding(.top, AppSpacing.xs)
-        }
-        .padding(AppSpacing.md)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-        .padding(.top, AppSpacing.xl)
-    }
-
-    /// Dismisses the numeric keyboard. Sits next to Servings and pairs
-    /// with `numberField`'s label+field vertical rhythm via an invisible
-    /// spacer label so both columns align at the bottom.
-    private var okButton: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text(" ")
-                .font(AppFont.caption)
-            Button {
-                Haptics.selection()
-                isNumericFocused = false
-            } label: {
-                Text("OK")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AppColor.onAccent)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(appearance.accentColor)
+            HStack(alignment: .center, spacing: AppSpacing.sm) {
+                TextField("4", text: $draft.servings)
+                    .keyboardType(.numberPad)
+                    .focused($isNumericFocused)
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.sm)
+                    .frame(maxWidth: 120, minHeight: 44)
+                    .background(AppColor.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .stroke(AppColor.divider, lineWidth: 1)
+                    )
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                Text("Set servings so you can scale ingredients while cooking.")
+                    .font(AppFont.caption)
+                    .foregroundStyle(AppColor.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.plain)
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func numberField(label: String, text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text(label)
-                .font(AppFont.caption)
-                .foregroundStyle(AppColor.textSecondary)
-            TextField(placeholder, text: text)
-                .keyboardType(.numberPad)
-                .focused($isNumericFocused)
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.sm)
-                .background(AppColor.background)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppRadius.md)
-                        .stroke(AppColor.divider, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textPrimary)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -405,7 +384,7 @@ struct RecipeEditorView: View {
         HStack(spacing: AppSpacing.sm) {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
             Text("\(indexLabel). \(step.text.isEmpty ? "Step" : step.text)")
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textPrimary)
@@ -416,7 +395,7 @@ struct RecipeEditorView: View {
         .background(AppColor.surface)
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.accent, lineWidth: 1.5)
+                .stroke(appearance.accentColor, lineWidth: 1.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         .shadow(color: AppColor.shadow, radius: 12, x: 0, y: 4)

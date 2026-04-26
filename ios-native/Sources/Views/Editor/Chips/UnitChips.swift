@@ -3,6 +3,8 @@ import SwiftUI
 struct UnitChips: View {
     @Binding var value: String
 
+    @Environment(AppearanceSettings.self) private var appearance
+
     private let units = [
         "cup", "tbsp", "tsp", "oz", "lb",
         "g", "kg", "ml", "l",
@@ -23,9 +25,9 @@ struct UnitChips: View {
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.vertical, AppSpacing.xs + 2)
                             .foregroundStyle(active ? AppColor.onAccent : AppColor.textPrimary)
-                            .background(active ? AppColor.accent : AppColor.surface)
+                            .background(active ? appearance.accentColor : AppColor.surface)
                             .overlay(
-                                Capsule().stroke(active ? AppColor.accent : AppColor.divider, lineWidth: 1)
+                                Capsule().stroke(active ? appearance.accentColor : AppColor.divider, lineWidth: 1)
                             )
                             .clipShape(Capsule())
                     }

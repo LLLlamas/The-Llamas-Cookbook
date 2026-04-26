@@ -16,15 +16,25 @@ enum TimerNotifications {
             .requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    /// Schedule (or replace) the timer notification to fire at `date` with
-    /// a copy keyed off the cooking label ("Bake timer ready", etc.).
-    static func schedule(endDate date: Date, label: String) {
+    /// Schedule (or replace) the timer notification to fire at `date`.
+    /// The copy folds in the recipe title, step number, and a snippet of
+    /// the step text so the banner reads as "Brownies — Step 4 done /
+    /// Bake at 350°F for 25 min" rather than a generic "Step X is done".
+    /// `stepText` is optional — when blank we fall back to a label-based
+    /// hint ("Your bake timer is ready").
+    static func schedule(
+        endDate date: Date,
+        label: String,
+        recipeTitle: String,
+        stepNumber: Int,
+        stepText: String?
+    ) {
         let seconds = date.timeIntervalSinceNow
         guard seconds > 0 else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "\(StringCase.capitalizeFirst(label)) timer ready!"
-        content.body = "Time's up — check on your food."
+        content.title = formatTitle(recipeTitle: recipeTitle, stepNumber: stepNumber)
+        content.body = formatBody(label: label, stepText: stepText)
         // Bundled beep-pattern CAF (see workflow's "Generate timer alarm
         // sound" step). Falls back to the system default ding if the
         // file is missing (e.g. a local dev build that skipped CI).
@@ -42,6 +52,26 @@ enum TimerNotifications {
         // and step-to-step transitions don't leave stale notifications.
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.add(request, withCompletionHandler: nil)
+    }
+
+    private static func formatTitle(recipeTitle: String, stepNumber: Int) -> String {
+        let trimmed = recipeTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Step \(stepNumber) ready"
+        }
+        return "\(StringCase.titleCase(trimmed)) — Step \(stepNumber) ready"
+    }
+
+    private static func formatBody(label: String, stepText: String?) -> String {
+        if let raw = stepText?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            // Cap to keep the body single-line on the lock screen — iOS
+            // truncates with an ellipsis past about 110 chars in 2-line
+            // banner mode. We pre-trim slightly under that to leave room
+            // for the trailing prompt.
+            let snippet = raw.count > 100 ? raw.prefix(100) + "…" : Substring(raw)
+            return "\(snippet) — tap to check it off."
+        }
+        return "Your \(label) timer is ready. Tap to continue cooking."
     }
 
     /// Remove any pending or already-delivered cooking-timer notification.

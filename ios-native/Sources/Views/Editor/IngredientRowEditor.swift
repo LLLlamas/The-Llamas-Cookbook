@@ -2,10 +2,14 @@ import SwiftUI
 
 struct IngredientRowEditor: View {
     @Binding var ingredient: DraftIngredient
+    /// Edit-mode state lives at the editor parent so only one ingredient
+    /// can be expanded at a time — tapping a second row collapses the
+    /// first via the parent flipping `editingIngredientId`.
+    @Binding var isEditing: Bool
     var numericFocus: FocusState<Bool>.Binding
     let onDelete: () -> Void
 
-    @State private var isEditing = false
+    @Environment(AppearanceSettings.self) private var appearance
 
     var body: some View {
         if isEditing {
@@ -96,7 +100,7 @@ struct IngredientRowEditor: View {
                         .foregroundStyle(AppColor.onAccent)
                         .padding(.horizontal, AppSpacing.lg)
                         .padding(.vertical, AppSpacing.sm)
-                        .background(AppColor.accent)
+                        .background(appearance.accentColor)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -107,7 +111,7 @@ struct IngredientRowEditor: View {
         .background(AppColor.surface)
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.accent, lineWidth: 1)
+                .stroke(appearance.accentColor, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }

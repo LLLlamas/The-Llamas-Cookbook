@@ -58,10 +58,35 @@ struct RecipeDetailView: View {
                     if !sortedSteps.isEmpty {
                         section("Steps") {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                                if let preface = trimmedNote(recipe.prefaceNote) {
+                                    noteCallout(preface)
+                                }
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
                                     StepDetailRow(idx: idx, step: step)
                                 }
+                                if let epilogue = trimmedNote(recipe.epilogueNote) {
+                                    noteCallout(epilogue)
+                                }
                             }
+                        }
+                    } else if hasOrphanStepNotes {
+                        // Preface / epilogue still need a home if the recipe
+                        // has no steps yet but the user attached one.
+                        section("Notes") {
+                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                                if let preface = trimmedNote(recipe.prefaceNote) {
+                                    noteCallout(preface)
+                                }
+                                if let epilogue = trimmedNote(recipe.epilogueNote) {
+                                    noteCallout(epilogue)
+                                }
+                            }
+                        }
+                    }
+
+                    if let general = trimmedNote(recipe.generalNote) {
+                        section("Note") {
+                            noteCallout(general)
                         }
                     }
 
@@ -283,7 +308,7 @@ struct RecipeDetailView: View {
 
         return HStack(alignment: .center, spacing: AppSpacing.sm + 2) {
             Circle()
-                .fill(AppColor.accent)
+                .fill(appearance.accentColor)
                 .frame(width: 6, height: 6)
 
             // Measure column is rendered only when the ingredient actually
@@ -295,7 +320,7 @@ struct RecipeDetailView: View {
                     if !display.quantity.isEmpty {
                         Text(display.quantity)
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(AppColor.accentDeep)
+                            .foregroundStyle(appearance.accentColor)
                             .monospacedDigit()
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
@@ -303,7 +328,7 @@ struct RecipeDetailView: View {
                     if !display.unit.isEmpty {
                         Text(display.unit)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(AppColor.accentDeep.opacity(0.75))
+                            .foregroundStyle(appearance.accentColor.opacity(0.75))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                     }
@@ -342,6 +367,42 @@ struct RecipeDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         .shadow(color: AppColor.shadow, radius: 5, x: 0, y: 2)
         .shadow(color: AppColor.shadowSoft, radius: 1, x: 0, y: 0.5)
+    }
+
+    /// Lightbulb-tinted italic callout — matches Cook Mode's per-step
+    /// reminder styling, but driven by the user's accent so the box stays
+    /// consistent with the rest of detail-view chrome.
+    private func noteCallout(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: AppSpacing.sm) {
+            Image(systemName: "lightbulb.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(appearance.accentColor)
+                .padding(.top, 2)
+            Text(text)
+                .font(.system(size: 15, weight: .regular, design: .serif))
+                .italic()
+                .foregroundStyle(AppColor.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+        }
+        .padding(AppSpacing.md)
+        .background(appearance.accentColor.opacity(0.10))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(appearance.accentColor.opacity(0.30), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private func trimmedNote(_ value: String?) -> String? {
+        guard let v = value?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else {
+            return nil
+        }
+        return v
+    }
+
+    private var hasOrphanStepNotes: Bool {
+        trimmedNote(recipe.prefaceNote) != nil || trimmedNote(recipe.epilogueNote) != nil
     }
 
     private func sourceLink(url: String) -> some View {

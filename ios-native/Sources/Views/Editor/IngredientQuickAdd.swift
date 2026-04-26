@@ -7,6 +7,8 @@ struct IngredientQuickAdd: View {
     @State private var errorFields: Set<Field> = []
     @State private var shakeCount: CGFloat = 0
 
+    @Environment(AppearanceSettings.self) private var appearance
+
     var numericFocus: FocusState<Bool>.Binding
     let onAdd: (DraftIngredient) -> Void
 
@@ -57,12 +59,12 @@ struct IngredientQuickAdd: View {
                     Text("Add Ingredient")
                         .font(.system(size: 14, weight: .semibold))
                 }
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.sm)
                 .background(AppColor.surface)
                 .overlay(
-                    Capsule().stroke(AppColor.accent, lineWidth: 1)
+                    Capsule().stroke(appearance.accentColor, lineWidth: 1)
                 )
                 .clipShape(Capsule())
             }

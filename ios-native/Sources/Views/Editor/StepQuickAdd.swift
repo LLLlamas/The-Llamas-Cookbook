@@ -6,13 +6,14 @@ struct StepQuickAdd: View {
 
     @State private var text = ""
     @State private var needsTimer = false
+    @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var focused: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: AppSpacing.sm) {
             Text("\(nextNumber)")
                 .font(AppFont.sectionHeading)
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .monospacedDigit()
                 .frame(width: 36, height: 44)
                 .background(AppColor.surface)
@@ -27,7 +28,7 @@ struct StepQuickAdd: View {
                     .submitLabel(.done)
                     .focused($focused)
                     .onSubmit { submit() }
-                    .tint(AppColor.accent)
+                    .tint(appearance.accentColor)
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)
 
@@ -61,6 +62,7 @@ struct StepQuickAdd: View {
 
 struct TimerToggleButton: View {
     @Binding var isOn: Bool
+    @Environment(AppearanceSettings.self) private var appearance
 
     var body: some View {
         Button {
@@ -69,11 +71,11 @@ struct TimerToggleButton: View {
         } label: {
             Image(systemName: "timer")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(isOn ? AppColor.onAccent : AppColor.accent)
+                .foregroundStyle(isOn ? AppColor.onAccent : appearance.accentColor)
                 .frame(width: 36, height: 36)
-                .background(isOn ? AppColor.accent : AppColor.background)
+                .background(isOn ? appearance.accentColor : AppColor.background)
                 .overlay(
-                    Circle().stroke(AppColor.accent, lineWidth: isOn ? 0 : 1.5)
+                    Circle().stroke(appearance.accentColor, lineWidth: isOn ? 0 : 1.5)
                 )
                 .clipShape(Circle())
         }

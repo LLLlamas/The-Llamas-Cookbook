@@ -3,6 +3,7 @@ import SwiftUI
 struct TagInputView: View {
     @Binding var tags: [String]
 
+    @Environment(AppearanceSettings.self) private var appearance
     @State private var draft = ""
     @FocusState private var focused: Bool
 
@@ -73,9 +74,9 @@ struct TagInputView: View {
                             .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.vertical, AppSpacing.xs + 2)
-                            .background(isActive ? AppColor.accent : AppColor.surface)
+                            .background(isActive ? appearance.accentColor : AppColor.surface)
                             .overlay(
-                                Capsule().stroke(isActive ? AppColor.accent : AppColor.divider, lineWidth: 1)
+                                Capsule().stroke(isActive ? appearance.accentColor : AppColor.divider, lineWidth: 1)
                             )
                             .clipShape(Capsule())
                     }
