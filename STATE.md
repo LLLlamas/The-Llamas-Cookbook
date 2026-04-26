@@ -4,7 +4,9 @@
 > sections of [PROJECT.md](./PROJECT.md). The product vision and UX
 > principles in [llamas-cookbook-plan.md](./llamas-cookbook-plan.md)
 > remain authoritative; everything tech-stack / implementation-detail
-> below is the newer source of truth.
+> below is the newer source of truth. Companion docs:
+> [Photo-Capability.md](./Photo-Capability.md) (next push),
+> [SDK-Update-Plan.md](./SDK-Update-Plan.md), [ROADMAP.md](./ROADMAP.md).
 
 ---
 
@@ -12,13 +14,19 @@
 
 Core CRUD is done end-to-end. The Swift native port has reached feature
 parity with the archived RN app on every screen except Settings, and
-has gone past it on several: Conversions reference + calculator, text
-import, ShareLink export, Live Activity / Dynamic Island timer, A–Z
-letter index, drag-to-reorder steps, and a minimizable Cook Mode that
-can tuck to a small detent while the user browses the rest of the app.
+has gone past it on several: Conversions reference + calculator,
+**recipe import (text paste *and* URL — TikTok, Pinterest, recipe
+blogs — with an on-device AI parser fallback that's gated to iOS 26 +
+Apple Intelligence)**, ShareLink export, Live Activity / Dynamic
+Island timer, A–Z letter index, drag-to-reorder steps, and a
+minimizable Cook Mode that can tuck to a small detent while the user
+browses the rest of the app.
 
-The foundation is tight, deduped, and themed. The next pass is
-**frontend / aesthetic / UX refinement** — not features.
+The foundation is tight, deduped, and themed. The two active feature
+pushes ahead of the aesthetic pass are **photos** (gallery + per-step
+images — see [Photo-Capability.md](./Photo-Capability.md)) and
+**multi-recipe Cook Mode** (cooking two or more recipes in parallel
+under one cooking session). See §9.
 
 ---
 
@@ -29,13 +37,16 @@ The foundation is tight, deduped, and themed. The next pass is
 | Library list (sorted, filtered) | [LibraryView](ios-native/Sources/Views/Library/LibraryView.swift) | All · Favorites · one chip per tag. Long-press / context-menu Delete. |
 | A–Z letter scrub | [LibraryView:338](ios-native/Sources/Views/Library/LibraryView.swift:338) | Right-edge strip, tap or drag to jump. Dimmed letters still route to the next populated one. |
 | Mascot watermark | [LibraryView:87](ios-native/Sources/Views/Library/LibraryView.swift:87) | 6% opacity llama pinned behind the list. |
-| Add / Import FAB | [LibraryView:250](ios-native/Sources/Views/Library/LibraryView.swift:250) | Menu: "New recipe" · "Import from text". |
+| Add / Import FAB | [LibraryView:250](ios-native/Sources/Views/Library/LibraryView.swift:250) | Menu: "New recipe" · "Import from text" (opens the unified import view that handles both URL fetch and text paste). |
 | Recipe Detail | [RecipeDetailView](ios-native/Sources/Views/Detail/RecipeDetailView.swift) | Title, summary, times, tag pills, ingredients with bullet + em-dash, numbered steps with timer glyph, quoted notes, source link, signature row. |
 | Favorite toggle | [RecipeDetailView:117](ios-native/Sources/Views/Detail/RecipeDetailView.swift:117) | Heart toolbar button, syncs `updatedAt`. |
 | Export | [RecipeExport.swift](ios-native/Sources/Lib/RecipeExport.swift) + ShareLink in Detail | Plain-text output — Notes, Messages, Mail, AirDrop all work. |
 | Conversions sheet | [ConversionsView](ios-native/Sources/Views/Detail/ConversionsView.swift) | Static reference cards + **live calculator** (volume, weight, temperature, cross-category guard). |
+| Sourdough calculator | [SourdoughCalculatorView](ios-native/Sources/Views/Detail/SourdoughCalculatorView.swift) + [SourdoughCalculator](ios-native/Sources/Lib/SourdoughCalculator.swift) | Hydration / starter math sheet — total flour + hydration % → water + starter contribution. Surfaced from Detail when a recipe is tagged `sourdough` / `bread` / `baking`. |
 | Recipe Editor | [RecipeEditorView](ios-native/Sources/Views/Editor/RecipeEditorView.swift) | Hero row, required title, summary, quick-add rows for ingredients/steps, per-step timer toggle, tag input with presets, drag-to-reorder steps, keyboard management, spring animations on row add/remove. |
-| Text Import | [ImportRecipeView](ios-native/Sources/Views/Library/ImportRecipeView.swift) + [RecipeImporter](ios-native/Sources/Lib/RecipeImporter.swift) | Paste box, live format checklist (Title / Ingredients / Steps), editor pre-filled for review before save. First-run help sheet ([ImportHelpView](ios-native/Sources/Views/Library/ImportHelpView.swift)). |
+| Recipe Import (text) | [ImportRecipeView](ios-native/Sources/Views/Library/ImportRecipeView.swift) + [RecipeImporter](ios-native/Sources/Lib/RecipeImporter.swift) | Single textbox for the whole recipe, live "Title / First ingredient / First Step" checklist with animated symbols showing what the parser pulled. Block format (blank-line separated) is the default; labeled `Ingredients` / `Steps` headers also accepted. Caption-style fallback handles single-newline pastes (TikTok-flavored) by classifying lines as ingredients vs. steps. Post-parse: comma-then split, parenthetical → specialNote, `while X` lift, sentence-case repair, timer auto-flag w/ compound-noun guard. First-run help sheet ([ImportHelpView](ios-native/Sources/Views/Library/ImportHelpView.swift)). |
+| Recipe Import (URL) | [RecipeURLImporter](ios-native/Sources/Lib/RecipeURLImporter.swift) + [RecipeSchemaParser](ios-native/Sources/Lib/RecipeSchemaParser.swift) | Fetches recipe blogs (JSON-LD `Recipe` schema → OpenGraph fallback), Pinterest, TikTok (oEmbed); blocks Instagram/Facebook with a "paste the caption" hint. Hashtags + creator `@-handles` stripped; tags deliberately not auto-populated. |
+| AI parser (hybrid) | [RecipeAIParser](ios-native/Sources/Lib/RecipeAIParser.swift) | iOS 26+ on-device LLM via `FoundationModels` (`@Generable` schema). Runs alongside the regex parser on messy URL paths; best-of comparison picks whichever produced the more usable draft (regex wins if AI's longest step > 200 chars or step count drops below 70% of regex's). Drops to nil silently on older OS / no Apple Intelligence / model errors. |
 | Cook Mode | [CookModeView](ios-native/Sources/Views/Cook/CookModeView.swift) | Two-phase (Prep ↔ Cook), servings scaler, per-step check-off, floating timer banner, adjust sheet, full-screen ready overlay, vibration + looped alarm sound, Mark-as-cooked. |
 | Cook Mode tuck-down | [RootView:22](ios-native/Sources/App/RootView.swift:22) | `.presentationDetents([.large, .height(80)])` — user can minimize Cook Mode to a tab-sized bar and keep browsing. |
 | Timer w/ Live Activity | [TimerLiveActivityController](ios-native/Sources/Lib/TimerLiveActivityController.swift) + [WidgetExtension](ios-native/WidgetExtension/TimerLiveActivity.swift) | Lock screen row, Dynamic Island (compact / minimal / expanded). Background ding via [TimerNotifications](ios-native/Sources/Lib/TimerNotifications.swift). Ready overlay vibrates every 1.2s and loops a bundled `timer-alarm.caf` (generated in CI). |
@@ -55,6 +66,7 @@ The foundation is tight, deduped, and themed. The next pass is
 | Navigation | `NavigationStack` + `.sheet` + `.fullScreenCover`. Cook Mode and the Editor/Import sheets are both hoisted to `RootView` with coordinators. |
 | Notifications | `UNUserNotificationCenter` — scheduled at timer start, rescheduled on extend, cancelled on stop. |
 | Live Activity | `ActivityKit` — shared `TimerAttributes` type in `Sources/Shared/` used by both the app and the widget target. |
+| On-device AI | `FoundationModels` (iOS 26+, Apple Intelligence). `LanguageModelSession` + `@Generable` schema for recipe parsing. Hard-gated by `@available(iOS 26.0, *)` and `SystemLanguageModel.default.availability`; the regex pipeline is the universal floor when it's not. |
 | Alarm sound | Bundled `timer-alarm.caf` generated at CI time (ffmpeg + afconvert), played on loop via `AVAudioPlayer` while the ready overlay is visible. Falls back silently when missing. |
 | Haptics | [Haptics](ios-native/Sources/Lib/Haptics.swift) wrapper around UIKit feedback generators. |
 | Icons | SF Symbols only. |
@@ -161,14 +173,18 @@ The-Llamas-Cookbook/
 │   │   │   ├── AlarmPlayer.swift             ← bundled CAF loop player
 │   │   │   ├── Conversions.swift             ← calculator engine + static reference sections
 │   │   │   ├── Haptics.swift                 ← UIKit feedback wrappers
-│   │   │   ├── IngredientDisplay.swift       ← ← new: `Ingredient.display(scaledBy:)` + `.measure` / `.fullLine`
+│   │   │   ├── IngredientDisplay.swift       ← `Ingredient.display(scaledBy:)` + `.measure` / `.fullLine`
 │   │   │   ├── KeyboardDismiss.swift         ← `focusedNumeric(_, when:)` modifier
 │   │   │   ├── Plural.swift                  ← unit pluralization + `needsConnector`
 │   │   │   ├── Quantity.swift                ← parse / format / scale / chip split + `ClockFormat.mmss` + `StringCase`
+│   │   │   ├── RecipeAIParser.swift          ← FoundationModels (iOS 26+) `@Generable` recipe parser
 │   │   │   ├── RecipeExport.swift            ← plain-text exporter
-│   │   │   ├── RecipeImporter.swift          ← text → DraftRecipe parser
+│   │   │   ├── RecipeImporter.swift          ← text → DraftRecipe parser (block + labeled + caption-style fallback)
+│   │   │   ├── RecipeSchemaParser.swift      ← JSON-LD / OpenGraph extractor (HTML)
+│   │   │   ├── RecipeURLImporter.swift      ← URL fetch + platform routing (TikTok, Pinterest, blogs, IG/FB block)
 │   │   │   ├── Shake.swift                   ← counter-driven horizontal shake effect
-│   │   │   ├── TagPresets.swift              ← canonical preset tag list
+│   │   │   ├── SourdoughCalculator.swift     ← starter / hydration math
+│   │   │   ├── TagPresets.swift              ← canonical preset tag list (incl. `sourdough`)
 │   │   │   ├── TimerLiveActivityController.swift ← start/update/end wrapper around ActivityKit
 │   │   │   └── TimerNotifications.swift      ← local-notification scheduler
 │   │   ├── Shared/
@@ -184,7 +200,8 @@ The-Llamas-Cookbook/
 │   │       │   └── ImportHelpView.swift      ← first-run tutorial sheet
 │   │       ├── Detail/
 │   │       │   ├── RecipeDetailView.swift    ← hero + sections + ShareLink + start-cooking bar
-│   │       │   └── ConversionsView.swift     ← reference cards + live calculator
+│   │       │   ├── ConversionsView.swift     ← reference cards + live calculator
+│   │       │   └── SourdoughCalculatorView.swift ← hydration / starter math sheet
 │   │       ├── Cook/
 │   │       │   └── CookModeView.swift        ← phase toggle, scaler, timer bar, adjust sheet, ready overlay, MinutePicker
 │   │       └── Editor/
@@ -260,8 +277,22 @@ aesthetic pass.
 - **`Plural.unit(_, for:)` / `.needsConnector(_)`** — English -s/-es
   with invariants; `needsConnector` flags discrete-count units
   ("3 cloves of garlic" vs "2 cups flour").
-- **`RecipeImporter.parse(_:)`** — input validation happens here; the
-  editor gets a clean `DraftRecipe`.
+- **`RecipeImporter.parse(_:)`** — text-paste path. Block format is
+  the default; falls through to the labeled format when explicit
+  `Ingredients` / `Steps` headers exist; falls through to the
+  caption-style classifier when blank-line separators are missing
+  (TikTok-flavored single-newline pastes). All three end at the same
+  step pipeline: `splitIntoSteps` → `parseStep` → `enrichStep`
+  (`liftWhileClause`, `hasTimerSignal`).
+- **`RecipeURLImporter.fetch(_:)` + `RecipeSchemaParser.parse(html:)`** —
+  URL path. Schema parser handles JSON-LD + OG fallback; URL importer
+  routes per platform (TikTok oEmbed, Pinterest HTML, blog HTML, IG/FB
+  block-with-hint). Best-of comparison with `RecipeAIParser` lives in
+  `RecipeURLImporter.aiParse(_:sourceUrl:)`.
+- **`RecipeAIParser.parse(_:sourceUrl:)`** — iOS 26+ on-device LLM
+  parse, `@Generable` schema mirrors `DraftRecipe`. Returns nil on
+  unavailable / model error / quality-gate fail; caller falls back to
+  the regex pipeline.
 - **`recipe.exportText`** — output formatting.
 
 ### UI utilities
@@ -358,14 +389,20 @@ Windows, no device-attached debug loop. Write accordingly.
 
 ## 8. Known limitations / deferred
 
+- **Photos** — `Recipe.imageUri` exists on the model but is unused;
+  no image picker, no gallery, no per-step images yet. Full plan in
+  [Photo-Capability.md](./Photo-Capability.md). **Active next push.**
+- **Multi-recipe Cook Mode** — today `CookingSession` holds a single
+  active recipe. Cooking two dishes in parallel (common reality —
+  pasta + sauce, main + side) requires a session model that holds N
+  recipes, a switcher UI inside Cook Mode, and a timer registry that
+  doesn't trample when one recipe's step fires while another's is
+  pending. **Active next push.**
 - **Settings screen** — still a stub. Nothing wired.
 - **App icon** — placeholder generated in CI. Real 1024×1024 artwork
   not yet in the asset catalog.
-- **Hero image** — `Recipe.imageUri` exists on the model; no image
-  picker, no display.
 - **Keep-awake during Cook Mode** — `UIApplication.shared.isIdleTimerDisabled = true` one-liner not yet wired.
 - **iPad** — target family is iPhone only; no iPad layout.
-- **URL import** — text-paste covers manual; no URL scraper.
 - **Live Activity App Intents** — in-island +1/−1/cancel (iOS 17+)
   deferred.
 - **Timer state persistence** — force-kill during a running timer
@@ -379,42 +416,86 @@ Windows, no device-attached debug loop. Write accordingly.
 
 ---
 
-## 9. What's next — the aesthetic / UX pass
+## 9. What's next — two active feature pushes, then the aesthetic pass
 
-Content below is the *framing* for the next session, not a commitment.
+### 9.1 Photos (active push #1)
 
-**The app is functionally complete for personal use.** What it hasn't
-had yet is a deliberate visual design pass. Candidates for that pass,
-roughly ordered by impact-per-effort:
+Full plan in [Photo-Capability.md](./Photo-Capability.md). Two-slot
+design — gallery per recipe + per-step images — sharing one
+`ImageProcessing` / `RecipeImageView` / `PhotoCarouselView` /
+`PhotoToggleButton` infrastructure. Three-PR sequence:
+
+1. Schema + shared infra (`RecipePhoto` `@Model`, `RecipeStep.image`,
+   `DraftRecipe` carries bytes through `apply(_:)` — see Photo-Capability §3).
+2. Gallery button in Detail + Editor (carousel modal).
+3. Per-step images (toggle in step row, thumbnail in Detail, full-width
+   in Cook Mode).
+
+The land-mine to remember: `Recipe.apply(_:)` does
+`steps.removeAll()` and (will do) `photos.removeAll()` on every save.
+If `DraftRecipe` doesn't carry image bytes through, every save silently
+loses every image. Tests #6 + #11 in Photo-Capability §14 are the
+must-pass guardrails.
+
+### 9.2 Multi-recipe Cook Mode (active push #2)
+
+The reality: pasta + sauce, main + side, a bake while a stovetop
+simmers — cooks routinely run two recipes in parallel. Today
+`CookingSession` is single-recipe (`@Observable` holding one `Recipe?`),
+and the timer state in `CookModeView` (`timerStepId`, `timerEndsAt`,
+`timerLabel`) is a single set of `@State`s. Going multi means:
+
+- **Session model**: `CookingSession` becomes a list of "active
+  cooks", each with its own current phase (Prep/Cook), step cursor,
+  servings scale, and timer slot.
+- **Switcher UI**: a tab strip or side-by-side header inside Cook
+  Mode so the user flips between active recipes without exiting.
+  Tuck-down (`.height(80)` detent) should show *all* active timers,
+  not just the currently-foregrounded one.
+- **Timer registry**: today's "one timer per Cook Mode" assumption
+  is everywhere — `TimerLiveActivityController` holds one Activity,
+  notifications are scheduled with a single identifier, the alarm
+  player is one-shot. Each needs to key off `recipe.id` instead of
+  being singletons.
+- **Live Activity fan-out**: ActivityKit allows multiple concurrent
+  Live Activities of the same type. Each active recipe with a running
+  timer should get its own — Dynamic Island stacks (or rotates) them
+  on iOS 17+.
+- **Mark-as-cooked scope**: completing one recipe shouldn't dismiss
+  Cook Mode if others are still active. Today the dismiss is implicit
+  via `CookingSession.activeRecipe = nil`.
+
+A separate plan doc will cover this before implementation lands.
+Dependency note: the timer-state-persistence work (currently in
+[ROADMAP §1](./ROADMAP.md)) becomes load-bearing here — restoring
+*one* timer is a workaround, restoring *N* is non-optional once
+multi-recipe ships.
+
+### 9.3 Aesthetic / UX pass (queued, not active)
+
+After photos + multi-recipe land. Candidates rough-ordered by
+impact-per-effort:
 
 1. **Custom typography.** Drop Fraunces + Inter into `Resources/`,
    wire through `AppFont`. Biggest single lift for "feels like a real
-   cookbook" — current system-serif is a placeholder.
-2. **Real app icon.** 1024×1024 artwork featuring the llama mascot,
-   cream + terracotta palette. Remove the CI placeholder step.
-3. **Library card treatment.** Cards are currently clean but flat.
-   Could benefit from a richer hero area (hero image once that's in,
-   or a generated fallback motif per tag), stronger rhythm, better
-   use of vertical whitespace.
-4. **Empty states.** `EmptyLibraryView` and the empty-filter state
-   are functional but spartan. Could land more copy, more character,
-   more mascot presence.
-5. **Detail view rhythm.** Section dividers are small accent capsules
-   today — could push further (illustrated section dividers, numbered
-   page feel, drop caps on step 1).
-6. **Cook Mode differentiation.** Already uses a warmer bg; could push
-   further (bigger type scale, simplified chrome, maybe a subtle
-   texture on the background).
-7. **Transitions / micro-interactions.** Current animations are
-   solid but utilitarian — servings scaler jump, chip fill, timer
-   start/stop could each get a touch more character.
-8. **Dark mode.** Not tested. Whole palette is defined in sRGB — a
-   semantic dark-mode pass would mean introducing `.primary` /
-   `.secondary` systemColor bridges or explicit light/dark variants.
+   cookbook".
+2. **Real app icon.** 1024×1024 artwork featuring the llama mascot.
+3. **Library card treatment.** Richer hero area (gallery first photo
+   once available), stronger rhythm.
+4. **Empty states.** More copy, more character, more mascot presence.
+5. **Detail view rhythm.** Illustrated section dividers, drop cap on
+   step 1, numbered-page feel.
+6. **Cook Mode differentiation.** Bigger type scale, subtle texture.
+7. **Transitions / micro-interactions.** Servings scaler jump, chip
+   fill, timer start/stop could each get more character.
+8. **Dark mode.** Whole palette is sRGB-explicit — needs a semantic
+   `.primary` / `.secondary` bridge or light/dark variants per token.
+9. **Liquid Glass adoption.** Currently opted out via
+   `UIDesignRequiresCompatibility` (see §11). Apple removes the flag
+   in iOS 27 SDK; adoption needs to land before that becomes mandatory.
 
-Non-goals to consciously hold: don't add features. No settings
-screen, no iPad, no image picker, no cloud sync during the aesthetic
-pass — those are their own tracks.
+Non-goals during the active feature pushes: no settings screen, no
+iPad, no cloud sync. Those are their own tracks.
 
 ---
 
@@ -477,3 +558,122 @@ Building with the iOS 26 SDK auto-opts the app into Liquid Glass on iOS 26 devic
 - **Image rotation**: when `actions/runner-images` ships a new `macos-26` image, the `Print toolchain` step's `iphoneos --show-sdk-version` line is the canary. If it drops below 26.x, ITMS-90725 returns. The picker's `::warning::` line will also appear in the log if only a beta is available.
 - **Xcode 27 release**: `UIDesignRequiresCompatibility` goes away. Liquid Glass adoption needs to land before that build SDK becomes mandatory (analogous deadline pattern).
 - **Icon flags**: leave the `-alpha off` / `sRGB` / `color-type=2` flags in even when we replace the placeholder with real artwork. They're correct regardless.
+
+---
+
+## 12. Recipe import pipeline (2026-04-26)
+
+The recipe import flow grew significantly in this session. Captured
+here so a future session knows what was learned and doesn't re-litigate
+the parser heuristics.
+
+### Architecture
+
+```
+ImportRecipeView
+   ├─ "From a link" — URL field + Fetch button
+   │     └─ RecipeURLImporter.fetch(url) → Outcome
+   │           ├─ .full(draft)    → straight to editor preview
+   │           ├─ .partial(...)   → seed textbox + info banner
+   │           ├─ .blocked(...)   → warning banner ("paste the caption")
+   │           └─ .failed(msg)    → error banner
+   │
+   └─ "From text" — paste box + live check panel
+         └─ RecipeImporter.parse(text) → DraftRecipe
+```
+
+`RecipeURLImporter` routes by host: TikTok via oEmbed, Pinterest via
+HTML scrape, blogs via JSON-LD/OG, Instagram + Facebook return a
+"paste the caption" hint (their public surfaces don't expose caption
+text without auth).
+
+### Hybrid AI parser — best-of, not AI-first
+
+Inside `RecipeURLImporter.aiParse(_:sourceUrl:)`, both parsers run
+on every messy URL path and `pickBetterDraft` chooses:
+
+1. If only one side returns a usable draft, use it.
+2. If AI's longest step > 200 chars → AI mashed actions, regex wins.
+3. If regex got 5+ steps and AI has < 70% of that count → AI under-split, regex wins.
+4. Otherwise AI wins (it's better at title cleanup, qty/unit splitting, parenthetical lifting).
+
+**Why not AI-first**: a TikTok caption that came back from the LLM
+with all 13 cooking steps glued into Step 4 is what forced this. The
+regex pipeline is a strong baseline — let it win when AI loses.
+
+### Caption-style fallback (the no-blank-line trap)
+
+TikTok's oEmbed response uses single `\n` line breaks, not blank-line
+section separators. Without a defense, blank-line block parsing
+collapses everything into the title block and emits zero steps —
+which means `makeRegexDraft` returns nil, AI's bad output wins by
+default, and step 4 inherits the recipe.
+
+Defense: `parseBlocks` checks for the no-blank-line shape (≤ 2 blocks
+but ≥ 6 total lines) and hands off to `parseUnstructuredLines`,
+which classifies each line independently using `looksLikeIngredient`
+(matches `<number><unit>` at the start of the line). For the user's
+sourdough TikTok, this produces ~13 steps regardless of whether
+oEmbed returns blank lines.
+
+### Step parsing — what the heuristics actually do
+
+`splitIntoSteps` is a four-level fallback:
+
+1. **Newlines** — cleanest signal.
+2. **Numbered markers** — `Step 1:`, `1.`, `1)`. Drops the marker.
+3. **Comma-then / comma-digit** — `,\s+(?=[Tt]hen\b|\d)`. Caption
+   authors glue waits to follow-up actions with commas
+   (`"…1 hour, then do 8 folds"`); the lookahead requires "then" or a
+   digit so prose lists like "flour, salt, water" stay intact.
+4. **Sentence boundaries** — letter + period + space + (capital or
+   digit). Last resort.
+
+Post-split enrichment in `enrichStep`:
+
+- **`liftWhileClause`** — extract parenthetical content first
+  (`"(start preheating while dough is proofing)"` → cleaned
+  specialNote), then fall back to bare `while X` splits. This is the
+  fix for the trailing-`)` bug.
+- **`hasTimerSignal`** — auto-flag `needsTimer = true` when a
+  duration appears, *but* require it to be followed by punctuation,
+  end-of-text, or a connector word (`with`, `then`, `until`, `in`,
+  …). This is the compound-noun guard — `"8 hour sourdough"` is no
+  longer a timer signal because `"sourdough"` isn't a stopword.
+
+Cook Mode's `extractDurationSeconds` handles ranges by preferring the
+*smaller* number (`"3-4 hours"` → 3 hours). Rationale: the user can
+extend a running timer; they can't take time back once it's elapsed.
+
+### Tags are user-controlled, not auto-populated
+
+Both URL paths used to lift hashtags / JSON-LD `keywords` into
+`draft.tags`. Removed deliberately — categories are the user's call,
+picked from `TagPresets` (which now includes `sourdough`) in the
+editor. Hashtags are still *stripped* from the caption text so
+`#fyp #cooking` doesn't show up glued to a step.
+
+### Title cleanup
+
+`stripTitleLabel` handles three caption conventions in order:
+`"Title: Foo"` (old labeled), `"Recipe👇 Foo"` (TikTok-style intro),
+and trailing emoji/exclamation runs (`"Sourdough!😍🙌🏻"` → `"Sourdough"`).
+
+### What the user-facing UX looks like
+
+Inside `ImportRecipeView`:
+
+- **Single textbox** for the whole recipe — no separate
+  Title/Ingredients/Steps fields.
+- **Live check panel above** showing `Title — <text>`, `First
+  ingredient — <text>`, `First Step — <text>` with animated
+  symbol-replace check icon as the parser pulls more out of the
+  paste.
+- **Custom placeholder** with horizontal divider lines visually
+  separating title / ingredients / steps zones, so the blank-line
+  convention is communicated by structure, not prose.
+- **Single tip line** below the check panel: "First line is your
+  recipe title — blank lines separate the sections below."
+- **Keyboard scroll** anchors the *editor* to the bottom of the
+  visible area on focus; TextEditor's internal scroll handles cursor
+  visibility from there. No per-keystroke parent scrolls.
