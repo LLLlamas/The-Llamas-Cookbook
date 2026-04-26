@@ -74,9 +74,19 @@ struct StepRowEditor: View {
         Text(step.text.isEmpty ? "Tap to edit" : step.text)
             .font(AppFont.body)
             .foregroundStyle(step.text.isEmpty ? AppColor.textTertiary : AppColor.textPrimary)
+            .lineLimit(2...)
             .frame(maxWidth: .infinity, alignment: .leading)
         if step.needsTimer {
             Image(systemName: "timer")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(appearance.accentColor.opacity(0.8))
+        }
+        // Mirror of the timer glyph: a tiny photo dot tells the user
+        // "this step has a picture attached" without entering edit
+        // mode. The thumbnail itself shows in Detail; this is just an
+        // editor breadcrumb.
+        if step.image != nil {
+            Image(systemName: "photo.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(appearance.accentColor.opacity(0.8))
         }
@@ -84,7 +94,8 @@ struct StepRowEditor: View {
 
     @ViewBuilder
     private var editContent: some View {
-        TextField("Step \(index + 1)", text: $step.text)
+        TextField("Step \(index + 1)", text: $step.text, axis: .vertical)
+            .lineLimit(1...4)
             .font(AppFont.body)
             .foregroundStyle(AppColor.textPrimary)
             .submitLabel(.done)
@@ -93,5 +104,6 @@ struct StepRowEditor: View {
             .tint(appearance.accentColor)
             .frame(maxWidth: .infinity, alignment: .leading)
         TimerToggleButton(isOn: $step.needsTimer)
+        PhotoToggleButton(image: $step.image)
     }
 }

@@ -20,15 +20,22 @@ import UIKit
 struct RecipeImageView<Placeholder: View>: View {
     let data: Data?
     let contentMode: ContentMode
+    /// Corner radius applied directly to the rendered `Image`. Because
+    /// `.fit` content sizes the Image view to the photo's actual
+    /// bounds, clipping at this level rounds the *photo edges* — not
+    /// the surrounding letterbox space the parent frame might have.
+    let cornerRadius: CGFloat
     @ViewBuilder var placeholder: () -> Placeholder
 
     init(
         data: Data?,
         contentMode: ContentMode = .fill,
+        cornerRadius: CGFloat = 0,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.data = data
         self.contentMode = contentMode
+        self.cornerRadius = cornerRadius
         self.placeholder = placeholder
     }
 
@@ -37,6 +44,7 @@ struct RecipeImageView<Placeholder: View>: View {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: contentMode)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         } else {
             placeholder()
         }
@@ -69,7 +77,9 @@ private let imageCache: NSCache<NSData, UIImage> = {
 /// Convenience overload for the common case: no placeholder needed,
 /// caller wraps the view in an `if data != nil` block themselves.
 extension RecipeImageView where Placeholder == EmptyView {
-    init(data: Data?, contentMode: ContentMode = .fill) {
-        self.init(data: data, contentMode: contentMode) { EmptyView() }
+    init(data: Data?, contentMode: ContentMode = .fill, cornerRadius: CGFloat = 0) {
+        self.init(data: data, contentMode: contentMode, cornerRadius: cornerRadius) {
+            EmptyView()
+        }
     }
 }

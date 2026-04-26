@@ -16,6 +16,10 @@ struct RecipeDetailView: View {
     @State private var showingAppearance = false
     @State private var showingSourdough = false
     @State private var showingPhotoCarousel = false
+    /// Tapped step thumbnail data, wrapped so `.fullScreenCover(item:)`
+    /// can drive the viewer. Nil = no viewer; non-nil = present the
+    /// single-photo carousel for that image.
+    @State private var viewingStepImage: ViewingStepImage?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -65,7 +69,10 @@ struct RecipeDetailView: View {
                                     noteCallout(preface)
                                 }
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
-                                    StepDetailRow(idx: idx, step: step)
+                                    StepDetailRow(idx: idx, step: step) { imageData in
+                                        Haptics.selection()
+                                        viewingStepImage = ViewingStepImage(data: imageData)
+                                    }
                                 }
                                 if let epilogue = trimmedNote(recipe.epilogueNote) {
                                     noteCallout(epilogue)
@@ -219,6 +226,11 @@ struct RecipeDetailView: View {
                     deletePhoto(at: index)
                 }
             )
+        }
+        // Single-photo step viewer. No closures = view-only mode in
+        // PhotoCarouselView (no Add button, no long-press delete).
+        .fullScreenCover(item: $viewingStepImage) { wrapper in
+            PhotoCarouselView(photoData: [wrapper.data])
         }
     }
 
@@ -678,25 +690,36 @@ private struct StepDetailRow: View {
 
     let idx: Int
     let step: RecipeStep
+    /// Caller-provided tap target for the step's thumbnail. Hoisting the
+    /// viewer state to the parent (rather than per-row) avoids ten
+    /// concurrent `.fullScreenCover` modifiers on a long recipe and
+    /// keeps the row purely presentational.
+    let onTapImage: (Data) -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: AppSpacing.md) {
-            Text("\(idx + 1).")
-                .font(AppFont.sectionHeading)
-                .foregroundStyle(appearance.accentColor)
-                .monospacedDigit()
-                .frame(minWidth: 28, alignment: .leading)
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            HStack(alignment: .center, spacing: AppSpacing.md) {
+                Text("\(idx + 1).")
+                    .font(AppFont.sectionHeading)
+                    .foregroundStyle(appearance.accentColor)
+                    .monospacedDigit()
+                    .frame(minWidth: 28, alignment: .leading)
 
-            Text(step.text)
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textPrimary)
-                .lineSpacing(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(step.text)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            if step.needsTimer {
-                Image(systemName: "timer")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(appearance.accentColor.opacity(0.85))
+                if step.needsTimer {
+                    Image(systemName: "timer")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(appearance.accentColor.opacity(0.85))
+                }
+            }
+
+            if let imageData = step.image {
+                stepThumbnail(imageData)
             }
         }
         .padding(.vertical, AppSpacing.md)
@@ -720,4 +743,45 @@ private struct StepDetailRow: View {
         .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 2)
         .shadow(color: AppColor.shadowSoft, radius: 1, x: 0, y: 0.5)
     }
+
+    /// Square thumbnail under the step text. Indented to align with
+    /// the text column (past the step-number gutter) so the image
+    /// reads as belonging to *this* step's content.
+    private func stepThumbnail(_ data: Data) -> some View {
+        Button {
+            onTapImage(data)
+        } label: {
+            RecipeImageView(
+                data: data,
+                contentMode: .fill,
+                cornerRadius: AppRadius.md
+            ) {
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .fill(AppColor.surfaceRaised)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundStyle(AppColor.textTertiary)
+                    )
+            }
+            .frame(width: 120, height: 120)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(appearance.accentColor.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: AppColor.shadow, radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+        // Indent past the step-number gutter so the thumbnail sits
+        // under the wrapping body text, not the "1." marker.
+        .padding(.leading, 28 + AppSpacing.md)
+        .accessibilityLabel("View step \(idx + 1) photo")
+    }
+}
+
+/// Wrapper so `.fullScreenCover(item:)` can drive the step-image
+/// viewer with arbitrary photo bytes. `Data` itself isn't
+/// `Identifiable`; the wrapper supplies the required id.
+private struct ViewingStepImage: Identifiable {
+    let id = UUID()
+    let data: Data
 }

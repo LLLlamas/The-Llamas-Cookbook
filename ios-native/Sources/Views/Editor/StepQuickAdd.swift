@@ -6,6 +6,10 @@ struct StepQuickAdd: View {
 
     @State private var text = ""
     @State private var needsTimer = false
+    /// Image bytes staged for the next quick-add. Cleared on submit
+    /// alongside `text` and `needsTimer` so the picker state doesn't
+    /// leak into subsequent rows.
+    @State private var stagedImage: Data? = nil
     @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var focused: Bool
 
@@ -24,7 +28,8 @@ struct StepQuickAdd: View {
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
             HStack(spacing: AppSpacing.xs) {
-                TextField("Describe step \(nextNumber)…", text: $text)
+                TextField("Describe step \(nextNumber)…", text: $text, axis: .vertical)
+                    .lineLimit(1...3)
                     .submitLabel(.done)
                     .focused($focused)
                     .onSubmit { submit() }
@@ -33,6 +38,7 @@ struct StepQuickAdd: View {
                     .foregroundStyle(AppColor.textPrimary)
 
                 TimerToggleButton(isOn: $needsTimer)
+                PhotoToggleButton(image: $stagedImage)
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
@@ -53,9 +59,14 @@ struct StepQuickAdd: View {
             return
         }
         Haptics.impact(.light)
-        onAdd(DraftStep(text: trimmed, needsTimer: needsTimer))
+        onAdd(DraftStep(
+            text: trimmed,
+            needsTimer: needsTimer,
+            image: stagedImage
+        ))
         text = ""
         needsTimer = false
+        stagedImage = nil
         focused = true
     }
 }

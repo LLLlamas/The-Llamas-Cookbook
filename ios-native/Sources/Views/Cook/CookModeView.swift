@@ -464,6 +464,12 @@ struct CookModeView: View {
                     }
                     .padding(AppSpacing.md)
 
+                    if let imageData = step.image {
+                        cookStepImage(imageData)
+                            .padding(.horizontal, AppSpacing.md)
+                            .padding(.bottom, AppSpacing.md)
+                    }
+
                     if let note = step.specialNote?.trimmingCharacters(in: .whitespacesAndNewlines),
                        !note.isEmpty {
                         specialNoteCallout(note)
@@ -512,6 +518,35 @@ struct CookModeView: View {
                     .monospacedDigit()
             }
         }
+    }
+
+    /// Full-width step image in Cook Mode. `.fit` so the user sees the
+    /// whole picture without crop; capped at 240pt tall so it doesn't
+    /// shove the next-step button below the fold. The
+    /// `surfaceRaised` letterbox fill paints the empty space when the
+    /// photo's aspect ratio doesn't match the frame, so the rounded
+    /// corner reads cleanly even on portrait shots inside a wider
+    /// container. **No tap-to-zoom**: Cook Mode is the cooking flow,
+    /// not the recipe's identity (UX principle 3).
+    private func cookStepImage(_ data: Data) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: AppRadius.lg)
+                .fill(AppColor.surfaceRaised)
+            RecipeImageView(
+                data: data,
+                contentMode: .fit,
+                cornerRadius: AppRadius.lg
+            ) {
+                EmptyView()
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: 240)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.lg)
+                .stroke(appearance.accentColor.opacity(0.18), lineWidth: 0.8)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
     }
 
     /// Inline reminder rendered directly under a step whenever the user

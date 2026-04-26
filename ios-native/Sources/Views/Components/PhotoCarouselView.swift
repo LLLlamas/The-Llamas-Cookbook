@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 /// Reusable carousel modal body. Used by Editor (full-edit gallery),
 /// Detail (quick-edit gallery), and Detail (single-photo step viewer).
@@ -38,9 +39,10 @@ struct PhotoCarouselView: View {
     var body: some View {
         NavigationStack {
             content
-                .background(AppColor.background.ignoresSafeArea())
+                .background(carouselBackground.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbarContent }
+                .onAppear { stylePageControl() }
                 .onChange(of: pickerItems) { _, items in
                     handlePicked(items)
                 }
@@ -113,24 +115,105 @@ struct PhotoCarouselView: View {
     }
 
     private var carousel: some View {
-        TabView(selection: $selectedPage) {
-            ForEach(Array(photoData.enumerated()), id: \.offset) { index, data in
-                RecipeImageView(data: data, contentMode: .fit) {
-                    placeholderTile
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(AppSpacing.md)
-                .tag(index)
-                .contentShape(Rectangle())
-                .onLongPressGesture {
-                    guard canDelete else { return }
-                    Haptics.warning()
-                    pendingDeleteIndex = index
+        VStack(spacing: 0) {
+            // "2 of 5" pill at the top — sits above the photo so the
+            // user always knows where they are in the gallery without
+            // squinting at the page-indicator dots.
+            counterPill
+                .padding(.top, AppSpacing.sm)
+                .padding(.bottom, AppSpacing.xs)
+
+            TabView(selection: $selectedPage) {
+                ForEach(Array(photoData.enumerated()), id: \.offset) { index, data in
+                    photoPage(data: data, index: index)
+                        .tag(index)
                 }
             }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
         }
-        .tabViewStyle(.page(indexDisplayMode: .always))
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
+    }
+
+    /// One carousel page. The photo is **lifted** off the cream
+    /// background with a soft layered shadow and a hairline accent
+    /// border so it reads as a framed cookbook photo, not a free-floating
+    /// rectangle. The corner radius applies *to the image edges*
+    /// (via `RecipeImageView.cornerRadius`) so portrait shots round at
+    /// the picture's actual corners, not the empty letterbox space.
+    private func photoPage(data: Data, index: Int) -> some View {
+        ZStack {
+            RecipeImageView(
+                data: data,
+                contentMode: .fit,
+                cornerRadius: AppRadius.xl
+            ) {
+                placeholderTile
+            }
+            .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
+            .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+            .overlay(
+                // Hairline accent border on the photo itself. Tracks the
+                // image bounds (not the parent frame) because of how
+                // `.aspectRatio(.fit)` sizes the Image view; the overlay
+                // inherits those bounds.
+                RoundedRectangle(cornerRadius: AppRadius.xl)
+                    .stroke(AppColor.accent.opacity(0.18), lineWidth: 1)
+                    .allowsHitTesting(false)
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, AppSpacing.lg)
+        .padding(.vertical, AppSpacing.md)
+        .contentShape(Rectangle())
+        .onLongPressGesture {
+            guard canDelete else { return }
+            Haptics.warning()
+            pendingDeleteIndex = index
+        }
+    }
+
+    /// Small "2 of 5" indicator. Hidden in single-photo mode (e.g. the
+    /// step-image viewer) since there's nothing to count.
+    @ViewBuilder
+    private var counterPill: some View {
+        if photoData.count > 1 {
+            Text("\(selectedPage + 1) of \(photoData.count)")
+                .font(.system(size: 12, weight: .semibold))
+                .tracking(0.4)
+                .foregroundStyle(AppColor.accent)
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, 5)
+                .background(AppColor.accentSoft)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(AppColor.accent.opacity(0.25), lineWidth: 0.8)
+                )
+        }
+    }
+
+    /// Soft cream gradient — top is the standard `background`, bottom
+    /// dips slightly toward `accentSoft` so the carousel feels warmer
+    /// than a raw page. Subtle enough not to fight the photo for
+    /// attention; just enough to give the page depth.
+    private var carouselBackground: some View {
+        LinearGradient(
+            colors: [
+                AppColor.background,
+                AppColor.accentSoft.opacity(0.45)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// Tint the UIPageControl dots with the accent. Has to go through
+    /// UIKit appearance because `.indexViewStyle(.page)` uses
+    /// `UIPageControl` internally and SwiftUI offers no public knob for
+    /// the dot color in iOS 18.
+    private func stylePageControl() {
+        let appearance = UIPageControl.appearance()
+        appearance.currentPageIndicatorTintColor = UIColor(AppColor.accent)
+        appearance.pageIndicatorTintColor = UIColor(AppColor.accent.opacity(0.28))
     }
 
     private var emptyState: some View {
