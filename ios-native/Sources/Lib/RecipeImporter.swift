@@ -208,20 +208,6 @@ enum RecipeImporter {
         "ingredients", "steps", "instructions", "directions", "method"
     ]
 
-    /// Parse a single ingredient line into one or more `DraftIngredient`s.
-    /// Exposed for the schema-based URL importer, which already knows it
-    /// has an ingredient and just needs the qty/unit/name split.
-    static func parseIngredientLine(_ line: String) -> [DraftIngredient] {
-        parseIngredients(line)
-    }
-
-    /// Parse a single instruction string into a `DraftStep`. Strips any
-    /// leading numbering or bullet so a JSON-LD `HowToStep.text` like
-    /// "1. Preheat oven" comes out clean.
-    static func parseStepLine(_ line: String) -> DraftStep? {
-        parseStep(line)
-    }
-
     private enum Section { case header, ingredients, steps }
 
     private static func sectionMatches(_ line: String, _ names: [String]) -> Bool {
