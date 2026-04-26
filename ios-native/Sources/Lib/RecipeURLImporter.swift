@@ -128,7 +128,7 @@ enum RecipeURLImporter {
             seedText: seed,
             hint: seed.isEmpty
                 ? "Couldn't read this pin's text. If it links out to a recipe blog, try pasting that link instead."
-                : "Got the pin's description. Add labels like \"Ingredients\" and \"Steps\" if needed, then preview."
+                : "Got the pin's description. Make sure line 1 is the title — leave a blank line between title, ingredients, and steps."
         )
     }
 
@@ -159,7 +159,7 @@ enum RecipeURLImporter {
             return .partial(
                 enrichment: enrichment,
                 seedText: cleaned,
-                hint: "Got the TikTok caption. Add labels like \"Ingredients\" and \"Steps\" above the relevant lines, then preview."
+                hint: "Got the TikTok caption. Make sure line 1 is the title — leave a blank line between title, ingredients, and steps."
             )
         } catch {
             return blocked(url: url, platform: "TikTok")

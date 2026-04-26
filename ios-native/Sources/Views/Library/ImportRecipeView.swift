@@ -278,14 +278,13 @@ struct ImportRecipeView: View {
                 Spacer(minLength: 0)
             }
 
-            // One-line reminder of the new convention. Verbose enough to
-            // be self-explanatory without making the user open the help
-            // sheet every time.
-            Text("Title · blank line · ingredients · blank line · steps")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(AppColor.textTertiary)
-
+            // The check panel shows what the parser pulled out — line 1 as
+            // title, the first ingredient, the first step — so the user
+            // can verify pickup at a glance instead of opening the help
+            // sheet. Animates on every change to the parsed values.
             formatHint(checks: checks, parsed: parsed)
+
+            firstLineHint
 
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $pastedText)
@@ -296,10 +295,7 @@ struct ImportRecipeView: View {
                     .padding(AppSpacing.sm)
 
                 if pastedText.isEmpty {
-                    Text(placeholderText)
-                        .font(AppFont.body)
-                        .foregroundStyle(AppColor.textTertiary)
-                        .padding(AppSpacing.md)
+                    placeholderView
                         .allowsHitTesting(false)
                 }
             }
@@ -314,31 +310,72 @@ struct ImportRecipeView: View {
         }
     }
 
-    private var placeholderText: String {
-        """
-        Recipe Title
+    /// Single-line tip that sits between the check panel and the editor.
+    /// Steers the message toward "the parser does the work" rather than
+    /// "type these labels": all the user needs to remember is line 1 =
+    /// title, blank lines separate the rest.
+    private var firstLineHint: some View {
+        HStack(spacing: AppSpacing.xs + 2) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 11, weight: .semibold))
+            Text("First line is your recipe title — blank lines separate the sections below.")
+                .font(.system(size: 11, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(AppColor.textTertiary)
+    }
 
-        2 cups flour
-        1 cup sugar
-        3 eggs
+    /// Custom placeholder. Renders as a structured layout (title row,
+    /// faint divider, ingredients sample, faint divider, steps sample)
+    /// so the user picks up the blank-line convention visually instead
+    /// of from a sentence of instructions. The dividers stand in for the
+    /// blank lines they'll need in the parsed text.
+    private var placeholderView: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            Text("Recipe Title")
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textTertiary)
 
-        Mix dry ingredients
-        Cream butter and sugar
-        Bake 350° for 12 min
-        """
+            placeholderDivider
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("2 cups flour")
+                Text("1 cup sugar")
+                Text("3 eggs")
+            }
+            .font(AppFont.body)
+            .foregroundStyle(AppColor.textTertiary.opacity(0.7))
+
+            placeholderDivider
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Mix dry ingredients")
+                Text("Cream butter and sugar")
+                Text("Bake 350° for 12 min")
+            }
+            .font(AppFont.body)
+            .foregroundStyle(AppColor.textTertiary.opacity(0.7))
+        }
+        .padding(AppSpacing.md)
+    }
+
+    private var placeholderDivider: some View {
+        Rectangle()
+            .fill(AppColor.divider.opacity(0.55))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
     }
 
     private func formatHint(checks: Checks, parsed: DraftRecipe) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
-            HStack(spacing: AppSpacing.sm) {
-                checkPill(label: "Title", done: checks.title, secondary: parsed.title.trimmed.isEmpty ? nil : parsed.title.trimmed)
-            }
-            HStack(spacing: AppSpacing.sm) {
-                checkPill(label: "Ingredients", done: checks.ingredients, secondary: checks.ingredients ? "\(parsed.ingredients.count) detected" : nil)
-            }
-            HStack(spacing: AppSpacing.sm) {
-                checkPill(label: "Steps", done: checks.steps, secondary: checks.steps ? "\(parsed.steps.count) detected" : nil)
-            }
+        let titleDetail = parsed.title.trimmed.isEmpty ? nil : parsed.title.trimmed
+        let firstIngredient = formatFirstIngredient(parsed)
+        let firstStep = parsed.steps.first?.text
+
+        return VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
+            checkRow(label: "Title", done: checks.title, detail: titleDetail)
+            checkRow(label: "First ingredient", done: checks.ingredients, detail: firstIngredient)
+            checkRow(label: "First Step", done: checks.steps, detail: firstStep)
         }
         .padding(AppSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -348,10 +385,9 @@ struct ImportRecipeView: View {
                 .stroke(AppColor.divider, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: checks)
     }
 
-    private func checkPill(label: String, done: Bool, secondary: String?) -> some View {
+    private func checkRow(label: String, done: Bool, detail: String?) -> some View {
         HStack(spacing: AppSpacing.xs + 2) {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 14, weight: .semibold))
@@ -361,18 +397,40 @@ struct ImportRecipeView: View {
                 .font(.system(size: 12, weight: .heavy))
                 .tracking(0.6)
                 .foregroundStyle(done ? AppColor.textPrimary : AppColor.textSecondary)
-            if let secondary {
-                Text("·")
+            if let detail, !detail.isEmpty {
+                Text("—")
                     .font(.system(size: 11))
                     .foregroundStyle(AppColor.divider)
-                Text(secondary)
+                Text(detail)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(AppColor.textTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .id(detail)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .leading)),
+                            removal: .opacity
+                        )
+                    )
             }
             Spacer(minLength: 0)
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: done)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: detail)
+    }
+
+    /// Render the first parsed ingredient as a single readable line.
+    /// We keep punctuation light — just space-joined qty, unit, name —
+    /// because this is a glance-level confirmation, not the editor's
+    /// formatted display.
+    private func formatFirstIngredient(_ parsed: DraftRecipe) -> String? {
+        guard let first = parsed.ingredients.first else { return nil }
+        let pieces = [first.quantity, first.unit, first.name]
+            .map { $0.trimmed }
+            .filter { !$0.isEmpty }
+        let joined = pieces.joined(separator: " ")
+        return joined.isEmpty ? nil : joined
     }
 
     private func actionRow(canPreview: Bool) -> some View {
