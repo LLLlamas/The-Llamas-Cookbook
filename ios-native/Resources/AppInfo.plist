@@ -39,6 +39,8 @@
     <true/>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>UIDesignRequiresCompatibility</key>
+    <true/>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
