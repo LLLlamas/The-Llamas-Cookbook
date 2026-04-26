@@ -18,8 +18,9 @@ struct RootView: View {
             // Floats above Library / Detail / any pushed nav screens
             // while a cook session is minimized. Tap to re-present Cook
             // Mode where the user left off (struck steps + running timer
-            // re-attach via `pendingRestoration`).
-            if session.activeRecipe != nil && !session.isCookModeVisible {
+            // re-attach via `pendingRestoration`). Plural-aware gating:
+            // visible whenever any cook is active, regardless of count.
+            if !session.activeCooks.isEmpty && !session.isCookModeVisible {
                 CookingResumePill(session: session, accent: appearance.accentColor)
                     .padding(.horizontal, AppSpacing.lg)
                     .padding(.bottom, AppSpacing.md)
@@ -42,23 +43,28 @@ struct RootView: View {
             //   2. Warm app, session minimized: `resume()` brings the
             //      cover back without re-reading disk.
             //   3. No persisted session at all (rare — Live Activity
-            //      outlived the cook session) — fall back to opening the
-            //      URL's recipe directly.
+            //      outlived the cook session) — fall back to starting a
+            //      fresh cook for the URL's recipe.
+            //
+            // PR 2 will extend this to find the cook whose `recipeID`
+            // matches and foreground it, so two parallel cooks can each
+            // be deep-linked back to from their own Live Activity.
             guard let recipeID = parseCookDeepLink(url) else { return }
-            if session.activeRecipe == nil {
+            if session.activeCooks.isEmpty {
                 session.restore(using: lookupRecipe)
             }
-            if session.activeRecipe == nil, let recipe = lookupRecipe(recipeID) {
-                session.activeRecipe = recipe
-                session.isCookModeVisible = true
+            if session.activeCooks.isEmpty, let recipe = lookupRecipe(recipeID) {
+                session.start(recipe)
             } else {
                 session.resume()
             }
         }
         .fullScreenCover(isPresented: cookingSheetPresented) {
-            if let recipe = session.activeRecipe {
+            if let recipe = session.foregroundedRecipe,
+               let cookID = session.foregroundedCookID {
                 CookModeView(
                     recipe: recipe,
+                    cookID: cookID,
                     restoration: session.pendingRestoration
                 ) {
                     session.end()
@@ -94,13 +100,13 @@ struct RootView: View {
 
     private var cookingSheetPresented: Binding<Bool> {
         // The cover follows `isCookModeVisible` rather than just "do we
-        // have an active recipe?" — minimize hides the cover without
+        // have any active cooks?" — minimize hides the cover without
         // tearing down the session, and the resume pill / Live Activity
         // tap can flip it back on. SwiftUI may write `false` here when
         // the user dismisses (which we have disabled for cook mode), so
         // we route through `minimize()` to keep the session alive.
         Binding(
-            get: { session.isCookModeVisible && session.activeRecipe != nil },
+            get: { session.isCookModeVisible && !session.activeCooks.isEmpty },
             set: { newValue in
                 if !newValue { session.minimize() }
             }
@@ -196,14 +202,19 @@ private struct CookingResumePill: View {
                         .font(.system(size: 10, weight: .heavy))
                         .tracking(0.8)
                         .opacity(0.9)
-                    if let title = session.activeRecipe?.title {
+                    if let title = session.foregroundedRecipe?.title {
                         Text(StringCase.titleCase(title))
                             .font(.system(size: 14, weight: .semibold, design: .serif))
                             .lineLimit(1)
                     }
                 }
                 Spacer(minLength: AppSpacing.sm)
-                if let endsAt = CookingSessionStore.load()?.timerEndsAt, endsAt > Date() {
+                // PR 2 will surface a sub-pill per cook with each one's
+                // own countdown. PR 1 keeps the single-pill UX: just
+                // the foregrounded cook's timer (which is the only
+                // cook anyway).
+                if let foregrounded = session.activeCooks.first(where: { $0.id == session.foregroundedCookID }),
+                   let endsAt = foregrounded.timerEndsAt, endsAt > Date() {
                     // System timer text counts down on its own once a
                     // second without our app pushing updates — same
                     // mechanism the Live Activity widget uses.

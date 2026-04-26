@@ -8,11 +8,19 @@ struct CookModeView: View {
     @Environment(CookingSession.self) private var session
 
     let recipe: Recipe
+    /// Identity of the cook this view is rendering. Captured at init
+    /// time from `CookingSession.foregroundedCookID` and stable for
+    /// the view's lifetime — PR 2 will rebuild the view via `.id` on
+    /// switcher changes, so each instance always represents one cook.
+    /// Routed into every persisted `CookingSessionState` snapshot so
+    /// the session's array can find-and-replace the right element.
+    let cookID: UUID
     /// End the app-level cook session. Called from the close button,
-    /// Mark-as-cooked, and the exit confirm dialog. The sheet is driven
-    /// by `CookingSession.activeRecipe` at the RootView level, so we
-    /// don't use `@Environment(\.dismiss)` — tearing down the session
-    /// handles both dismissal and state cleanup in one place.
+    /// Mark-as-cooked, and the exit confirm dialog. The sheet is
+    /// driven by `CookingSession.foregroundedCookID +
+    /// isCookModeVisible` at the RootView level, so we don't use
+    /// `@Environment(\.dismiss)` — tearing down the session handles
+    /// both dismissal and state cleanup in one place.
     let onClose: () -> Void
 
     @State private var phase: Phase
@@ -39,8 +47,14 @@ struct CookModeView: View {
 
     private enum Phase { case prep, cook }
 
-    init(recipe: Recipe, restoration: CookingSessionState? = nil, onClose: @escaping () -> Void) {
+    init(
+        recipe: Recipe,
+        cookID: UUID,
+        restoration: CookingSessionState? = nil,
+        onClose: @escaping () -> Void
+    ) {
         self.recipe = recipe
+        self.cookID = cookID
         self.onClose = onClose
 
         if let r = restoration, r.recipeID == recipe.id {
@@ -172,10 +186,10 @@ struct CookModeView: View {
             stopAlarm()
             // Only tear down the Live Activity + scheduled notification
             // when the session actually ended (close X / Mark cooked /
-            // Stop after timer). Minimize keeps `activeRecipe` set so the
-            // timer can keep ticking on the lock screen and re-attach to
-            // a fresh CookModeView when the user resumes.
-            if session.activeRecipe == nil {
+            // Stop after timer). Minimize keeps `activeCooks` populated
+            // so the timer can keep ticking on the lock screen and
+            // re-attach to a fresh CookModeView when the user resumes.
+            if session.activeCooks.isEmpty {
                 liveActivity.end()
                 TimerNotifications.cancel()
             }
@@ -699,11 +713,16 @@ struct CookModeView: View {
 
     // MARK: Actions
 
-    /// Write the current cook progress to disk. Cheap (UserDefaults +
-    /// JSON encode of a small struct) so we can call it on every
-    /// meaningful state change without worrying about cost.
+    /// Write the current cook progress through the session. Cheap
+    /// (UserDefaults + JSON encode of a small struct) so we can call
+    /// it on every meaningful state change without worrying about
+    /// cost. Routes through `CookingSession.persistForegroundedSnapshot`
+    /// so the session's in-memory `activeCooks` array stays in sync
+    /// with disk — PR 2's switcher reads from that array, not from
+    /// disk on every render.
     private func persistSnapshot() {
         let snapshot = CookingSessionState(
+            cookID: cookID,
             recipeID: recipe.id,
             phase: phase == .cook ? .cook : .prep,
             currentServings: currentServings,
@@ -714,7 +733,7 @@ struct CookModeView: View {
             timerLabel: timerLabel,
             timerOriginalMinutes: timerOriginalMinutes
         )
-        CookingSessionStore.save(snapshot)
+        session.persistForegroundedSnapshot(snapshot)
     }
 
     private func handleExit() {

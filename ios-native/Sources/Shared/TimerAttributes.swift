@@ -33,4 +33,14 @@ struct TimerAttributes: ActivityAttributes {
     /// the user back into Cook Mode for the exact recipe whose timer fired,
     /// not just "the foreground app".
     public var recipeID: UUID
+
+    /// Distinct cook identity per active session — admits the case (PR 2)
+    /// where the same recipe is cooked twice in parallel and each batch
+    /// owns its own timer + Live Activity. **Optional for migration**:
+    /// activities that survived an app upgrade across the multi-recipe
+    /// landing decode with `cookID == nil`, which the registry treats as
+    /// "this is the only cook in the session — adopt it." Default-nil so
+    /// existing `TimerAttributes(recipeTitle:recipeID:)` call sites
+    /// still compile during the PR-1 incremental rollout.
+    public var cookID: UUID? = nil
 }

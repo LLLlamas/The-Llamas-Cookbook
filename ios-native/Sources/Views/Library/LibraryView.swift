@@ -329,7 +329,7 @@ struct LibraryView: View {
     }
 
     private var isCookMinimized: Bool {
-        session.activeRecipe != nil && !session.isCookModeVisible
+        !session.activeCooks.isEmpty && !session.isCookModeVisible
     }
 
     // MARK: Derived
