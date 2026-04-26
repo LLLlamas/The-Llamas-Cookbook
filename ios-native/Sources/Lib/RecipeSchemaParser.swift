@@ -182,13 +182,14 @@ enum RecipeSchemaParser {
     ///
     /// 1. **Newlines** — cleanest signal; respect publisher layout.
     /// 2. **Numbered markers** — "Step 1:", "Step 1.", "1.", "1)".
-    ///    Lookbehind `(?<=\s)` keeps the marker bound to a real word
-    ///    boundary, and the trailing `\s+` requirement prevents
+    ///    `\b` anchors the marker to a word boundary so "mix1." won't
+    ///    fragment, and the trailing `\s+` requirement prevents
     ///    matching mid-decimal: "1.5 cups" has "5" after the period,
     ///    not whitespace, so it's left alone.
-    /// 3. **Sentence boundaries** — last resort. Period after a
-    ///    *letter* + whitespace + capital. The letter-before-period
-    ///    lookbehind excludes "1.5" splits while still catching
+    /// 3. **Sentence boundaries** — last resort. Letter + period +
+    ///    whitespace + capital. The leading letter (consumed as part
+    ///    of the match, since Swift Regex literals don't support
+    ///    lookbehind) excludes "1.5" splits while still catching
     ///    "350°F. Cream butter…" because F is a letter.
     private static func splitInstructionString(_ raw: String) -> [String] {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -201,49 +202,49 @@ enum RecipeSchemaParser {
             .filter { !$0.isEmpty }
         if byNewline.count > 1 { return byNewline }
 
-        // 2. Numbered step markers.
-        let markerRegex = #/(?:^|(?<=\s))(?:[Ss]tep\s+\d+\s*[:.)]|\d+\s*[.)])\s+/#
+        // 2. Numbered step markers — drop the marker entirely.
+        let markerRegex = #/\b(?:[Ss]tep\s+\d+\s*[:.)]|\d+\s*[.)])\s+/#
         let markers = Array(s.matches(of: markerRegex))
         if markers.count >= 2 {
-            let pieces = splitByMatches(s, matches: markers, includeMatchTrailingChar: false)
+            var pieces: [String] = []
+            var cursor = s.startIndex
+            for m in markers {
+                let segment = s[cursor..<m.range.lowerBound]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !segment.isEmpty { pieces.append(segment) }
+                cursor = m.range.upperBound
+            }
+            let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tail.isEmpty { pieces.append(tail) }
             if pieces.count >= 2 { return pieces }
         }
 
-        // 3. Sentence boundary fallback.
-        let sentenceRegex = #/(?<=[a-zA-Z])\.\s+(?=[A-Z])/#
+        // 3. Sentence boundary fallback. Match consumes the letter
+        // and period (no lookbehind support), so we keep the first
+        // two characters of each match with the previous piece —
+        // "Foo. Bar" becomes ["Foo.", "Bar"].
+        let sentenceRegex = #/[a-zA-Z]\.\s+(?=[A-Z])/#
         let sentences = Array(s.matches(of: sentenceRegex))
         if !sentences.isEmpty {
-            let pieces = splitByMatches(s, matches: sentences, includeMatchTrailingChar: true)
+            var pieces: [String] = []
+            var cursor = s.startIndex
+            for m in sentences {
+                let prevEnd = s.index(
+                    m.range.lowerBound,
+                    offsetBy: 2,
+                    limitedBy: m.range.upperBound
+                ) ?? m.range.upperBound
+                let segment = s[cursor..<prevEnd]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !segment.isEmpty { pieces.append(segment) }
+                cursor = m.range.upperBound
+            }
+            let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tail.isEmpty { pieces.append(tail) }
             if pieces.count >= 2 { return pieces }
         }
 
         return [s]
-    }
-
-    /// Carve `s` into pieces around `matches`, dropping the matched
-    /// delimiters. When `includeMatchTrailingChar` is true the first
-    /// character of the match (the period, for sentence-boundary
-    /// matches) is appended to the piece *before* the match — so
-    /// "Foo. Bar" → ["Foo.", "Bar"] rather than ["Foo", "Bar"].
-    private static func splitByMatches<R>(
-        _ s: String,
-        matches: [Regex<R>.Match],
-        includeMatchTrailingChar: Bool
-    ) -> [String] {
-        var pieces: [String] = []
-        var cursor = s.startIndex
-        for m in matches {
-            let segmentEnd = includeMatchTrailingChar
-                ? s.index(after: m.range.lowerBound)
-                : m.range.lowerBound
-            let segment = s[cursor..<segmentEnd]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !segment.isEmpty { pieces.append(segment) }
-            cursor = m.range.upperBound
-        }
-        let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tail.isEmpty { pieces.append(tail) }
-        return pieces
     }
 
     private static func extractServings(_ value: Any?) -> String? {

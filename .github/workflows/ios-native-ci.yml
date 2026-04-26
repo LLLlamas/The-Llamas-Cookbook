@@ -77,6 +77,14 @@ jobs:
           fi
           echo "Selecting $XCODE_APP"
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          # Also export DEVELOPER_DIR via $GITHUB_ENV so it sticks for
+          # every subsequent step. The macos-26 runner pre-sets
+          # DEVELOPER_DIR in its shell profile pointing at the image's
+          # default Xcode (currently 26.5 beta 2), which silently
+          # overrides our `xcode-select` if we don't override it back.
+          # That's how we ended up archiving with beta despite picking
+          # stable here. Belt + suspenders.
+          echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
 
       # Print the full toolchain so the build log proves we're compiling
       # against the iOS 26 SDK. The `iphoneos --show-sdk-version` line is

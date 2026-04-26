@@ -332,6 +332,14 @@ From [PROJECT.md §6](./PROJECT.md) and [llamas-cookbook-plan.md](./llamas-cookb
   point releases (`26.0.1`, `26.1.1`, `26.4.1`, …) and the picker
   needs to keep working as the runner image rotates. See §11 for the
   full incident.
+- **`DEVELOPER_DIR` is required**, not just `xcode-select`. The
+  `macos-26` runner image pre-sets `DEVELOPER_DIR` in its shell
+  profile pointing at the image's default Xcode (currently beta 2),
+  which silently overrides `xcode-select -s` for every subsequent
+  step's fresh shell. The picker writes `DEVELOPER_DIR=…` to
+  `$GITHUB_ENV` so the override travels with our chosen Xcode. This
+  is the bug that made one CI run keep archiving with beta despite
+  the picker correctly logging "Selecting Xcode_26.4.1.app".
 - **Simulator runtime download**: `xcodebuild -downloadPlatform iOS`
   runs after Xcode selection. Idempotent no-op when the runtime is
   preinstalled; pulls the matching runtime when we end up on a beta
