@@ -74,14 +74,18 @@ enum RecipeAIParser {
     /// Instructions tuned for caption-style input. Each rule maps to a
     /// real failure mode we've seen in the wild: TikTok handle suffixes,
     /// glued steps, parenthetical "while X" hints, ranges. Kept compact —
-    /// the model behaves better with directives than with prose.
+    /// the model behaves better with directives than with prose. The
+    /// worked example at the bottom is the single biggest quality lever
+    /// for small on-device models; it pins the title-cleanup pass, the
+    /// "let sit … then …" split, the parenthetical lift, and the
+    /// compound-noun timer guard ("8 hour sourdough") in one shot.
     private static let instructions: String = """
     You parse messy recipe text from social media (TikTok, Instagram, \
     Pinterest, recipe blogs) into structured fields. Follow these rules:
 
     1. Title: the dish name. Usually the first non-empty line. Strip \
        social-media decorations like @handles, #hashtags, emoji runs, \
-       and "RECIPE:" / "Recipe -" prefixes.
+       and "RECIPE:" / "Recipe -" / "Recipe👇" prefixes.
     2. Summary: short blurb if the caption has one. Empty otherwise.
     3. Ingredients: split each into quantity / unit / name. \
        "2 cups flour" -> quantity "2", unit "cup", name "flour". \
@@ -105,6 +109,40 @@ enum RecipeAIParser {
        Empty otherwise.
     7. Strip trailing creator handles (@username) and hashtag runs from \
        every field; they aren't part of the recipe.
+
+    Worked example (study the splits and the `needsTimer` calls):
+
+    INPUT:
+    Recipe👇🏻Same day sourdough is the best sourdough!😍🙌🏻 100g \
+    active starter 390g water 530g bread flour 10g salt Combine into \
+    shaggy dough Let sit for 1 hour, then do 8 stretch and folds. Let \
+    sit on counter for 3-4 hours. Preheat Dutch oven inside oven to \
+    450° (start preheating while dough is proofing) Bake for 30 \
+    minutes with lid on. Enjoy your 8 hour sourdough!🥰
+
+    OUTPUT:
+    title: "Same day sourdough"
+    summary: ""
+    ingredients:
+      - quantity "100", unit "g", name "active starter"
+      - quantity "390", unit "g", name "water"
+      - quantity "530", unit "g", name "bread flour"
+      - quantity "10",  unit "g", name "salt"
+    steps:
+      - text "Combine into shaggy dough", needsTimer false, specialNote ""
+      - text "Let sit for 1 hour", needsTimer true, specialNote ""
+      - text "Do 8 stretch and folds", needsTimer false, specialNote ""
+      - text "Let sit on counter for 3-4 hours", needsTimer true, specialNote ""
+      - text "Preheat Dutch oven inside oven to 450°", needsTimer false, \
+        specialNote "Start preheating while dough is proofing"
+      - text "Bake for 30 minutes with lid on", needsTimer true, specialNote ""
+      - text "Enjoy your 8 hour sourdough!", needsTimer false, specialNote ""
+
+    Note how "Let sit for 1 hour, then do 8 stretch and folds" became \
+    TWO steps; how the parenthetical moved into specialNote with the \
+    main action kept clean; and how "8 hour sourdough" did NOT get \
+    needsTimer because the duration is part of the dish name, not a \
+    timing instruction.
     """
 }
 
@@ -155,9 +193,16 @@ private struct ParsedRecipe {
 
 @available(iOS 26.0, *)
 private extension ParsedRecipe {
+    /// Convert the model's structured response into a `DraftRecipe`.
+    /// Each field is run through the regex pipeline's deterministic
+    /// post-process (`cleanTitle`, `enrichAIStep`) so the AI gets the
+    /// hard structural call but regex gets the last word on the rules
+    /// it's already encoding — title decoration stripping and the
+    /// compound-noun timer guard. Belt and suspenders for the cases
+    /// where small on-device models drift from the prompt.
     func toDraft(sourceUrl: String?) -> DraftRecipe {
         var draft = DraftRecipe()
-        draft.title = title.trimmed
+        draft.title = RecipeImporter.cleanTitle(title.trimmed)
         draft.summary = summary.trimmed
         if let sourceUrl, !sourceUrl.isEmpty {
             draft.sourceUrl = sourceUrl
@@ -175,11 +220,12 @@ private extension ParsedRecipe {
             let text = step.text.trimmed
             guard !text.isEmpty else { return nil }
             let note = step.specialNote.trimmed
-            return DraftStep(
+            let raw = DraftStep(
                 text: text,
                 needsTimer: step.needsTimer,
                 specialNote: note.isEmpty ? nil : note
             )
+            return RecipeImporter.enrichAIStep(raw)
         }
         return draft
     }

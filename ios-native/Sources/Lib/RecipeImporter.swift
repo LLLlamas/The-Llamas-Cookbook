@@ -74,6 +74,26 @@ enum RecipeImporter {
         parseStep(line).map(enrichStep)
     }
 
+    /// Title cleanup pass — exposed so the AI parser can run it on the
+    /// model's title output. The model is *told* to strip "Recipe👇"
+    /// and trailing emoji runs, but small on-device models drift; this
+    /// is the deterministic fallback.
+    static func cleanTitle(_ s: String) -> String {
+        stripTitleLabel(s)
+    }
+
+    /// Post-process an AI-parsed step. Runs the parenthetical / "while X"
+    /// lift, then **overrides** `needsTimer` from `hasTimerSignal` rather
+    /// than trusting the model's flag. Rationale: the compound-noun
+    /// guard ("8 hour sourdough", "30 minute meal") is encoded
+    /// deterministically in `hasTimerSignal`, and the model loses that
+    /// rule under load far more often than it loses ingredient parsing.
+    static func enrichAIStep(_ step: DraftStep) -> DraftStep {
+        var s = liftWhileClause(step)
+        s.needsTimer = hasTimerSignal(s.text)
+        return s
+    }
+
     /// Parse one input string into one *or more* `DraftStep`s. Use this
     /// when the input might glue several steps together — TikTok captions
     /// and JSON-LD `HowToStep.text` fields where publishers stuff a whole
