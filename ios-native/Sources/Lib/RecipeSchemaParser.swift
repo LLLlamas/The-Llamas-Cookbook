@@ -45,8 +45,9 @@ enum RecipeSchemaParser {
         // Some pages embed several (Organization, BreadcrumbList, Recipe,
         // Article) and the Recipe might be in any of them, sometimes
         // nested under @graph or inside an array.
-        let scriptPattern = #/<script[^>]*type\s*=\s*["']application/ld\+json["'][^>]*>([\s\S]*?)</script>/#
+        let scriptPattern = #/<script[^>]*type\s*=\s*["']application/ld\+json["'][^>]*>(.*?)</script>/#
             .ignoresCase()
+            .dotMatchesNewlines()
 
         for match in html.matches(of: scriptPattern) {
             let raw = String(match.output.1)

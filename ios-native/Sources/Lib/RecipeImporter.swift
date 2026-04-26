@@ -195,7 +195,7 @@ enum RecipeImporter {
     /// the friendlier outcome.
     private static func hasExplicitSectionLabels(_ text: String) -> Bool {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        for raw in normalized.split(separator: "\n") {
+        for raw in normalized.split(separator: "\n").map(String.init) {
             let cleaned = raw
                 .trimmingCharacters(in: CharacterSet(charactersIn: " :"))
                 .lowercased()

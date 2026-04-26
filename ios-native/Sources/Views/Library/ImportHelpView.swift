@@ -88,13 +88,17 @@ struct ImportHelpView: View {
                 .padding(.bottom, 2)
             exampleLine("Garlic Butter Pasta", emphasis: true)
             exampleSpacer()
-            exampleLine("8 oz spaghetti")
-            exampleLine("4 tbsp butter")
-            exampleLine("3 cloves garlic, minced")
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                exampleLine("8 oz spaghetti")
+                exampleLine("4 tbsp butter")
+                exampleLine("3 cloves garlic, minced")
+            }
             exampleSpacer()
-            exampleLine("Boil pasta until al dente")
-            exampleLine("Melt butter, sauté garlic")
-            exampleLine("Toss pasta in garlic butter")
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                exampleLine("Boil pasta until al dente")
+                exampleLine("Melt butter, sauté garlic")
+                exampleLine("Toss pasta in garlic butter")
+            }
         }
         .padding(AppSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
