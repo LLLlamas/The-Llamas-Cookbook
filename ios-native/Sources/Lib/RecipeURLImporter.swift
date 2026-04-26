@@ -238,9 +238,11 @@ enum RecipeURLImporter {
     /// Heuristics, in order:
     ///
     /// 1. If only one side produced a draft, use it.
-    /// 2. If the AI's longest step is implausibly long (> 300 chars)
+    /// 2. If the AI's longest step is implausibly long (> 200 chars)
     ///    it almost certainly mashed several actions together — regex
-    ///    wins.
+    ///    wins. A healthy cooking step is typically 50-100 chars; the
+    ///    threshold is well above that to avoid false positives on
+    ///    legitimately wordy single-action steps.
     /// 3. If the regex pulled out 5+ steps and the AI got fewer than
     ///    70% of that count, the AI under-split — regex wins.
     /// 4. Otherwise the AI wins. It generally beats regex on title
@@ -251,7 +253,7 @@ enum RecipeURLImporter {
         guard let regex = regex else { return ai }
 
         let aiLongest = ai.steps.map(\.text.count).max() ?? 0
-        if aiLongest > 300 { return regex }
+        if aiLongest > 200 { return regex }
 
         let aiSteps = ai.steps.count
         let regexSteps = regex.steps.count

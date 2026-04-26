@@ -147,10 +147,24 @@ enum RecipeImporter {
     /// ingredients; block 3+ is the steps. Header-field lines (Source:,
     /// Serves:, Cook time:) inside the title block are lifted out so
     /// they don't pollute the summary.
+    ///
+    /// Caption-style fallback: TikTok's oEmbed and some share-sheet
+    /// pastes strip the blank-line separators between sections,
+    /// leaving a stack of single-newline lines. Blank-line block
+    /// parsing then collapses everything into the title block and
+    /// emits zero ingredients / zero steps. When we detect that
+    /// shape (≤ 2 blocks but ≥ 6 lines total), we hand off to a
+    /// per-line classifier that uses measurement markers to tell
+    /// ingredients from steps.
     private static func parseBlocks(_ text: String) -> DraftRecipe {
         var draft = DraftRecipe()
         let blocks = splitIntoBlocks(text)
         guard !blocks.isEmpty else { return draft }
+
+        let totalLines = blocks.reduce(0) { $0 + $1.count }
+        if blocks.count <= 2, totalLines >= 6 {
+            return parseUnstructuredLines(blocks.flatMap { $0 })
+        }
 
         // --- Block 1: title (+ summary)
         let titleBlock = blocks[0]
@@ -189,6 +203,45 @@ enum RecipeImporter {
             }
         }
         return draft
+    }
+
+    /// Per-line classifier for caption-style input where the source
+    /// dropped the blank-line section breaks. First line becomes the
+    /// title; every line after that is sorted into ingredients vs.
+    /// steps by `looksLikeIngredient`. Header-field lines (Source:,
+    /// Serves:, Cook time:) are still lifted out into their own
+    /// fields rather than misclassified.
+    private static func parseUnstructuredLines(_ lines: [String]) -> DraftRecipe {
+        var draft = DraftRecipe()
+        guard let first = lines.first else { return draft }
+        draft.title = stripTitleLabel(first)
+
+        for line in lines.dropFirst() {
+            let lower = line.lowercased()
+            if applyHeaderField(line, lower: lower, into: &draft) { continue }
+            if looksLikeIngredient(line) {
+                draft.ingredients.append(contentsOf: parseIngredients(line))
+            } else {
+                draft.steps.append(contentsOf: parseStepLines(line))
+            }
+        }
+        return draft
+    }
+
+    /// True when the line opens with a `<number><unit>` shape — the
+    /// strongest signal we have for "this is an ingredient, not a
+    /// cooking instruction" without doing real semantic analysis.
+    /// Anchors the match at the start of the (post-bullet-stripped)
+    /// line so a step like "Bake 30 minutes" doesn't false-positive
+    /// from its leading number; ingredient lines almost always begin
+    /// with the quantity.
+    private static func looksLikeIngredient(_ line: String) -> Bool {
+        let stripped = stripLeadingBullet(line).trimmingCharacters(in: .whitespaces)
+        // Quantity: integer, decimal, vulgar fraction, or simple
+        // mixed/improper fraction (e.g. "1 1/2", "1/4").
+        // Then optional whitespace, then a known unit keyword.
+        let pattern = #/(?i)^\d+(?:[.\u{00BC}-\u{215E}]\d*)?(?:\s+\d+/\d+)?(?:/\d+)?\s*(cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|teaspoons|oz|ounce|ounces|lb|lbs|pound|pounds|g|gram|grams|kg|kilogram|kilograms|mg|ml|milliliter|milliliters|l|liter|liters|litre|litres|pint|pints|quart|quarts|gallon|gallons|clove|cloves|pinch|pinches|dash|dashes|slice|slices|piece|pieces|can|cans|stick|sticks|sprig|sprigs|head|heads|bunch|bunches|handful|handfuls)\b/#
+        return (try? pattern.firstMatch(in: stripped)) != nil
     }
 
     /// Split into trimmed-line blocks separated by one or more blank

@@ -47,12 +47,10 @@ struct ImportRecipeView: View {
 
                     actionRow(canPreview: canPreview)
 
-                    // Anchor used to scroll the editor's bottom edge
-                    // (== where the cursor lives) above the keyboard
-                    // when the user starts typing.
-                    Color.clear
-                        .frame(height: pasteFocused ? 360 : 32)
-                        .id(ScrollAnchor.editorBottom)
+                    // Modest buffer so the action row clears the home
+                    // indicator. Don't grow this when focused — the
+                    // editor itself is the scroll anchor, not the buffer.
+                    Color.clear.frame(height: 32)
                 }
                 .padding(AppSpacing.lg)
                 .contentShape(Rectangle())
@@ -61,27 +59,15 @@ struct ImportRecipeView: View {
             .scrollDismissesKeyboard(.never)
             .onChange(of: pasteFocused) { _, focused in
                 if focused {
-                    // Two scrolls: the spring brings the editor's bottom
-                    // edge above the keyboard, anchored .bottom so the
-                    // cursor (which sits at the bottom of fresh content)
-                    // ends up just above the keyboard rather than buried
-                    // behind it. The 32→360 buffer-height bump above
-                    // gives the ScrollView the runway it needs to scroll
-                    // that far — without it, the system can only push
-                    // up by 32pt and gives up.
+                    // One scroll, on focus only. Anchor the editor's
+                    // bottom edge to the bottom of the visible area
+                    // (which already accounts for the keyboard via
+                    // safe-area insets) — the editor's full 280pt
+                    // frame ends up right above the keyboard. From
+                    // there, TextEditor's internal scroll handles
+                    // cursor visibility as the user types, so we
+                    // don't re-scroll on every keystroke.
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        proxy.scrollTo(ScrollAnchor.editorBottom, anchor: .bottom)
-                    }
-                }
-            }
-            .onChange(of: pastedText) { _, _ in
-                // Keep the cursor visible as the editor grows. Without
-                // this, typing past the editor's visible bottom slides
-                // the cursor under the keyboard until the user manually
-                // scrolls. Only re-scrolls while focused so a paste-
-                // from-clipboard doesn't yank the view around.
-                if pasteFocused {
-                    withAnimation(.easeOut(duration: 0.15)) {
                         proxy.scrollTo(ScrollAnchor.editorBottom, anchor: .bottom)
                     }
                 }
@@ -322,6 +308,7 @@ struct ImportRecipeView: View {
                 }
             }
             .frame(minHeight: 280)
+            .id(ScrollAnchor.editorBottom)
             .background(AppColor.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
