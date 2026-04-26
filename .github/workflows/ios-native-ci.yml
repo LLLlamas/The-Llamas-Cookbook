@@ -50,12 +50,22 @@ jobs:
         uses: actions/checkout@v4
 
       # Pin Xcode 26 explicitly. The macos-26 runner defaults to Xcode 26,
-      # but if Apple ships Xcode 26.x point releases that the image carries
-      # side-by-side, this makes the choice deterministic. If a future
-      # actions/runner-images release renames the app, update the path here
-      # and the toolchain print step below will catch the mismatch fast.
+      # but actions/runner-images installs Xcode under point-release names
+      # (Xcode_26.0.1.app, Xcode_26.1.app, …), never bare Xcode_26.app.
+      # Glob for any 26.x install and pick the highest version with sort -V.
+      # If no Xcode 26 is present at all (image rotation gone wrong), fail
+      # loudly and dump what *is* installed so the next push can pin to it.
       - name: Select Xcode 26
-        run: sudo xcode-select -s /Applications/Xcode_26.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_APP" ]; then
+            echo "::error::No Xcode 26.x found in /Applications. Installed Xcodes:"
+            ls -d /Applications/Xcode*.app 2>/dev/null || echo "(none)"
+            exit 1
+          fi
+          echo "Selecting $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
 
       # Print the full toolchain so the build log proves we're compiling
       # against the iOS 26 SDK. The `iphoneos --show-sdk-version` line is
