@@ -1,0 +1,100 @@
+﻿2026-04-26T14:52:36.0437430Z ##[group]Run set -euo pipefail
+2026-04-26T14:52:36.0437960Z [36;1mset -euo pipefail[0m
+2026-04-26T14:52:36.0438400Z [36;1mif ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then[0m
+2026-04-26T14:52:36.0438860Z [36;1m  echo "Installing ImageMagick..."[0m
+2026-04-26T14:52:36.0439250Z [36;1m  brew install imagemagick[0m
+2026-04-26T14:52:36.0439570Z [36;1mfi[0m
+2026-04-26T14:52:36.0439840Z [36;1mIM=$(command -v magick || command -v convert)[0m
+2026-04-26T14:52:36.0440190Z [36;1mICON_DIR="Resources/Assets.xcassets/AppIcon.appiconset"[0m
+2026-04-26T14:52:36.0440580Z [36;1mICON_PATH="$ICON_DIR/AppIcon.png"[0m
+2026-04-26T14:52:36.0440800Z [36;1m[0m
+2026-04-26T14:52:36.0441040Z [36;1m# Intentionally no text. Font resolution through Homebrew's[0m
+2026-04-26T14:52:36.0441500Z [36;1m# ImageMagick on macOS runners is unreliable (fontconfig doesn't[0m
+2026-04-26T14:52:36.0442030Z [36;1m# index system fonts, downloaded TTFs sometimes 404 from Google[0m
+2026-04-26T14:52:36.0442540Z [36;1m# Fonts' static paths). Apple's validation only cares that the[0m
+2026-04-26T14:52:36.0442980Z [36;1m# 1024x1024 PNG exists; the content is cosmetic. Use pure drawing[0m
+2026-04-26T14:52:36.0443470Z [36;1m# primitives so this step cannot fail on missing fonts.[0m
+2026-04-26T14:52:36.0443820Z [36;1m#[0m
+2026-04-26T14:52:36.0444180Z [36;1m# Xcode 26's actool got strict about icon PNG format. Apple has[0m
+2026-04-26T14:52:36.0444570Z [36;1m# always required app icons to be opaque sRGB with no alpha[0m
+2026-04-26T14:52:36.0444980Z [36;1m# channel; Xcode 16 tolerated RGBA with a warning, Xcode 26[0m
+2026-04-26T14:52:36.0445410Z [36;1m# rejects it as a hard "CompileAssetCatalogVariant thinned"[0m
+2026-04-26T14:52:36.0445770Z [36;1m# archive failure. The three flags below force the right output:[0m
+2026-04-26T14:52:36.0446140Z [36;1m# -alpha off drops the alpha channel, -colorspace sRGB sets the[0m
+2026-04-26T14:52:36.0446500Z [36;1m# color profile actool expects, and png:color-type=2 forces an[0m
+2026-04-26T14:52:36.0446880Z [36;1m# RGB (no-alpha) PNG encoding regardless of ImageMagick defaults.[0m
+2026-04-26T14:52:36.0447190Z [36;1m"$IM" -size 1024x1024 xc:"#C97C5D" \[0m
+2026-04-26T14:52:36.0447650Z [36;1m  -fill "#FFFDF8" \[0m
+2026-04-26T14:52:36.0447930Z [36;1m  -draw "circle 512,512 512,180" \[0m
+2026-04-26T14:52:36.0448170Z [36;1m  -fill "#2B2320" \[0m
+2026-04-26T14:52:36.0448390Z [36;1m  -draw "circle 440,440 440,420" \[0m
+2026-04-26T14:52:36.0448650Z [36;1m  -draw "circle 584,440 584,420" \[0m
+2026-04-26T14:52:36.0448870Z [36;1m  -alpha off \[0m
+2026-04-26T14:52:36.0449050Z [36;1m  -colorspace sRGB \[0m
+2026-04-26T14:52:36.0449240Z [36;1m  -define png:color-type=2 \[0m
+2026-04-26T14:52:36.0449440Z [36;1m  "$ICON_PATH"[0m
+2026-04-26T14:52:36.0449660Z [36;1mecho "Generated $ICON_PATH"[0m
+2026-04-26T14:52:36.0449920Z [36;1mls -la "$ICON_PATH"[0m
+2026-04-26T14:52:36.0450190Z [36;1m# Print the actual encoded format so the next actool failure is[0m
+2026-04-26T14:52:36.0450560Z [36;1m# quick to diagnose. Want to see "PNG 1024x1024 ... sRGB" with[0m
+2026-04-26T14:52:36.0450960Z [36;1m# no mention of "Matte" / alpha. If alpha sneaks back in, the[0m
+2026-04-26T14:52:36.0451370Z [36;1m# identify line will say so and we can iterate without guessing.[0m
+2026-04-26T14:52:36.0451660Z [36;1m"$IM" identify "$ICON_PATH"[0m
+2026-04-26T14:52:36.0486300Z shell: /bin/bash -e {0}
+2026-04-26T14:52:36.0486460Z env:
+2026-04-26T14:52:36.0486600Z   APPLE_TEAM_ID: GYFN949Q5E
+2026-04-26T14:52:36.0486870Z   BUNDLE_ID: com.llamascookbook.app
+2026-04-26T14:52:36.0487120Z   WIDGET_BUNDLE_ID: com.llamascookbook.app.widget
+2026-04-26T14:52:36.0487390Z   KC_PATH: /Users/runner/work/_temp/build.keychain-db
+2026-04-26T14:52:36.0487650Z   PROFILE_UUID: a8e60cb8-41f2-487f-a2c0-fc94794e77d0
+2026-04-26T14:52:36.0487970Z   PROFILE_NAME: *[expo] com.llamascookbook.app AppStore 2026-04-18T19:41:48.499Z
+2026-04-26T14:52:36.0488320Z   WIDGET_PROFILE_UUID: 8ecab5f3-1034-40a2-8243-d73c82a345f6
+2026-04-26T14:52:36.0488940Z   WIDGET_PROFILE_NAME: Cookbook Timer Widget
+2026-04-26T14:52:36.0489140Z ##[endgroup]
+2026-04-26T14:52:36.0927920Z Installing ImageMagick...
+2026-04-26T14:52:37.7411910Z [32m==>[0m [1mFetching downloads for: [32mimagemagick[39m[0m
+2026-04-26T14:52:38.3697620Z ✔︎ Bottle Manifest imagemagick (7.1.2-21)
+2026-04-26T14:52:39.0520480Z ✔︎ Bottle Manifest libde265 (1.0.18)
+2026-04-26T14:52:39.1116600Z ✔︎ Bottle Manifest webp (1.6.0)
+2026-04-26T14:52:39.1866600Z ✔︎ Bottle Manifest aom (3.13.3)
+2026-04-26T14:52:39.1869750Z ✔︎ Bottle libde265 (1.0.18)
+2026-04-26T14:52:39.4396730Z ✔︎ Bottle aom (3.13.3)
+2026-04-26T14:52:39.4397040Z ✔︎ Bottle webp (1.6.0)
+2026-04-26T14:52:39.4934910Z ✔︎ Bottle Manifest libheif (1.21.2_2)
+2026-04-26T14:52:39.4935290Z ✔︎ Bottle Manifest m4 (1.4.21)
+2026-04-26T14:52:39.6320100Z ✔︎ Bottle libheif (1.21.2_2)
+2026-04-26T14:52:39.6320410Z ✔︎ Bottle m4 (1.4.21)
+2026-04-26T14:52:39.6834020Z ✔︎ Bottle Manifest libtool (2.5.4)
+2026-04-26T14:52:39.8161770Z ✔︎ Bottle libtool (2.5.4)
+2026-04-26T14:52:40.1832960Z ✔︎ Bottle imagemagick (7.1.2-21)
+2026-04-26T14:52:40.3253460Z [32m==>[0m [1mInstalling dependencies for imagemagick: [32maom[39m, [32mlibde265[39m, [32mwebp[39m, [32mlibheif[39m, [32mm4[39m and [32mlibtool[39m[0m
+2026-04-26T14:52:40.3264030Z [32m==>[0m [1mInstalling imagemagick dependency: [32maom[39m[0m
+2026-04-26T14:52:40.3400570Z [34m==>[0m [1mPouring aom--3.13.3.arm64_tahoe.bottle.tar.gz[0m
+2026-04-26T14:52:41.5258890Z 🍺  /opt/homebrew/Cellar/aom/3.13.3: 28 files, 10.6MB
+2026-04-26T14:52:41.5263110Z [32m==>[0m [1mInstalling imagemagick dependency: [32mlibde265[39m[0m
+2026-04-26T14:52:41.5306510Z [34m==>[0m [1mPouring libde265--1.0.18.arm64_tahoe.bottle.tar.gz[0m
+2026-04-26T14:52:42.6756740Z 🍺  /opt/homebrew/Cellar/libde265/1.0.18: 18 files, 463.7KB
+2026-04-26T14:52:42.6764290Z [32m==>[0m [1mInstalling imagemagick dependency: [32mwebp[39m[0m
+2026-04-26T14:52:42.7225500Z [34m==>[0m [1mPouring webp--1.6.0.arm64_tahoe.bottle.tar.gz[0m
+2026-04-26T14:52:45.0333770Z 🍺  /opt/homebrew/Cellar/webp/1.6.0: 64 files, 2.6MB
+2026-04-26T14:52:45.0337450Z [32m==>[0m [1mInstalling imagemagick dependency: [32mlibheif[39m[0m
+2026-04-26T14:52:45.1646640Z [34m==>[0m [1mPouring libheif--1.21.2_2.arm64_tahoe.bottle.tar.gz[0m
+2026-04-26T14:52:46.3899280Z 🍺  /opt/homebrew/Cellar/libheif/1.21.2_2: 50 files, 7.3MB
+2026-04-26T14:52:46.3902960Z [32m==>[0m [1mInstalling imagemagick dependency: [32mm4[39m[0m
+2026-04-26T14:52:46.3922480Z [34m==>[0m [1mPouring m4--1.4.21.arm64_tahoe.bottle.tar.gz[0m
+2026-04-26T14:52:47.4162560Z 🍺  /opt/homebrew/Cellar/m4/1.4.21: 14 files, 817KB
+2026-04-26T14:52:47.4170080Z [32m==>[0m [1mInstalling imagemagick dependency: [32mlibtool[39m[0m
+2026-04-26T14:52:47.4258250Z [34m==>[0m [1mPouring libtool--2.5.4.arm64_tahoe.bottle.tar.gz[0m
+2026-04-26T14:52:48.5708710Z 🍺  /opt/homebrew/Cellar/libtool/2.5.4: 76 files, 4.1MB
+2026-04-26T14:52:48.5712270Z [32m==>[0m [1mInstalling [32mimagemagick[39m[0m
+2026-04-26T14:52:48.5716620Z [34m==>[0m [1mPouring imagemagick--7.1.2-21.arm64_tahoe.bottle.tar.gz[0m
+2026-04-26T14:52:57.4683250Z [34m==>[0m [1mCaveats[0m
+2026-04-26T14:52:57.4684100Z imagemagick-full includes additional tools and libraries that are not included in the regular imagemagick formula.
+2026-04-26T14:52:57.4684700Z [34m==>[0m [1mSummary[0m
+2026-04-26T14:52:57.4756380Z 🍺  /opt/homebrew/Cellar/imagemagick/7.1.2-21: 805 files, 31.9MB
+2026-04-26T14:52:57.4761630Z [32m==>[0m [1mCaveats[0m
+2026-04-26T14:52:57.4762230Z [34m==>[0m [1mimagemagick[0m
+2026-04-26T14:52:57.4762820Z imagemagick-full includes additional tools and libraries that are not included in the regular imagemagick formula.
+2026-04-26T14:52:57.6474110Z Generated Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+2026-04-26T14:52:57.6515190Z -rw-r--r--  1 runner  staff  31696 Apr 26 14:52 Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+2026-04-26T14:52:57.6577450Z Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png PNG 1024x1024 1024x1024+0+0 16-bit sRGB 31696B 0.000u 0:00.000

@@ -1,0 +1,12 @@
+﻿2026-04-26T14:52:16.7877620Z ##[group]Run xcodegen generate --spec project.yml
+2026-04-26T14:52:16.7878080Z [36;1mxcodegen generate --spec project.yml[0m
+2026-04-26T14:52:16.7910340Z shell: /bin/bash -e {0}
+2026-04-26T14:52:16.7910610Z env:
+2026-04-26T14:52:16.7910810Z   APPLE_TEAM_ID: GYFN949Q5E
+2026-04-26T14:52:16.7911180Z   BUNDLE_ID: com.llamascookbook.app
+2026-04-26T14:52:16.7911490Z   WIDGET_BUNDLE_ID: com.llamascookbook.app.widget
+2026-04-26T14:52:16.7911880Z ##[endgroup]
+2026-04-26T14:52:16.8853580Z ⚙️  Generating plists...
+2026-04-26T14:52:16.8854200Z ⚙️  Generating project...
+2026-04-26T14:52:16.8984270Z ⚙️  Writing project...
+2026-04-26T14:52:16.9046560Z Created project at /Users/runner/work/The-Llamas-Cookbook/The-Llamas-Cookbook/ios-native/LlamasCookbookNative.xcodeproj

@@ -24,7 +24,10 @@
       "PowerShell($path = \"C:\\\\Users\\\\fines\\\\Downloads\\\\Cookbook_Timer_Widget.mobileprovision\"; if \\(Test-Path $path\\) { [Convert]::ToBase64String\\([IO.File]::ReadAllBytes\\($path\\)\\) | Set-Clipboard; $info = Get-Item $path; Write-Host \"Copied. File modified: $\\($info.LastWriteTime\\), size: $\\($info.Length\\) bytes\" } else { Write-Host \"Not found — check for a \\(1\\) suffix or similar\" })",
       "Bash(gh run *)",
       "Read(//c/Program Files/**)",
-      "Read(//c/Users/fines/AppData/Local/GitHub CLI//**)"
+      "Read(//c/Users/fines/AppData/Local/GitHub CLI//**)",
+      "Bash(unzip -o \"/c/Users/fines/Downloads/logs_66246238856.zip\" -d \"/c/Users/fines/Documents/2026 Repository/The-Llamas-Cookbook/.tmp-logs\")",
+      "Bash(gh api *)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
