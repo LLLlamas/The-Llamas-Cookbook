@@ -44,7 +44,10 @@ struct RecipeDetailView: View {
 
                     if !recipe.tags.isEmpty {
                         FlowRow(spacing: AppSpacing.xs) {
-                            ForEach(recipe.tags, id: \.self) { tag in
+                            // Sort at display time so legacy recipes with
+                            // unsorted tag arrays still render alphabetically.
+                            // New recipes write a sorted array on save.
+                            ForEach(recipe.tags.sorted(), id: \.self) { tag in
                                 TagPill(label: StringCase.titleCase(tag))
                             }
                         }
@@ -95,7 +98,7 @@ struct RecipeDetailView: View {
                     }
 
                     if let general = trimmedNote(recipe.generalNote) {
-                        section("Note") {
+                        section("General") {
                             noteCallout(general)
                         }
                     }

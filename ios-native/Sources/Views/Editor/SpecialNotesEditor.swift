@@ -317,7 +317,7 @@ struct SpecialNotesEditor: View {
             let n = (steps.firstIndex(where: { $0.id == id }) ?? 0) + 1
             return "Step \(n)"
         case .epilogue: return "After"
-        case .general: return "Note"
+        case .general: return "General"
         }
     }
 

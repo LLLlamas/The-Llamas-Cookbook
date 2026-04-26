@@ -7,11 +7,11 @@ import Foundation
 /// an exhaustive taxonomy.
 enum TagPresets {
     static let all: [String] = [
+        "baking",
+        "bread",
+        "breakfast",
         "dessert",
         "dinner",
-        "bread",
-        "baking",
-        "breakfast",
         "sourdough",
     ]
 }
