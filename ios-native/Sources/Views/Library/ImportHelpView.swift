@@ -67,7 +67,7 @@ struct ImportHelpView: View {
 
     private var mascotHeader: some View {
         VStack(spacing: AppSpacing.sm) {
-            LlamaLogo(size: 64, shadowColor: appearance.accentColor)
+            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
             VStack(spacing: 2) {
                 Text("Hi there!")
                     .font(.system(size: 22, weight: .bold, design: .serif))

@@ -14,6 +14,7 @@ Feature design docs are *plans*, not specs — verify against the code before qu
 
 - **[Multi-Recipe-Cook-Mode.md](./Multi-Recipe-Cook-Mode.md)** — **mostly implemented** (PR 1 + PR 2 landed). `CookingSession.activeCooks` array, `addParallel`, `remove(cookID:)`, `foreground(cookID:)`, multi-cook pills bar, "Add to Cook Mode" green button on Detail, v1→v2 persistence migration. **Not yet done:** per-cook timer registry — `TimerLiveActivityController` is still a single instance per `CookModeView`, so two parallel timers will collide on Live Activity / alarm (see Audit notes when extending).
 - **[Photo-Capability.md](./Photo-Capability.md)** — **fully implemented** beyond the plan: gallery (`Recipe.photos` → `RecipePhoto`), per-step gallery up to 3 photos (`RecipeStep.photos` → `RecipeStepPhoto`, **not** the original `RecipeStep.image: Data?` slot — that field is deprecated and lingers for migration only), shared `PhotoCarouselView` + `RecipeImageView` + `ImageProcessing` infra. Carousel has add-confirmation alert and a 350ms picker-dismiss delay (workaround for an iOS 18 sheet-in-sheet alert race).
+- **[Recipe-Sharing.md](./Recipe-Sharing.md)** — **planned, not started**. Adds app-to-app recipe sharing via a `.llamarecipe` file (UTType + JSON envelope including base64 photos) and a `llamascookbook://recipe/v1/<base64url>` deep-link variant for photoless recipes. Receiver-side import preview sheet, UUID rewriting on materialize, provenance fields (`sharedBy` / `sharedAt` / `sourceShareID`) on `Recipe`, and a new `OwnerProfile` Observable for the sender's display name (captured via a one-time first-share prompt). Existing plain-text export stays as the third share-menu option for non-app recipients. Schema is `Codable` JSON independent of SwiftData so a future cloud transport can accept the same payload byte-for-byte.
 - **[SDK-Update-Plan.md](./SDK-Update-Plan.md)** — done. Build SDK is iOS 26.x; `UIDesignRequiresCompatibility = true` keeps the legacy chrome until the aesthetic pass adopts Liquid Glass.
 
 ## TL;DR — where the app stands
@@ -24,7 +25,7 @@ Two recent feature pushes have landed:
 - **Photos** — gallery + per-step photos (up to 3 per step), shared rendering/carousel infra.
 - **Multi-recipe Cook Mode** — `CookingSession.activeCooks` (1–4), pills bar, persistence v1→v2 migration. Outstanding hole: per-cook timer registry (see §"Multi-cook timer hole" below).
 
-Active queue: per-cook `TimerLiveActivityRegistry`, then the aesthetic / typography pass.
+Active queue: recipe sharing between users (file + URL transports per [Recipe-Sharing.md](./Recipe-Sharing.md)), then per-cook `TimerLiveActivityRegistry`, then the aesthetic / typography pass.
 
 ## Capability map — one line per surface
 
@@ -275,9 +276,10 @@ Watch points for the next image rotation: the `Print toolchain` CI step's `iphon
 ## What's next
 
 **Short-term active queue:**
-1. Per-cook `TimerLiveActivityRegistry` (lift the controller out of `CookModeView`, key by `cookID`, stop the foregrounded-only blind spot).
-2. Aesthetic / typography pass — Fraunces + Inter bundled, real app icon, richer Library cards, Detail rhythm (drop caps, dividers), Cook Mode differentiation, transitions polish.
-3. Liquid Glass adoption (must land before iOS 27 SDK becomes mandatory and `UIDesignRequiresCompatibility` is removed).
+1. **Recipe sharing between users** — `.llamarecipe` file + URL-scheme transports + provenance, per [Recipe-Sharing.md](./Recipe-Sharing.md). Three-PR sequence: schema/UTType/provenance fields (no UI) → outbound (Detail share menu + first-share prompt) → inbound (onOpenURL + import preview + provenance display). Cloud transport is designed in but not implemented.
+2. Per-cook `TimerLiveActivityRegistry` (lift the controller out of `CookModeView`, key by `cookID`, stop the foregrounded-only blind spot).
+3. Aesthetic / typography pass — Fraunces + Inter bundled, real app icon, richer Library cards, Detail rhythm (drop caps, dividers), Cook Mode differentiation, transitions polish.
+4. Liquid Glass adoption (must land before iOS 27 SDK becomes mandatory and `UIDesignRequiresCompatibility` is removed).
 
 **Queued / deferred:** dark mode (palette is sRGB-explicit; needs semantic light/dark tokens), Settings screen, iPad layout, iCloud sync, App Intents on the Live Activity.
 

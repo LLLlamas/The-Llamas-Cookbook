@@ -57,7 +57,7 @@ struct LibraryView: View {
                         Haptics.selection()
                         showingAppearance = true
                     } label: {
-                        LlamaLogo(size: 38, shadowColor: appearance.accentColor)
+                        LlamaLogo(size: 72, shadowColor: appearance.accentColor)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Customize accent color")

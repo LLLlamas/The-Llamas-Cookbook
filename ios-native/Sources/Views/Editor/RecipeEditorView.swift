@@ -264,7 +264,7 @@ struct RecipeEditorView: View {
 
     private var heroRow: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaLogo(size: 44, shadowColor: appearance.accentColor)
+            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(recipe == nil ? "New Recipe" : "Edit Recipe")
                     .font(.system(size: 20, weight: .bold, design: .serif))

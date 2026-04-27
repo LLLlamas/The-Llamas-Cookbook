@@ -160,8 +160,8 @@ struct RecipeDetailView: View {
                     Haptics.selection()
                     showingAppearance = true
                 } label: {
-                    LlamaLogo(size: 38, shadowColor: appearance.accentColor)
-                        .frame(width: 38, height: 38)
+                    LlamaLogo(size: 72, shadowColor: appearance.accentColor)
+                        .frame(width: 72, height: 72)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")
@@ -643,7 +643,7 @@ struct RecipeDetailView: View {
 
     private var signatureRow: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaLogo(size: 36, shadowColor: appearance.accentColor)
+            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
             Text(metaFooter)
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
