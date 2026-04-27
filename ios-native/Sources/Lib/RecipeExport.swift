@@ -3,6 +3,11 @@ import Foundation
 extension Recipe {
     /// Plain-text form suitable for the iOS share sheet → Notes, Messages,
     /// email, etc. Readable without app-specific rendering.
+    ///
+    /// Notes are surfaced as italic-style text in-app via the
+    /// `noteCallout` views, but plain text has no styling — we prefix
+    /// each note with `Note:` so the share-sheet output reads
+    /// unambiguously when round-tripped through Notes / Messages.
     var exportText: String {
         var lines: [String] = [title, ""]
 
@@ -28,12 +33,33 @@ extension Recipe {
             lines.append("")
         }
 
+        if let preface = trimmedNote(prefaceNote) {
+            lines.append("Note: \(preface)")
+            lines.append("")
+        }
+
         let orderedSteps = sortedSteps
         if !orderedSteps.isEmpty {
             lines.append("Steps")
             for (idx, s) in orderedSteps.enumerated() {
                 lines.append("\(idx + 1). \(s.text)")
+                // Per-step special note rides indented under the step
+                // it belongs to so the structure stays obvious in
+                // plain text.
+                if let stepNote = trimmedNote(s.specialNote) {
+                    lines.append("   Note: \(stepNote)")
+                }
             }
+            lines.append("")
+        }
+
+        if let epilogue = trimmedNote(epilogueNote) {
+            lines.append("Note: \(epilogue)")
+            lines.append("")
+        }
+
+        if let general = trimmedNote(generalNote) {
+            lines.append("Note: \(general)")
             lines.append("")
         }
 
@@ -42,5 +68,11 @@ extension Recipe {
         }
 
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func trimmedNote(_ value: String?) -> String? {
+        guard let v = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !v.isEmpty else { return nil }
+        return v
     }
 }

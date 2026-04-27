@@ -123,13 +123,28 @@ extension Recipe {
                     name: $0.name
                 )
             },
-            steps: sortedSteps.map {
-                DraftStep(
-                    id: $0.id,
-                    text: $0.text,
-                    needsTimer: $0.needsTimer,
-                    specialNote: $0.specialNote,
-                    images: $0.sortedStepPhotos.compactMap(\.image)
+            steps: sortedSteps.map { step in
+                // Migration: a step from a previous TestFlight build may
+                // still have its bytes in the deprecated `RecipeStep.image`
+                // single-image slot. When the new `photos` relationship is
+                // empty but the legacy field has data, lift those bytes
+                // into the draft so the next save rebuilds them as a
+                // `RecipeStepPhoto` row instead of cascade-deleting the
+                // sidecar via `steps.removeAll()`. After the user opens +
+                // saves a recipe once, `step.image` ends up nil (no
+                // writes target it), and SwiftData drops the orphan
+                // sidecar. New paths (toDraft for fresh recipes) just
+                // see the relationship and skip the migration branch.
+                let relationshipBytes = step.sortedStepPhotos.compactMap(\.image)
+                let images: [Data] = relationshipBytes.isEmpty
+                    ? (step.image.map { [$0] } ?? [])
+                    : relationshipBytes
+                return DraftStep(
+                    id: step.id,
+                    text: step.text,
+                    needsTimer: step.needsTimer,
+                    specialNote: step.specialNote,
+                    images: images
                 )
             },
             photos: sortedPhotos.map {

@@ -89,4 +89,23 @@ final class TimerLiveActivityController {
         }
         self.activity = nil
     }
+
+    /// End every Live Activity tied to a given recipe, regardless of
+    /// which controller (if any) currently owns it. Lets non-view
+    /// callers — `CookingSession.remove`, `cleanupCooks(forDeletedRecipeID:)`,
+    /// `endAll()` — clean up activities for cooks that were never
+    /// foregrounded (and therefore never adopted by a `CookModeView`'s
+    /// `@State` controller). Fire-and-forget; `Activity.end` is async
+    /// but the dismissal itself is owned by ActivityKit, so we don't
+    /// need to await before mutating the session.
+    static func endActivities(forRecipeID recipeID: UUID) {
+        let matching = Activity<TimerAttributes>.activities
+            .filter { $0.attributes.recipeID == recipeID }
+        for activity in matching {
+            let finalContent = ActivityContent(state: activity.content.state, staleDate: nil)
+            Task {
+                await activity.end(finalContent, dismissalPolicy: .immediate)
+            }
+        }
+    }
 }

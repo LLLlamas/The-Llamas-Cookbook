@@ -232,22 +232,36 @@ final class CookingSession {
         isCookModeVisible = true
     }
 
-    /// Drop one cook from the session — used by Mark-as-cooked and the
-    /// per-cook exit flow. Three outcomes:
-    ///   • Last cook → `endAll()` (cover dismisses, persistence cleared)
-    ///   • Foregrounded cook removed, others remain → hand off
-    ///     foreground to the first remaining cook, seed
-    ///     `pendingRestoration` from its snapshot so the cover swaps
-    ///     to that cook's view via `.id(cookID)` recreation
-    ///   • Background cook removed → just persist the trimmed array;
-    ///     the cover stays on whatever was foregrounded
+    /// Drop one cook from the session — used by Mark-as-cooked, the
+    /// per-cook exit flow, and `cleanupCooks(forDeletedRecipeID:)`.
+    /// Owns *all* per-cook teardown so callers don't have to:
+    ///   • End the matching Live Activity (works even when the cook
+    ///     was never foregrounded and so no view-level controller
+    ///     ever adopted its activity).
+    ///   • Cancel the per-cook scheduled notification.
+    ///   • Trim `activeCooks`.
+    ///   • If the removed cook was foregrounded, hand off to the next
+    ///     cook and seed `pendingRestoration` so the rebuilt
+    ///     `CookModeView` (via `.id(cookID)` in RootView) reads its
+    ///     progress instead of falling into the fresh-start branch.
+    ///   • If it was the last cook, fall through to `endAll()`
+    ///     (dismisses the cover + clears persistence).
+    ///   • Otherwise persist the trimmed array.
     ///
     /// **Critical for multi-cook:** without this method, the only path
     /// from CookModeView's close button was `session.end()` which
     /// wipes every cook regardless of how many are active.
     func remove(cookID: UUID) {
-        guard activeCooks.contains(where: { $0.id == cookID }) else { return }
+        guard let removed = activeCooks.first(where: { $0.id == cookID }) else { return }
         activeCooks.removeAll { $0.id == cookID }
+
+        // Per-cook cleanup. Lifted out of CookModeView.onDisappear so
+        // the session is the single source of truth for cook lifecycle
+        // — non-foregrounded cooks (which never had a view) get cleaned
+        // up correctly too.
+        TimerLiveActivityController.endActivities(forRecipeID: removed.recipe.id)
+        TimerNotifications.cancel(cookID: cookID)
+
         if activeCooks.isEmpty {
             endAll()
             return
@@ -255,12 +269,30 @@ final class CookingSession {
         if foregroundedCookID == cookID {
             let next = activeCooks.first
             foregroundedCookID = next?.id
-            // Seed restoration so the new CookModeView (rebuilt via
-            // `.id(cookID)` in RootView) reads the next cook's progress
-            // instead of falling into the fresh-start branch.
             pendingRestoration = next?.toState()
         }
         CookingSessionStore.save(activeCooks.map { $0.toState() })
+    }
+
+    /// Drop every cook whose recipe has just been deleted from
+    /// SwiftData. Called from the Library / Detail delete paths
+    /// **before** `modelContext.delete(recipe)` runs so the session
+    /// never holds a dangling reference to a deleted `@Model` object.
+    /// Without this guard, tapping a stale pill or a Live Activity
+    /// for a deleted recipe would access a SwiftData fault that no
+    /// longer exists, producing either a crash or a "ghost" cook
+    /// that wedges the resume pill open.
+    ///
+    /// Cleanup mirrors `remove(cookID:)` per cook removed: ends the
+    /// matching Live Activity, cancels its scheduled notification,
+    /// trims `activeCooks`, hands off foreground if needed, and
+    /// dismisses the cover when the last cook goes away.
+    func cleanupCooks(forDeletedRecipeID recipeID: UUID) {
+        let doomed = activeCooks.filter { $0.recipe.id == recipeID }
+        guard !doomed.isEmpty else { return }
+        for cook in doomed {
+            remove(cookID: cook.id)
+        }
     }
 
     /// Hide the Cook Mode cover but keep the session alive. Timers +
@@ -344,6 +376,14 @@ final class CookingSession {
     // MARK: - Private
 
     private func endAll() {
+        // End each cook's Live Activity individually so the lock-screen
+        // / Dynamic Island state matches the in-app teardown. Note: by
+        // the time `remove(cookID:)` falls through to `endAll`, that
+        // cook's activity is already ended — the loop covers the
+        // "explicit close X / multi-cook tear down everything" path.
+        for cook in activeCooks {
+            TimerLiveActivityController.endActivities(forRecipeID: cook.recipe.id)
+        }
         activeCooks = []
         foregroundedCookID = nil
         isCookModeVisible = false
@@ -351,8 +391,10 @@ final class CookingSession {
         CookingSessionStore.clear()
         // Wipe any pending/delivered timer notifications across all
         // cooks (and the legacy single-id from pre-multi installs).
-        // CookModeView's onDisappear handles the per-cook case during
-        // remove(); this call covers the "kill everything" path.
+        // remove(cookID:) handles the per-cook case during graceful
+        // teardown; this call covers the "kill everything" path and
+        // any leftover notifications scheduled before the multi-cook
+        // ID convention landed.
         TimerNotifications.cancelAll()
     }
 }

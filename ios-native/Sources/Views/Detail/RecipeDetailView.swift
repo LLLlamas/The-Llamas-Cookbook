@@ -239,6 +239,10 @@ struct RecipeDetailView: View {
         .alert("Delete recipe?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
+                // Mirror LibraryView's delete path: drop any cook for
+                // this recipe before the @Model is deleted so the
+                // session never references a dangling SwiftData fault.
+                session.cleanupCooks(forDeletedRecipeID: recipe.id)
                 modelContext.delete(recipe)
                 dismiss()
             }

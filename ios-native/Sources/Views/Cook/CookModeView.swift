@@ -189,21 +189,25 @@ struct CookModeView: View {
             // recipe (multi-cook safe: filters by recipeID rather
             // than grabbing whatever's first in the activities list).
             liveActivity.adopt(forRecipeID: recipe.id)
+            // Keep the screen awake while Cook Mode is foregrounded —
+            // hands are usually wet, the user isn't tapping every few
+            // seconds, and a screen lock mid-recipe means scrubbing
+            // back to the right step. Reset on disappear so the
+            // setting doesn't leak when the user minimizes / closes.
+            UIApplication.shared.isIdleTimerDisabled = true
         }
         .onDisappear {
             // The in-app alarm task uses local @State that's destroyed
             // either way; stop it on every disappear so it doesn't leak.
             stopAlarm()
-            // Tear down THIS cook's Live Activity + scheduled
-            // notification only when this cook is no longer in the
-            // session (close X / Mark cooked / Stop). Minimize and
-            // pill-tap-switch both keep this cook in `activeCooks`
-            // so the lock-screen widget keeps ticking and re-attaches
-            // when the user comes back.
-            if !session.activeCooks.contains(where: { $0.id == cookID }) {
-                liveActivity.end()
-                TimerNotifications.cancel(cookID: cookID)
-            }
+            UIApplication.shared.isIdleTimerDisabled = false
+            // Live Activity + notification cleanup is owned by
+            // `CookingSession.remove(cookID:)` (and `endAll()`), so the
+            // view doesn't need to detect "cook removed vs. just
+            // minimized / switched" anymore. Minimize and pill-tap
+            // switch leave the cook in `activeCooks`, the session
+            // doesn't tear anything down, and the lock-screen widget
+            // keeps ticking until the user explicitly stops/closes.
         }
         .fullScreenCover(isPresented: $timerExpired) {
             TimerReadyOverlay(

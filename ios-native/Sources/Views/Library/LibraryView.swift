@@ -67,6 +67,10 @@ struct LibraryView: View {
         ) { recipe in
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
+                // Drop any active cook for this recipe BEFORE the
+                // delete fires so CookingSession doesn't end up
+                // holding a SwiftData fault to a deleted @Model.
+                session.cleanupCooks(forDeletedRecipeID: recipe.id)
                 modelContext.delete(recipe)
                 deletingRecipe = nil
             }
@@ -514,8 +518,14 @@ private struct LetterIndex: View {
 @MainActor
 private func previewContainer(populated: Bool) -> ModelContainer {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    // Declare every @Model type explicitly so the preview container
+    // matches the live one in `LlamasCookbookApp` — SwiftData usually
+    // auto-discovers `RecipePhoto` / `RecipeStepPhoto` via inverse
+    // relationships, but listing them here keeps Previews from
+    // crashing on a Mac if that auto-discovery ever drifts.
     let container = try! ModelContainer(
         for: Recipe.self, Ingredient.self, RecipeStep.self,
+        RecipePhoto.self, RecipeStepPhoto.self,
         configurations: config
     )
     if populated {
