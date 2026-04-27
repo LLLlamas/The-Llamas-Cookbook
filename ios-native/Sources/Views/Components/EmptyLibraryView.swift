@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct EmptyLibraryView: View {
+    @Environment(AppearanceSettings.self) private var appearance
+
     var body: some View {
         VStack(spacing: AppSpacing.lg) {
-            LlamaMascot(size: 140)
+            LlamaLogo(size: 140, shadowColor: appearance.accentColor)
             Text("No recipes yet")
                 .font(AppFont.sectionHeading)
                 .foregroundStyle(AppColor.textPrimary)
@@ -20,4 +22,5 @@ struct EmptyLibraryView: View {
 
 #Preview {
     EmptyLibraryView()
+        .environment(AppearanceSettings())
 }

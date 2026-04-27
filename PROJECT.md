@@ -291,7 +291,7 @@ The developer (Lorenzo) is on **Windows**. Swift can't build iOS apps on Windows
 Live as of the last commit on `main`:
 
 - Settings screen is not ported (still a stub).
-- App icon is a placeholder geometry generated at CI time. Real artwork needs a 1024×1024 PNG dropped at `ios-native/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png` + the CI "Generate placeholder app icon" step removed.
+- App icon ships real Llamas Cookbook artwork — the legacy multi-size set (14 PNGs) is committed under `ios-native/Resources/Assets.xcassets/AppIcon.appiconset/` and CI's "Sanitize app icon PNGs" step strips alpha in place at archive time so Xcode 26's actool accepts the opaque sRGB output. Source SVG + per-platform exports live at repo-root `assets/`.
 - No image picker / recipe hero image (Recipe.imageUri exists on the model, not yet surfaced in UI).
 - No `expo-keep-awake` equivalent wired yet. `UIApplication.shared.isIdleTimerDisabled = true` during Cook Mode is the one-liner fix.
 - iPad layout is not supported (target family is iPhone only for now).

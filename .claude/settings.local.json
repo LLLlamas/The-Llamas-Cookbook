@@ -30,7 +30,17 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(grep -iE \"\\\\.md$|state|photo\")",
       "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run view 24996520415 --log-failed)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(command -v magick)",
+      "Bash(command -v convert)",
+      "Bash(command -v ffmpeg)",
+      "Bash(rm -f Assets.xcassets/AppIcon.appiconset/AppIcon.png)",
+      "Bash(cp export/ios/*.png Assets.xcassets/AppIcon.appiconset/)",
+      "Bash(cp export/ios/Contents.json Assets.xcassets/AppIcon.appiconset/Contents.json)",
+      "Bash(mkdir -p Assets.xcassets/LlamaLogo.imageset)",
+      "Bash(cp export/png/logo-256.png Assets.xcassets/LlamaLogo.imageset/LlamaLogo.png)",
+      "Bash(cp export/png/logo-512.png Assets.xcassets/LlamaLogo.imageset/LlamaLogo@2x.png)",
+      "Bash(cp export/png/logo-1024.png Assets.xcassets/LlamaLogo.imageset/LlamaLogo@3x.png)"
     ]
   }
 }

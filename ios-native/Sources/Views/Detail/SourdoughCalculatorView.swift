@@ -78,7 +78,7 @@ struct SourdoughCalculatorView: View {
 
     private var header: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaMascot(size: 44, color: appearance.accentColor)
+            LlamaLogo(size: 44, shadowColor: appearance.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Feeding calculator")
                     .font(.system(size: 20, weight: .bold, design: .serif))

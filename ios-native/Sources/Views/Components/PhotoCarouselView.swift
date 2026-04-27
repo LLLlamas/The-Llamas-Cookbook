@@ -55,9 +55,44 @@ struct PhotoCarouselView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var pickerItems: [PhotosPickerItem] = []
-    @State private var selectedPage: Int = 0
+    @State private var selectedPage: Int
     @State private var pendingDeleteIndex: Int?
     @State private var isProcessing: Bool = false
+
+    /// Custom init so `selectedPage` seeds from `initialPage` exactly
+    /// once at view-storage allocation. Parent re-renders (e.g. after
+    /// the user commits a caption and the captions array updates)
+    /// re-evaluate this struct's body, but `@State` storage is keyed
+    /// by view identity — initial values written through `_state =
+    /// State(initialValue:)` do not reset on re-evaluation. The
+    /// previous `.onAppear` seed was vulnerable to re-firing in some
+    /// SwiftUI contexts and silently snapping the carousel back to
+    /// `initialPage` whenever the user committed a caption.
+    init(
+        photoData: [Data],
+        title: String? = nil,
+        initialPage: Int = 0,
+        captions: [String?]? = nil,
+        onAdd: (([Data]) async -> Void)? = nil,
+        onDelete: ((Int) -> Void)? = nil,
+        onSetCaption: ((Int, String?) -> Void)? = nil,
+        onReorder: ((IndexSet, Int) -> Void)? = nil,
+        maxImages: Int? = nil
+    ) {
+        self.photoData = photoData
+        self.title = title
+        self.initialPage = initialPage
+        self.captions = captions
+        self.onAdd = onAdd
+        self.onDelete = onDelete
+        self.onSetCaption = onSetCaption
+        self.onReorder = onReorder
+        self.maxImages = maxImages
+        let clamped = photoData.isEmpty
+            ? 0
+            : max(0, min(initialPage, photoData.count - 1))
+        self._selectedPage = State(initialValue: clamped)
+    }
 
     private var canAdd: Bool {
         guard onAdd != nil else { return false }
@@ -104,13 +139,10 @@ struct PhotoCarouselView: View {
         // survive any internal view swaps inside `Group`.
         .onAppear {
             stylePageControl()
-            // Land on the page the caller asked for (e.g. tapping a
-            // mid-row thumbnail in the photo strip should open the
-            // carousel at *that* photo, not always page 0). Clamp to
-            // the valid range defensively.
-            if !photoData.isEmpty {
-                selectedPage = min(max(initialPage, 0), photoData.count - 1)
-            }
+            // `selectedPage` is now seeded from `initialPage` in init —
+            // doing it here would risk re-firing on parent re-render
+            // and snapping back to `initialPage` whenever the user
+            // commits a caption.
         }
         .onChange(of: pickerItems) { _, items in
             handlePicked(items)
@@ -421,56 +453,81 @@ struct PhotoCarouselView: View {
     }
 }
 
-/// Caption row beneath the carousel photo. Three states:
-///   1. **Editable + has caption** — italic display, tap to edit.
-///   2. **Editable + no caption** — "+ Add description" pill button.
-///   3. **Read-only + has caption** — italic display, no tap.
-///   4. **Read-only + no caption** — collapses (renders nothing).
+/// Caption row beneath the carousel photo. Two render modes:
 ///
-/// Editing is inline: tapping flips into `isEditing`, the TextField
-/// takes focus, and submit / Done commits via `onCommit`. Paging to a
-/// different photo (`pageIndex` change) auto-commits the in-flight
-/// edit so the user can't accidentally lose typed text by swiping.
+///   - **Editable** — TextField is always rendered when editable. The
+///     placeholder ("Add a description…") doubles as the empty-state
+///     affordance, and tapping the field focuses it + raises the
+///     keyboard. Tapping Done dismisses the keyboard; the field stays
+///     visible with the typed text. There is **no swap** to a separate
+///     "display" view on Done — that swap was responsible for two
+///     bugs: (a) layout would shift when the editor's reserved-3-line
+///     height collapsed to a 1-line display row, and (b) the user's
+///     just-released Done finger could land on the freshly-rendered
+///     display row and bring the keyboard right back up.
+///
+///   - **Read-only** — italic text display when caption is non-empty;
+///     collapses to nothing when caption is empty.
+///
+/// Caption persistence funnels entirely through `onChange(of: fieldFocused)`:
+/// any path that drops focus (Done button, tap-away, page swipe, view
+/// teardown) calls `commit()` once. Caller's `onCommit` is idempotent
+/// w.r.t. unchanged text, so multiple commits during a session are safe.
 private struct CaptionRow: View {
     let pageIndex: Int
     let caption: String?
     let editable: Bool
     let onCommit: (String?) -> Void
 
-    @State private var draft: String = ""
-    @State private var isEditing: Bool = false
+    @State private var draft: String
     @FocusState private var fieldFocused: Bool
+
+    init(
+        pageIndex: Int,
+        caption: String?,
+        editable: Bool,
+        onCommit: @escaping (String?) -> Void
+    ) {
+        self.pageIndex = pageIndex
+        self.caption = caption
+        self.editable = editable
+        self.onCommit = onCommit
+        // Seed `draft` from the caption at view-storage allocation so
+        // the TextField shows existing text on first render — no
+        // post-onAppear flicker.
+        self._draft = State(initialValue: caption ?? "")
+    }
 
     var body: some View {
         Group {
-            if isEditing && editable {
+            if editable {
                 editor
             } else if let caption, !caption.isEmpty {
-                displayRow(caption)
-            } else if editable {
-                addButton
+                readOnlyRow(caption)
             } else {
                 EmptyView()
             }
         }
-        // No implicit animation on the editor ↔ displayRow swap. The
-        // animated container was making the height change feel like
-        // the page itself was sliding when the user tapped Done.
-        // Instant swap is less visually busy.
+        .onChange(of: caption) { _, newCaption in
+            // Caption changed externally (e.g. delete reordered the
+            // captions array, or another flow updated it). Mirror to
+            // `draft` only when the user isn't actively typing — we'd
+            // never want to clobber unsaved input.
+            if !fieldFocused {
+                draft = newCaption ?? ""
+            }
+        }
         .onChange(of: pageIndex) { _, _ in
-            // User swiped to a different photo. If they were mid-edit,
-            // commit whatever they had typed before tearing down — losing
-            // a caption to a stray swipe would be the worst kind of
-            // silent data loss. Then refresh the draft to match the new
-            // page's caption.
-            if isEditing { commit() }
+            // Defensive: each per-page CaptionRow has a static
+            // pageIndex so this rarely fires, but if it ever does
+            // commit any unsaved typing first, then re-sync the draft.
+            if fieldFocused { commit() }
             draft = caption ?? ""
         }
         .onChange(of: fieldFocused) { _, focused in
-            // Tap-away dismissal — when the keyboard goes away (user
-            // taps elsewhere, scroll dismisses, etc.) commit + collapse
-            // back to display mode.
-            if !focused && isEditing {
+            // Single commit funnel — Done button, tap-away, page
+            // swipe, view teardown all flow through here.
+            if !focused {
                 commit()
             }
         }
@@ -492,9 +549,7 @@ private struct CaptionRow: View {
             .lineLimit(3, reservesSpace: true)
             .focused($fieldFocused)
             // System Return on the keyboard so newlines insert
-            // naturally inside the multi-line field. Commit goes
-            // through the explicit Done button below + tap-away
-            // (focus-loss) commit path.
+            // naturally inside the multi-line field.
             .submitLabel(.return)
             .font(.system(size: 14, weight: .regular, design: .serif))
             .italic()
@@ -503,23 +558,20 @@ private struct CaptionRow: View {
             .background(AppColor.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(AppColor.accent.opacity(0.5), lineWidth: 1)
+                    .stroke(
+                        fieldFocused ? AppColor.accent.opacity(0.5) : AppColor.divider,
+                        lineWidth: 1
+                    )
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
-            // Bigger hit target — the previous tiny text-only button
-            // sat right above the keyboard and was easy to fat-finger.
-            // Padding + contentShape expands the tap area without
-            // changing the visual weight too much.
-            //
-            // The button only dismisses the keyboard; the
-            // `onChange(of: fieldFocused)` handler runs `commit()`
-            // afterwards. Routing through that single path (instead
-            // of also calling `commit()` here) keeps the dismiss +
-            // collapse + caption-write sequence in one consistent
-            // order and stops the brief visual hiccup where the
-            // editor disappears while the keyboard is still
-            // animating away.
+            // Done button. Action is **just** "dismiss focus" — the
+            // commit happens through `onChange(of: fieldFocused)` so
+            // the codepath is identical to tap-away or page-swipe
+            // dismissal. The button stays mounted regardless of
+            // focus state so the editor's overall height never shifts;
+            // when `fieldFocused == false` it's effectively a no-op
+            // (resigning a non-existent first responder is harmless).
             Button {
                 fieldFocused = false
                 // Belt-and-suspenders responder resign — some sheet
@@ -532,7 +584,7 @@ private struct CaptionRow: View {
             } label: {
                 Text("Done")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(fieldFocused ? AppColor.accent : AppColor.accent.opacity(0.4))
                     .padding(.horizontal, AppSpacing.md)
                     .padding(.vertical, AppSpacing.xs + 2)
                     .contentShape(Rectangle())
@@ -541,78 +593,18 @@ private struct CaptionRow: View {
         }
     }
 
-    private func displayRow(_ caption: String) -> some View {
-        Button {
-            guard editable else { return }
-            startEditing(seed: caption)
-        } label: {
-            HStack(alignment: .top, spacing: AppSpacing.sm) {
-                Text(caption)
-                    .font(.system(size: 14, weight: .regular, design: .serif))
-                    .italic()
-                    .foregroundStyle(AppColor.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-                if editable {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppColor.textTertiary)
-                        .padding(.top, 2)
-                }
-            }
+    private func readOnlyRow(_ caption: String) -> some View {
+        Text(caption)
+            .font(.system(size: 14, weight: .regular, design: .serif))
+            .italic()
+            .foregroundStyle(AppColor.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
             .padding(AppSpacing.sm + 2)
-            .background(AppColor.surface.opacity(editable ? 1 : 0))
-            .overlay(
-                RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(
-                        editable ? AppColor.divider : .clear,
-                        lineWidth: editable ? 1 : 0
-                    )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-        }
-        .buttonStyle(.plain)
-        .disabled(!editable)
-    }
-
-    private var addButton: some View {
-        Button {
-            startEditing(seed: "")
-        } label: {
-            HStack(spacing: AppSpacing.xs + 2) {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .bold))
-                Text("Add description")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .foregroundStyle(AppColor.accent)
-            .padding(.horizontal, AppSpacing.md)
-            .padding(.vertical, AppSpacing.xs + 2)
-            .overlay(Capsule().stroke(AppColor.accent.opacity(0.6), lineWidth: 1))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func startEditing(seed: String) {
-        draft = seed
-        isEditing = true
-        // Defer focus until the editor view is fully attached. Inside a
-        // sheet-presented carousel (the step-photos path), 40ms isn't
-        // enough — the focus binding silently drops if the TextField
-        // isn't yet in the responder chain. 200ms covers the sheet
-        // hierarchy's settle time without feeling like a delay.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
-            fieldFocused = true
-        }
     }
 
     private func commit() {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         onCommit(trimmed.isEmpty ? nil : trimmed)
-        isEditing = false
-        fieldFocused = false
     }
 }

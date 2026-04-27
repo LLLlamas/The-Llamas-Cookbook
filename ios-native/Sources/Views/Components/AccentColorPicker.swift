@@ -61,7 +61,7 @@ struct AccentColorPicker: View {
 
     private var preview: some View {
         VStack(spacing: AppSpacing.sm) {
-            LlamaMascot(size: 72, color: settings.accentColor)
+            LlamaLogo(size: 72, shadowColor: settings.accentColor)
 
             Text("Sample Recipe Title")
                 .font(AppFont.recipeTitle)

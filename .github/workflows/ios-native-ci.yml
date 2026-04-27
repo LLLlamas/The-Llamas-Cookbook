@@ -233,7 +233,7 @@ jobs:
           rm Resources/timer-alarm.wav
           ls -la Resources/timer-alarm.caf
 
-      - name: Generate placeholder app icon
+      - name: Sanitize app icon PNGs
         run: |
           set -euo pipefail
           if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
@@ -242,40 +242,46 @@ jobs:
           fi
           IM=$(command -v magick || command -v convert)
           ICON_DIR="Resources/Assets.xcassets/AppIcon.appiconset"
-          ICON_PATH="$ICON_DIR/AppIcon.png"
 
-          # Intentionally no text. Font resolution through Homebrew's
-          # ImageMagick on macOS runners is unreliable (fontconfig doesn't
-          # index system fonts, downloaded TTFs sometimes 404 from Google
-          # Fonts' static paths). Apple's validation only cares that the
-          # 1024x1024 PNG exists; the content is cosmetic. Use pure drawing
-          # primitives so this step cannot fail on missing fonts.
+          # Real Llamas Cookbook artwork lives at every required slot
+          # under AppIcon.appiconset/. The PNGs ship as RGBA (alpha
+          # channel preserved by the SVG → PNG export pipeline), but
+          # Apple has always required opaque sRGB no-alpha icons —
+          # Xcode 16 tolerated RGBA with a warning, Xcode 26 rejects
+          # it as a hard "CompileAssetCatalogVariant thinned" archive
+          # failure. We re-encode each PNG in place so the committed
+          # artwork stays portable for design re-export while the
+          # built bundle gets the strict format actool wants.
           #
-          # Xcode 26's actool got strict about icon PNG format. Apple has
-          # always required app icons to be opaque sRGB with no alpha
-          # channel; Xcode 16 tolerated RGBA with a warning, Xcode 26
-          # rejects it as a hard "CompileAssetCatalogVariant thinned"
-          # archive failure. The three flags below force the right output:
-          # -alpha off drops the alpha channel, -colorspace sRGB sets the
-          # color profile actool expects, and png:color-type=2 forces an
-          # RGB (no-alpha) PNG encoding regardless of ImageMagick defaults.
-          "$IM" -size 1024x1024 xc:"#C97C5D" \
-            -fill "#FFFDF8" \
-            -draw "circle 512,512 512,180" \
-            -fill "#2B2320" \
-            -draw "circle 440,440 440,420" \
-            -draw "circle 584,440 584,420" \
-            -alpha off \
-            -colorspace sRGB \
-            -define png:color-type=2 \
-            "$ICON_PATH"
-          echo "Generated $ICON_PATH"
-          ls -la "$ICON_PATH"
-          # Print the actual encoded format so the next actool failure is
-          # quick to diagnose. Want to see "PNG 1024x1024 ... sRGB" with
-          # no mention of "Matte" / alpha. If alpha sneaks back in, the
-          # identify line will say so and we can iterate without guessing.
-          "$IM" identify "$ICON_PATH"
+          # Flags: -alpha off drops the alpha channel, -background
+          # white composites any transparent pixels onto white (the
+          # icons have a flat warm background already, so this is a
+          # no-op for our artwork but keeps the conversion safe for
+          # any future export with transparent corners), -colorspace
+          # sRGB sets the color profile, and png:color-type=2 forces
+          # an RGB (no-alpha) PNG encoding regardless of ImageMagick
+          # defaults.
+          shopt -s nullglob
+          icons=( "$ICON_DIR"/*.png )
+          if [ "${#icons[@]}" -eq 0 ]; then
+            echo "::error::No PNGs in $ICON_DIR — appiconset is empty"
+            exit 1
+          fi
+
+          for icon in "${icons[@]}"; do
+            tmp="${icon}.opaque.png"
+            "$IM" "$icon" \
+              -background white -alpha remove -alpha off \
+              -colorspace sRGB \
+              -define png:color-type=2 \
+              "$tmp"
+            mv "$tmp" "$icon"
+          done
+
+          echo "Sanitized ${#icons[@]} icon PNG(s):"
+          for icon in "${icons[@]}"; do
+            "$IM" identify "$icon"
+          done
 
       - name: Archive
         run: |

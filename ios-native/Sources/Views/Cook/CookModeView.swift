@@ -338,7 +338,7 @@ struct CookModeView: View {
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
 
-            LlamaMascot(size: 32)
+            LlamaLogo(size: 32, shadowColor: appearance.accentColor)
         }
         .padding(.horizontal, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)

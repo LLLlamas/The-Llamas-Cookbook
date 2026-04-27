@@ -57,7 +57,7 @@ struct LibraryView: View {
                         Haptics.selection()
                         showingAppearance = true
                     } label: {
-                        LlamaMascot(size: 38, color: appearance.accentColor)
+                        LlamaLogo(size: 38, shadowColor: appearance.accentColor)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Customize accent color")
@@ -130,7 +130,9 @@ struct LibraryView: View {
     private var mascotWatermark: some View {
         VStack {
             Spacer(minLength: 0)
-            LlamaMascot(size: 300)
+            // Watermark at 6% opacity — drop the shadow entirely
+            // (a halo on a faint logo just muddies the page).
+            LlamaLogo(size: 300, shadowOpacity: 0)
                 .opacity(0.06)
                 .padding(.bottom, 120)
         }

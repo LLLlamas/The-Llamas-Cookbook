@@ -3,6 +3,7 @@ import UIKit
 
 struct ConversionsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var calcFocused: Bool
 
     var body: some View {
@@ -42,7 +43,7 @@ struct ConversionsView: View {
 
     private var header: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaMascot(size: 44)
+            LlamaLogo(size: 44, shadowColor: appearance.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Kitchen reference")
                     .font(.system(size: 20, weight: .bold, design: .serif))

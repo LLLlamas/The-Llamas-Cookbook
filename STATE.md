@@ -192,7 +192,7 @@ The-Llamas-Cookbook/
 │   │   └── Views/
 │   │       ├── Components/
 │   │       │   ├── EmptyLibraryView.swift
-│   │       │   └── LlamaMascot.swift         ← Canvas-drawn mascot
+│   │       │   └── LlamaLogo.swift           ← bitmap brand logo + accent-driven drop shadow
 │   │       ├── Library/
 │   │       │   ├── LibraryView.swift         ← list + filters + A–Z index + FAB
 │   │       │   ├── RecipeCardView.swift      ← card with gradient + tag chips + dates

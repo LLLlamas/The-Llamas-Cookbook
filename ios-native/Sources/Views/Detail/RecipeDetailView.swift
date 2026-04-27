@@ -160,7 +160,7 @@ struct RecipeDetailView: View {
                     Haptics.selection()
                     showingAppearance = true
                 } label: {
-                    LlamaMascot(size: 38, color: appearance.accentColor)
+                    LlamaLogo(size: 38, shadowColor: appearance.accentColor)
                         .frame(width: 38, height: 38)
                 }
                 .buttonStyle(.plain)
@@ -515,13 +515,13 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// Photos entry-point. Renders every gallery photo as a small
+    /// Photos entry-point. Renders **every** gallery photo as a small
     /// rounded thumbnail in a single horizontal scroll row — first
     /// photo on the left acts as the "hero", every additional photo
-    /// trails after it on the same row. Tapping any thumbnail opens
-    /// the existing carousel at that index, so the larger viewing
-    /// experience is unchanged. Empty gallery falls back to a single
-    /// "Add" placeholder so the user still has a tap target.
+    /// trails after it on the same row, no cap. Tapping any thumbnail
+    /// opens the existing carousel at that index, so the larger
+    /// viewing experience is unchanged. Empty gallery falls back to
+    /// a single "Add" placeholder so the user still has a tap target.
     private var photosButton: some View {
         let displayablePhotos = recipe.sortedPhotos.filter { $0.image != nil }
 
@@ -530,16 +530,29 @@ struct RecipeDetailView: View {
                 if displayablePhotos.isEmpty {
                     photoThumb(image: nil, index: 0)
                 } else {
-                    ForEach(Array(displayablePhotos.enumerated()), id: \.element.id) { idx, photo in
-                        photoThumb(image: photo.image, index: idx)
+                    // Iterate over indices with `\.self` ID — bulletproof
+                    // against any Identifiable conformance edge cases on
+                    // the @Model `RecipePhoto` and avoids enumerated()
+                    // tuple keypath quirks. Each thumbnail's index is
+                    // routed straight into `carouselStartPage` so taps
+                    // open the carousel on the matching page.
+                    ForEach(displayablePhotos.indices, id: \.self) { idx in
+                        photoThumb(
+                            image: displayablePhotos[idx].image,
+                            index: idx
+                        )
                     }
                 }
             }
+            // Tiny inset on either end so a shadow on the first/last
+            // thumb isn't clipped by the ScrollView's content bounds.
+            .padding(.horizontal, 2)
+            .padding(.vertical, 4)
         }
-        // Trim the scroll view's bounds to the photo height so the
-        // strip doesn't claim extra vertical space. Horizontal
-        // padding is handled by the surrounding section's padding.
-        .frame(height: 72)
+        // Slightly taller than the 72pt thumb so the soft drop shadow
+        // has room without getting clipped by the scroll view's
+        // content rect.
+        .frame(height: 84)
     }
 
     /// One thumbnail in the photo strip. Tap opens the carousel at
@@ -630,7 +643,7 @@ struct RecipeDetailView: View {
 
     private var signatureRow: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaMascot(size: 36)
+            LlamaLogo(size: 36, shadowColor: appearance.accentColor)
             Text(metaFooter)
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
