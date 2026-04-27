@@ -29,6 +29,21 @@ final class Recipe {
     var epilogueNote: String?
     var generalNote: String?
 
+    /// Provenance metadata for recipes imported from another user via
+    /// the app-to-app share flow (`.llamarecipe` file or
+    /// `llamascookbook://recipe/...` deep link). Nil for locally-
+    /// authored recipes — the user made it themselves. Stamped at
+    /// materialize time by `RecipeShare.materialize(_:into:)` and
+    /// **intentionally never touched by `Recipe.apply(_:)`** (the editor
+    /// save path) so a recipient can tweak the recipe without losing the
+    /// original sharer's credit. Surfaced in Detail as
+    /// "Originally shared by {sharedBy} · {sharedAt}". `sourceShareID`
+    /// records the sender's original `Recipe.id` for future re-import
+    /// detection. See Recipe-Sharing.md §5 + §8.3.
+    var sharedBy: String?
+    var sharedAt: Date?
+    var sourceShareID: UUID?
+
     @Relationship(deleteRule: .cascade, inverse: \Ingredient.recipe)
     var ingredients: [Ingredient] = []
 

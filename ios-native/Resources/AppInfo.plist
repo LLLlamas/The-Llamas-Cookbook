@@ -54,5 +54,56 @@
             <string>Editor</string>
         </dict>
     </array>
+    <!--
+      Recipe-share file format (.llamarecipe). The exported UTType +
+      CFBundleDocumentTypes pair tells iOS we own the file extension,
+      so AirDrop / Files / Mail / Messages route incoming
+      `.llamarecipe` attachments straight into the app via onOpenURL.
+      Identifier MUST match `UTType.llamaRecipe` in
+      Sources/Lib/RecipeShare.swift — typo here means the type fails
+      to register and AirDrop falls back to "Unknown app". See
+      Recipe-Sharing.md §9.
+    -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.llamascookbook.recipe</string>
+            <key>UTTypeDescription</key>
+            <string>Llamas Cookbook Recipe</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.json</string>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>llamarecipe</string>
+                </array>
+                <key>public.mime-type</key>
+                <array>
+                    <string>application/x-llamas-recipe+json</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Llamas Cookbook Recipe</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.llamascookbook.recipe</string>
+            </array>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+        </dict>
+    </array>
 </dict>
 </plist>

@@ -6,6 +6,11 @@ import UserNotifications
 @main
 struct LlamasCookbookApp: App {
     @State private var appearance = AppearanceSettings()
+    /// Sender display name + first-share-prompt state for app-to-app
+    /// recipe sharing. Sibling to `appearance` — both are persisted-
+    /// preferences Observables, kept separate per the
+    /// one-Observable-per-concern pattern. See Recipe-Sharing.md §7.4.
+    @State private var ownerProfile = OwnerProfile()
     /// Owns the UNUserNotificationCenter delegate. SwiftUI keeps this
     /// alive for the app lifetime so foreground notification handling
     /// (sound + banner while Cook Mode is minimized) keeps working.
@@ -28,6 +33,7 @@ struct LlamasCookbookApp: App {
         WindowGroup {
             RootView()
                 .environment(appearance)
+                .environment(ownerProfile)
                 // The cream + terracotta palette has no dark-mode variant
                 // (AppColor values are hard sRGB, not asset-catalog system
                 // colors). Locking to light keeps SwiftUI's default fills
