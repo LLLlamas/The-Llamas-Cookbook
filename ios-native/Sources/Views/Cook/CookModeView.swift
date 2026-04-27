@@ -44,10 +44,10 @@ struct CookModeView: View {
 
     @State private var showingExitConfirm = false
     @State private var showingTimerSheet = false
-    /// Shake counter for the recipe title — bumped on `onAppear` so
-    /// every entry into Cook Mode (start, switch via pill, restore)
-    /// gives the title a one-off wiggle. Drives `.shake(count:)`.
-    @State private var titleShake: CGFloat = 0
+    /// Glow intensity for the recipe title (0…1). Spun up on every
+    /// entry into Cook Mode (start, pill switch, restore) and faded
+    /// back to 0, so the title softly highlights to greet the user.
+    @State private var titleGlow: Double = 0
     /// Tapped step's photo bytes, wrapped so `.sheet(item:)` drives
     /// the viewer. Nil = no viewer; non-nil = present the read-only
     /// carousel with that step's photos.
@@ -203,10 +203,16 @@ struct CookModeView: View {
             // (filters by cookID so two parallel cooks of the same
             // recipe don't grab each other's activities).
             liveActivity.adopt(forCookID: cookID, recipeID: recipe.id)
-            // One-shot title wiggle on every entry — start, restore,
-            // and pill-switch all rebuild this view via `.id(cookID)`
-            // so the shake plays cleanly on each foregrounding.
-            titleShake += 1
+            // One-shot title glow on every entry — start, restore, and
+            // pill-switch all rebuild this view via `.id(cookID)` so
+            // the highlight plays cleanly on each foregrounding. Spin
+            // up fast, hold briefly, then fade out softly.
+            titleGlow = 0
+            Task { @MainActor in
+                withAnimation(.easeOut(duration: 0.45)) { titleGlow = 1 }
+                try? await Task.sleep(for: .milliseconds(700))
+                withAnimation(.easeIn(duration: 0.85)) { titleGlow = 0 }
+            }
             // Keep the screen awake while Cook Mode is foregrounded —
             // hands are usually wet, the user isn't tapping every few
             // seconds, and a screen lock mid-recipe means scrubbing
@@ -321,11 +327,16 @@ struct CookModeView: View {
             Text(displayTitle)
                 .font(.system(size: 22, weight: .bold, design: .serif))
                 .foregroundStyle(appearance.accentColor)
+                // Two stacked accent shadows scale from 0 → full radius
+                // with `titleGlow`, producing a soft halo when the view
+                // appears. The base contact shadow is still drawn last
+                // so the title keeps its grounding regardless of glow.
+                .shadow(color: appearance.accentColor.opacity(titleGlow * 0.65), radius: 14 * titleGlow)
+                .shadow(color: appearance.accentColor.opacity(titleGlow * 0.35), radius: 26 * titleGlow)
                 .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
-                .shake(count: titleShake)
 
             LlamaMascot(size: 32)
         }

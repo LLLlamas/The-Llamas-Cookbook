@@ -5,39 +5,54 @@ struct RecipeCardView: View {
     let recipe: Recipe
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
-            HStack(alignment: .top, spacing: AppSpacing.md) {
-                // Subtle outline = four hard-edged shadows in cardinal
-                // directions, painted under the soft drop shadow. Low
-                // opacity + small offsets so it just lifts the glyph
-                // edge against the cream gradient without looking
-                // letterpressed.
-                Text(StringCase.titleCase(recipe.title))
-                    .font(AppFont.sectionHeading)
-                    .foregroundStyle(appearance.accentColor)
-                    .lineLimit(2)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4,  y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: -0.4)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: 0.4)
-                    .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
-                Spacer(minLength: 0)
-                if recipe.favorite {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 15, weight: .bold))
+        // Two-column layout: textual content on the left, a square photo
+        // thumbnail anchored top-right with the date stack pinned at the
+        // bottom of the same column. This puts the picture in the user's
+        // peripheral path while keeping the dates "right above" reading
+        // as a cohesive right rail.
+        HStack(alignment: .top, spacing: AppSpacing.md) {
+            VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
+                HStack(alignment: .top, spacing: AppSpacing.sm) {
+                    Text(StringCase.titleCase(recipe.title))
+                        .font(AppFont.sectionHeading)
                         .foregroundStyle(appearance.accentColor)
+                        .lineLimit(2)
+                        // Subtle outline = four hard-edged shadows in
+                        // cardinal directions, painted under the soft
+                        // drop shadow. Low opacity + small offsets so
+                        // it just lifts the glyph edge against the
+                        // cream gradient without looking letterpressed.
+                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
+                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4,  y: 0)
+                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: -0.4)
+                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: 0.4)
+                        .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
+                    Spacer(minLength: 0)
+                    if recipe.favorite {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                }
+
+                if let summary = recipe.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(AppFont.body)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(2)
+                }
+
+                if !recipe.tags.isEmpty {
+                    tagChips
+                        .padding(.top, 2)
                 }
             }
 
-            if let summary = recipe.summary, !summary.isEmpty {
-                Text(summary)
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textSecondary)
-                    .lineLimit(2)
+            VStack(alignment: .trailing, spacing: AppSpacing.sm) {
+                thumbnail
+                Spacer(minLength: AppSpacing.xs)
+                dateStack
             }
-
-            metaFooter
-                .padding(.top, 2)
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,19 +78,37 @@ struct RecipeCardView: View {
         .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
     }
 
-    // MARK: - Meta footer
+    // MARK: - Right rail thumbnail
 
-    /// Tag chips on the leading side, dates on the trailing side. Collapses
-    /// to single-line when it fits, wraps to a second line on narrower
-    /// titles or long tag lists.
-    private var metaFooter: some View {
-        HStack(alignment: .center, spacing: AppSpacing.sm) {
-            if !recipe.tags.isEmpty {
-                tagChips
+    /// Small rounded square photo anchored at the top of the right
+    /// column. Prefers the recipe's first gallery photo; falls back to
+    /// a faint photo glyph when the gallery is empty so the card's
+    /// right-side rhythm stays consistent across cards with and
+    /// without pictures.
+    private var thumbnail: some View {
+        Group {
+            if let photoData = recipe.sortedPhotos.first?.image {
+                RecipeImageView(
+                    data: photoData,
+                    contentMode: .fill,
+                    cornerRadius: AppRadius.md
+                )
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: AppRadius.md)
+                        .fill(AppColor.accentSoft.opacity(0.5))
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(appearance.accentColor.opacity(0.55))
+                }
             }
-            Spacer(minLength: AppSpacing.xs)
-            dateStack
         }
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
+        )
     }
 
     private var tagChips: some View {
@@ -105,15 +138,10 @@ struct RecipeCardView: View {
                 .foregroundStyle(AppColor.textSecondary)
                 .monospacedDigit()
             if let last = recipe.lastCookedAt {
-                Text("Cooked \(Self.shortDate.string(from: last))")
+                Text("Last cooked on \(Self.shortDate.string(from: last))")
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(AppColor.textTertiary)
                     .monospacedDigit()
-            } else {
-                Text("Not cooked yet")
-                    .font(.system(size: 10.5))
-                    .italic()
-                    .foregroundStyle(AppColor.textTertiary)
             }
         }
     }

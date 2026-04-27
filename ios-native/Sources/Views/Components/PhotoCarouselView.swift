@@ -453,10 +453,17 @@ private struct CaptionRow: View {
                     .foregroundStyle(AppColor.textTertiary),
                 axis: .vertical
             )
-            .lineLimit(1...3)
+            // `reservesSpace: true` keeps the field at 3 lines tall
+            // even when the user has only typed one — so adding a
+            // newline doesn't reflow the page and shrink the photo
+            // above. The 3-line cap matches the previous max.
+            .lineLimit(3, reservesSpace: true)
             .focused($fieldFocused)
-            .submitLabel(.done)
-            .onSubmit { commit() }
+            // System Return on the keyboard so newlines insert
+            // naturally inside the multi-line field. Commit goes
+            // through the explicit Done button below + tap-away
+            // (focus-loss) commit path.
+            .submitLabel(.return)
             .font(.system(size: 14, weight: .regular, design: .serif))
             .italic()
             .foregroundStyle(AppColor.textPrimary)
@@ -468,9 +475,21 @@ private struct CaptionRow: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
-            Button("Done") { commit() }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppColor.accent)
+            // Bigger hit target — the previous tiny text-only button
+            // sat right above the keyboard and was easy to fat-finger.
+            // Padding + contentShape expands the tap area without
+            // changing the visual weight too much.
+            Button {
+                commit()
+            } label: {
+                Text("Done")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppColor.accent)
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.xs + 2)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 

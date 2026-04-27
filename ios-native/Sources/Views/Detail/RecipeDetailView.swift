@@ -130,7 +130,7 @@ struct RecipeDetailView: View {
                     .padding(.top, AppSpacing.md)
                 }
                 .padding(AppSpacing.lg)
-                .padding(.bottom, 100)
+                .padding(.bottom, AppSpacing.xl)
             }
             .background(AppColor.background)
 
@@ -509,49 +509,52 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// Photos entry-point. Same shape and position as the editor's
-    /// gallery button so the user reaches photos through the same row
-    /// regardless of which surface they're on. Mutations from the
-    /// carousel persist immediately (live `@Model` Recipe relationship)
-    /// — same persistence model as the favorite-toggle.
+    /// Photos entry-point. Replaces the old labeled "Photos" row with a
+    /// small rounded thumbnail that mirrors the library card's right-rail
+    /// thumb — same size, same corner radius — so the user gets a
+    /// preview of the first photo right in the detail header. Tap opens
+    /// the existing carousel, which still owns add / delete / caption.
+    /// Falls back to a faint placeholder when the gallery is empty so
+    /// the user still has a tap target to add photos through.
     private var photosButton: some View {
         Button {
             Haptics.selection()
             showingPhotoCarousel = true
         } label: {
-            HStack(spacing: AppSpacing.sm + 2) {
-                Image(systemName: "photo.stack")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(appearance.accentColor)
-                    .frame(width: 24)
-                Text(photoButtonLabel)
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textPrimary)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppColor.textTertiary)
+            Group {
+                if let firstPhoto = recipe.sortedPhotos.first?.image {
+                    RecipeImageView(
+                        data: firstPhoto,
+                        contentMode: .fill,
+                        cornerRadius: AppRadius.md
+                    )
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .fill(AppColor.accentSoft.opacity(0.5))
+                        VStack(spacing: 2) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 18, weight: .regular))
+                            Text("Add")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundStyle(appearance.accentColor.opacity(0.7))
+                    }
+                }
             }
-            .padding(.horizontal, AppSpacing.md)
-            .padding(.vertical, AppSpacing.sm + 2)
-            .background(AppColor.surface)
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(AppColor.divider, lineWidth: 1)
+                    .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
             )
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(recipe.photos.isEmpty
             ? "Add photos"
-            : "Photos, \(recipe.photos.count)"
+            : "View photos, \(recipe.photos.count)"
         )
-    }
-
-    private var photoButtonLabel: String {
-        let count = recipe.photos.count
-        if count == 0 { return "Add Photos" }
-        return "Photos (\(count))"
     }
 
     /// Process picked bytes through ImageProcessing and append
@@ -611,25 +614,24 @@ struct RecipeDetailView: View {
     }
 
     private var startCookingBar: some View {
-        VStack {
-            Button {
-                Haptics.impact(.light)
-                session.start(recipe)
-            } label: {
-                HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "fork.knife")
-                    Text("Start Cooking")
-                        .font(.system(size: 17, weight: .semibold))
-                }
-                .foregroundStyle(AppColor.onAccent)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, AppSpacing.md)
-                .background(appearance.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        Button {
+            Haptics.impact(.light)
+            session.start(recipe)
+        } label: {
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: "fork.knife")
+                Text("Start Cooking")
+                    .font(.system(size: 17, weight: .semibold))
             }
+            .foregroundStyle(AppColor.onAccent)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, AppSpacing.md)
+            .background(appearance.accentColor)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         }
         .padding(.horizontal, AppSpacing.lg)
-        .padding(.vertical, AppSpacing.md)
+        .padding(.top, AppSpacing.xs)
+        .padding(.bottom, AppSpacing.xs)
         .background(AppColor.background.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) {
             Rectangle().fill(AppColor.divider).frame(height: 1)
@@ -656,7 +658,7 @@ struct RecipeDetailView: View {
         var parts: [String] = []
         parts.append("Added \(recipe.createdAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits).year()))")
         if let last = recipe.lastCookedAt {
-            parts.append("Last cooked \(last.formatted(.dateTime.month(.twoDigits).day(.twoDigits).year()))")
+            parts.append("Last cooked on \(last.formatted(.dateTime.month(.twoDigits).day(.twoDigits).year()))")
         }
         if recipe.cookCount > 0 {
             parts.append("Cooked \(recipe.cookCount) time\(recipe.cookCount == 1 ? "" : "s")")
