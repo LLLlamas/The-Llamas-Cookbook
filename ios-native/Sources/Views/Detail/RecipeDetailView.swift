@@ -9,6 +9,7 @@ struct RecipeDetailView: View {
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(NavigationContext.self) private var navContext
+    @Environment(OwnerProfile.self) private var ownerProfile
 
     let recipe: Recipe
 
@@ -25,6 +26,49 @@ struct RecipeDetailView: View {
     /// the viewer. Nil = no viewer; non-nil = present the carousel
     /// with that step's photos in view-only mode.
     @State private var viewingStepImages: ViewingStepImages?
+
+    // MARK: - Share state
+    //
+    // Three transports surfaced in the share Menu (file, link, text);
+    // see Recipe-Sharing.md §7. The flow:
+    //   1. Tap menu item → `triggerShare(_:)`.
+    //   2. If the action is `.text` OR the user has already responded
+    //      to the first-share name prompt, jump straight to the share
+    //      sheet via `executeShare(_:)`.
+    //   3. Otherwise stash the action in `pendingShareAction` and flip
+    //      `showingNamePrompt`. After Continue / Skip, defer the share
+    //      sheet by ~350ms so the alert dismiss doesn't race with the
+    //      sheet present (same iOS 18 modal-stacking workaround the
+    //      photo carousel uses on its picker dismiss path).
+
+    /// What the user selected from the menu while the name prompt is
+    /// in flight. Cleared on Cancel; consumed on Continue / Skip.
+    @State private var pendingShareAction: ShareAction?
+    @State private var showingNamePrompt = false
+    @State private var pendingNameInput: String = ""
+
+    /// Ready-to-share payload. Wrapped in a sum type so the cleanup
+    /// path (`onComplete` of `ShareSheet`) can distinguish the file
+    /// transport (which needs `FileManager.removeItem`) from URL /
+    /// text (no cleanup).
+    @State private var pendingShareItem: ShareItem?
+
+    private enum ShareAction {
+        case file, url, text
+    }
+
+    private enum ShareItem {
+        case file(URL)
+        case url(URL)
+        case text(String)
+
+        var activityItem: Any {
+            switch self {
+            case .file(let u), .url(let u): return u
+            case .text(let s): return s
+            }
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -185,16 +229,41 @@ struct RecipeDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(
-                    item: recipe.exportText,
-                    subject: Text(recipe.title),
-                    message: Text("Recipe from Llamas Cookbook")
-                ) {
+                Menu {
+                    // File form — full fidelity, includes photos. Always
+                    // available; recipient must have the app to open the
+                    // `.llamarecipe` attachment.
+                    Button {
+                        triggerShare(.file)
+                    } label: {
+                        Label("Share recipe", systemImage: "square.and.arrow.up.on.square")
+                    }
+                    // URL form — `llamascookbook://recipe/v1/<base64url>`
+                    // deep link. Hidden when any photos are present
+                    // because base64 image bytes blow past the URL
+                    // length budget; file form covers the rich case.
+                    if !hasAnyPhotos {
+                        Button {
+                            triggerShare(.url)
+                        } label: {
+                            Label("Share as link", systemImage: "link")
+                        }
+                    }
+                    // Text form — existing plain-text export. Bridge for
+                    // recipients without the app. Skips the name prompt
+                    // because plain text doesn't carry provenance.
+                    Button {
+                        triggerShare(.text)
+                    } label: {
+                        Label("Share as text", systemImage: "doc.plaintext")
+                    }
+                } label: {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 19, weight: .bold))
                         .foregroundStyle(appearance.accentColor)
                         .frame(width: 30, height: 30)
                 }
+                .accessibilityLabel("Share recipe")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -291,6 +360,45 @@ struct RecipeDetailView: View {
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        // First-share name prompt. Fires the very first time the user
+        // taps "Share recipe" or "Share as link" — both forms include
+        // `sharedBy` in the envelope, so we capture it once before the
+        // first outbound share. "Share as text" skips this entirely
+        // (plain text has no provenance). After Continue / Skip, the
+        // pending action is deferred ~350ms before triggering the
+        // share sheet to avoid an alert→sheet present race.
+        .alert("Who's sharing?", isPresented: $showingNamePrompt) {
+            TextField("Your name (optional)", text: $pendingNameInput)
+                .textInputAutocapitalization(.words)
+            Button("Continue") {
+                let trimmed = pendingNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                ownerProfile.userName = trimmed
+                ownerProfile.hasPromptedForName = true
+                deferredExecutePendingShare()
+            }
+            Button("Skip", role: .destructive) {
+                ownerProfile.userName = ""
+                ownerProfile.hasPromptedForName = true
+                deferredExecutePendingShare()
+            }
+            Button("Cancel", role: .cancel) {
+                pendingShareAction = nil
+            }
+        } message: {
+            Text("Lets the recipient see who sent the recipe. You can leave it blank.")
+        }
+        // System share sheet — wraps UIActivityViewController so the
+        // first-share prompt can finish before this presents. See
+        // Views/Components/ShareSheet.swift for why this can't be a
+        // SwiftUI ShareLink.
+        .sheet(isPresented: shareSheetVisible) {
+            if let item = pendingShareItem {
+                ShareSheet(items: [item.activityItem]) { _ in
+                    cleanupTempFile(for: item)
+                    pendingShareItem = nil
+                }
+            }
         }
     }
 
@@ -728,6 +836,145 @@ struct RecipeDetailView: View {
             recipe.ingredients.append(ingredient)
         }
         recipe.updatedAt = .now
+    }
+
+    // MARK: - Share flow
+
+    /// Hides the URL transport when any photos are attached — base64
+    /// inflation pushes any photo'd recipe past the URL byte ceiling
+    /// (`RecipeShare.urlByteCeiling`) and we'd rather hide the option
+    /// than offer it and silently fall back. The file form covers the
+    /// rich case.
+    private var hasAnyPhotos: Bool {
+        !recipe.photos.isEmpty || recipe.steps.contains { !$0.photos.isEmpty }
+    }
+
+    /// Menu-tap entry point. Routes through the first-share name
+    /// prompt for file/url forms; text form skips the prompt because
+    /// plain text doesn't carry provenance.
+    private func triggerShare(_ action: ShareAction) {
+        if action == .text || ownerProfile.hasPromptedForName {
+            executeShare(action)
+        } else {
+            pendingShareAction = action
+            // Pre-fill the field with whatever name the user has
+            // stored — handles the "user reset their name from a
+            // future Settings screen" case gracefully.
+            pendingNameInput = ownerProfile.userName
+            showingNamePrompt = true
+        }
+    }
+
+    /// Synchronous "build the payload, drop it into `pendingShareItem`
+    /// so the sheet binding fires" helper. URL form falls back to file
+    /// form if `encodeURL` rejects the payload (shouldn't happen when
+    /// `hasAnyPhotos` is false, but the URL ceiling is conservative
+    /// and a sufficiently long photoless recipe could still trip it).
+    private func executeShare(_ action: ShareAction) {
+        switch action {
+        case .file:
+            shareAsFile()
+        case .url:
+            shareAsURL()
+        case .text:
+            pendingShareItem = .text(recipe.exportText)
+        }
+    }
+
+    private func shareAsFile() {
+        do {
+            let envelope = makeShareEnvelope()
+            let data = try RecipeShare.encodeFile(envelope)
+            let url = try writeTempFile(data: data, name: filenameForRecipe())
+            pendingShareItem = .file(url)
+        } catch {
+            // Last-ditch fallback. The user picked Share, we should
+            // still get them a share sheet — degrading to plain text
+            // beats silent failure.
+            pendingShareItem = .text(recipe.exportText)
+        }
+    }
+
+    private func shareAsURL() {
+        let envelope = makeShareEnvelope()
+        if let url = try? RecipeShare.encodeURL(envelope) {
+            pendingShareItem = .url(url)
+        } else {
+            shareAsFile()
+        }
+    }
+
+    /// Defers the actual share sheet present by ~350ms after the
+    /// alert resolves. Without this, the sheet sometimes fails to
+    /// appear because UIKit is mid-transition dismissing the alert.
+    /// Same workaround the photo carousel uses on its picker dismiss
+    /// path (CLAUDE.md "Source layout" note re: the iOS 18 sheet-in-
+    /// sheet alert race).
+    private func deferredExecutePendingShare() {
+        let action = pendingShareAction
+        pendingShareAction = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            if let action {
+                executeShare(action)
+            }
+        }
+    }
+
+    private var shareSheetVisible: Binding<Bool> {
+        Binding(
+            get: { pendingShareItem != nil },
+            set: { newValue in
+                if !newValue, let item = pendingShareItem {
+                    // User dismissed via swipe-down without completing
+                    // (or system-dismissed); still want temp-file
+                    // cleanup. The completion handler also runs in
+                    // most paths — both paths are idempotent because
+                    // `removeItem` on a missing file just throws and
+                    // we swallow.
+                    cleanupTempFile(for: item)
+                    pendingShareItem = nil
+                }
+            }
+        )
+    }
+
+    private func cleanupTempFile(for item: ShareItem) {
+        if case .file(let url) = item {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func makeShareEnvelope() -> LCRecipeShareV1 {
+        let trimmed = ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return RecipeShare.envelope(
+            for: recipe,
+            sharedBy: trimmed.isEmpty ? nil : trimmed,
+            appVersion: currentAppVersion()
+        )
+    }
+
+    private func currentAppVersion() -> String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
+    }
+
+    /// Filesystem-safe filename for the share attachment. Strips
+    /// punctuation but preserves spaces ("Banana Bread.llamarecipe"
+    /// reads better than "BananaBread.llamarecipe" once it lands in a
+    /// recipient's Files inbox).
+    private func filenameForRecipe() -> String {
+        let allowed = CharacterSet.alphanumerics.union(.whitespacesAndNewlines)
+        let safe = recipe.title
+            .components(separatedBy: allowed.inverted)
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return safe.isEmpty ? "Recipe.llamarecipe" : "\(safe).llamarecipe"
+    }
+
+    private func writeTempFile(data: Data, name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
 }

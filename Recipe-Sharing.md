@@ -613,29 +613,28 @@ We replace it with a `Menu` that surfaces all three share options.
 
 ### 7.2 New menu
 
+The toolbar Menu surfaces three Buttons (not ShareLinks — see §7.3
+for why). Each Button drives a state machine that handles the
+prompt-then-share sequencing.
+
 ```swift
 ToolbarItem(placement: .topBarTrailing) {
     Menu {
-        ShareLink(
-            item: RecipeShareTransfer(recipe: recipe, ownerProfile: ownerProfile),
-            preview: SharePreview(recipe.title, image: recipe.firstPhotoForPreview)
-        ) {
+        Button {
+            triggerShare(.file)
+        } label: {
             Label("Share recipe", systemImage: "square.and.arrow.up.on.square")
         }
-
-        if let url = try? RecipeShare.encodeURL(envelope) {
-            ShareLink(
-                item: url,
-                preview: SharePreview(recipe.title)
-            ) {
+        if !hasAnyPhotos {
+            Button {
+                triggerShare(.url)
+            } label: {
                 Label("Share as link", systemImage: "link")
             }
         }
-
-        ShareLink(
-            item: recipe.exportText,
-            preview: SharePreview(recipe.title)
-        ) {
+        Button {
+            triggerShare(.text)
+        } label: {
             Label("Share as text", systemImage: "doc.plaintext")
         }
     } label: {
@@ -644,56 +643,130 @@ ToolbarItem(placement: .topBarTrailing) {
 }
 ```
 
-The "Share as link" item only renders when `encodeURL` succeeds
-(i.e. the payload fits under `urlByteCeiling` — automatically true
-when there are no photos). When photos are present it disappears
-quietly; the user has "Share recipe" (file form) covering the rich
-case.
+The "Share as link" item only appears when the recipe has no photos
+(`hasAnyPhotos == false`). Base64 photo payloads always exceed
+`RecipeShare.urlByteCeiling`, so gating on photo presence avoids
+exposing a menu option that would fail at encode time. The file form
+covers the rich case; "Share as text" remains as the universal fallback
+for non-app recipients.
 
-### 7.3 `RecipeShareTransfer: Transferable`
+### 7.3 `ShareSheet` — `UIActivityViewController` wrapper
 
-A small wrapper that lets ShareLink emit the `.llamarecipe` file:
+> **Why not `ShareLink + Transferable`?** SwiftUI's `ShareLink` only
+> presents in response to a tap on its own button — there's no
+> programmatic-trigger API as of iOS 18 (no `.shareSheet(isPresented:)`
+> modifier, no proxy you can poke). The first-share prompt has to
+> resolve **before** the share sheet opens (per §7.4: Continue / Skip
+> "proceeds to ShareLink"), and there's no SwiftUI-native way to gate
+> a `ShareLink` behind an alert without either (a) firing the share
+> first and prompting after, which sends the first share with empty
+> provenance, or (b) requiring the user to re-tap the share icon
+> after the prompt, which adds friction. Both options were rejected.
+> So we wrap `UIActivityViewController` in a small
+> `UIViewControllerRepresentable` and present it via
+> `.sheet(isPresented:)` — the share sheet is fully state-driven, the
+> prompt completes first, and the file/URL/text item gets handed in
+> as the activity item.
 
 ```swift
-struct RecipeShareTransfer: Transferable {
-    let recipe: Recipe
-    let ownerProfile: OwnerProfile
+// Sources/Views/Components/ShareSheet.swift
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    var onComplete: ((Bool) -> Void)? = nil
 
-    var fileName: String {
-        // Filesystem-safe; "Banana Bread.llamarecipe" not "Banana
-        // Bread / version 2.llamarecipe"
-        let safe = recipe.title
-            .components(separatedBy: CharacterSet.alphanumerics.inverted.subtracting(.whitespaces))
-            .joined()
-            .trimmingCharacters(in: .whitespaces)
-        return safe.isEmpty ? "Recipe.llamarecipe" : "\(safe).llamarecipe"
-    }
-
-    static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .llamaRecipe) { transfer in
-            let envelope = RecipeShare.envelope(
-                for: transfer.recipe,
-                sharedBy: transfer.ownerProfile.userName.nilIfEmpty,
-                appVersion: Bundle.main.appVersion
-            )
-            return try RecipeShare.encodeFile(envelope)
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        vc.completionWithItemsHandler = { _, completed, _, _ in
+            onComplete?(completed)
         }
-        .suggestedFileName(\.fileName)
+        return vc
     }
-}
 
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+```
+
+This is the **third deliberate UIKit exception** alongside the
+keyboard-tint (`UIView.appearance().tintColor` in `App.init`) and
+PageControl dot-color (`UIPageControl.appearance()` in
+`PhotoCarouselView.stylePageControl`) proxies. Single-purpose,
+isolated to this wrapper — every caller sees only a SwiftUI sheet.
+
+Detail's share state, in shape:
+
+```swift
+@State private var pendingShareAction: ShareAction?  // .file / .url / .text
+@State private var showingNamePrompt = false
+@State private var pendingNameInput: String = ""
+@State private var pendingShareItem: ShareItem?     // sum: .file(URL), .url(URL), .text(String)
+
+private enum ShareAction { case file, url, text }
+
+private enum ShareItem {
+    case file(URL), url(URL), text(String)
+    var activityItem: Any { /* unwrap to URL or String */ }
+}
+```
+
+The flow:
+
+1. User taps a Menu item → `triggerShare(_:)`.
+2. **Text form** OR **already prompted** → `executeShare(_:)` directly,
+   which builds the payload and assigns `pendingShareItem` (drives the
+   share sheet presentation via `.sheet(isPresented: shareSheetVisible)`).
+3. **First share** of file or URL form → stash the action in
+   `pendingShareAction`, prefill `pendingNameInput`, flip
+   `showingNamePrompt`. The alert presents.
+4. **After Continue / Skip** → write the name into
+   `OwnerProfile.userName`, mark `hasPromptedForName = true`, then
+   `Task { try? await Task.sleep(for: .milliseconds(350)); executeShare(action) }`.
+   The 350ms delay is the same iOS 18 modal-stacking workaround the
+   photo carousel uses on its picker dismiss — without it the share
+   sheet sometimes fails to present because UIKit is mid-transition
+   dismissing the alert.
+5. **Cancel** → `pendingShareAction = nil`. No share, no name change.
+
+The file form writes `.llamarecipe` bytes to
+`FileManager.temporaryDirectory` and hands the URL to
+`UIActivityViewController`. iOS handles the AirDrop / Mail / Messages
+serialization from the file URL natively. Cleanup runs in
+`ShareSheet`'s `onComplete` (or in the binding setter when the user
+swipes to dismiss without completing) — `FileManager.removeItem` is
+idempotent, so double-cleanup is harmless.
+
+### Filename helper
+
+```swift
+private func filenameForRecipe() -> String {
+    let allowed = CharacterSet.alphanumerics.union(.whitespacesAndNewlines)
+    let safe = recipe.title
+        .components(separatedBy: allowed.inverted)
+        .joined()
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return safe.isEmpty ? "Recipe.llamarecipe" : "\(safe).llamarecipe"
+}
+```
+
+Strips punctuation but preserves spaces — "Banana Bread.llamarecipe"
+reads better than "BananaBread.llamarecipe" when it lands in a
+recipient's Files inbox.
+
+### `UTType.llamaRecipe`
+
+Lives in `Sources/Lib/RecipeShare.swift` (PR 1):
+
+```swift
 extension UTType {
-    /// Matches the UTExportedTypeDeclarations in AppInfo.plist.
     static var llamaRecipe: UTType {
         UTType(exportedAs: "com.llamascookbook.recipe")
     }
 }
 ```
 
-The `UTType.llamaRecipe` and the AppInfo.plist declaration must agree
-on `com.llamascookbook.recipe` — typo here means iOS quietly fails to
-register the file type and AirDrop falls back to "this file" with no
-icon.
+The identifier MUST match the `UTExportedTypeDeclarations` entry in
+`Resources/AppInfo.plist` — typo here means iOS quietly fails to
+register the file type and AirDrop falls back to "Unknown app" with
+no icon.
 
 ### 7.4 First-share prompt — `OwnerProfile`
 
@@ -910,12 +983,27 @@ Two new entries in [`Resources/AppInfo.plist`](./ios-native/Resources/AppInfo.pl
         <string>Editor</string>
     </dict>
 </array>
+<!-- Required alongside CFBundleDocumentTypes — see ITMS-90737 note below -->
+<key>LSSupportsOpeningDocumentsInPlace</key>
+<false/>
 ```
 
 `LSHandlerRank: Owner` declares us as the canonical app for the
 type. `UTTypeConformsTo: public.json` matters for AirDrop preview
 rendering — iOS shows the file as JSON-shaped without it falling back
 to "Unknown."
+
+**`LSSupportsOpeningDocumentsInPlace` is required, not optional.**
+Declaring `CFBundleDocumentTypes` without one of
+`LSSupportsOpeningDocumentsInPlace` or `UISupportsDocumentBrowser`
+causes App Store Connect to emit `ITMS-90737` ("Missing Document
+Configuration") on every upload. We set it to `<false/>` because the
+import flow is a one-shot read: iOS copies the `.llamarecipe` into
+our app's Inbox, hands us a URL via `onOpenURL`, we materialize a
+fresh Recipe into SwiftData, and the source bytes are no longer
+needed. `<true/>` would imply we hold security-scoped access to keep
+editing the original — which is the document-based-app pattern, not
+the importer pattern.
 
 **iOS UTI cache gotcha:** the very first install after adding the
 declaration sometimes doesn't register the type until a clean reboot.
@@ -947,18 +1035,23 @@ that's the time to extract a `ShareCoordinator`. Not now.
 
 ## 11. File inventory
 
-### New files (3)
+### New files (4)
 
 ```
-ios-native/Sources/Lib/RecipeShare.swift                  ← §3, §4 — schema + encode + decode + materialize
-ios-native/Sources/App/OwnerProfile.swift                 ← §7.4 — Observable for sender display name
-ios-native/Sources/Views/Library/RecipeImportPreviewView.swift  ← §8.2 — sheet for incoming share
+ios-native/Sources/Lib/RecipeShare.swift                       ← §3, §4 — schema + encode + decode + materialize
+ios-native/Sources/App/OwnerProfile.swift                      ← §7.4 — Observable for sender display name
+ios-native/Sources/Views/Components/ShareSheet.swift           ← §7.3 — UIActivityViewController wrapper
+ios-native/Sources/Views/Library/RecipeImportPreviewView.swift ← §8.2 — sheet for incoming share
 ```
 
 `RecipeImportPreviewView` lands under `Views/Library/` next to
 `ImportRecipeView` because both are entry points for "a recipe
 arriving from outside" — they share a mental category even though
 they don't share code.
+
+`ShareSheet` lives under `Views/Components/` next to the other
+`UIViewControllerRepresentable`-class wrappers — it's a leaf,
+single-purpose UIKit bridge, not a feature.
 
 ### Modified files (5)
 
@@ -990,10 +1083,11 @@ ios-native/Resources/AppInfo.plist                        ← §9 — UTType + C
 | Concern | Single source of truth | Used by |
 |---|---|---|
 | Share envelope schema | `LCRecipeShareV1` in `Lib/RecipeShare.swift` | File transport, URL transport, future cloud transport |
-| Encode / decode | `RecipeShare.encodeFile/decodeFile` + `encodeURL/decode(url:)` | `RecipeShareTransfer` (sender), `RootView.onOpenURL` (receiver) |
+| Encode / decode | `RecipeShare.encodeFile/decodeFile` + `encodeURL/decode(url:)` | `RecipeDetailView.shareAsFile/shareAsURL` (sender), `RootView.onOpenURL` (receiver) |
+| Programmatic share-sheet present | `ShareSheet` (UIActivityViewController wrapper) | Detail share menu — file / URL / text all flow through one wrapper |
 | Materialize-into-SwiftData (UUID rewrite + provenance stamp + photo re-encode) | `RecipeShare.materialize(_:into:)` | `RecipeImportPreviewView` Save action |
 | Photo bytes guard / re-encode | `ImageProcessing.prepare(_, for:)` | Sender (no — bytes already at storage size); **receiver** on import |
-| Sender display name | `OwnerProfile.userName` | First-share prompt, `RecipeShareTransfer` envelope build |
+| Sender display name | `OwnerProfile.userName` | First-share prompt, `RecipeDetailView.makeShareEnvelope` |
 | Provenance fields | `Recipe.sharedBy/sharedAt/sourceShareID` | Materialize on import, render in Detail |
 | URL parsing | `RecipeShare.decode(url:)` | `RootView.onOpenURL` recipe branch |
 | File parsing | `RecipeShare.decode(fileData:)` | `RootView.onOpenURL` file URL branch |
@@ -1149,9 +1243,10 @@ Three pushes minimum, each one CI cycle:
 
 **PR 2 — `feat(share): outbound — Detail share menu + first-share prompt`**
 
-- §7.2 Detail share menu (file + URL + text options).
-- §7.3 `RecipeShareTransfer: Transferable`.
-- §7.4 first-share prompt UX.
+- §7.2 Detail share menu (file + URL + text Buttons in a `Menu`).
+- §7.3 `ShareSheet` (UIActivityViewController wrapper) + the
+  state-machine driving prompt → share-sheet presentation.
+- §7.4 first-share prompt UX (alert with `TextField`).
 - Test plan #5–9 + #14.
 
 **PR 3 — `feat(share): inbound — onOpenURL routing + import preview + provenance display`**
@@ -1211,7 +1306,7 @@ Previews.
 ## 18. Update these docs after merge
 
 - **CLAUDE.md "Capability map":** add a "Recipe sharing" row pointing
-  to `RecipeShare.swift` + `RecipeShareTransfer` + the share menu.
+  to `RecipeShare.swift` + `ShareSheet` + the Detail share menu.
 - **CLAUDE.md "Architectural patterns":** add a "Share envelope is
   cloud-portable JSON" note explaining the SwiftData-independent
   schema + UUID rewriting on import.

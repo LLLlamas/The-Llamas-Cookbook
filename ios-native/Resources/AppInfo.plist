@@ -105,5 +105,17 @@
             <string>Editor</string>
         </dict>
     </array>
+    <!--
+      Required when CFBundleDocumentTypes is declared — App Store
+      Connect emits ITMS-90737 otherwise. Set to NO because we don't
+      edit the source file: importing a `.llamarecipe` materializes
+      a fresh Recipe into SwiftData and the source bytes are no longer
+      needed. iOS copies the file into our Inbox before handing the
+      URL to onOpenURL, which is the right semantic for a one-shot
+      importer (vs. document-based apps that hold security-scoped
+      access to keep editing the original).
+    -->
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <false/>
 </dict>
 </plist>
