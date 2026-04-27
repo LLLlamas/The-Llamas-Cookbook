@@ -11,12 +11,23 @@ final class TimerLiveActivityController {
     private var activity: Activity<TimerAttributes>?
 
     init() {
-        // Adopt any activity that's still alive in iOS from a previous
-        // app session — without this, a kill-and-restore mid-timer
-        // leaves the lock-screen widget visible but unreachable from
-        // the new controller, and the next `end()` becomes a no-op
-        // while the orphan keeps ticking until its staleDate.
-        activity = Activity<TimerAttributes>.activities.first
+        // No auto-adopt: with multi-cook, multiple activities may be
+        // alive across distinct cooks and `activities.first` is a
+        // coin-flip on which one we'd pick. CookModeView calls
+        // `adopt(forRecipeID:)` once it knows which cook it's
+        // rendering so the right orphan attaches.
+    }
+
+    /// Re-attach to an existing Live Activity for this cook's recipe,
+    /// if iOS still has one alive from a previous app session. Called
+    /// from `CookModeView.onAppear` so a kill-and-restore mid-timer
+    /// hands the lock-screen widget back to the right controller
+    /// instead of orphaning it. Multi-cook safe: filters by
+    /// `recipeID` so a different cook's activity isn't grabbed.
+    func adopt(forRecipeID recipeID: UUID) {
+        guard activity == nil else { return }
+        activity = Activity<TimerAttributes>.activities
+            .first(where: { $0.attributes.recipeID == recipeID })
     }
 
     /// Begin a live activity tied to the given timer. No-op if one is

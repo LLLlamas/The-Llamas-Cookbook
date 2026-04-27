@@ -36,7 +36,7 @@ struct LlamasCookbookApp: App {
                 // Library scroll area fall through to system black.
                 .preferredColorScheme(.light)
         }
-        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self])
+        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self, RecipeStepPhoto.self])
     }
 }
 

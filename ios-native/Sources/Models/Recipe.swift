@@ -128,27 +128,57 @@ final class RecipeStep {
     /// active — e.g. "Don't forget to cut vertically". Authored from the
     /// editor's Notes section via `SpecialNotesEditor`.
     var specialNote: String? = nil
-    /// Optional photo attached to this step. External-storage so the
-    /// bytes live in a sidecar file and don't bloat the SwiftData store
-    /// itself. Surfaced as a thumbnail in Detail and full-width in Cook
-    /// Mode. Bytes flow through `DraftStep.image` on save — see the
-    /// gotcha called out in [Photo-Capability.md §3](../../../Photo-Capability.md).
+    /// **Deprecated** single-image slot. Left declared so SwiftData's
+    /// lightweight migration doesn't have to drop an attribute on
+    /// existing TestFlight installs that already wrote step bytes here.
+    /// New code paths read/write through the `photos` relationship
+    /// below instead — this field is no longer surfaced anywhere in
+    /// the UI and will be removed in a future cleanup migration.
     @Attribute(.externalStorage) var image: Data? = nil
     var recipe: Recipe?
+
+    /// Per-step gallery — up to 3 photos. Hidden behind a button on
+    /// every viewing surface (Detail, Cook Mode); the editor surfaces
+    /// the same button to add/manage. Cascade-delete cleans up
+    /// sidecars when the step or its parent recipe is removed.
+    @Relationship(deleteRule: .cascade, inverse: \RecipeStepPhoto.step)
+    var photos: [RecipeStepPhoto] = []
 
     init(
         text: String,
         order: Int,
         needsTimer: Bool = false,
-        specialNote: String? = nil,
-        image: Data? = nil
+        specialNote: String? = nil
     ) {
         self.id = UUID()
         self.order = order
         self.text = text
         self.needsTimer = needsTimer
         self.specialNote = specialNote
+    }
+
+    /// Mirrors `Recipe.sortedPhotos` / `sortedSteps` — relationships
+    /// come back in insertion order, the UI wants explicit ordering.
+    var sortedStepPhotos: [RecipeStepPhoto] {
+        photos.sorted { $0.order < $1.order }
+    }
+}
+
+/// One photo attached to a recipe step. Mirrors `RecipePhoto`'s shape
+/// and storage strategy. Capped at 3 per step at the editor / draft
+/// layer; nothing in the model itself enforces the cap so legacy data
+/// or future expansion stays compatible.
+@Model
+final class RecipeStepPhoto {
+    var id: UUID
+    @Attribute(.externalStorage) var image: Data?
+    var order: Int
+    var step: RecipeStep?
+
+    init(image: Data?, order: Int) {
+        self.id = UUID()
         self.image = image
+        self.order = order
     }
 }
 

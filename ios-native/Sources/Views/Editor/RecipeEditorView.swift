@@ -45,7 +45,7 @@ struct RecipeEditorView: View {
                 TagInputView(tags: $draft.tags)
 
                 sectionHeader("Ingredients")
-                sectionHint("Only the ingredient name is required. Leave quantity and unit blank for items like vanilla, salt, or pepper.")
+                sectionHint("Only the ingredient name is required. Leave quantity and unit blank if they don't have any in particular.")
                 IngredientQuickAdd(numericFocus: $isNumericFocused) { draft.ingredients.append($0) }
                 if !draft.ingredients.isEmpty {
                     VStack(spacing: 3) {

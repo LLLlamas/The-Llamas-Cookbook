@@ -85,7 +85,7 @@ struct StepRowEditor: View {
         // "this step has a picture attached" without entering edit
         // mode. The thumbnail itself shows in Detail; this is just an
         // editor breadcrumb.
-        if step.image != nil {
+        if !step.images.isEmpty {
             Image(systemName: "photo.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(appearance.accentColor.opacity(0.8))
@@ -104,6 +104,6 @@ struct StepRowEditor: View {
             .tint(appearance.accentColor)
             .frame(maxWidth: .infinity, alignment: .leading)
         TimerToggleButton(isOn: $step.needsTimer)
-        PhotoToggleButton(image: $step.image)
+        PhotoToggleButton(images: $step.images)
     }
 }

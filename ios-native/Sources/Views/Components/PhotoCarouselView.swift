@@ -26,15 +26,38 @@ struct PhotoCarouselView: View {
     /// because drag-to-reorder inside a `TabView` is non-trivial and
     /// not load-bearing for personal use.
     var onReorder: ((IndexSet, Int) -> Void)? = nil
+    /// Total cap for the gallery this carousel is editing. `nil` =
+    /// uncapped (recipe-level gallery). Set to 3 for step photos. The
+    /// Add button hides at the cap and multi-pick selection narrows
+    /// to fit the remaining slots.
+    var maxImages: Int? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var selectedPage: Int = 0
     @State private var pendingDeleteIndex: Int?
     @State private var isProcessing: Bool = false
+    /// Bytes the user just picked, awaiting confirmation. Mirrors the
+    /// categories add-confirmation pattern — picks aren't committed
+    /// until the user taps "Add" in the alert below.
+    @State private var pendingAddBytes: [Data]?
 
-    private var canAdd: Bool { onAdd != nil }
+    private var canAdd: Bool {
+        guard onAdd != nil else { return false }
+        if let maxImages { return photoData.count < maxImages }
+        return true
+    }
     private var canDelete: Bool { onDelete != nil }
+
+    /// How many more photos the user can pick this round. Bound by the
+    /// 10-per-pick library cap and (when set) the remaining slots
+    /// before `maxImages`.
+    private var pickLimit: Int {
+        let perRound = 10
+        guard let maxImages else { return perRound }
+        let remaining = max(0, maxImages - photoData.count)
+        return min(perRound, remaining)
+    }
 
     var body: some View {
         NavigationStack {
@@ -69,6 +92,23 @@ struct PhotoCarouselView: View {
                         pendingDeleteIndex = nil
                     }
                 }
+                // Confirmation alert before committing newly-picked
+                // photos. Mirrors the categories add-confirmation
+                // pattern so the user gets a "review before commit"
+                // step on every meaningful add.
+                .alert(
+                    "Add photos?",
+                    isPresented: addConfirmBinding,
+                    presenting: pendingAddBytes
+                ) { bytes in
+                    Button("Add") { commitPendingAdd(bytes) }
+                    Button("Cancel", role: .cancel) {
+                        pendingAddBytes = nil
+                    }
+                } message: { bytes in
+                    let n = bytes.count
+                    Text(n == 1 ? "Add this photo?" : "Add these \(n) photos?")
+                }
         }
     }
 
@@ -84,10 +124,10 @@ struct PhotoCarouselView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 PhotosPicker(
                     selection: $pickerItems,
-                    // Cap at 10 per add. Keeps memory predictable on
-                    // the processing pass and prevents a huge multi-pick
-                    // from saturating the bg queue.
-                    maxSelectionCount: 10,
+                    // 10-per-round library cap, narrowed further when
+                    // `maxImages` is set so a multi-pick can't push
+                    // past the gallery's total cap (3 for steps).
+                    maxSelectionCount: pickLimit,
                     matching: .images,
                     photoLibrary: .shared()
                 ) {
@@ -97,7 +137,7 @@ struct PhotoCarouselView: View {
                         Image(systemName: "plus")
                     }
                 }
-                .disabled(isProcessing)
+                .disabled(isProcessing || pickLimit == 0)
                 .foregroundStyle(AppColor.accent)
             }
         }
@@ -224,7 +264,7 @@ struct PhotoCarouselView: View {
             if canAdd {
                 PhotosPicker(
                     selection: $pickerItems,
-                    maxSelectionCount: 10,
+                    maxSelectionCount: pickLimit,
                     matching: .images,
                     photoLibrary: .shared()
                 ) {
@@ -236,7 +276,7 @@ struct PhotoCarouselView: View {
                         .foregroundStyle(AppColor.onAccent)
                         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 }
-                .disabled(isProcessing)
+                .disabled(isProcessing || pickLimit == 0)
             } else {
                 Text("No photos yet")
                     .font(AppFont.body)
@@ -273,12 +313,12 @@ struct PhotoCarouselView: View {
         )
     }
 
-    /// Picker selection -> raw `Data` -> caller's `onAdd`. The caller
-    /// owns the resize step (`ImageProcessing.prepare`) — keeping it
-    /// out of the carousel preserves the single-responsibility split:
-    /// this view is about presentation, not encoding.
+    /// Picker selection -> raw `Data` -> staged for confirmation. The
+    /// caller's `onAdd` doesn't fire until the user confirms in the
+    /// alert below, so a stray pick can be backed out without ever
+    /// touching the recipe / draft.
     private func handlePicked(_ items: [PhotosPickerItem]) {
-        guard !items.isEmpty, let onAdd else {
+        guard !items.isEmpty, onAdd != nil else {
             pickerItems = []
             return
         }
@@ -290,11 +330,53 @@ struct PhotoCarouselView: View {
                     loadedData.append(data)
                 }
             }
-            await onAdd(loadedData)
             await MainActor.run {
                 pickerItems = []
                 isProcessing = false
+                if loadedData.isEmpty {
+                    return
+                }
+                // Defensive cap — picker should already respect
+                // `pickLimit`, but if the cap shrank between picker
+                // present and dismiss (concurrent add elsewhere) we
+                // trim here so confirmation never offers more than the
+                // gallery can hold.
+                if let maxImages {
+                    let remaining = max(0, maxImages - photoData.count)
+                    loadedData = Array(loadedData.prefix(remaining))
+                }
+                if loadedData.isEmpty {
+                    return
+                }
+                pendingAddBytes = loadedData
             }
         }
+    }
+
+    /// User confirmed the staged add. Hand off to the caller's
+    /// `onAdd`, which owns the resize step (`ImageProcessing.prepare`)
+    /// — keeping it out of the carousel preserves the
+    /// single-responsibility split: this view is about presentation.
+    private func commitPendingAdd(_ bytes: [Data]) {
+        pendingAddBytes = nil
+        guard let onAdd else { return }
+        isProcessing = true
+        Task {
+            await onAdd(bytes)
+            await MainActor.run {
+                isProcessing = false
+            }
+        }
+    }
+
+    /// Bridge between the optional `pendingAddBytes` and the alert's
+    /// `Bool` `isPresented` binding. Same shape as `deleteDialogBinding`.
+    private var addConfirmBinding: Binding<Bool> {
+        Binding(
+            get: { pendingAddBytes != nil },
+            set: { presented in
+                if !presented { pendingAddBytes = nil }
+            }
+        )
     }
 }

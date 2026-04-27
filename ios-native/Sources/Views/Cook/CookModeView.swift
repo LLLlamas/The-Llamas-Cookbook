@@ -44,6 +44,10 @@ struct CookModeView: View {
 
     @State private var showingExitConfirm = false
     @State private var showingTimerSheet = false
+    /// Tapped step's photo bytes, wrapped so `.sheet(item:)` drives
+    /// the viewer. Nil = no viewer; non-nil = present the read-only
+    /// carousel with that step's photos.
+    @State private var viewingStepImages: ViewingCookStepImages?
 
     private enum Phase { case prep, cook }
 
@@ -180,6 +184,12 @@ struct CookModeView: View {
         .onChange(of: timerStepId) { _, _ in persistSnapshot() }
         .onChange(of: timerLabel) { _, _ in persistSnapshot() }
         .onChange(of: timerOriginalMinutes) { _, _ in persistSnapshot() }
+        .onAppear {
+            // Re-attach to an orphan Live Activity for THIS cook's
+            // recipe (multi-cook safe: filters by recipeID rather
+            // than grabbing whatever's first in the activities list).
+            liveActivity.adopt(forRecipeID: recipe.id)
+        }
         .onDisappear {
             // The in-app alarm task uses local @State that's destroyed
             // either way; stop it on every disappear so it doesn't leak.
@@ -238,6 +248,14 @@ struct CookModeView: View {
             }
         } message: {
             Text("Record this as a time you cooked this recipe.")
+        }
+        // View-only carousel for tapped step photos. No closures =
+        // PhotoCarouselView hides the Add and long-press-Delete
+        // affordances, so this is a pure viewer in Cook Mode.
+        .sheet(item: $viewingStepImages) { wrapper in
+            PhotoCarouselView(photoData: wrapper.images)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -478,8 +496,9 @@ struct CookModeView: View {
                     }
                     .padding(AppSpacing.md)
 
-                    if let imageData = step.image {
-                        cookStepImage(imageData)
+                    let stepPhotoBytes = step.sortedStepPhotos.compactMap(\.image)
+                    if !stepPhotoBytes.isEmpty {
+                        cookPhotosButton(bytes: stepPhotoBytes)
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.bottom, AppSpacing.md)
                     }
@@ -534,33 +553,38 @@ struct CookModeView: View {
         }
     }
 
-    /// Full-width step image in Cook Mode. `.fit` so the user sees the
-    /// whole picture without crop; capped at 240pt tall so it doesn't
-    /// shove the next-step button below the fold. The
-    /// `surfaceRaised` letterbox fill paints the empty space when the
-    /// photo's aspect ratio doesn't match the frame, so the rounded
-    /// corner reads cleanly even on portrait shots inside a wider
-    /// container. **No tap-to-zoom**: Cook Mode is the cooking flow,
-    /// not the recipe's identity (UX principle 3).
-    private func cookStepImage(_ data: Data) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: AppRadius.lg)
-                .fill(AppColor.surfaceRaised)
-            RecipeImageView(
-                data: data,
-                contentMode: .fit,
-                cornerRadius: AppRadius.lg
-            ) {
-                EmptyView()
+    /// Per-step photos affordance in Cook Mode. The image isn't
+    /// rendered inline — the user explicitly asked for the photos to
+    /// stay hidden until they tap the button. The button itself is
+    /// only present when the step actually has photos; steps without
+    /// photos render no extra chrome at all (no ghost button taking
+    /// up vertical space). Tap opens the same view-only carousel
+    /// Detail uses.
+    private func cookPhotosButton(bytes: [Data]) -> some View {
+        Button {
+            Haptics.selection()
+            viewingStepImages = ViewingCookStepImages(images: bytes)
+        } label: {
+            HStack(spacing: AppSpacing.xs + 2) {
+                Image(systemName: "photo.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(bytes.count == 1 ? "View photo" : "View photos · \(bytes.count)")
+                    .font(.system(size: 14, weight: .semibold))
             }
+            .foregroundStyle(appearance.accentColor)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.xs + 3)
+            .background(AppColor.surface)
+            .overlay(
+                Capsule().stroke(appearance.accentColor.opacity(0.5), lineWidth: 1)
+            )
+            .clipShape(Capsule())
         }
-        .frame(maxWidth: .infinity)
-        .frame(maxHeight: 240)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.lg)
-                .stroke(appearance.accentColor.opacity(0.18), lineWidth: 0.8)
+        .buttonStyle(.plain)
+        .accessibilityLabel(bytes.count == 1
+            ? "View step photo"
+            : "View \(bytes.count) step photos"
         )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
     }
 
     /// Inline reminder rendered directly under a step whenever the user
@@ -986,6 +1010,16 @@ struct CookModeView: View {
         default: return 0
         }
     }
+}
+
+/// Wrapper so `.sheet(item:)` can drive the step-photos viewer with
+/// arbitrary byte arrays. `[Data]` itself isn't `Identifiable`; the
+/// wrapper supplies the required id. File-private — same shape as
+/// `RecipeDetailView.ViewingStepImages`, kept separate to avoid
+/// cross-file coupling for one trivial type.
+private struct ViewingCookStepImages: Identifiable {
+    let id = UUID()
+    let images: [Data]
 }
 
 // MARK: - Timer-ready full-screen overlay

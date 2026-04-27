@@ -197,6 +197,41 @@ final class CookingSession {
         endAll()
     }
 
+    /// Add another recipe alongside the existing cooks, no replacement.
+    /// Foregrounds the new cook so a follow-up "Resume" tap on its pill
+    /// lands the user inside the new recipe. Does **not** flip
+    /// `isCookModeVisible`: the user is typically browsing when they
+    /// hit this entry point (from a Detail page while a session is
+    /// minimized) and the new pill should appear at the bottom rather
+    /// than yanking them into Cook Mode.
+    ///
+    /// Refuses past `maxConcurrentCooks` — the cap matches the iOS
+    /// Live Activity ceiling and keeps the pills bar legible.
+    /// Refuses if the recipe is already an active cook (callers that
+    /// want to truly duplicate should call this twice deliberately;
+    /// for now the typical "Add another" flow is dedup-by-recipe).
+    func addParallel(_ recipe: Recipe) {
+        guard canAddCook else { return }
+        if activeCooks.contains(where: { $0.recipe.id == recipe.id }) { return }
+        let cook = ActiveCook.fresh(for: recipe)
+        activeCooks.append(cook)
+        foregroundedCookID = cook.id
+        CookingSessionStore.save(activeCooks.map { $0.toState() })
+    }
+
+    /// Foreground a specific cook by ID and re-present Cook Mode. Used
+    /// by the multi-cook pills bar — tap pill → that cook becomes the
+    /// active rendered cook in CookModeView.
+    func foreground(cookID: UUID) {
+        guard activeCooks.contains(where: { $0.id == cookID }) else { return }
+        foregroundedCookID = cookID
+        // Re-read disk for that cook's snapshot so a freshly-built
+        // CookModeView seeds @State from the latest persisted values.
+        let states = CookingSessionStore.load()
+        pendingRestoration = states.first(where: { $0.cookID == cookID })
+        isCookModeVisible = true
+    }
+
     /// Hide the Cook Mode cover but keep the session alive. Timers +
     /// Live Activity keep running; the user can resume from the
     /// Library resume pill or by tapping the Live Activity.

@@ -492,6 +492,7 @@ private struct LetterIndex: View {
         .modelContainer(previewContainer(populated: true))
         .environment(CookingSession())
         .environment(EditorCoordinator())
+        .environment(NavigationContext())
         .environment(AppearanceSettings())
 }
 
@@ -500,6 +501,7 @@ private struct LetterIndex: View {
         .modelContainer(previewContainer(populated: false))
         .environment(CookingSession())
         .environment(EditorCoordinator())
+        .environment(NavigationContext())
         .environment(AppearanceSettings())
 }
 

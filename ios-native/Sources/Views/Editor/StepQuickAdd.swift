@@ -8,8 +8,8 @@ struct StepQuickAdd: View {
     @State private var needsTimer = false
     /// Image bytes staged for the next quick-add. Cleared on submit
     /// alongside `text` and `needsTimer` so the picker state doesn't
-    /// leak into subsequent rows.
-    @State private var stagedImage: Data? = nil
+    /// leak into subsequent rows. Up to 3 entries.
+    @State private var stagedImages: [Data] = []
     @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var focused: Bool
 
@@ -38,7 +38,7 @@ struct StepQuickAdd: View {
                     .foregroundStyle(AppColor.textPrimary)
 
                 TimerToggleButton(isOn: $needsTimer)
-                PhotoToggleButton(image: $stagedImage)
+                PhotoToggleButton(images: $stagedImages)
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
@@ -62,11 +62,11 @@ struct StepQuickAdd: View {
         onAdd(DraftStep(
             text: trimmed,
             needsTimer: needsTimer,
-            image: stagedImage
+            images: stagedImages
         ))
         text = ""
         needsTimer = false
-        stagedImage = nil
+        stagedImages = []
         focused = true
     }
 }

@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
+    @State private var navContext = NavigationContext()
 
     var body: some View {
         NavigationStack {
@@ -14,17 +15,26 @@ struct RootView: View {
         .tint(appearance.accentColor)
         .environment(session)
         .environment(editor)
+        .environment(navContext)
         .overlay(alignment: .bottom) {
             // Floats above Library / Detail / any pushed nav screens
-            // while a cook session is minimized. Tap to re-present Cook
-            // Mode where the user left off (struck steps + running timer
-            // re-attach via `pendingRestoration`). Plural-aware gating:
-            // visible whenever any cook is active, regardless of count.
+            // while a cook session is minimized. Plural-aware:
+            //   • 1 cook, no Detail-eligible add → single full pill
+            //   • 1 cook + Detail of a different recipe → small green
+            //     "Add to Cook Mode" button on the left + pill on the
+            //     right (~1/4 + 3/4 split)
+            //   • 2+ cooks → equally-sized pills, each tappable to
+            //     foreground that cook
             if !session.activeCooks.isEmpty && !session.isCookModeVisible {
-                CookingResumePill(session: session, accent: appearance.accentColor)
-                    .padding(.horizontal, AppSpacing.lg)
-                    .padding(.bottom, AppSpacing.md)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                CookingPillsBar(
+                    session: session,
+                    navContext: navContext,
+                    accent: appearance.accentColor,
+                    lookupRecipe: lookupRecipe
+                )
+                .padding(.horizontal, AppSpacing.lg)
+                .padding(.bottom, AppSpacing.md)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: session.isCookModeVisible)
@@ -182,49 +192,99 @@ private struct EditorSheetHost: View {
     }
 }
 
-/// Floating pill shown when Cook Mode is minimized. Surfaces recipe
-/// name + live countdown so the user can tell at a glance which recipe
-/// is mid-flight. Tapping resumes Cook Mode in place.
-private struct CookingResumePill: View {
+/// Floating pills bar shown when Cook Mode is minimized. Renders one
+/// pill per active cook; when the user is viewing the Detail page of a
+/// recipe that *isn't* in the session yet (and there's room under the
+/// 4-cook cap), prepends a small green "Add to Cook Mode" button so
+/// they can spawn a parallel cook without re-entering Cook Mode.
+///
+/// Layout transitions:
+///   • 1 cook, no Detail-eligible add → 1 full-width accent pill
+///   • 1 cook + green add button → ~1/4 green + ~3/4 accent pill
+///   • 2+ cooks → equally-sized accent pills, no add button if at cap
+///
+/// Spring-animated on `activeCooks.count` and on `canShowAdd` so the
+/// transitions feel cohesive when the user adds a parallel cook.
+private struct CookingPillsBar: View {
     let session: CookingSession
+    let navContext: NavigationContext
     let accent: Color
+    let lookupRecipe: (UUID) -> Recipe?
+
+    private var detailRecipe: Recipe? {
+        guard let id = navContext.detailedRecipeID else { return nil }
+        return lookupRecipe(id)
+    }
+
+    /// True when the green add button should appear: there's a Detail
+    /// recipe in scope, it isn't already cooking, and we're under cap.
+    private var canShowAdd: Bool {
+        guard let id = navContext.detailedRecipeID else { return false }
+        guard !session.activeCooks.contains(where: { $0.recipe.id == id }) else { return false }
+        return session.canAddCook
+    }
 
     var body: some View {
-        Button {
-            Haptics.selection()
-            session.resume()
-        } label: {
+        HStack(spacing: AppSpacing.sm) {
+            if canShowAdd, let recipe = detailRecipe {
+                AddToCookButton {
+                    Haptics.impact(.light)
+                    session.addParallel(recipe)
+                }
+                // Roughly 1/4 of a typical phone width; works without a
+                // GeometryReader and degrades gracefully on small
+                // devices since the pill side uses maxWidth: .infinity.
+                .frame(maxWidth: 92)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+            ForEach(session.activeCooks) { cook in
+                CookPill(cook: cook, accent: accent) {
+                    Haptics.selection()
+                    session.foreground(cookID: cook.id)
+                }
+                .frame(maxWidth: .infinity)
+                .transition(
+                    .scale(scale: 0.85).combined(with: .opacity)
+                )
+            }
+        }
+        .animation(.spring(response: 0.42, dampingFraction: 0.85),
+                   value: session.activeCooks.count)
+        .animation(.spring(response: 0.42, dampingFraction: 0.85),
+                   value: canShowAdd)
+    }
+}
+
+/// One cook's resume pill. Same accent-on-cream visual language as the
+/// pre-multi `CookingResumePill`, but compacted for the 2-up case
+/// where two pills share the bottom row. The "COOKING" eyebrow drops
+/// when the pill goes plural — the title + chevron alone read clearly
+/// at half-width.
+private struct CookPill: View {
+    let cook: ActiveCook
+    let accent: Color
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "fork.knife")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("COOKING")
-                        .font(.system(size: 10, weight: .heavy))
-                        .tracking(0.8)
-                        .opacity(0.9)
-                    if let title = session.foregroundedRecipe?.title {
-                        Text(StringCase.titleCase(title))
-                            .font(.system(size: 14, weight: .semibold, design: .serif))
-                            .lineLimit(1)
+                    Text(StringCase.titleCase(cook.recipe.title))
+                        .font(.system(size: 13, weight: .semibold, design: .serif))
+                        .lineLimit(1)
+                    if let endsAt = cook.timerEndsAt, endsAt > Date() {
+                        // System-driven countdown — no app-side ticking.
+                        Text(timerInterval: Date()...endsAt, countsDown: true)
+                            .font(.system(size: 11, weight: .bold, design: .serif))
+                            .monospacedDigit()
+                            .opacity(0.92)
                     }
                 }
-                Spacer(minLength: AppSpacing.sm)
-                // PR 2 will surface a sub-pill per cook with each one's
-                // own countdown. PR 1 keeps the single-pill UX: just
-                // the foregrounded cook's timer (which is the only
-                // cook anyway).
-                if let foregrounded = session.activeCooks.first(where: { $0.id == session.foregroundedCookID }),
-                   let endsAt = foregrounded.timerEndsAt, endsAt > Date() {
-                    // System timer text counts down on its own once a
-                    // second without our app pushing updates — same
-                    // mechanism the Live Activity widget uses.
-                    Text(timerInterval: Date()...endsAt, countsDown: true)
-                        .font(.system(size: 14, weight: .bold, design: .serif))
-                        .monospacedDigit()
-                        .frame(maxWidth: 64)
-                }
+                Spacer(minLength: 4)
                 Image(systemName: "chevron.up")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
             }
             .foregroundStyle(AppColor.onAccent)
             .padding(.horizontal, AppSpacing.md)
@@ -234,12 +294,39 @@ private struct CookingResumePill: View {
             .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Resume cooking")
+        .accessibilityLabel("Resume cooking \(cook.recipe.title)")
+    }
+}
+
+/// Small green "Add to Cook Mode" button. Same `fork.knife` glyph as
+/// the cooking pill — same affordance language — but tinted with the
+/// success green so it visually reads as "spawn another cook" rather
+/// than "resume what's already running."
+private struct AddToCookButton: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 3) {
+                Image(systemName: "fork.knife")
+                    .font(.system(size: 15, weight: .bold))
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .heavy))
+            }
+            .foregroundStyle(AppColor.onAccent)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, AppSpacing.sm + 2)
+            .background(AppColor.success)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add this recipe to Cook Mode")
     }
 }
 
 #Preview {
     RootView()
-        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self], inMemory: true)
+        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self, RecipeStepPhoto.self], inMemory: true)
         .environment(AppearanceSettings())
 }

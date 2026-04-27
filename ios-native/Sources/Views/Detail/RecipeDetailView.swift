@@ -8,6 +8,7 @@ struct RecipeDetailView: View {
     @Environment(CookingSession.self) private var session
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(NavigationContext.self) private var navContext
 
     let recipe: Recipe
 
@@ -16,10 +17,10 @@ struct RecipeDetailView: View {
     @State private var showingAppearance = false
     @State private var showingSourdough = false
     @State private var showingPhotoCarousel = false
-    /// Tapped step thumbnail data, wrapped so `.fullScreenCover(item:)`
-    /// can drive the viewer. Nil = no viewer; non-nil = present the
-    /// single-photo carousel for that image.
-    @State private var viewingStepImage: ViewingStepImage?
+    /// Tapped step's photo array, wrapped so `.sheet(item:)` can drive
+    /// the viewer. Nil = no viewer; non-nil = present the carousel
+    /// with that step's photos in view-only mode.
+    @State private var viewingStepImages: ViewingStepImages?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -72,9 +73,9 @@ struct RecipeDetailView: View {
                                     noteCallout(preface)
                                 }
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
-                                    StepDetailRow(idx: idx, step: step) { imageData in
+                                    StepDetailRow(idx: idx, step: step) { stepPhotos in
                                         Haptics.selection()
-                                        viewingStepImage = ViewingStepImage(data: imageData)
+                                        viewingStepImages = ViewingStepImages(images: stepPhotos)
                                     }
                                 }
                                 if let epilogue = trimmedNote(recipe.epilogueNote) {
@@ -210,6 +211,21 @@ struct RecipeDetailView: View {
             // is cheap insurance.
             .environment(appearance)
         }
+        .onAppear {
+            // Tell the cooking pills bar at root that the user is now
+            // viewing this recipe — used to decide whether to surface
+            // the "Add to Cook Mode" green button next to the resume
+            // pill when a session is already minimized.
+            navContext.detailedRecipeID = recipe.id
+        }
+        .onDisappear {
+            // Clear only if we're still the foregrounded recipe — guards
+            // against a fast Detail → Detail navigation racing the
+            // disappear and clearing the next view's set value.
+            if navContext.detailedRecipeID == recipe.id {
+                navContext.detailedRecipeID = nil
+            }
+        }
         .alert("Delete recipe?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -230,10 +246,15 @@ struct RecipeDetailView: View {
                 }
             )
         }
-        // Single-photo step viewer. No closures = view-only mode in
+        // Step photos viewer. No closures = view-only mode in
         // PhotoCarouselView (no Add button, no long-press delete).
-        .fullScreenCover(item: $viewingStepImage) { wrapper in
-            PhotoCarouselView(photoData: [wrapper.data])
+        // Sheet (not full-screen cover) for the smaller pop-up modal
+        // feel — step photos are nested inside one step's content,
+        // not the whole-recipe gallery moment.
+        .sheet(item: $viewingStepImages) { wrapper in
+            PhotoCarouselView(photoData: wrapper.images)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -693,11 +714,15 @@ private struct StepDetailRow: View {
 
     let idx: Int
     let step: RecipeStep
-    /// Caller-provided tap target for the step's thumbnail. Hoisting the
-    /// viewer state to the parent (rather than per-row) avoids ten
-    /// concurrent `.fullScreenCover` modifiers on a long recipe and
-    /// keeps the row purely presentational.
-    let onTapImage: (Data) -> Void
+    /// Caller-provided tap target for the step's photo button. Hoisting
+    /// the viewer state to the parent (rather than per-row) avoids many
+    /// concurrent `.sheet` modifiers on a long recipe and keeps the row
+    /// purely presentational.
+    let onTapPhotos: ([Data]) -> Void
+
+    private var stepPhotoBytes: [Data] {
+        step.sortedStepPhotos.compactMap(\.image)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
@@ -721,8 +746,8 @@ private struct StepDetailRow: View {
                 }
             }
 
-            if let imageData = step.image {
-                stepThumbnail(imageData)
+            if !stepPhotoBytes.isEmpty {
+                photosButton
             }
         }
         .padding(.vertical, AppSpacing.md)
@@ -747,44 +772,44 @@ private struct StepDetailRow: View {
         .shadow(color: AppColor.shadowSoft, radius: 1, x: 0, y: 0.5)
     }
 
-    /// Square thumbnail under the step text. Indented to align with
-    /// the text column (past the step-number gutter) so the image
-    /// reads as belonging to *this* step's content.
-    private func stepThumbnail(_ data: Data) -> some View {
+    /// Compact pill button under the step text. Only shown when the
+    /// step has at least one photo — the user explicitly asked for the
+    /// image button to disappear when there's nothing to view. Indented
+    /// past the step-number gutter so it nestles under the body text.
+    private var photosButton: some View {
         Button {
-            onTapImage(data)
+            onTapPhotos(stepPhotoBytes)
         } label: {
-            RecipeImageView(
-                data: data,
-                contentMode: .fill,
-                cornerRadius: AppRadius.md
-            ) {
-                RoundedRectangle(cornerRadius: AppRadius.md)
-                    .fill(AppColor.surfaceRaised)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .foregroundStyle(AppColor.textTertiary)
-                    )
+            HStack(spacing: AppSpacing.xs + 2) {
+                Image(systemName: "photo.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(stepPhotoBytes.count == 1
+                     ? "View photo"
+                     : "View photos · \(stepPhotoBytes.count)")
+                    .font(.system(size: 13, weight: .semibold))
             }
-            .frame(width: 120, height: 120)
+            .foregroundStyle(appearance.accentColor)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.xs + 2)
+            .background(AppColor.surface)
             .overlay(
-                RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(appearance.accentColor.opacity(0.18), lineWidth: 0.8)
+                Capsule().stroke(appearance.accentColor.opacity(0.45), lineWidth: 1)
             )
-            .shadow(color: AppColor.shadow, radius: 4, x: 0, y: 2)
+            .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        // Indent past the step-number gutter so the thumbnail sits
-        // under the wrapping body text, not the "1." marker.
         .padding(.leading, 28 + AppSpacing.md)
-        .accessibilityLabel("View step \(idx + 1) photo")
+        .accessibilityLabel(stepPhotoBytes.count == 1
+            ? "View step \(idx + 1) photo"
+            : "View \(stepPhotoBytes.count) photos for step \(idx + 1)"
+        )
     }
 }
 
-/// Wrapper so `.fullScreenCover(item:)` can drive the step-image
-/// viewer with arbitrary photo bytes. `Data` itself isn't
-/// `Identifiable`; the wrapper supplies the required id.
-private struct ViewingStepImage: Identifiable {
+/// Wrapper so `.sheet(item:)` can drive the step-photos viewer with
+/// arbitrary byte arrays. `[Data]` itself isn't `Identifiable`; the
+/// wrapper supplies the required id.
+private struct ViewingStepImages: Identifiable {
     let id = UUID()
-    let data: Data
+    let images: [Data]
 }

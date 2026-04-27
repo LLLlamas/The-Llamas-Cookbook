@@ -63,24 +63,27 @@ struct DraftStep: Identifiable, Equatable {
     /// Per-step reminder. Nil = no note; empty string is normalized to nil
     /// at save time so an empty text field doesn't persist as "has note".
     var specialNote: String? = nil
-    /// Optional photo bytes. Carried through the draft so the
-    /// `RecipeStep` rebuild in `Recipe.apply(_:)` doesn't lose images
-    /// on every save (the steps relationship is wiped + recreated each
-    /// time). Bytes flow Recipe -> toDraft -> editor -> apply -> Recipe.
-    var image: Data? = nil
+    /// Up to 3 photo blobs attached to this step. Carried through the
+    /// draft so the `RecipeStep` rebuild in `Recipe.apply(_:)` doesn't
+    /// lose images on every save — the `photos` relationship is wiped
+    /// and recreated each time, just like `ingredients` and `steps`
+    /// themselves. Bytes flow Recipe -> toDraft -> editor -> apply ->
+    /// Recipe. The 3-cap is enforced at the UI layer
+    /// (`PhotoToggleButton`); apply also clamps defensively.
+    var images: [Data] = []
 
     init(
         id: UUID = UUID(),
         text: String = "",
         needsTimer: Bool = false,
         specialNote: String? = nil,
-        image: Data? = nil
+        images: [Data] = []
     ) {
         self.id = id
         self.text = text
         self.needsTimer = needsTimer
         self.specialNote = specialNote
-        self.image = image
+        self.images = images
     }
 }
 
@@ -126,7 +129,7 @@ extension Recipe {
                     text: $0.text,
                     needsTimer: $0.needsTimer,
                     specialNote: $0.specialNote,
-                    image: $0.image
+                    images: $0.sortedStepPhotos.compactMap(\.image)
                 )
             },
             photos: sortedPhotos.map {
@@ -173,9 +176,16 @@ extension Recipe {
                 text: item.text.trimmed,
                 order: idx,
                 needsTimer: item.needsTimer,
-                specialNote: item.specialNote?.trimmed.nilIfEmpty,
-                image: item.image
+                specialNote: item.specialNote?.trimmed.nilIfEmpty
             )
+            // Carry up to 3 photo blobs through the draft into
+            // RecipeStepPhoto rows on the new relationship. Same
+            // bytes-through-the-draft pattern used for ingredients,
+            // steps, and recipe-level photos — without it, every save
+            // would silently delete every step photo's sidecar.
+            for (photoIdx, bytes) in item.images.prefix(3).enumerated() {
+                step.photos.append(RecipeStepPhoto(image: bytes, order: photoIdx))
+            }
             steps.append(step)
         }
 
