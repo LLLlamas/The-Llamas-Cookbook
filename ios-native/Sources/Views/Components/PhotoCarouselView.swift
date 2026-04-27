@@ -20,8 +20,18 @@ import UIKit
 /// a single-element `photoData` array.
 struct PhotoCarouselView: View {
     let photoData: [Data]
+    /// Per-photo captions, parallel to `photoData`. Pass `nil` for the
+    /// whole array to suppress caption rows entirely (legacy behavior);
+    /// pass a non-nil array (with `nil` entries for photos without a
+    /// caption) to enable display. When `onSetCaption` is also provided
+    /// the caption row becomes editable; otherwise it's read-only.
+    var captions: [String?]? = nil
     var onAdd: (([Data]) async -> Void)? = nil
     var onDelete: ((Int) -> Void)? = nil
+    /// Edit a single caption. Carousel calls this with the trimmed
+    /// value or `nil` if the field was cleared. Caller is responsible
+    /// for trimming + nil-empty normalization on the persistence side.
+    var onSetCaption: ((Int, String?) -> Void)? = nil
     /// Reorder callback. Plumbed for v2; not surfaced in the v1 UI
     /// because drag-to-reorder inside a `TabView` is non-trivial and
     /// not load-bearing for personal use.
@@ -37,10 +47,6 @@ struct PhotoCarouselView: View {
     @State private var selectedPage: Int = 0
     @State private var pendingDeleteIndex: Int?
     @State private var isProcessing: Bool = false
-    /// Bytes the user just picked, awaiting confirmation. Mirrors the
-    /// categories add-confirmation pattern — picks aren't committed
-    /// until the user taps "Add" in the alert below.
-    @State private var pendingAddBytes: [Data]?
 
     private var canAdd: Bool {
         guard onAdd != nil else { return false }
@@ -48,6 +54,15 @@ struct PhotoCarouselView: View {
         return true
     }
     private var canDelete: Bool { onDelete != nil }
+    /// True when caller passed a captions array — the caption row
+    /// should render. False (legacy callers) collapses the row.
+    private var captionsEnabled: Bool { captions != nil }
+    /// Caption for the currently-visible page, or nil if none / out of
+    /// range. Reads through the parallel `captions` array.
+    private var currentCaption: String? {
+        guard let captions, captions.indices.contains(selectedPage) else { return nil }
+        return captions[selectedPage]
+    }
 
     /// How many more photos the user can pick this round. Bound by the
     /// 10-per-pick library cap and (when set) the remaining slots
@@ -109,27 +124,6 @@ struct PhotoCarouselView: View {
                 pendingDeleteIndex = nil
             }
         }
-        // Confirmation alert before committing newly-picked photos.
-        // Reads `pendingAddBytes` directly inside the closures rather
-        // than via `presenting:` — keeps the binding identity simple
-        // for SwiftUI's alert presentation logic during nested-sheet
-        // dismiss animations.
-        .alert(
-            "Add photos?",
-            isPresented: addConfirmBinding
-        ) {
-            Button("Add") {
-                if let bytes = pendingAddBytes {
-                    commitPendingAdd(bytes)
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingAddBytes = nil
-            }
-        } message: {
-            let n = pendingAddBytes?.count ?? 0
-            Text(n == 1 ? "Add this photo?" : "Add these \(n) photos?")
-        }
     }
 
     // MARK: - Toolbar
@@ -185,6 +179,23 @@ struct PhotoCarouselView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
+
+            // Caption row, shared across all pages — reads from the
+            // parallel `captions` array via `currentCaption` keyed on
+            // `selectedPage`. Hidden when the caller didn't pass a
+            // captions array (legacy / minimal mode).
+            if captionsEnabled {
+                CaptionRow(
+                    pageIndex: selectedPage,
+                    caption: currentCaption,
+                    editable: onSetCaption != nil,
+                    onCommit: { newCaption in
+                        onSetCaption?(selectedPage, newCaption)
+                    }
+                )
+                .padding(.horizontal, AppSpacing.lg)
+                .padding(.bottom, AppSpacing.lg)
+            }
         }
     }
 
@@ -194,8 +205,14 @@ struct PhotoCarouselView: View {
     /// rectangle. The corner radius applies *to the image edges*
     /// (via `RecipeImageView.cornerRadius`) so portrait shots round at
     /// the picture's actual corners, not the empty letterbox space.
+    ///
+    /// Photo height is capped at `photoMaxHeight` so the caption row
+    /// below has unambiguous space to land. Without the cap, `.fit`
+    /// would expand to the full available height and the caption
+    /// would feel squeezed against the bottom edge.
     private func photoPage(data: Data, index: Int) -> some View {
-        ZStack {
+        VStack {
+            Spacer(minLength: 0)
             RecipeImageView(
                 data: data,
                 contentMode: .fit,
@@ -203,6 +220,7 @@ struct PhotoCarouselView: View {
             ) {
                 placeholderTile
             }
+            .frame(maxWidth: .infinity, maxHeight: photoMaxHeight)
             .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
             .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
             .overlay(
@@ -214,6 +232,7 @@ struct PhotoCarouselView: View {
                     .stroke(AppColor.accent.opacity(0.18), lineWidth: 1)
                     .allowsHitTesting(false)
             )
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, AppSpacing.lg)
@@ -225,6 +244,15 @@ struct PhotoCarouselView: View {
             pendingDeleteIndex = index
         }
     }
+
+    /// Vertical cap for each photo. `420pt` leaves a comfortable
+    /// caption strip beneath even on the smallest supported phones
+    /// (iPhone SE 3rd gen, ~667pt tall in portrait); on larger
+    /// phones it just reads as a more "framed" gallery look. When no
+    /// caption is in scope the cap still applies — the photo no
+    /// longer fights the page-indicator dots for vertical real estate
+    /// regardless of whether the caller wired captions.
+    private var photoMaxHeight: CGFloat { 420 }
 
     /// Small "2 of 5" indicator. Hidden in single-photo mode (e.g. the
     /// step-image viewer) since there's nothing to count.
@@ -327,12 +355,19 @@ struct PhotoCarouselView: View {
         )
     }
 
-    /// Picker selection -> raw `Data` -> staged for confirmation. The
-    /// caller's `onAdd` doesn't fire until the user confirms in the
-    /// alert below, so a stray pick can be backed out without ever
-    /// touching the recipe / draft.
+    /// Picker selection → raw `Data` → caller's `onAdd`. Direct path,
+    /// no intermediate confirmation: the picker itself is the
+    /// deliberate user action, and a second "Add these photos?" alert
+    /// just doubled friction (and used to race the picker dismiss
+    /// inside the step-photo sheet-in-sheet hierarchy, blocking the
+    /// add entirely on some configurations).
+    ///
+    /// Picker results clamp to `maxImages` defensively in case the
+    /// remaining cap shrank between picker present + dismiss
+    /// (concurrent add elsewhere); in practice the picker already
+    /// respects `pickLimit`.
     private func handlePicked(_ items: [PhotosPickerItem]) {
-        guard !items.isEmpty, onAdd != nil else {
+        guard !items.isEmpty, let onAdd else {
             pickerItems = []
             return
         }
@@ -344,66 +379,178 @@ struct PhotoCarouselView: View {
                     loadedData.append(data)
                 }
             }
-            // Clear the picker selection + spinner first, on the main
-            // actor, BEFORE staging the alert. Splitting this from the
-            // pendingAddBytes assignment lets us insert a small delay
-            // so the system PhotosPicker's dismiss animation finishes
-            // before the alert presents — without the gap, the alert
-            // can race the picker dismiss and never appear (the
-            // "escapes mid-confirm" bug on step photos specifically).
+            if let maxImages {
+                let remaining = max(0, maxImages - photoData.count)
+                loadedData = Array(loadedData.prefix(remaining))
+            }
+            // Hand to the caller (which owns `ImageProcessing.prepare`).
+            // Even when loadedData is empty after clamping, we still
+            // clear pickerItems + isProcessing so the picker is ready
+            // for another round.
+            if !loadedData.isEmpty {
+                await onAdd(loadedData)
+            }
             await MainActor.run {
                 pickerItems = []
                 isProcessing = false
             }
-            if loadedData.isEmpty { return }
-            // Defensive cap — picker should already respect
-            // `pickLimit`, but if the cap shrank between picker
-            // present and dismiss (concurrent add elsewhere) we
-            // trim here so confirmation never offers more than the
-            // gallery can hold.
-            if let maxImages {
-                let remaining = await MainActor.run {
-                    max(0, maxImages - photoData.count)
+        }
+    }
+}
+
+/// Caption row beneath the carousel photo. Three states:
+///   1. **Editable + has caption** — italic display, tap to edit.
+///   2. **Editable + no caption** — "+ Add description" pill button.
+///   3. **Read-only + has caption** — italic display, no tap.
+///   4. **Read-only + no caption** — collapses (renders nothing).
+///
+/// Editing is inline: tapping flips into `isEditing`, the TextField
+/// takes focus, and submit / Done commits via `onCommit`. Paging to a
+/// different photo (`pageIndex` change) auto-commits the in-flight
+/// edit so the user can't accidentally lose typed text by swiping.
+private struct CaptionRow: View {
+    let pageIndex: Int
+    let caption: String?
+    let editable: Bool
+    let onCommit: (String?) -> Void
+
+    @State private var draft: String = ""
+    @State private var isEditing: Bool = false
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        Group {
+            if isEditing && editable {
+                editor
+            } else if let caption, !caption.isEmpty {
+                displayRow(caption)
+            } else if editable {
+                addButton
+            } else {
+                EmptyView()
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: isEditing)
+        .onChange(of: pageIndex) { _, _ in
+            // User swiped to a different photo. If they were mid-edit,
+            // commit whatever they had typed before tearing down — losing
+            // a caption to a stray swipe would be the worst kind of
+            // silent data loss. Then refresh the draft to match the new
+            // page's caption.
+            if isEditing { commit() }
+            draft = caption ?? ""
+        }
+        .onChange(of: fieldFocused) { _, focused in
+            // Tap-away dismissal — when the keyboard goes away (user
+            // taps elsewhere, scroll dismisses, etc.) commit + collapse
+            // back to display mode.
+            if !focused && isEditing {
+                commit()
+            }
+        }
+    }
+
+    private var editor: some View {
+        VStack(alignment: .trailing, spacing: AppSpacing.xs) {
+            TextField(
+                "Description",
+                text: $draft,
+                prompt: Text("Add a description…")
+                    .foregroundStyle(AppColor.textTertiary),
+                axis: .vertical
+            )
+            .lineLimit(1...3)
+            .focused($fieldFocused)
+            .submitLabel(.done)
+            .onSubmit { commit() }
+            .font(.system(size: 14, weight: .regular, design: .serif))
+            .italic()
+            .foregroundStyle(AppColor.textPrimary)
+            .padding(AppSpacing.sm + 2)
+            .background(AppColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.accent.opacity(0.5), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+
+            Button("Done") { commit() }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(AppColor.accent)
+        }
+    }
+
+    private func displayRow(_ caption: String) -> some View {
+        Button {
+            guard editable else { return }
+            startEditing(seed: caption)
+        } label: {
+            HStack(alignment: .top, spacing: AppSpacing.sm) {
+                Text(caption)
+                    .font(.system(size: 14, weight: .regular, design: .serif))
+                    .italic()
+                    .foregroundStyle(AppColor.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+                if editable {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppColor.textTertiary)
+                        .padding(.top, 2)
                 }
-                loadedData = Array(loadedData.prefix(remaining))
             }
-            if loadedData.isEmpty { return }
-            // 350ms gives PhotosPicker enough time to fully dismiss on
-            // a real device. Without this delay, alert presentation
-            // races the picker's own animation on iOS 18 and the
-            // alert silently fails to appear inside a sheet-in-sheet
-            // hierarchy (the step-photo path).
-            try? await Task.sleep(for: .milliseconds(350))
-            await MainActor.run {
-                pendingAddBytes = loadedData
+            .padding(AppSpacing.sm + 2)
+            .background(AppColor.surface.opacity(editable ? 1 : 0))
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(
+                        editable ? AppColor.divider : .clear,
+                        lineWidth: editable ? 1 : 0
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        }
+        .buttonStyle(.plain)
+        .disabled(!editable)
+    }
+
+    private var addButton: some View {
+        Button {
+            startEditing(seed: "")
+        } label: {
+            HStack(spacing: AppSpacing.xs + 2) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .bold))
+                Text("Add description")
+                    .font(.system(size: 13, weight: .semibold))
             }
+            .foregroundStyle(AppColor.accent)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.xs + 2)
+            .overlay(Capsule().stroke(AppColor.accent.opacity(0.6), lineWidth: 1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func startEditing(seed: String) {
+        draft = seed
+        isEditing = true
+        // Defer focus by one runloop tick so the TextField is in the
+        // hierarchy before we ask the focus state to bind to it —
+        // setting fieldFocused synchronously inside the same body
+        // pass is racey on iOS 26 and silently no-ops.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            fieldFocused = true
         }
     }
 
-    /// User confirmed the staged add. Hand off to the caller's
-    /// `onAdd`, which owns the resize step (`ImageProcessing.prepare`)
-    /// — keeping it out of the carousel preserves the
-    /// single-responsibility split: this view is about presentation.
-    private func commitPendingAdd(_ bytes: [Data]) {
-        pendingAddBytes = nil
-        guard let onAdd else { return }
-        isProcessing = true
-        Task {
-            await onAdd(bytes)
-            await MainActor.run {
-                isProcessing = false
-            }
-        }
-    }
-
-    /// Bridge between the optional `pendingAddBytes` and the alert's
-    /// `Bool` `isPresented` binding. Same shape as `deleteDialogBinding`.
-    private var addConfirmBinding: Binding<Bool> {
-        Binding(
-            get: { pendingAddBytes != nil },
-            set: { presented in
-                if !presented { pendingAddBytes = nil }
-            }
-        )
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        onCommit(trimmed.isEmpty ? nil : trimmed)
+        isEditing = false
+        fieldFocused = false
     }
 }

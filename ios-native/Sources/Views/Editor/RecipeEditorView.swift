@@ -226,11 +226,20 @@ struct RecipeEditorView: View {
         .fullScreenCover(isPresented: $showingPhotoCarousel) {
             PhotoCarouselView(
                 photoData: draft.photos.compactMap(\.image),
+                // Parallel captions array. Filtering by image presence
+                // keeps captions aligned with the displayed photoData
+                // — in practice no DraftPhoto reaches this state with
+                // a nil image (apply() filters them), but the explicit
+                // pairing avoids index drift if it ever does.
+                captions: draft.photos.compactMap { $0.image == nil ? nil : $0.caption },
                 onAdd: { rawDataArray in
                     await addPhotos(from: rawDataArray)
                 },
                 onDelete: { index in
                     deletePhoto(at: index)
+                },
+                onSetCaption: { index, newCaption in
+                    setPhotoCaption(at: index, to: newCaption)
                 }
             )
         }
@@ -407,8 +416,23 @@ struct RecipeEditorView: View {
     }
 
     private func deletePhoto(at index: Int) {
-        guard draft.photos.indices.contains(index) else { return }
-        draft.photos.remove(at: index)
+        // `index` comes from the carousel, which sees only photos
+        // whose `image != nil`. Map back to the underlying `draft.photos`
+        // array so deletion targets the same photo the user saw.
+        let displayIndices = draft.photos.indices.filter { draft.photos[$0].image != nil }
+        guard displayIndices.indices.contains(index) else { return }
+        draft.photos.remove(at: displayIndices[index])
+    }
+
+    /// Set the caption on the displayable-photo at `index`. Trims +
+    /// nil-empties so an empty TextField doesn't persist as
+    /// `caption: ""` (which would render as an empty caption row in
+    /// Detail next time).
+    private func setPhotoCaption(at index: Int, to newCaption: String?) {
+        let displayIndices = draft.photos.indices.filter { draft.photos[$0].image != nil }
+        guard displayIndices.indices.contains(index) else { return }
+        let trimmed = newCaption?.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.photos[displayIndices[index]].caption = (trimmed?.isEmpty ?? true) ? nil : trimmed
     }
 
     private func sectionHeader(_ title: String) -> some View {

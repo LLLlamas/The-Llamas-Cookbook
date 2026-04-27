@@ -257,10 +257,14 @@ struct CookModeView: View {
         // View-only carousel for tapped step photos. No closures =
         // PhotoCarouselView hides the Add and long-press-Delete
         // affordances, so this is a pure viewer in Cook Mode.
+        // Captions render read-only beneath each photo when present.
         .sheet(item: $viewingStepImages) { wrapper in
-            PhotoCarouselView(photoData: wrapper.images)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            PhotoCarouselView(
+                photoData: wrapper.images,
+                captions: wrapper.captions
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -501,9 +505,11 @@ struct CookModeView: View {
                     }
                     .padding(AppSpacing.md)
 
-                    let stepPhotoBytes = step.sortedStepPhotos.compactMap(\.image)
+                    let displayableStepPhotos = step.sortedStepPhotos.filter { $0.image != nil }
+                    let stepPhotoBytes = displayableStepPhotos.compactMap(\.image)
+                    let stepPhotoCaptions = displayableStepPhotos.map(\.caption)
                     if !stepPhotoBytes.isEmpty {
-                        cookPhotosButton(bytes: stepPhotoBytes)
+                        cookPhotosButton(bytes: stepPhotoBytes, captions: stepPhotoCaptions)
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.bottom, AppSpacing.md)
                     }
@@ -565,10 +571,10 @@ struct CookModeView: View {
     /// photos render no extra chrome at all (no ghost button taking
     /// up vertical space). Tap opens the same view-only carousel
     /// Detail uses.
-    private func cookPhotosButton(bytes: [Data]) -> some View {
+    private func cookPhotosButton(bytes: [Data], captions: [String?]) -> some View {
         Button {
             Haptics.selection()
-            viewingStepImages = ViewingCookStepImages(images: bytes)
+            viewingStepImages = ViewingCookStepImages(images: bytes, captions: captions)
         } label: {
             HStack(spacing: AppSpacing.xs + 2) {
                 Image(systemName: "photo.fill")
@@ -1027,6 +1033,7 @@ struct CookModeView: View {
 private struct ViewingCookStepImages: Identifiable {
     let id = UUID()
     let images: [Data]
+    let captions: [String?]
 }
 
 // MARK: - Timer-ready full-screen overlay

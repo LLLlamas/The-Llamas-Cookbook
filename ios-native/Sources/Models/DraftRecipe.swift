@@ -63,27 +63,43 @@ struct DraftStep: Identifiable, Equatable {
     /// Per-step reminder. Nil = no note; empty string is normalized to nil
     /// at save time so an empty text field doesn't persist as "has note".
     var specialNote: String? = nil
-    /// Up to 3 photo blobs attached to this step. Carried through the
-    /// draft so the `RecipeStep` rebuild in `Recipe.apply(_:)` doesn't
-    /// lose images on every save — the `photos` relationship is wiped
-    /// and recreated each time, just like `ingredients` and `steps`
-    /// themselves. Bytes flow Recipe -> toDraft -> editor -> apply ->
-    /// Recipe. The 3-cap is enforced at the UI layer
-    /// (`PhotoToggleButton`); apply also clamps defensively.
-    var images: [Data] = []
+    /// Up to 3 photos attached to this step. Each carries optional
+    /// bytes + caption through the draft so the `RecipeStep` rebuild
+    /// in `Recipe.apply(_:)` doesn't lose images / captions on every
+    /// save — the `photos` relationship is wiped and recreated each
+    /// time, just like `ingredients` and `steps` themselves. Flow:
+    /// `Recipe -> toDraft -> editor -> apply -> Recipe`. The 3-cap is
+    /// enforced at the UI layer (`PhotoToggleButton`); apply also
+    /// clamps defensively.
+    var images: [DraftStepPhoto] = []
 
     init(
         id: UUID = UUID(),
         text: String = "",
         needsTimer: Bool = false,
         specialNote: String? = nil,
-        images: [Data] = []
+        images: [DraftStepPhoto] = []
     ) {
         self.id = id
         self.text = text
         self.needsTimer = needsTimer
         self.specialNote = specialNote
         self.images = images
+    }
+}
+
+/// Editor-side mirror of `RecipeStepPhoto`. Same shape as the persisted
+/// model; carries the bytes + optional caption through the draft so
+/// every save round-trip preserves both.
+struct DraftStepPhoto: Identifiable, Equatable {
+    let id: UUID
+    var image: Data
+    var caption: String?
+
+    init(id: UUID = UUID(), image: Data, caption: String? = nil) {
+        self.id = id
+        self.image = image
+        self.caption = caption
     }
 }
 
@@ -94,10 +110,12 @@ struct DraftStep: Identifiable, Equatable {
 struct DraftPhoto: Identifiable, Equatable {
     let id: UUID
     var image: Data?
+    var caption: String?
 
-    init(id: UUID = UUID(), image: Data? = nil) {
+    init(id: UUID = UUID(), image: Data? = nil, caption: String? = nil) {
         self.id = id
         self.image = image
+        self.caption = caption
     }
 }
 
@@ -135,10 +153,19 @@ extension Recipe {
                 // writes target it), and SwiftData drops the orphan
                 // sidecar. New paths (toDraft for fresh recipes) just
                 // see the relationship and skip the migration branch.
-                let relationshipBytes = step.sortedStepPhotos.compactMap(\.image)
-                let images: [Data] = relationshipBytes.isEmpty
-                    ? (step.image.map { [$0] } ?? [])
-                    : relationshipBytes
+                let relationshipPhotos = step.sortedStepPhotos.compactMap { p -> DraftStepPhoto? in
+                    guard let bytes = p.image else { return nil }
+                    return DraftStepPhoto(id: p.id, image: bytes, caption: p.caption)
+                }
+                let images: [DraftStepPhoto]
+                if !relationshipPhotos.isEmpty {
+                    images = relationshipPhotos
+                } else if let legacyBytes = step.image {
+                    // Legacy rows had no caption slot — `nil` is correct.
+                    images = [DraftStepPhoto(image: legacyBytes)]
+                } else {
+                    images = []
+                }
                 return DraftStep(
                     id: step.id,
                     text: step.text,
@@ -148,7 +175,7 @@ extension Recipe {
                 )
             },
             photos: sortedPhotos.map {
-                DraftPhoto(id: $0.id, image: $0.image)
+                DraftPhoto(id: $0.id, image: $0.image, caption: $0.caption)
             },
             prefaceNote: prefaceNote ?? "",
             epilogueNote: epilogueNote ?? "",
@@ -193,13 +220,17 @@ extension Recipe {
                 needsTimer: item.needsTimer,
                 specialNote: item.specialNote?.trimmed.nilIfEmpty
             )
-            // Carry up to 3 photo blobs through the draft into
-            // RecipeStepPhoto rows on the new relationship. Same
+            // Carry up to 3 photo blobs (+ captions) through the draft
+            // into RecipeStepPhoto rows on the new relationship. Same
             // bytes-through-the-draft pattern used for ingredients,
             // steps, and recipe-level photos — without it, every save
             // would silently delete every step photo's sidecar.
-            for (photoIdx, bytes) in item.images.prefix(3).enumerated() {
-                step.photos.append(RecipeStepPhoto(image: bytes, order: photoIdx))
+            for (photoIdx, draftPhoto) in item.images.prefix(3).enumerated() {
+                step.photos.append(RecipeStepPhoto(
+                    image: draftPhoto.image,
+                    caption: draftPhoto.caption.flatMap { $0.trimmed.nilIfEmpty },
+                    order: photoIdx
+                ))
             }
             steps.append(step)
         }
@@ -212,7 +243,11 @@ extension Recipe {
         // don't persist as "has photo, but it's nothing".
         photos.removeAll()
         for (idx, item) in draft.photos.enumerated() where item.image != nil {
-            photos.append(RecipePhoto(image: item.image, order: idx))
+            photos.append(RecipePhoto(
+                image: item.image,
+                caption: item.caption.flatMap { $0.trimmed.nilIfEmpty },
+                order: idx
+            ))
         }
     }
 

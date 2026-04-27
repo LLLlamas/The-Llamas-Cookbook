@@ -6,10 +6,11 @@ struct StepQuickAdd: View {
 
     @State private var text = ""
     @State private var needsTimer = false
-    /// Image bytes staged for the next quick-add. Cleared on submit
+    /// Photos staged for the next quick-add. Cleared on submit
     /// alongside `text` and `needsTimer` so the picker state doesn't
-    /// leak into subsequent rows. Up to 3 entries.
-    @State private var stagedImages: [Data] = []
+    /// leak into subsequent rows. Up to 3 entries — each carries
+    /// optional caption text the user can add inline in the carousel.
+    @State private var stagedImages: [DraftStepPhoto] = []
     @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var focused: Bool
 

@@ -73,9 +73,12 @@ struct RecipeDetailView: View {
                                     noteCallout(preface)
                                 }
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
-                                    StepDetailRow(idx: idx, step: step) { stepPhotos in
+                                    StepDetailRow(idx: idx, step: step) { stepPhotos, stepCaptions in
                                         Haptics.selection()
-                                        viewingStepImages = ViewingStepImages(images: stepPhotos)
+                                        viewingStepImages = ViewingStepImages(
+                                            images: stepPhotos,
+                                            captions: stepCaptions
+                                        )
                                     }
                                 }
                                 if let epilogue = trimmedNote(recipe.epilogueNote) {
@@ -250,25 +253,38 @@ struct RecipeDetailView: View {
             Text("\"\(recipe.title)\" will be permanently removed.")
         }
         .fullScreenCover(isPresented: $showingPhotoCarousel) {
+            // Live `@Model` mutations: tapping the carousel's add /
+            // delete / caption-edit affordances writes through to
+            // SwiftData immediately (same persistence model as the
+            // favorite-toggle), no Save needed.
+            let displayablePhotos = recipe.sortedPhotos.filter { $0.image != nil }
             PhotoCarouselView(
-                photoData: recipe.sortedPhotos.compactMap(\.image),
+                photoData: displayablePhotos.compactMap(\.image),
+                captions: displayablePhotos.map(\.caption),
                 onAdd: { rawDataArray in
                     await addPhotos(from: rawDataArray)
                 },
                 onDelete: { index in
                     deletePhoto(at: index)
+                },
+                onSetCaption: { index, newCaption in
+                    setPhotoCaption(at: index, to: newCaption)
                 }
             )
         }
-        // Step photos viewer. No closures = view-only mode in
-        // PhotoCarouselView (no Add button, no long-press delete).
-        // Sheet (not full-screen cover) for the smaller pop-up modal
-        // feel — step photos are nested inside one step's content,
-        // not the whole-recipe gallery moment.
+        // Step photos viewer. View-only mode (no onAdd / onDelete /
+        // onSetCaption) — captions show but aren't editable from the
+        // recipe-detail surface; users edit step photos through the
+        // editor flow. Sheet (not full-screen cover) for the smaller
+        // pop-up modal feel — step photos are nested inside one
+        // step's content, not the whole-recipe gallery moment.
         .sheet(item: $viewingStepImages) { wrapper in
-            PhotoCarouselView(photoData: wrapper.images)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            PhotoCarouselView(
+                photoData: wrapper.images,
+                captions: wrapper.captions
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -566,9 +582,23 @@ struct RecipeDetailView: View {
     }
 
     private func deletePhoto(at index: Int) {
-        let sorted = recipe.sortedPhotos
-        guard sorted.indices.contains(index) else { return }
-        modelContext.delete(sorted[index])
+        // `index` indexes into the displayable-photos array (filtered
+        // to non-nil image bytes), matching what the carousel renders.
+        let displayable = recipe.sortedPhotos.filter { $0.image != nil }
+        guard displayable.indices.contains(index) else { return }
+        modelContext.delete(displayable[index])
+        recipe.updatedAt = .now
+    }
+
+    /// Set caption on the live `@Model` at `index`. Mutating the
+    /// SwiftData property persists immediately — same pattern as the
+    /// favorite-toggle. Empty strings normalize to nil so a blank
+    /// caption row doesn't render as a tiny empty box in the carousel.
+    private func setPhotoCaption(at index: Int, to newCaption: String?) {
+        let displayable = recipe.sortedPhotos.filter { $0.image != nil }
+        guard displayable.indices.contains(index) else { return }
+        let trimmed = newCaption?.trimmingCharacters(in: .whitespacesAndNewlines)
+        displayable[index].caption = (trimmed?.isEmpty ?? true) ? nil : trimmed
         recipe.updatedAt = .now
     }
 
@@ -731,11 +761,20 @@ private struct StepDetailRow: View {
     /// Caller-provided tap target for the step's photo button. Hoisting
     /// the viewer state to the parent (rather than per-row) avoids many
     /// concurrent `.sheet` modifiers on a long recipe and keeps the row
-    /// purely presentational.
-    let onTapPhotos: ([Data]) -> Void
+    /// purely presentational. The two arrays are parallel — index `i`
+    /// in `images` corresponds to caption `captions[i]`.
+    let onTapPhotos: ([Data], [String?]) -> Void
+
+    private var displayablePhotos: [RecipeStepPhoto] {
+        step.sortedStepPhotos.filter { $0.image != nil }
+    }
 
     private var stepPhotoBytes: [Data] {
-        step.sortedStepPhotos.compactMap(\.image)
+        displayablePhotos.compactMap(\.image)
+    }
+
+    private var stepPhotoCaptions: [String?] {
+        displayablePhotos.map(\.caption)
     }
 
     var body: some View {
@@ -792,7 +831,7 @@ private struct StepDetailRow: View {
     /// past the step-number gutter so it nestles under the body text.
     private var photosButton: some View {
         Button {
-            onTapPhotos(stepPhotoBytes)
+            onTapPhotos(stepPhotoBytes, stepPhotoCaptions)
         } label: {
             HStack(spacing: AppSpacing.xs + 2) {
                 Image(systemName: "photo.fill")
@@ -822,8 +861,11 @@ private struct StepDetailRow: View {
 
 /// Wrapper so `.sheet(item:)` can drive the step-photos viewer with
 /// arbitrary byte arrays. `[Data]` itself isn't `Identifiable`; the
-/// wrapper supplies the required id.
+/// wrapper supplies the required id. `captions` is parallel to
+/// `images` — same length, same indices — so the read-only carousel
+/// can render them alongside.
 private struct ViewingStepImages: Identifiable {
     let id = UUID()
     let images: [Data]
+    let captions: [String?]
 }

@@ -16,7 +16,7 @@ import SwiftUI
 /// carry-through (`Recipe.apply(_:)` clamps to 3 when rebuilding
 /// `RecipeStepPhoto` rows).
 struct PhotoToggleButton: View {
-    @Binding var images: [Data]
+    @Binding var images: [DraftStepPhoto]
     @Environment(AppearanceSettings.self) private var appearance
 
     @State private var showingCarousel = false
@@ -34,13 +34,18 @@ struct PhotoToggleButton: View {
         .buttonStyle(.plain)
         .sheet(isPresented: $showingCarousel) {
             PhotoCarouselView(
-                photoData: images,
+                photoData: images.map(\.image),
+                captions: images.map(\.caption),
                 onAdd: { rawDataArray in
                     await processAndAppend(rawDataArray)
                 },
                 onDelete: { index in
                     guard images.indices.contains(index) else { return }
                     images.remove(at: index)
+                },
+                onSetCaption: { index, newCaption in
+                    guard images.indices.contains(index) else { return }
+                    images[index].caption = newCaption
                 },
                 maxImages: Self.maxImages
             )
@@ -90,16 +95,18 @@ struct PhotoToggleButton: View {
     // MARK: - Pick handling
 
     /// Process picked bytes through `ImageProcessing` and append to
-    /// the binding. Capped defensively at 3 (the carousel already
-    /// caps at the picker level via `maxImages`, but a stale cap or
-    /// concurrent edit elsewhere could let one extra slip through).
+    /// the binding as fresh `DraftStepPhoto` rows (no caption — the
+    /// user can add one in the carousel afterward). Capped defensively
+    /// at 3 (the carousel already caps at the picker level via
+    /// `maxImages`, but a stale cap or concurrent edit elsewhere could
+    /// let one extra slip through).
     private func processAndAppend(_ rawDataArray: [Data]) async {
-        var processed: [Data] = []
+        var processed: [DraftStepPhoto] = []
         let startingCount = await MainActor.run { images.count }
         for raw in rawDataArray {
             if startingCount + processed.count >= Self.maxImages { break }
             if let bytes = await ImageProcessing.prepare(raw, for: .step) {
-                processed.append(bytes)
+                processed.append(DraftStepPhoto(image: bytes))
             }
         }
         await MainActor.run {

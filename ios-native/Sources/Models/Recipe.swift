@@ -168,16 +168,23 @@ final class RecipeStep {
 /// and storage strategy. Capped at 3 per step at the editor / draft
 /// layer; nothing in the model itself enforces the cap so legacy data
 /// or future expansion stays compatible.
+///
+/// `caption` is optional free-form text the user attaches to a photo
+/// (e.g. "after the autolyse", "doubled in size"). Lightweight
+/// SwiftData migration handles existing rows — they decode with
+/// `caption == nil`.
 @Model
 final class RecipeStepPhoto {
     var id: UUID
     @Attribute(.externalStorage) var image: Data?
+    var caption: String?
     var order: Int
     var step: RecipeStep?
 
-    init(image: Data?, order: Int) {
+    init(image: Data?, caption: String? = nil, order: Int) {
         self.id = UUID()
         self.image = image
+        self.caption = caption
         self.order = order
     }
 }
@@ -195,12 +202,14 @@ final class RecipeStepPhoto {
 final class RecipePhoto {
     var id: UUID
     @Attribute(.externalStorage) var image: Data?
+    var caption: String?
     var order: Int
     var recipe: Recipe?
 
-    init(image: Data?, order: Int) {
+    init(image: Data?, caption: String? = nil, order: Int) {
         self.id = UUID()
         self.image = image
+        self.caption = caption
         self.order = order
     }
 }
