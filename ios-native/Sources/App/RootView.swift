@@ -46,26 +46,35 @@ struct RootView: View {
             session.restore(using: lookupRecipe)
         }
         .onOpenURL { url in
-            // Live Activity tap → `llamascookbook://cook/<uuid>`.
-            // Three cases this needs to handle:
-            //   1. Cold launch: `restore` rehydrates from disk, sets the
-            //      cover visible.
-            //   2. Warm app, session minimized: `resume()` brings the
-            //      cover back without re-reading disk.
-            //   3. No persisted session at all (rare — Live Activity
-            //      outlived the cook session) — fall back to starting a
-            //      fresh cook for the URL's recipe.
+            // Live Activity / notification tap → `llamascookbook://cook/<uuid>`
+            // where <uuid> is the recipeID. Multi-cook routing: find
+            // the cook whose recipe matches and foreground it directly,
+            // so tapping cook B's lock-screen activity lands the user
+            // in cook B's view (not whichever cook was foregrounded
+            // last).
             //
-            // PR 2 will extend this to find the cook whose `recipeID`
-            // matches and foreground it, so two parallel cooks can each
-            // be deep-linked back to from their own Live Activity.
+            // Edge cases:
+            //   1. Cold launch with persisted cooks → `restore` first,
+            //      then route by recipeID.
+            //   2. No persisted session and no live cook for that
+            //      recipe → start a fresh cook for it (Live Activity
+            //      outlived the session).
+            //   3. Persisted cook for that recipe but a different cook
+            //      currently foregrounded → `foreground(cookID:)`
+            //      switches and re-presents the cover.
             guard let recipeID = parseCookDeepLink(url) else { return }
             if session.activeCooks.isEmpty {
                 session.restore(using: lookupRecipe)
             }
-            if session.activeCooks.isEmpty, let recipe = lookupRecipe(recipeID) {
+            if let cook = session.activeCooks.first(where: { $0.recipe.id == recipeID }) {
+                session.foreground(cookID: cook.id)
+            } else if session.activeCooks.isEmpty, let recipe = lookupRecipe(recipeID) {
                 session.start(recipe)
             } else {
+                // Active cooks exist but none matches this recipeID —
+                // edge case (stale Live Activity from a deleted recipe,
+                // probably). Surface whatever's already in the session
+                // rather than no-oping.
                 session.resume()
             }
         }
@@ -77,8 +86,20 @@ struct RootView: View {
                     cookID: cookID,
                     restoration: session.pendingRestoration
                 ) {
-                    session.end()
+                    // Multi-cook close: drop *just this cook* from the
+                    // session. If it was the last one, `remove` falls
+                    // through to `endAll` and dismisses the cover; if
+                    // others remain, `remove` hands off the foreground
+                    // and the cover swaps to the next cook via
+                    // `.id(cookID)` recreation below.
+                    session.remove(cookID: cookID)
                 }
+                // .id(cookID) forces SwiftUI to tear down + recreate
+                // CookModeView when the foregrounded cook changes,
+                // so each cook's @State (strikes, timer, phase) seeds
+                // fresh from its own pendingRestoration instead of
+                // bleeding the previous cook's values.
+                .id(cookID)
                 // Cook Mode owns the entire screen — no sheet chrome,
                 // no swipe-to-dismiss, no rounded corners. Exit goes
                 // through the in-view close (X) or Mark-as-cooked.

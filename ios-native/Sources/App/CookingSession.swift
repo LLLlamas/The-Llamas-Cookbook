@@ -232,6 +232,37 @@ final class CookingSession {
         isCookModeVisible = true
     }
 
+    /// Drop one cook from the session — used by Mark-as-cooked and the
+    /// per-cook exit flow. Three outcomes:
+    ///   • Last cook → `endAll()` (cover dismisses, persistence cleared)
+    ///   • Foregrounded cook removed, others remain → hand off
+    ///     foreground to the first remaining cook, seed
+    ///     `pendingRestoration` from its snapshot so the cover swaps
+    ///     to that cook's view via `.id(cookID)` recreation
+    ///   • Background cook removed → just persist the trimmed array;
+    ///     the cover stays on whatever was foregrounded
+    ///
+    /// **Critical for multi-cook:** without this method, the only path
+    /// from CookModeView's close button was `session.end()` which
+    /// wipes every cook regardless of how many are active.
+    func remove(cookID: UUID) {
+        guard activeCooks.contains(where: { $0.id == cookID }) else { return }
+        activeCooks.removeAll { $0.id == cookID }
+        if activeCooks.isEmpty {
+            endAll()
+            return
+        }
+        if foregroundedCookID == cookID {
+            let next = activeCooks.first
+            foregroundedCookID = next?.id
+            // Seed restoration so the new CookModeView (rebuilt via
+            // `.id(cookID)` in RootView) reads the next cook's progress
+            // instead of falling into the fresh-start branch.
+            pendingRestoration = next?.toState()
+        }
+        CookingSessionStore.save(activeCooks.map { $0.toState() })
+    }
+
     /// Hide the Cook Mode cover but keep the session alive. Timers +
     /// Live Activity keep running; the user can resume from the
     /// Library resume pill or by tapping the Live Activity.
@@ -311,5 +342,10 @@ final class CookingSession {
         isCookModeVisible = false
         pendingRestoration = nil
         CookingSessionStore.clear()
+        // Wipe any pending/delivered timer notifications across all
+        // cooks (and the legacy single-id from pre-multi installs).
+        // CookModeView's onDisappear handles the per-cook case during
+        // remove(); this call covers the "kill everything" path.
+        TimerNotifications.cancelAll()
     }
 }

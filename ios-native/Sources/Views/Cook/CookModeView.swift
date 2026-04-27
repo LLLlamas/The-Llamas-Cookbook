@@ -194,14 +194,15 @@ struct CookModeView: View {
             // The in-app alarm task uses local @State that's destroyed
             // either way; stop it on every disappear so it doesn't leak.
             stopAlarm()
-            // Only tear down the Live Activity + scheduled notification
-            // when the session actually ended (close X / Mark cooked /
-            // Stop after timer). Minimize keeps `activeCooks` populated
-            // so the timer can keep ticking on the lock screen and
-            // re-attach to a fresh CookModeView when the user resumes.
-            if session.activeCooks.isEmpty {
+            // Tear down THIS cook's Live Activity + scheduled
+            // notification only when this cook is no longer in the
+            // session (close X / Mark cooked / Stop). Minimize and
+            // pill-tap-switch both keep this cook in `activeCooks`
+            // so the lock-screen widget keeps ticking and re-attaches
+            // when the user comes back.
+            if !session.activeCooks.contains(where: { $0.id == cookID }) {
                 liveActivity.end()
-                TimerNotifications.cancel()
+                TimerNotifications.cancel(cookID: cookID)
             }
         }
         .fullScreenCover(isPresented: $timerExpired) {
@@ -218,7 +219,7 @@ struct CookModeView: View {
                     }
                     timerStepId = nil
                     timerExpired = false
-                    TimerNotifications.cancel()
+                    TimerNotifications.cancel(cookID: cookID)
                     liveActivity.end()
                 }
             )
@@ -821,6 +822,7 @@ struct CookModeView: View {
         let stepNumber = (sortedSteps.firstIndex(where: { $0.id == stepId }) ?? 0) + 1
         let stepText = sortedSteps.first(where: { $0.id == stepId })?.text
         TimerNotifications.schedule(
+            cookID: cookID,
             endDate: endsAt,
             label: label,
             recipeID: recipe.id,
@@ -867,7 +869,7 @@ struct CookModeView: View {
     private func cancelTimer() {
         timerEndsAt = nil
         timerStepId = nil
-        TimerNotifications.cancel()
+        TimerNotifications.cancel(cookID: cookID)
         liveActivity.end()
     }
 
@@ -898,6 +900,7 @@ struct CookModeView: View {
                 sortedSteps.first(where: { $0.id == id })?.text
             }
             TimerNotifications.schedule(
+                cookID: cookID,
                 endDate: end,
                 label: timerLabel,
                 recipeID: recipe.id,

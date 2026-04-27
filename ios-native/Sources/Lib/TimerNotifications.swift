@@ -7,7 +7,18 @@ import UserNotifications
 /// locked. Live Activity (Dynamic Island) is a separate future path —
 /// this just handles the "don't miss the timer" baseline.
 enum TimerNotifications {
-    private static let identifier = "cooking-timer"
+    /// Per-cook identifier prefix. Each active cook's pending timer
+    /// notification lives under `cooking-timer-<cookID>` so two
+    /// concurrent cooks (e.g. muffins + pizza dough) each get their
+    /// own dedicated lock-screen banner instead of one overwriting the
+    /// other. The legacy single-id `"cooking-timer"` key is kept only
+    /// in `cancelAll` for cleanup of pre-multi installs.
+    private static let identifierPrefix = "cooking-timer-"
+    private static let legacyIdentifier = "cooking-timer"
+
+    private static func identifier(for cookID: UUID) -> String {
+        "\(identifierPrefix)\(cookID.uuidString)"
+    }
 
     /// Request alert+sound permission. Idempotent — iOS caches the answer
     /// and subsequent calls return the cached decision without re-prompting.
@@ -16,20 +27,20 @@ enum TimerNotifications {
             .requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    /// `userInfo` key for the recipe UUID — the AppDelegate's
-    /// `didReceive` handler reads it on tap and routes through the
-    /// existing `llamascookbook://cook/<uuid>` deep link so the user
-    /// lands directly back in Cook Mode.
+    /// `userInfo` keys. `recipeID` rides along so the AppDelegate's
+    /// `didReceive` handler can deep-link back to the right recipe via
+    /// `llamascookbook://cook/<uuid>`. `cookID` is added so PR-3 deep-link
+    /// routing can disambiguate two cooks of the same recipe.
     static let recipeIDUserInfoKey = "recipeID"
+    static let cookIDUserInfoKey = "cookID"
 
-    /// Schedule (or replace) the timer notification to fire at `date`.
-    /// The copy folds in the recipe title, step number, and a snippet of
-    /// the step text so the banner reads as "Brownies — Step 4 done /
-    /// Bake at 350°F for 25 min" rather than a generic "Step X is done".
-    /// `stepText` is optional — when blank we fall back to a label-based
-    /// hint ("Your bake timer is ready"). `recipeID` rides along in
-    /// `userInfo` so a tap can deep-link back to the right recipe.
+    /// Schedule (or replace) the timer notification for one cook. Per
+    /// cook, not per timer slot — re-extending the same cook's running
+    /// timer just rewrites the cook's existing pending request. Two
+    /// concurrent cooks each get their own request keyed by `cookID`,
+    /// so neither overwrites the other.
     static func schedule(
+        cookID: UUID,
         endDate date: Date,
         label: String,
         recipeID: UUID,
@@ -43,23 +54,25 @@ enum TimerNotifications {
         let content = UNMutableNotificationContent()
         content.title = formatTitle(recipeTitle: recipeTitle, stepNumber: stepNumber)
         content.body = formatBody(label: label, stepText: stepText)
-        content.userInfo = [recipeIDUserInfoKey: recipeID.uuidString]
-        // Bundled beep-pattern CAF (see workflow's "Generate timer alarm
-        // sound" step). Falls back to the system default ding if the
-        // file is missing (e.g. a local dev build that skipped CI).
-        if let _ = Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") {
+        content.userInfo = [
+            recipeIDUserInfoKey: recipeID.uuidString,
+            cookIDUserInfoKey: cookID.uuidString,
+        ]
+        if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
             content.sound = UNNotificationSound(named: UNNotificationSoundName("timer-alarm.caf"))
         } else {
             content.sound = .default
         }
 
+        let id = identifier(for: cookID)
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)
-        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
 
         let center = UNUserNotificationCenter.current()
-        // Replace any previously scheduled request so extend/subtract
-        // and step-to-step transitions don't leave stale notifications.
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        // Replace any previously scheduled request for THIS cook so
+        // extend/subtract and step-to-step transitions don't leave a
+        // stale notification. Other cooks' notifications stay intact.
+        center.removePendingNotificationRequests(withIdentifiers: [id])
         center.add(request, withCompletionHandler: nil)
     }
 
@@ -83,12 +96,40 @@ enum TimerNotifications {
         return "Your \(label) timer is ready. Tap to continue cooking."
     }
 
-    /// Remove any pending or already-delivered cooking-timer notification.
-    /// Called on cancel, and when the in-app ready overlay is dismissed
-    /// so a stale banner doesn't linger in the notification center.
-    static func cancel() {
+    /// Remove pending + delivered notifications for one cook only.
+    /// Other cooks' timers are untouched — exactly what we want when a
+    /// single cook's timer is canceled, extended, or its ready overlay
+    /// is dismissed while another cook is still ticking.
+    static func cancel(cookID: UUID) {
+        let id = identifier(for: cookID)
         let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
-        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        center.removeDeliveredNotifications(withIdentifiers: [id])
+    }
+
+    /// Wipe every cooking-timer notification — pending and delivered,
+    /// per-cook + the legacy single-id leftover from pre-multi installs.
+    /// Called from `CookingSession.endAll()` when the whole session is
+    /// torn down. Async fetch + filter is required because pending IDs
+    /// aren't enumerable synchronously.
+    static func cancelAll() {
+        let center = UNUserNotificationCenter.current()
+        // Legacy id (just in case a notification scheduled under a
+        // pre-multi build is still pending when v2 launches).
+        center.removePendingNotificationRequests(withIdentifiers: [legacyIdentifier])
+        center.removeDeliveredNotifications(withIdentifiers: [legacyIdentifier])
+        // Per-cook ids — fetch then filter by prefix.
+        center.getPendingNotificationRequests { reqs in
+            let ids = reqs.map(\.identifier).filter { $0.hasPrefix(identifierPrefix) }
+            if !ids.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: ids)
+            }
+        }
+        center.getDeliveredNotifications { notifs in
+            let ids = notifs.map(\.request.identifier).filter { $0.hasPrefix(identifierPrefix) }
+            if !ids.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
     }
 }
