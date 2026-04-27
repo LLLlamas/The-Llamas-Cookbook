@@ -215,12 +215,12 @@ final class CookingSession {
     ///
     /// Refuses past `maxConcurrentCooks` — the cap matches the iOS
     /// Live Activity ceiling and keeps the pills bar legible.
-    /// Refuses if the recipe is already an active cook (callers that
-    /// want to truly duplicate should call this twice deliberately;
-    /// for now the typical "Add another" flow is dedup-by-recipe).
+    /// Same recipe twice is allowed (two batches with different scales,
+    /// or two independent runs of the same recipe). Each cook gets its
+    /// own `ActiveCook.id`; pills + per-cook state key off that, not
+    /// `recipe.id`.
     func addParallel(_ recipe: Recipe) {
         guard canAddCook else { return }
-        if activeCooks.contains(where: { $0.recipe.id == recipe.id }) { return }
         let cook = ActiveCook.fresh(for: recipe)
         activeCooks.append(cook)
         foregroundedCookID = cook.id
@@ -266,8 +266,9 @@ final class CookingSession {
         // Per-cook cleanup. Lifted out of CookModeView.onDisappear so
         // the session is the single source of truth for cook lifecycle
         // — non-foregrounded cooks (which never had a view) get cleaned
-        // up correctly too.
-        TimerLiveActivityController.endActivities(forRecipeID: removed.recipe.id)
+        // up correctly too. Filter by cookID so two parallel cooks of
+        // the same recipe don't tear each other's banners down.
+        TimerLiveActivityController.endActivities(forCookID: cookID)
         TimerNotifications.cancel(cookID: cookID)
 
         if activeCooks.isEmpty {
@@ -390,7 +391,7 @@ final class CookingSession {
         // cook's activity is already ended — the loop covers the
         // "explicit close X / multi-cook tear down everything" path.
         for cook in activeCooks {
-            TimerLiveActivityController.endActivities(forRecipeID: cook.recipe.id)
+            TimerLiveActivityController.endActivities(forCookID: cook.id)
         }
         activeCooks = []
         foregroundedCookID = nil

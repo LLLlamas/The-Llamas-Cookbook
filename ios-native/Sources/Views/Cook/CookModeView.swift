@@ -185,10 +185,10 @@ struct CookModeView: View {
         .onChange(of: timerLabel) { _, _ in persistSnapshot() }
         .onChange(of: timerOriginalMinutes) { _, _ in persistSnapshot() }
         .onAppear {
-            // Re-attach to an orphan Live Activity for THIS cook's
-            // recipe (multi-cook safe: filters by recipeID rather
-            // than grabbing whatever's first in the activities list).
-            liveActivity.adopt(forRecipeID: recipe.id)
+            // Re-attach to an orphan Live Activity for THIS cook
+            // (filters by cookID so two parallel cooks of the same
+            // recipe don't grab each other's activities).
+            liveActivity.adopt(forCookID: cookID, recipeID: recipe.id)
             // Keep the screen awake while Cook Mode is foregrounded —
             // hands are usually wet, the user isn't tapping every few
             // seconds, and a screen lock mid-recipe means scrubbing
@@ -843,6 +843,7 @@ struct CookModeView: View {
 
         liveActivity.end() // clear any lingering activity from a prior step
         liveActivity.start(
+            cookID: cookID,
             recipeID: recipe.id,
             recipeTitle: recipe.title,
             endDate: endsAt,
@@ -1139,10 +1140,20 @@ private struct RunningTimerSheet: View {
 
     @State private var extendMinutes: Int = 5
 
-    /// Minimum 60 keeps the dial useful for short timers; for longer
-    /// originals (90 min bread, etc.) the dial extends to match so the
-    /// user can subtract the whole thing in one move.
+    /// Upper bound — at least 60 to keep the dial useful for short timers;
+    /// stretches to `originalMinutes` for longer originals (90-min bread)
+    /// so the user can dial in big extensions in one move.
     private var pickerMax: Int { max(60, originalMinutes) }
+
+    /// Lower bound — capped at how much time is actually left so the user
+    /// can scroll right down to "stop now" but not into negative territory.
+    /// `extendTimer(by:)` clamps too, but bounding the wheel itself keeps
+    /// the displayed selection honest. Round up so a 4:30 remaining timer
+    /// still offers -5 (i.e., "zero out").
+    private var pickerMin: Int {
+        guard secondsLeft > 0 else { return -1 }
+        return -Int(ceil(Double(secondsLeft) / 60.0))
+    }
 
     var body: some View {
         VStack(spacing: AppSpacing.lg) {
@@ -1163,43 +1174,29 @@ private struct RunningTimerSheet: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(AppColor.textPrimary)
 
-                MinutePicker(selection: $extendMinutes, tint: AppColor.textPrimary, max: pickerMax)
-                    .frame(height: 120)
+                MinutePicker(
+                    selection: $extendMinutes,
+                    tint: AppColor.textPrimary,
+                    range: pickerMin...pickerMax
+                )
+                .frame(height: 120)
 
-                HStack(spacing: AppSpacing.sm) {
-                    Button {
-                        onExtend(-extendMinutes)
-                    } label: {
-                        HStack(spacing: AppSpacing.xs) {
-                            Image(systemName: "minus")
-                                .font(.system(size: 14, weight: .bold))
-                            Text("\(extendMinutes) min")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
-                        .foregroundStyle(appearance.accentColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppSpacing.md)
-                        .background(AppColor.surface)
-                        .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1.5))
-                        .clipShape(Capsule())
+                Button {
+                    onExtend(extendMinutes)
+                } label: {
+                    HStack(spacing: AppSpacing.xs) {
+                        Image(systemName: extendMinutes < 0 ? "minus" : "plus")
+                            .font(.system(size: 14, weight: .bold))
+                        Text("\(abs(extendMinutes)) min")
+                            .font(.system(size: 16, weight: .semibold))
                     }
-
-                    Button {
-                        onExtend(extendMinutes)
-                    } label: {
-                        HStack(spacing: AppSpacing.xs) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 14, weight: .bold))
-                            Text("\(extendMinutes) min")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
-                        .foregroundStyle(AppColor.onAccent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppSpacing.md)
-                        .background(appearance.accentColor)
-                        .clipShape(Capsule())
-                    }
+                    .foregroundStyle(AppColor.onAccent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, AppSpacing.md)
+                    .background(appearance.accentColor)
+                    .clipShape(Capsule())
                 }
+                .disabled(extendMinutes == 0)
             }
 
             Button(role: .destructive) {
@@ -1232,20 +1229,32 @@ private struct RunningTimerSheet: View {
 private struct MinutePicker: View {
     @Binding var selection: Int
     let tint: Color
-    /// Upper bound (inclusive) of the wheel range. Defaults to 60 — used
-    /// by the post-expiry extend overlay where there's no original
-    /// duration to scale from.
-    var max: Int = 60
+    /// Inclusive range of selectable minute values. Defaults to `1...60`
+    /// for the post-expiry extend overlay where there's no original
+    /// duration to scale from. The running-timer adjust sheet passes a
+    /// signed range so the user can scroll to a negative value to
+    /// subtract instead of needing a separate minus button.
+    var range: ClosedRange<Int> = 1...60
 
     var body: some View {
         Picker("Minutes", selection: $selection) {
-            ForEach(1...max, id: \.self) { m in
-                Text("\(m) min")
+            ForEach(Array(range), id: \.self) { m in
+                Text(label(for: m))
                     .foregroundStyle(tint)
                     .tag(m)
             }
         }
         .pickerStyle(.wheel)
         .labelsHidden()
+    }
+
+    private func label(for m: Int) -> String {
+        // Only prefix "+" when the wheel can also reach negatives — keeps
+        // the post-expiry overlay (positive-only) reading "5 min" while
+        // the running-timer sheet's signed wheel reads "+5 min" / "-5 min".
+        let showSign = range.lowerBound < 0
+        if m < 0 { return "\(m) min" }
+        if m == 0 { return "0 min" }
+        return showSign ? "+\(m) min" : "\(m) min"
     }
 }

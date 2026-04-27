@@ -238,10 +238,12 @@ private struct CookingPillsBar: View {
     }
 
     /// True when the green add button should appear: there's a Detail
-    /// recipe in scope, it isn't already cooking, and we're under cap.
+    /// recipe in scope and we're under the concurrency cap. The recipe
+    /// being already cooking is *fine* — the user can run the same
+    /// recipe twice in parallel (two batches, different scales, etc.),
+    /// each cook gets its own `ActiveCook.id`.
     private var canShowAdd: Bool {
-        guard let id = navContext.detailedRecipeID else { return false }
-        guard !session.activeCooks.contains(where: { $0.recipe.id == id }) else { return false }
+        guard navContext.detailedRecipeID != nil else { return false }
         return session.canAddCook
     }
 

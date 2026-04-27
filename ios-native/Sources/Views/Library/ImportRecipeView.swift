@@ -509,9 +509,14 @@ struct ImportRecipeView: View {
             Haptics.success()
             urlEnrichment = draft
             parsedDraft = draft
+            // Seed the paste editor with the parsed result so the user
+            // can fall back to text parsing if the scrape was wrong —
+            // edits flow through `mergedDraft` (text fields beat URL
+            // fields), so anything they correct here wins on Preview.
+            pastedText = draft.toImportText()
             urlBanner = URLBanner(
                 kind: .success,
-                message: "Found a structured recipe. Tap Preview to review, or paste text below to override any fields."
+                message: "Found a structured recipe. Tap Preview to review, or edit the text below to fix anything that came through wrong."
             )
 
         case .partial(let enrichment, let seedText, let hint):
