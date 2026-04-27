@@ -61,54 +61,74 @@ struct PhotoCarouselView: View {
 
     var body: some View {
         NavigationStack {
-            content
-                .background(carouselBackground.ignoresSafeArea())
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { toolbarContent }
-                .onAppear { stylePageControl() }
-                .onChange(of: pickerItems) { _, items in
-                    handlePicked(items)
+            // `Group` gives the conditional content a stable parent so
+            // the modifiers below sit on a consistent view identity.
+            // Without this wrapper, swapping between `emptyState` and
+            // `carousel` could tear down attached modifiers (notably
+            // `.alert`), which caused the step-photo add to "escape"
+            // mid-confirm — the alert was destroyed during the picker
+            // dismiss animation, never re-presented.
+            Group {
+                if photoData.isEmpty {
+                    emptyState
+                } else {
+                    carousel
                 }
-                .onChange(of: photoData.count) { _, newCount in
-                    // After a delete the bound page index can fall off
-                    // the end of the array. Clamp to the last valid page
-                    // so SwiftUI doesn't render an empty `TabView` slot.
-                    if selectedPage >= newCount {
-                        selectedPage = max(0, newCount - 1)
-                    }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(carouselBackground.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
+        }
+        // Stable modifiers — attached to the NavigationStack so they
+        // survive any internal view swaps inside `Group`.
+        .onAppear { stylePageControl() }
+        .onChange(of: pickerItems) { _, items in
+            handlePicked(items)
+        }
+        .onChange(of: photoData.count) { _, newCount in
+            // After a delete the bound page index can fall off the
+            // end of the array. Clamp to the last valid page so
+            // SwiftUI doesn't render an empty `TabView` slot.
+            if selectedPage >= newCount {
+                selectedPage = max(0, newCount - 1)
+            }
+        }
+        .confirmationDialog(
+            "Remove this photo?",
+            isPresented: deleteDialogBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let idx = pendingDeleteIndex {
+                    onDelete?(idx)
                 }
-                .confirmationDialog(
-                    "Remove this photo?",
-                    isPresented: deleteDialogBinding,
-                    titleVisibility: .visible
-                ) {
-                    Button("Remove", role: .destructive) {
-                        if let idx = pendingDeleteIndex {
-                            onDelete?(idx)
-                        }
-                        pendingDeleteIndex = nil
-                    }
-                    Button("Cancel", role: .cancel) {
-                        pendingDeleteIndex = nil
-                    }
+                pendingDeleteIndex = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteIndex = nil
+            }
+        }
+        // Confirmation alert before committing newly-picked photos.
+        // Reads `pendingAddBytes` directly inside the closures rather
+        // than via `presenting:` — keeps the binding identity simple
+        // for SwiftUI's alert presentation logic during nested-sheet
+        // dismiss animations.
+        .alert(
+            "Add photos?",
+            isPresented: addConfirmBinding
+        ) {
+            Button("Add") {
+                if let bytes = pendingAddBytes {
+                    commitPendingAdd(bytes)
                 }
-                // Confirmation alert before committing newly-picked
-                // photos. Mirrors the categories add-confirmation
-                // pattern so the user gets a "review before commit"
-                // step on every meaningful add.
-                .alert(
-                    "Add photos?",
-                    isPresented: addConfirmBinding,
-                    presenting: pendingAddBytes
-                ) { bytes in
-                    Button("Add") { commitPendingAdd(bytes) }
-                    Button("Cancel", role: .cancel) {
-                        pendingAddBytes = nil
-                    }
-                } message: { bytes in
-                    let n = bytes.count
-                    Text(n == 1 ? "Add this photo?" : "Add these \(n) photos?")
-                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingAddBytes = nil
+            }
+        } message: {
+            let n = pendingAddBytes?.count ?? 0
+            Text(n == 1 ? "Add this photo?" : "Add these \(n) photos?")
         }
     }
 
@@ -144,15 +164,9 @@ struct PhotoCarouselView: View {
     }
 
     // MARK: - Body content
-
-    @ViewBuilder
-    private var content: some View {
-        if photoData.isEmpty {
-            emptyState
-        } else {
-            carousel
-        }
-    }
+    // (Empty state vs. carousel selection now lives inline inside
+    // `body`'s NavigationStack — see comment there about why the
+    // wrapping `Group` matters for alert stability.)
 
     private var carousel: some View {
         VStack(spacing: 0) {
@@ -330,24 +344,37 @@ struct PhotoCarouselView: View {
                     loadedData.append(data)
                 }
             }
+            // Clear the picker selection + spinner first, on the main
+            // actor, BEFORE staging the alert. Splitting this from the
+            // pendingAddBytes assignment lets us insert a small delay
+            // so the system PhotosPicker's dismiss animation finishes
+            // before the alert presents — without the gap, the alert
+            // can race the picker dismiss and never appear (the
+            // "escapes mid-confirm" bug on step photos specifically).
             await MainActor.run {
                 pickerItems = []
                 isProcessing = false
-                if loadedData.isEmpty {
-                    return
+            }
+            if loadedData.isEmpty { return }
+            // Defensive cap — picker should already respect
+            // `pickLimit`, but if the cap shrank between picker
+            // present and dismiss (concurrent add elsewhere) we
+            // trim here so confirmation never offers more than the
+            // gallery can hold.
+            if let maxImages {
+                let remaining = await MainActor.run {
+                    max(0, maxImages - photoData.count)
                 }
-                // Defensive cap — picker should already respect
-                // `pickLimit`, but if the cap shrank between picker
-                // present and dismiss (concurrent add elsewhere) we
-                // trim here so confirmation never offers more than the
-                // gallery can hold.
-                if let maxImages {
-                    let remaining = max(0, maxImages - photoData.count)
-                    loadedData = Array(loadedData.prefix(remaining))
-                }
-                if loadedData.isEmpty {
-                    return
-                }
+                loadedData = Array(loadedData.prefix(remaining))
+            }
+            if loadedData.isEmpty { return }
+            // 350ms gives PhotosPicker enough time to fully dismiss on
+            // a real device. Without this delay, alert presentation
+            // races the picker's own animation on iOS 18 and the
+            // alert silently fails to appear inside a sheet-in-sheet
+            // hierarchy (the step-photo path).
+            try? await Task.sleep(for: .milliseconds(350))
+            await MainActor.run {
                 pendingAddBytes = loadedData
             }
         }

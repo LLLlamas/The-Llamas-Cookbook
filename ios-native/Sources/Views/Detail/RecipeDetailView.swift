@@ -131,7 +131,17 @@ struct RecipeDetailView: View {
             }
             .background(AppColor.background)
 
-            startCookingBar
+            // Hide the full-width Start Cooking bar whenever a cook
+            // session is already active — otherwise it collides
+            // visually with the resume pill at the bottom of the
+            // screen. The pill's green "+" button is the additive
+            // entry point for spawning a parallel cook from this
+            // recipe; replacing the existing session is intentionally
+            // not surfaced here (would require closing the active
+            // session first).
+            if session.activeCooks.isEmpty {
+                startCookingBar
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

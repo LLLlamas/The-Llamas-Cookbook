@@ -294,6 +294,12 @@ final class CookingSession {
     /// recipe was deleted while the app was away (rare, but a real
     /// case if the user deleted the recipe across the kill). If every
     /// stored cook is stale, the persisted state is cleared silently.
+    ///
+    /// **Doesn't auto-present Cook Mode.** The user always lands on
+    /// Library; the cook pills at the bottom are the resume gesture.
+    /// Notification / Live-Activity taps still flip the cover via
+    /// `foreground(cookID:)` from `RootView.onOpenURL`, so deep-link
+    /// resume continues to work.
     func restore(using lookup: (UUID) -> Recipe?) {
         let states = CookingSessionStore.load()
         guard !states.isEmpty else { return }
@@ -315,7 +321,8 @@ final class CookingSession {
         activeCooks = rehydrated
         foregroundedCookID = rehydrated.first?.id
         pendingRestoration = rehydrated.first?.toState()
-        isCookModeVisible = true
+        // Cover stays dismissed — Library renders, pills bar appears
+        // at the bottom, user taps a pill to resume.
     }
 
     // MARK: - Per-cook updates

@@ -138,7 +138,13 @@ struct LibraryView: View {
                     // it doesn't overlap card content.
                     .padding(.leading, AppSpacing.lg)
                     .padding(.trailing, AppSpacing.lg + 16)
-                    .padding(.vertical, AppSpacing.lg)
+                    .padding(.top, AppSpacing.lg)
+                    // Extra bottom runway when the cooking pills are
+                    // overlaying the bottom edge — without this the
+                    // last recipe card gets clipped under the pills.
+                    // ~96pt clears the pill height (~46) + bottom
+                    // overlay padding (12) + safe-area inset (~34).
+                    .padding(.bottom, AppSpacing.lg + (isCookMinimized ? 80 : 0))
                 }
                 // No explicit background here — we want the faint mascot
                 // watermark sitting behind the list to peek through the

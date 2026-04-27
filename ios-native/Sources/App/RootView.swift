@@ -295,13 +295,23 @@ private struct CookPill: View {
                     Text(StringCase.titleCase(cook.recipe.title))
                         .font(.system(size: 13, weight: .semibold, design: .serif))
                         .lineLimit(1)
-                    if let endsAt = cook.timerEndsAt, endsAt > Date() {
-                        // System-driven countdown — no app-side ticking.
-                        Text(timerInterval: Date()...endsAt, countsDown: true)
-                            .font(.system(size: 11, weight: .bold, design: .serif))
-                            .monospacedDigit()
-                            .opacity(0.92)
+                    // Always reserve space for the timer line so
+                    // pills stay the same height whether or not a
+                    // timer is running. The "0:00" placeholder
+                    // matches the live countdown's metrics so a pill
+                    // with a timer and a pill without sit on the
+                    // same baseline when side-by-side.
+                    Group {
+                        if let endsAt = cook.timerEndsAt, endsAt > Date() {
+                            Text(timerInterval: Date()...endsAt, countsDown: true)
+                                .opacity(0.92)
+                        } else {
+                            Text("0:00")
+                                .opacity(0)
+                        }
                     }
+                    .font(.system(size: 11, weight: .bold, design: .serif))
+                    .monospacedDigit()
                 }
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.up")
