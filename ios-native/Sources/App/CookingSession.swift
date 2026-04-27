@@ -127,6 +127,14 @@ struct ActiveCook: Identifiable {
 /// NavigationStack: the user can minimize the sheet, navigate freely
 /// through Library/Detail/other recipes, and drag/tap the resume pill
 /// to resume cooking without losing their place.
+///
+/// **`@MainActor`-isolated.** Every caller is already on the main actor
+/// in practice (SwiftUI button actions, `RootView.onOpenURL`, `.task`,
+/// `.onAppear`), and the session calls into `@MainActor`-isolated
+/// `TimerLiveActivityController.endActivities` from `remove(cookID:)`
+/// and `endAll()`. Without the explicit isolation, Xcode 26's strict-
+/// concurrency check fails the synchronous call to that static method.
+@MainActor
 @Observable
 final class CookingSession {
     /// All cooks currently in flight. PR 1 holds 0 or 1; PR 2's
