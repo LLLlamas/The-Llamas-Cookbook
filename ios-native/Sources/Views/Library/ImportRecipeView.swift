@@ -511,9 +511,8 @@ struct ImportRecipeView: View {
             parsedDraft = draft
             urlBanner = URLBanner(
                 kind: .success,
-                message: "Found a structured recipe. Opening preview…"
+                message: "Found a structured recipe. Tap Preview to review, or paste text below to override any fields."
             )
-            showEditor = true
 
         case .partial(let enrichment, let seedText, let hint):
             Haptics.success()

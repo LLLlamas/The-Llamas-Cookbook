@@ -130,6 +130,15 @@ struct StepRowEditor: View {
             .foregroundStyle(AppColor.textPrimary)
             .submitLabel(.done)
             .focused($fieldFocused)
+            .onChange(of: step.text) { _, newValue in
+                // `axis: .vertical` swallows `.onSubmit` and turns Return
+                // into a literal newline. Treat any newline as Done:
+                // strip it and collapse edit mode.
+                if newValue.contains("\n") {
+                    step.text = newValue.replacingOccurrences(of: "\n", with: "")
+                    isEditing = false
+                }
+            }
             .onSubmit { isEditing = false }
             .tint(appearance.accentColor)
             .frame(maxWidth: .infinity, alignment: .leading)

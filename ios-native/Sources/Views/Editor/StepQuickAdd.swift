@@ -34,6 +34,15 @@ struct StepQuickAdd: View {
                     .lineLimit(1...3)
                     .submitLabel(.done)
                     .focused($focused)
+                    .onChange(of: text) { _, newValue in
+                        // `axis: .vertical` swallows `.onSubmit` and turns
+                        // Return into a literal newline. Treat any newline
+                        // as the Done press: strip it, then submit.
+                        if newValue.contains("\n") {
+                            text = newValue.replacingOccurrences(of: "\n", with: "")
+                            submit()
+                        }
+                    }
                     .onSubmit { submit() }
                     .tint(appearance.accentColor)
                     .font(AppFont.body)
