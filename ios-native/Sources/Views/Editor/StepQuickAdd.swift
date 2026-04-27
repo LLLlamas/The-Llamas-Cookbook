@@ -11,6 +11,7 @@ struct StepQuickAdd: View {
     /// leak into subsequent rows. Up to 3 entries — each carries
     /// optional caption text the user can add inline in the carousel.
     @State private var stagedImages: [DraftStepPhoto] = []
+    @State private var showPhotoSheet: Bool = false
     @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var focused: Bool
 
@@ -39,7 +40,7 @@ struct StepQuickAdd: View {
                     .foregroundStyle(AppColor.textPrimary)
 
                 TimerToggleButton(isOn: $needsTimer)
-                PhotoToggleButton(images: $stagedImages)
+                PhotoToggleButton(images: $stagedImages, showSheet: $showPhotoSheet)
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
@@ -50,6 +51,26 @@ struct StepQuickAdd: View {
                     .stroke(AppColor.divider, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        }
+        .sheet(isPresented: $showPhotoSheet) {
+            PhotoCarouselView(
+                photoData: stagedImages.map(\.image),
+                captions: stagedImages.map(\.caption),
+                onAdd: { rawDataArray in
+                    await appendStepPhotos(raw: rawDataArray, into: $stagedImages)
+                },
+                onDelete: { idx in
+                    guard stagedImages.indices.contains(idx) else { return }
+                    stagedImages.remove(at: idx)
+                },
+                onSetCaption: { idx, newCaption in
+                    guard stagedImages.indices.contains(idx) else { return }
+                    stagedImages[idx].caption = newCaption
+                },
+                maxImages: PhotoToggleButton.maxImages
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 

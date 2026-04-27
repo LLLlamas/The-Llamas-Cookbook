@@ -168,9 +168,13 @@ enum RecipeURLImporter {
             if let aiDraft = await aiParse(cleaned, sourceUrl: url.absoluteString) {
                 return .full(aiDraft)
             }
+            // TikTok ships captions as one long paragraph — pre-explode
+            // before handing back as seed text so the user sees a
+            // multi-line preview they can sanity-check, not a wall.
+            let exploded = RecipeImporter.explodeSingleParagraph(cleaned)
             return .partial(
                 enrichment: enrichment,
-                seedText: cleaned,
+                seedText: exploded,
                 hint: "Got the TikTok caption. Make sure line 1 is the title — leave a blank line between title, ingredients, and steps."
             )
         } catch {

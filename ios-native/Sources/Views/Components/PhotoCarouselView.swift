@@ -164,13 +164,6 @@ struct PhotoCarouselView: View {
 
     private var carousel: some View {
         VStack(spacing: 0) {
-            // "2 of 5" pill at the top — sits above the photo so the
-            // user always knows where they are in the gallery without
-            // squinting at the page-indicator dots.
-            counterPill
-                .padding(.top, AppSpacing.sm)
-                .padding(.bottom, AppSpacing.xs)
-
             TabView(selection: $selectedPage) {
                 ForEach(Array(photoData.enumerated()), id: \.offset) { index, data in
                     photoPage(data: data, index: index)
@@ -179,6 +172,13 @@ struct PhotoCarouselView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
+
+            // "2 of 5" pill anchored below the page-indicator dots.
+            // Pairs the textual counter with the carousel's own dot
+            // affordance so both sit together at the bottom of the
+            // gallery — the photo stays the focal point at the top.
+            counterPill
+                .padding(.top, AppSpacing.xs)
 
             // Caption row, shared across all pages — reads from the
             // parallel `captions` array via `currentCaption` keyed on
@@ -194,15 +194,16 @@ struct PhotoCarouselView: View {
                     }
                 )
                 .padding(.horizontal, AppSpacing.lg)
+                .padding(.top, AppSpacing.sm)
                 .padding(.bottom, AppSpacing.lg)
             }
         }
     }
 
-    /// One carousel page. The photo is **lifted** off the cream
-    /// background with a soft layered shadow and a hairline accent
-    /// border so it reads as a framed cookbook photo, not a free-floating
-    /// rectangle. The corner radius applies *to the image edges*
+    /// One carousel page. The photo sits **near the top** of the page
+    /// (no leading spacer) so the image is the immediate focal point
+    /// when the carousel opens, with the page-indicator dots and counter
+    /// trailing below. The corner radius applies *to the image edges*
     /// (via `RecipeImageView.cornerRadius`) so portrait shots round at
     /// the picture's actual corners, not the empty letterbox space.
     ///
@@ -212,7 +213,6 @@ struct PhotoCarouselView: View {
     /// would feel squeezed against the bottom edge.
     private func photoPage(data: Data, index: Int) -> some View {
         VStack {
-            Spacer(minLength: 0)
             RecipeImageView(
                 data: data,
                 contentMode: .fit,
@@ -223,20 +223,12 @@ struct PhotoCarouselView: View {
             .frame(maxWidth: .infinity, maxHeight: photoMaxHeight)
             .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
             .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
-            .overlay(
-                // Hairline accent border on the photo itself. Tracks the
-                // image bounds (not the parent frame) because of how
-                // `.aspectRatio(.fit)` sizes the Image view; the overlay
-                // inherits those bounds.
-                RoundedRectangle(cornerRadius: AppRadius.xl)
-                    .stroke(AppColor.accent.opacity(0.18), lineWidth: 1)
-                    .allowsHitTesting(false)
-            )
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, AppSpacing.lg)
-        .padding(.vertical, AppSpacing.md)
+        .padding(.top, AppSpacing.sm)
+        .padding(.bottom, AppSpacing.md)
         .contentShape(Rectangle())
         .onLongPressGesture {
             guard canDelete else { return }
@@ -537,12 +529,13 @@ private struct CaptionRow: View {
     private func startEditing(seed: String) {
         draft = seed
         isEditing = true
-        // Defer focus by one runloop tick so the TextField is in the
-        // hierarchy before we ask the focus state to bind to it —
-        // setting fieldFocused synchronously inside the same body
-        // pass is racey on iOS 26 and silently no-ops.
+        // Defer focus until the editor view is fully attached. Inside a
+        // sheet-presented carousel (the step-photos path), 40ms isn't
+        // enough — the focus binding silently drops if the TextField
+        // isn't yet in the responder chain. 200ms covers the sheet
+        // hierarchy's settle time without feeling like a delay.
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(40))
+            try? await Task.sleep(for: .milliseconds(200))
             fieldFocused = true
         }
     }

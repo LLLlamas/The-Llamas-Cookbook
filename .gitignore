@@ -23,6 +23,10 @@ xcuserdata/
 Packages/
 Package.resolved
 
+# Local-only screenshots / scratch evidence — used to share visual context with
+# Claude Code; never meant to be committed.
+testing/
+
 # Environment overrides
 .env
 .env*.local

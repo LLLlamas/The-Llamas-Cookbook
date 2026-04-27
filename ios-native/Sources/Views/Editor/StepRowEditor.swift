@@ -8,6 +8,10 @@ struct StepRowEditor: View {
 
     @Environment(AppearanceSettings.self) private var appearance
     @FocusState private var fieldFocused: Bool
+    /// Owns the photo-carousel sheet so it survives `editContent`
+    /// unmounting when the keyboard goes away to make room for the
+    /// sheet. See `PhotoToggleButton` for the full reasoning.
+    @State private var showPhotoSheet: Bool = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm + 2) {
@@ -63,9 +67,35 @@ struct StepRowEditor: View {
             }
         }
         .onChange(of: fieldFocused) { _, focused in
-            if !focused && isEditing {
+            // The photo-carousel sheet steals key window when it
+            // presents, blurring this row's TextField — which would
+            // normally collapse edit mode and unmount the photo
+            // button before the sheet has even fully presented.
+            // Skip the auto-collapse while the sheet is up so the
+            // carousel (and any in-flight caption typing) stays alive.
+            if !focused && isEditing && !showPhotoSheet {
                 isEditing = false
             }
+        }
+        .sheet(isPresented: $showPhotoSheet) {
+            PhotoCarouselView(
+                photoData: step.images.map(\.image),
+                captions: step.images.map(\.caption),
+                onAdd: { rawDataArray in
+                    await appendStepPhotos(raw: rawDataArray, into: $step.images)
+                },
+                onDelete: { idx in
+                    guard step.images.indices.contains(idx) else { return }
+                    step.images.remove(at: idx)
+                },
+                onSetCaption: { idx, newCaption in
+                    guard step.images.indices.contains(idx) else { return }
+                    step.images[idx].caption = newCaption
+                },
+                maxImages: PhotoToggleButton.maxImages
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -104,6 +134,6 @@ struct StepRowEditor: View {
             .tint(appearance.accentColor)
             .frame(maxWidth: .infinity, alignment: .leading)
         TimerToggleButton(isOn: $step.needsTimer)
-        PhotoToggleButton(images: $step.images)
+        PhotoToggleButton(images: $step.images, showSheet: $showPhotoSheet)
     }
 }

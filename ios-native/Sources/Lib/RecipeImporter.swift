@@ -15,10 +15,11 @@ import Foundation
 enum RecipeImporter {
     static func parse(_ text: String) -> DraftRecipe {
         let cleaned = stripTrailingHandle(text)
-        if hasExplicitSectionLabels(cleaned) {
-            return parseLabeled(cleaned)
+        let exploded = explodeSingleParagraph(cleaned)
+        if hasExplicitSectionLabels(exploded) {
+            return parseLabeled(exploded)
         }
-        return parseBlocks(cleaned)
+        return parseBlocks(exploded)
     }
 
     /// Strip TikTok-style `@handle` decorations from a pasted caption.
@@ -58,6 +59,85 @@ enum RecipeImporter {
             #/[\s,;:.\-—–]*@[\p{L}\p{N}_.]+\s*$/#,
             with: ""
         )
+    }
+
+    /// Insert newlines into a single-paragraph TikTok-style caption so
+    /// the existing block parser can recognize ingredients and steps.
+    /// TikTok oEmbed delivers the caption as one long line — title,
+    /// ingredients, and a dozen steps all glued together with spaces
+    /// and periods — and `parseBlocks` collapses that whole thing into
+    /// the title block, leaving zero ingredients / zero steps.
+    ///
+    /// Exposed for callers that know they're handling caption-style
+    /// input (the URL importer's seed-text path can pre-explode before
+    /// re-displaying to the user).
+    ///
+    /// No-op for input that already contains line breaks — multi-line
+    /// pastes already go through the right path.
+    static func explodeSingleParagraph(_ text: String) -> String {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        let nonEmptyLines = normalized
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .count
+        guard nonEmptyLines <= 1 else { return normalized }
+
+        var s = normalized
+
+        // 1. Sentence boundaries — letter+(.|!|?)+space+(Capital|digit).
+        // The greedy `\s+` swallows any trailing whitespace (including
+        // the double spaces TikTok inserts between sentences) so we
+        // don't leave a leading space on the next line.
+        s = s.replacingOccurrences(
+            of: #"([\p{L}])([.!?])\s+(?=\p{Lu}|\d)"#,
+            with: "$1$2\n",
+            options: .regularExpression
+        )
+
+        // 2. Double-space gap (TikTok inserts these between sentences
+        // even when the prior char isn't a letter — e.g. after a
+        // closing paren or a degree symbol).
+        s = s.replacingOccurrences(
+            of: #"[ \t]{2,}"#,
+            with: "\n",
+            options: .regularExpression
+        )
+
+        // 3. Comma + Then / digit boundary. Caption authors glue a
+        // wait and the next action with a comma:
+        //   "Let sit for 1 hour, then do 8 stretch and folds"
+        //   "Let sit for 30 minutes, 8 more stretch and folds"
+        s = s.replacingOccurrences(
+            of: #",\s+(?=[Tt]hen\b|\d)"#,
+            with: "\n",
+            options: .regularExpression
+        )
+
+        // 4. Measurement-start boundary — split before each `<num><unit>`
+        // when preceded by a non-whitespace character. Breaks ingredient
+        // runs like "100g starter 390g water 530g flour" into one per
+        // line. The unit list is borrowed from `knownUnits` and excludes
+        // time units, so step text like "for 1 hour" / "for 30 minutes"
+        // stays on a single line.
+        s = s.replacingOccurrences(
+            of: explodeMeasurementPattern,
+            with: "\n",
+            options: .regularExpression
+        )
+
+        // 5. Step-verb boundary — split before known cooking command
+        // verbs when the prior char is a non-uppercase, non-whitespace
+        // character. Catches the ingredient→step transition where
+        // there's no period or measurement to split on:
+        //   "10g salt Combine into shaggy dough" → "10g salt" + "Combine…"
+        //   "for 1-2 hours Preheat Dutch oven"   → "for 1-2 hours" + "Preheat…"
+        //   "while dough is proofing) Bake for 30 minutes" → split on ") Bake"
+        s = s.replacingOccurrences(
+            of: explodeVerbPattern,
+            with: "\n",
+            options: .regularExpression
+        )
+
+        return s
     }
 
     /// Parse a single ingredient line into one or more `DraftIngredient`s.
@@ -854,6 +934,38 @@ enum RecipeImporter {
             .sorted { $0.count > $1.count }
             .joined(separator: "|")
         return "(\\d)(\(units))\\b"
+    }()
+
+    /// Lookbehind: any non-whitespace char (so the pattern fires after
+    /// emoji, closing parens, degree signs, etc.). Lookahead: a number
+    /// followed by a known unit. The unit list excludes hour / minute
+    /// / second so step text like "for 1 hour" doesn't split mid-clause.
+    private static let explodeMeasurementPattern: String = {
+        let units = knownUnits
+            .filter { !$0.contains(" ") }
+            .sorted { $0.count > $1.count }
+            .joined(separator: "|")
+        return "(?<=\\S)\\s+(?=\\d+(?:[.,]\\d+)?\\s*(?:\(units))\\b)"
+    }()
+
+    /// Lookbehind: any non-uppercase, non-whitespace char (lowercase
+    /// letters, digits, punctuation, emoji, °). Lookahead: a known
+    /// step-starting verb. Restricting the lookbehind keeps the rule
+    /// from firing inside Title-Case phrases like "First Slice" — only
+    /// the prior word has to *not* be a Capital-led word.
+    private static let explodeVerbPattern: String = {
+        let verbs = [
+            "Preheat", "Combine", "Knead", "Refrigerate",
+            "Boil", "Simmer", "Bake", "Roast", "Broil", "Grill", "Fry",
+            "Sauté", "Saute", "Steam", "Marinate", "Chill", "Freeze",
+            "Garnish", "Enjoy", "Serve", "Let", "Shape", "Stretch",
+            "Whisk", "Stir", "Beat", "Pour", "Spread", "Drizzle",
+            "Sprinkle", "Place", "Remove", "Cover", "Heat", "Cool",
+            "Top", "Fold", "Toast", "Sear", "Reduce", "Bring", "Allow",
+            "Cook", "Cut", "Chop", "Slice", "Mince", "Dice", "Brush",
+            "Dust", "Coat", "Season", "Transfer", "Roll", "Form"
+        ].joined(separator: "|")
+        return "(?<=[^\\sA-Z])\\s+(?=(?:\(verbs))\\b)"
     }()
 
     private static let unicodeFractionMap: [Character: String] = [
