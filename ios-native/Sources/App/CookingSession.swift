@@ -175,6 +175,20 @@ final class CookingSession {
     /// PR 1 doesn't surface a parallel-add path.
     var canAddCook: Bool { activeCooks.count < Self.maxConcurrentCooks }
 
+    /// 1-based ordinal of `cookID` among active cooks of the same
+    /// recipe — `(1)`, `(2)`, `(3)` so the user can tell which
+    /// duplicate-recipe pill they started first. Returns nil when the
+    /// recipe is only running once (no suffix needed). Order matches
+    /// `activeCooks` (newest appended on the right), so the earliest
+    /// cook is `(1)`.
+    func duplicateIndex(for cookID: UUID) -> Int? {
+        guard let target = activeCooks.first(where: { $0.id == cookID }) else { return nil }
+        let sameRecipe = activeCooks.filter { $0.recipe.id == target.recipe.id }
+        guard sameRecipe.count > 1 else { return nil }
+        guard let pos = sameRecipe.firstIndex(where: { $0.id == cookID }) else { return nil }
+        return pos + 1
+    }
+
     /// Practical iOS ceiling on concurrent Live Activities of the same
     /// app. Cap matches §2 of the multi-recipe plan.
     static let maxConcurrentCooks = 4
@@ -276,9 +290,18 @@ final class CookingSession {
             return
         }
         if foregroundedCookID == cookID {
+            // Don't auto-present the next cook — closing one cook should
+            // drop the user back to whatever screen sat behind Cook Mode
+            // (Library, Detail, etc.), with the remaining cooks visible
+            // as resume pills. Auto-foregrounding the next cook felt like
+            // the app yanking the user into a recipe they didn't ask for.
+            // Pick a successor for `foregroundedCookID` so the resume
+            // pill / Live Activity tap have somewhere to land, but keep
+            // the cover dismissed.
             let next = activeCooks.first
             foregroundedCookID = next?.id
             pendingRestoration = next?.toState()
+            isCookModeVisible = false
         }
         CookingSessionStore.save(activeCooks.map { $0.toState() })
     }

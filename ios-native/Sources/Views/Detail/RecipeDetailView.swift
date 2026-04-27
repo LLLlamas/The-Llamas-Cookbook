@@ -383,47 +383,44 @@ struct RecipeDetailView: View {
 
     private func ingredientRow(_ ingredient: Ingredient) -> some View {
         let display = ingredient.display()
-        let hasMeasure = !display.quantity.isEmpty || !display.unit.isEmpty
         let takesOf = display.takesOf
 
+        // Always reserve the qty/unit column + separator so name-only
+        // ingredients (vanilla, salt) line up with measured ones in the
+        // same list — the user explicitly asked for the name column to
+        // stay anchored on the right even when there's no measurement.
         return HStack(alignment: .center, spacing: AppSpacing.sm + 2) {
             Circle()
                 .fill(appearance.accentColor)
                 .frame(width: 6, height: 6)
 
-            // Measure column is rendered only when the ingredient actually
-            // has a quantity or unit. Bare names (vanilla, salt, …) skip
-            // the column entirely so the name sits flush with the bullet
-            // instead of after a 96pt gap.
-            if hasMeasure {
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    if !display.quantity.isEmpty {
-                        Text(display.quantity)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    if !display.unit.isEmpty {
-                        Text(display.unit)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(appearance.accentColor.opacity(0.75))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                if !display.quantity.isEmpty {
+                    Text(display.quantity)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(appearance.accentColor)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
-                .frame(width: 96, alignment: .leading)
+                if !display.unit.isEmpty {
+                    Text(display.unit)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(appearance.accentColor.opacity(0.75))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+            .frame(width: 96, alignment: .leading)
 
-                if takesOf {
-                    Text("of")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(AppColor.textSecondary)
-                } else {
-                    Text("—")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(AppColor.dividerStrong)
-                }
+            if takesOf {
+                Text("of")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppColor.textSecondary)
+            } else {
+                Text("—")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(AppColor.dividerStrong)
             }
 
             Text(ingredient.name)

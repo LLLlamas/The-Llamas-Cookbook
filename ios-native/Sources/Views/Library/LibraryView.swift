@@ -7,6 +7,25 @@ private enum LibraryFilter: Equatable, Hashable {
     case tag(String)
 }
 
+private enum LibrarySort: String, Equatable, Hashable {
+    case aToZ
+    case mostRecent
+
+    var label: String {
+        switch self {
+        case .aToZ: return "A–Z"
+        case .mostRecent: return "Most Recent"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .aToZ: return "textformat"
+        case .mostRecent: return "clock.arrow.circlepath"
+        }
+    }
+}
+
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EditorCoordinator.self) private var editor
@@ -15,6 +34,7 @@ struct LibraryView: View {
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
+    @State private var sort: LibrarySort = .aToZ
     @State private var deletingRecipe: Recipe?
     @State private var showingAppearance = false
 
@@ -155,18 +175,24 @@ struct LibraryView: View {
                 // gaps between recipe cards.
                 .scrollContentBackground(.hidden)
 
-                LetterIndex(
-                    letters: Self.allLetters,
-                    populated: populatedLetters,
-                    accent: appearance.accentColor
-                ) { letter in
-                    guard let target = firstRecipe(atOrAfter: letter) else { return }
-                    Haptics.selection()
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        proxy.scrollTo(target.id, anchor: .top)
+                // The A–Z scrub strip only makes sense when the list is
+                // sorted alphabetically. Hide it under "Most Recent"
+                // where the order is chronological and tapping a letter
+                // would scroll to a near-random card.
+                if sort == .aToZ {
+                    LetterIndex(
+                        letters: Self.allLetters,
+                        populated: populatedLetters,
+                        accent: appearance.accentColor
+                    ) { letter in
+                        guard let target = firstRecipe(atOrAfter: letter) else { return }
+                        Haptics.selection()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(target.id, anchor: .top)
+                        }
                     }
+                    .padding(.trailing, 2)
                 }
-                .padding(.trailing, 2)
             }
         }
     }
@@ -211,14 +237,7 @@ struct LibraryView: View {
     private var filterStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AppSpacing.xs) {
-                FilterChip(
-                    label: "All  ·  \(recipes.count)",
-                    isActive: filter == .all,
-                    iconName: nil,
-                    accent: appearance.accentColor
-                ) {
-                    filter = .all
-                }
+                allChipMenu
 
                 if favoriteCount > 0 {
                     FilterChip(
@@ -246,6 +265,56 @@ struct LibraryView: View {
             .padding(.horizontal, AppSpacing.lg)
             .padding(.vertical, AppSpacing.sm)
         }
+    }
+
+    /// "All" chip rendered as a Menu so a tap opens the sort dropdown
+    /// (A–Z vs. Most Recent). Selecting an option both pins the filter
+    /// to All and updates the sort. The chip itself shows a small
+    /// chevron so the dropdown affordance is discoverable; the active
+    /// sort gets a checkmark inside the menu.
+    private var allChipMenu: some View {
+        Menu {
+            Button {
+                Haptics.selection()
+                filter = .all
+                sort = .aToZ
+            } label: {
+                Label(LibrarySort.aToZ.label,
+                      systemImage: sort == .aToZ ? "checkmark" : LibrarySort.aToZ.iconName)
+            }
+            Button {
+                Haptics.selection()
+                filter = .all
+                sort = .mostRecent
+            } label: {
+                Label(LibrarySort.mostRecent.label,
+                      systemImage: sort == .mostRecent ? "checkmark" : LibrarySort.mostRecent.iconName)
+            }
+        } label: {
+            allChipLabel
+        }
+    }
+
+    /// Chip surface for the All Menu — mirrors `FilterChip`'s look so
+    /// the trigger sits in line with the other chips visually, but
+    /// without being a Button (Menu owns the tap).
+    private var allChipLabel: some View {
+        let isActive = filter == .all
+        return HStack(spacing: AppSpacing.xs) {
+            Text("All  ·  \(recipes.count)")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(isActive ? AppColor.onAccent : appearance.accentColor)
+        }
+        .padding(.horizontal, AppSpacing.md)
+        .padding(.vertical, AppSpacing.xs + 2)
+        .background(isActive ? appearance.accentColor : AppColor.surface)
+        .overlay(
+            Capsule().stroke(isActive ? appearance.accentColor : AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(Capsule())
     }
 
     private var emptyFilterState: some View {
@@ -355,10 +424,18 @@ struct LibraryView: View {
     }
 
     private var filtered: [Recipe] {
+        let base: [Recipe]
         switch filter {
-        case .all: return recipes
-        case .favorites: return recipes.filter(\.favorite)
-        case .tag(let tag): return recipes.filter { $0.tags.contains(tag) }
+        case .all: base = recipes
+        case .favorites: base = recipes.filter(\.favorite)
+        case .tag(let tag): base = recipes.filter { $0.tags.contains(tag) }
+        }
+        switch sort {
+        case .aToZ:
+            // `@Query` already sorts by title; pass through.
+            return base
+        case .mostRecent:
+            return base.sorted { $0.createdAt > $1.createdAt }
         }
     }
 }

@@ -57,12 +57,6 @@ struct PhotoCarouselView: View {
     /// True when caller passed a captions array — the caption row
     /// should render. False (legacy callers) collapses the row.
     private var captionsEnabled: Bool { captions != nil }
-    /// Caption for the currently-visible page, or nil if none / out of
-    /// range. Reads through the parallel `captions` array.
-    private var currentCaption: String? {
-        guard let captions, captions.indices.contains(selectedPage) else { return nil }
-        return captions[selectedPage]
-    }
 
     /// How many more photos the user can pick this round. Bound by the
     /// 10-per-pick library cap and (when set) the remaining slots
@@ -179,24 +173,7 @@ struct PhotoCarouselView: View {
             // gallery — the photo stays the focal point at the top.
             counterPill
                 .padding(.top, AppSpacing.xs)
-
-            // Caption row, shared across all pages — reads from the
-            // parallel `captions` array via `currentCaption` keyed on
-            // `selectedPage`. Hidden when the caller didn't pass a
-            // captions array (legacy / minimal mode).
-            if captionsEnabled {
-                CaptionRow(
-                    pageIndex: selectedPage,
-                    caption: currentCaption,
-                    editable: onSetCaption != nil,
-                    onCommit: { newCaption in
-                        onSetCaption?(selectedPage, newCaption)
-                    }
-                )
-                .padding(.horizontal, AppSpacing.lg)
-                .padding(.top, AppSpacing.sm)
-                .padding(.bottom, AppSpacing.lg)
-            }
+                .padding(.bottom, AppSpacing.sm)
         }
     }
 
@@ -212,7 +189,7 @@ struct PhotoCarouselView: View {
     /// would expand to the full available height and the caption
     /// would feel squeezed against the bottom edge.
     private func photoPage(data: Data, index: Int) -> some View {
-        VStack {
+        VStack(spacing: AppSpacing.sm) {
             RecipeImageView(
                 data: data,
                 contentMode: .fit,
@@ -223,6 +200,24 @@ struct PhotoCarouselView: View {
             .frame(maxWidth: .infinity, maxHeight: photoMaxHeight)
             .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
             .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+
+            // Caption sits directly under the photo, per page, so the
+            // description reads as part of the picture rather than a
+            // strip floating at the sheet's bottom edge. Each page
+            // owns its own CaptionRow + draft state — that's fine
+            // because the page index is fixed and tab-swipe focus
+            // changes drive the commit through `fieldFocused`.
+            if captionsEnabled {
+                CaptionRow(
+                    pageIndex: index,
+                    caption: caption(at: index),
+                    editable: onSetCaption != nil,
+                    onCommit: { newCaption in
+                        onSetCaption?(index, newCaption)
+                    }
+                )
+            }
+
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -235,6 +230,13 @@ struct PhotoCarouselView: View {
             Haptics.warning()
             pendingDeleteIndex = index
         }
+    }
+
+    /// Look up the caption for a specific page index. Returns nil when
+    /// captions weren't enabled or the index is out of range.
+    private func caption(at index: Int) -> String? {
+        guard let captions, captions.indices.contains(index) else { return nil }
+        return captions[index]
     }
 
     /// Vertical cap for each photo. `420pt` leaves a comfortable

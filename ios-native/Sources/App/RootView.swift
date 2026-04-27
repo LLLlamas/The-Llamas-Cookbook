@@ -87,11 +87,11 @@ struct RootView: View {
                     restoration: session.pendingRestoration
                 ) {
                     // Multi-cook close: drop *just this cook* from the
-                    // session. If it was the last one, `remove` falls
-                    // through to `endAll` and dismisses the cover; if
-                    // others remain, `remove` hands off the foreground
-                    // and the cover swaps to the next cook via
-                    // `.id(cookID)` recreation below.
+                    // session. `remove` minimizes the cover — if other
+                    // cooks remain they keep running silently and surface
+                    // as resume pills, the user lands back on whatever
+                    // screen sat behind Cook Mode rather than being
+                    // yanked into a different recipe.
                     session.remove(cookID: cookID)
                 }
                 // .id(cookID) forces SwiftUI to tear down + recreate
@@ -261,7 +261,11 @@ private struct CookingPillsBar: View {
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
             ForEach(session.activeCooks) { cook in
-                CookPill(cook: cook, accent: accent) {
+                CookPill(
+                    cook: cook,
+                    accent: accent,
+                    duplicateIndex: session.duplicateIndex(for: cook.id)
+                ) {
                     Haptics.selection()
                     session.foreground(cookID: cook.id)
                 }
@@ -286,7 +290,17 @@ private struct CookingPillsBar: View {
 private struct CookPill: View {
     let cook: ActiveCook
     let accent: Color
+    /// 1-based suffix for same-recipe duplicates; nil when the recipe
+    /// is only running once. When non-nil, renders as " (N)" after the
+    /// title so the user can tell two pills of the same recipe apart.
+    let duplicateIndex: Int?
     let onTap: () -> Void
+
+    private var displayTitle: String {
+        let base = StringCase.titleCase(cook.recipe.title)
+        guard let n = duplicateIndex else { return base }
+        return "\(base) (\(n))"
+    }
 
     var body: some View {
         Button(action: onTap) {
@@ -294,7 +308,7 @@ private struct CookPill: View {
                 Image(systemName: "fork.knife")
                     .font(.system(size: 15, weight: .bold))
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(StringCase.titleCase(cook.recipe.title))
+                    Text(displayTitle)
                         .font(.system(size: 13, weight: .semibold, design: .serif))
                         .lineLimit(1)
                     // Always reserve space for the timer line so
@@ -327,7 +341,7 @@ private struct CookPill: View {
             .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Resume cooking \(cook.recipe.title)")
+        .accessibilityLabel("Resume cooking \(displayTitle)")
     }
 }
 

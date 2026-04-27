@@ -44,6 +44,10 @@ struct CookModeView: View {
 
     @State private var showingExitConfirm = false
     @State private var showingTimerSheet = false
+    /// Shake counter for the recipe title — bumped on `onAppear` so
+    /// every entry into Cook Mode (start, switch via pill, restore)
+    /// gives the title a one-off wiggle. Drives `.shake(count:)`.
+    @State private var titleShake: CGFloat = 0
     /// Tapped step's photo bytes, wrapped so `.sheet(item:)` drives
     /// the viewer. Nil = no viewer; non-nil = present the read-only
     /// carousel with that step's photos.
@@ -96,6 +100,16 @@ struct CookModeView: View {
     }
 
     // MARK: Derived
+
+    /// Recipe title with a `(N)` suffix when this exact recipe is being
+    /// cooked more than once in parallel — keeps duplicate-recipe pills
+    /// + headers visually distinguishable. Order matches `activeCooks`
+    /// (earliest → 1, next → 2, …).
+    private var displayTitle: String {
+        let base = StringCase.titleCase(recipe.title)
+        guard let n = session.duplicateIndex(for: cookID) else { return base }
+        return "\(base) (\(n))"
+    }
 
     private var sortedIngredients: [Ingredient] { recipe.sortedIngredients }
     private var sortedSteps: [RecipeStep] { recipe.sortedSteps }
@@ -189,6 +203,10 @@ struct CookModeView: View {
             // (filters by cookID so two parallel cooks of the same
             // recipe don't grab each other's activities).
             liveActivity.adopt(forCookID: cookID, recipeID: recipe.id)
+            // One-shot title wiggle on every entry — start, restore,
+            // and pill-switch all rebuild this view via `.id(cookID)`
+            // so the shake plays cleanly on each foregrounding.
+            titleShake += 1
             // Keep the screen awake while Cook Mode is foregrounded —
             // hands are usually wet, the user isn't tapping every few
             // seconds, and a screen lock mid-recipe means scrubbing
@@ -300,12 +318,14 @@ struct CookModeView: View {
             }
             .accessibilityLabel("Minimize cook mode")
 
-            Text(StringCase.titleCase(recipe.title))
-                .font(.system(size: 18, weight: .bold, design: .serif))
+            Text(displayTitle)
+                .font(.system(size: 22, weight: .bold, design: .serif))
                 .foregroundStyle(appearance.accentColor)
                 .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
+                .shake(count: titleShake)
 
             LlamaMascot(size: 32)
         }
