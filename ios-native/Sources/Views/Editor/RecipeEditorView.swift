@@ -226,6 +226,7 @@ struct RecipeEditorView: View {
         .fullScreenCover(isPresented: $showingPhotoCarousel) {
             PhotoCarouselView(
                 photoData: draft.photos.compactMap(\.image),
+                title: draft.title,
                 // Parallel captions array. Filtering by image presence
                 // keeps captions aligned with the displayed photoData
                 // — in practice no DraftPhoto reaches this state with

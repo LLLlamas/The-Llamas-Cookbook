@@ -52,17 +52,17 @@ struct LibraryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                HStack(spacing: AppSpacing.xs + 2) {
+                HStack(spacing: AppSpacing.sm) {
                     Button {
                         Haptics.selection()
                         showingAppearance = true
                     } label: {
-                        LlamaMascot(size: 28, color: appearance.accentColor)
+                        LlamaMascot(size: 38, color: appearance.accentColor)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Customize accent color")
                     Text("Llamas Cookbook")
-                        .font(.system(size: 22, weight: .heavy, design: .serif))
+                        .font(.system(size: 28, weight: .heavy, design: .serif))
                         .foregroundStyle(appearance.accentColor)
                         .tracking(0.3)
                 }

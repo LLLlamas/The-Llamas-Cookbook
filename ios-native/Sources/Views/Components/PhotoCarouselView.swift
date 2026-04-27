@@ -20,6 +20,17 @@ import UIKit
 /// a single-element `photoData` array.
 struct PhotoCarouselView: View {
     let photoData: [Data]
+    /// Optional header title — typically the recipe name when the
+    /// carousel is showing a recipe gallery. Nil falls back to the
+    /// generic system inline title (no header text). Step-photo
+    /// viewer leaves this nil since the step text is already in
+    /// scope on the Detail page beneath.
+    var title: String? = nil
+    /// Page to land on when the carousel first appears. Lets callers
+    /// open the carousel directly to the photo the user tapped (e.g.
+    /// the horizontal photo row in detail) instead of always
+    /// starting from page 0.
+    var initialPage: Int = 0
     /// Per-photo captions, parallel to `photoData`. Pass `nil` for the
     /// whole array to suppress caption rows entirely (legacy behavior);
     /// pass a non-nil array (with `nil` entries for photos without a
@@ -91,7 +102,16 @@ struct PhotoCarouselView: View {
         }
         // Stable modifiers — attached to the NavigationStack so they
         // survive any internal view swaps inside `Group`.
-        .onAppear { stylePageControl() }
+        .onAppear {
+            stylePageControl()
+            // Land on the page the caller asked for (e.g. tapping a
+            // mid-row thumbnail in the photo strip should open the
+            // carousel at *that* photo, not always page 0). Clamp to
+            // the valid range defensively.
+            if !photoData.isEmpty {
+                selectedPage = min(max(initialPage, 0), photoData.count - 1)
+            }
+        }
         .onChange(of: pickerItems) { _, items in
             handlePicked(items)
         }
@@ -127,6 +147,15 @@ struct PhotoCarouselView: View {
         ToolbarItem(placement: .topBarLeading) {
             Button("Done") { dismiss() }
                 .foregroundStyle(AppColor.accent)
+        }
+        if let title, !title.isEmpty {
+            ToolbarItem(placement: .principal) {
+                Text(StringCase.titleCase(title))
+                    .font(.system(size: 17, weight: .semibold, design: .serif))
+                    .foregroundStyle(AppColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
         if canAdd {
             ToolbarItem(placement: .topBarTrailing) {
@@ -424,7 +453,10 @@ private struct CaptionRow: View {
                 EmptyView()
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: isEditing)
+        // No implicit animation on the editor ↔ displayRow swap. The
+        // animated container was making the height change feel like
+        // the page itself was sliding when the user tapped Done.
+        // Instant swap is less visually busy.
         .onChange(of: pageIndex) { _, _ in
             // User swiped to a different photo. If they were mid-edit,
             // commit whatever they had typed before tearing down — losing
@@ -479,8 +511,24 @@ private struct CaptionRow: View {
             // sat right above the keyboard and was easy to fat-finger.
             // Padding + contentShape expands the tap area without
             // changing the visual weight too much.
+            //
+            // The button only dismisses the keyboard; the
+            // `onChange(of: fieldFocused)` handler runs `commit()`
+            // afterwards. Routing through that single path (instead
+            // of also calling `commit()` here) keeps the dismiss +
+            // collapse + caption-write sequence in one consistent
+            // order and stops the brief visual hiccup where the
+            // editor disappears while the keyboard is still
+            // animating away.
             Button {
-                commit()
+                fieldFocused = false
+                // Belt-and-suspenders responder resign — some sheet
+                // contexts drop the focus binding mid-dismiss, and
+                // we want the keyboard gone every time Done fires.
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil, from: nil, for: nil
+                )
             } label: {
                 Text("Done")
                     .font(.system(size: 15, weight: .semibold))

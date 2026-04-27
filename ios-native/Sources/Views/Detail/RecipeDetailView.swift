@@ -17,6 +17,10 @@ struct RecipeDetailView: View {
     @State private var showingAppearance = false
     @State private var showingSourdough = false
     @State private var showingPhotoCarousel = false
+    /// Page to land on when the carousel opens. Set by photo-row taps
+    /// before flipping `showingPhotoCarousel`, so tapping the third
+    /// thumb opens the carousel directly on that page.
+    @State private var carouselStartPage: Int = 0
     /// Tapped step's photo array, wrapped so `.sheet(item:)` can drive
     /// the viewer. Nil = no viewer; non-nil = present the carousel
     /// with that step's photos in view-only mode.
@@ -260,6 +264,8 @@ struct RecipeDetailView: View {
             let displayablePhotos = recipe.sortedPhotos.filter { $0.image != nil }
             PhotoCarouselView(
                 photoData: displayablePhotos.compactMap(\.image),
+                title: recipe.title,
+                initialPage: carouselStartPage,
                 captions: displayablePhotos.map(\.caption),
                 onAdd: { rawDataArray in
                     await addPhotos(from: rawDataArray)
@@ -509,22 +515,45 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// Photos entry-point. Replaces the old labeled "Photos" row with a
-    /// small rounded thumbnail that mirrors the library card's right-rail
-    /// thumb — same size, same corner radius — so the user gets a
-    /// preview of the first photo right in the detail header. Tap opens
-    /// the existing carousel, which still owns add / delete / caption.
-    /// Falls back to a faint placeholder when the gallery is empty so
-    /// the user still has a tap target to add photos through.
+    /// Photos entry-point. Renders every gallery photo as a small
+    /// rounded thumbnail in a single horizontal scroll row — first
+    /// photo on the left acts as the "hero", every additional photo
+    /// trails after it on the same row. Tapping any thumbnail opens
+    /// the existing carousel at that index, so the larger viewing
+    /// experience is unchanged. Empty gallery falls back to a single
+    /// "Add" placeholder so the user still has a tap target.
     private var photosButton: some View {
+        let displayablePhotos = recipe.sortedPhotos.filter { $0.image != nil }
+
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: AppSpacing.sm) {
+                if displayablePhotos.isEmpty {
+                    photoThumb(image: nil, index: 0)
+                } else {
+                    ForEach(Array(displayablePhotos.enumerated()), id: \.element.id) { idx, photo in
+                        photoThumb(image: photo.image, index: idx)
+                    }
+                }
+            }
+        }
+        // Trim the scroll view's bounds to the photo height so the
+        // strip doesn't claim extra vertical space. Horizontal
+        // padding is handled by the surrounding section's padding.
+        .frame(height: 72)
+    }
+
+    /// One thumbnail in the photo strip. Tap opens the carousel at
+    /// `index`. Nil image renders the empty-gallery "Add" placeholder.
+    private func photoThumb(image: Data?, index: Int) -> some View {
         Button {
             Haptics.selection()
+            carouselStartPage = index
             showingPhotoCarousel = true
         } label: {
             Group {
-                if let firstPhoto = recipe.sortedPhotos.first?.image {
+                if let image {
                     RecipeImageView(
-                        data: firstPhoto,
+                        data: image,
                         contentMode: .fill,
                         cornerRadius: AppRadius.md
                     )
@@ -551,10 +580,7 @@ struct RecipeDetailView: View {
             .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(recipe.photos.isEmpty
-            ? "Add photos"
-            : "View photos, \(recipe.photos.count)"
-        )
+        .accessibilityLabel(image == nil ? "Add photos" : "Photo \(index + 1)")
     }
 
     /// Process picked bytes through ImageProcessing and append
