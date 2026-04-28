@@ -196,7 +196,14 @@ struct RecipeDetailView: View {
                     .padding(.top, AppSpacing.md)
                 }
                 .padding(AppSpacing.lg)
-                .padding(.bottom, AppSpacing.xl)
+                // Extra bottom runway so the Delete button clears
+                // whatever bottom overlay is in play — the Start
+                // Cooking bar (no active cooks) or the minimized cook
+                // resume pill (cook in progress, not foregrounded).
+                // ~80pt covers the bar/pill height + safe-area inset.
+                // Without this the Delete button sits flush behind the
+                // overlay and the user has to overscroll to reach it.
+                .padding(.bottom, AppSpacing.xl + bottomOverlayClearance)
             }
             .background(AppColor.background)
 
@@ -824,6 +831,18 @@ struct RecipeDetailView: View {
 
     private var sortedIngredients: [Ingredient] { recipe.sortedIngredients }
     private var sortedSteps: [RecipeStep] { recipe.sortedSteps }
+
+    /// Extra bottom padding needed so the Delete button clears whichever
+    /// bottom overlay is in play. Returns ~80pt when either the Start
+    /// Cooking bar (no active cooks) or the minimized cook resume pill
+    /// is visible; 0pt otherwise. The third-state Cook Mode full-screen
+    /// cover is on top of this view, so the Detail content isn't being
+    /// rendered to the user — the padding is harmless in that case.
+    private var bottomOverlayClearance: CGFloat {
+        if session.activeCooks.isEmpty { return 80 }       // Start Cooking bar
+        if !session.isCookModeVisible { return 80 }        // resume pill
+        return 0
+    }
 
     private var timeParts: [String] {
         var parts: [String] = []
