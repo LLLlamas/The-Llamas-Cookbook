@@ -60,7 +60,7 @@ struct LlamasCookbookApp: App {
         // surfacing as "no recipes yet" + new recipes vanishing on
         // relaunch. (The app's CloudKit usage is *only* the share-
         // permalink path; SwiftData stays strictly local.)
-        .modelContainer(makeModelContainer())
+        .modelContainer(Self.makeModelContainer())
     }
 
     @MainActor
