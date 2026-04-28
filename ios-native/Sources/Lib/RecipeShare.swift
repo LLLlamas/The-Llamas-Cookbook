@@ -105,6 +105,14 @@ struct LCRecipeShareV1: Codable {
     }
 }
 
+/// Drives `.sheet(item:)` on `RootView` for the import preview —
+/// `share.id` is a fresh UUID per envelope, so two back-to-back
+/// imports don't collapse into one sheet. Conformance is read-only
+/// from a property; keeps the Codable wire shape unchanged.
+extension LCRecipeShareV1: Identifiable {
+    var id: UUID { share.id }
+}
+
 // MARK: - RecipeShare
 
 /// Encode / decode / materialize entry points for the share envelope.
@@ -421,30 +429,7 @@ enum RecipeShare {
     }
 }
 
-// MARK: - base64url
-
-extension Data {
-    /// URL-safe base64 (RFC 4648 §5). Swaps `+/` for `-_` and drops
-    /// padding `=`. Used by the `llamascookbook://recipe/v1/<...>`
-    /// deep-link form so the encoded JSON survives copy-paste through
-    /// chat apps that mangle stricter ASCII (notably plus signs in
-    /// query-string-style URLs).
-    func base64URLEncodedString() -> String {
-        base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-
-    /// Inverse of `base64URLEncodedString()`. Re-pads to a multiple of
-    /// 4 before decoding — Foundation's base64 decoder requires
-    /// padding even though the URL-safe alphabet drops it.
-    init?(base64URLEncoded string: String) {
-        var s = string
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let mod = s.count % 4
-        if mod > 0 { s.append(String(repeating: "=", count: 4 - mod)) }
-        self.init(base64Encoded: s)
-    }
-}
+// base64url helpers live in `Sources/Shared/Base64URL.swift` so the
+// share extension target can use them too. Importing `Sources/Shared`
+// into both targets keeps a single implementation; importing this
+// `Lib/` file would drag in SwiftData + `Recipe` references.

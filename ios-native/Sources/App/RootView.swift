@@ -8,6 +8,18 @@ struct RootView: View {
     @State private var editor = EditorCoordinator()
     @State private var navContext = NavigationContext()
 
+    /// Decoded incoming share envelope. Non-nil → present
+    /// `RecipeImportPreviewView` as a sheet so the user can review +
+    /// Save / Cancel. Set by the `share-url` and `.llamarecipe` file
+    /// branches in `.onOpenURL` below; cleared on dismiss.
+    @State private var pendingShareImport: LCRecipeShareV1?
+    /// User-facing error string for a malformed / unsupported share.
+    /// Drives the share-import alert. Set when `RecipeShare.decode`
+    /// throws — `unsupportedSchemaVersion` (sender on a newer build),
+    /// `decodeFailure` (corrupt bytes), `malformedShareURL` (URL
+    /// shape doesn't match the expected pattern).
+    @State private var shareImportError: String?
+
     var body: some View {
         NavigationStack {
             LibraryView()
@@ -44,39 +56,60 @@ struct RootView: View {
             // settles so the user lands directly in Cook Mode if they
             // were mid-cooking when the app went away.
             session.restore(using: lookupRecipe)
+            // Best-effort cleanup of stale share-inbox entries from the
+            // share extension. Runs once per cold launch; never
+            // load-bearing — the route handler also deletes after a
+            // successful read, this catches the cases where the user
+            // invoked the extension but never opened the main app.
+            SharedContainer.sweepShareInbox()
         }
         .onOpenURL { url in
-            // Live Activity / notification tap → `llamascookbook://cook/<uuid>`
-            // where <uuid> is the recipeID. Multi-cook routing: find
-            // the cook whose recipe matches and foreground it directly,
-            // so tapping cook B's lock-screen activity lands the user
-            // in cook B's view (not whichever cook was foregrounded
-            // last).
+            // Five URL shapes land here:
+            //   1. llamascookbook://cook/<recipeID>          ← cook deep link
+            //      (Live Activity tap, notification tap)
+            //   2. llamascookbook://recipe/v1/<base64url>    ← URL-form share
+            //      (recipient tapped a chat-app link)
+            //   3. file://...something.llamarecipe           ← document open
+            //      (AirDrop accept, Files / Mail attachment tap)
+            //   4. llamascookbook://share-url/<base64url>    ← Share Extension
+            //      handoff for a URL the user shared from another app
+            //      (Safari, Reddit, etc.)
+            //   5. llamascookbook://share-incoming/<uuid>    ← Share Extension
+            //      handoff for a `.llamarecipe` file the user shared
+            //      from Files / Mail; bytes wait in the App Group inbox
             //
-            // Edge cases:
-            //   1. Cold launch with persisted cooks → `restore` first,
-            //      then route by recipeID.
-            //   2. No persisted session and no live cook for that
-            //      recipe → start a fresh cook for it (Live Activity
-            //      outlived the session).
-            //   3. Persisted cook for that recipe but a different cook
-            //      currently foregrounded → `foreground(cookID:)`
-            //      switches and re-presents the cover.
-            guard let recipeID = parseCookDeepLink(url) else { return }
-            if session.activeCooks.isEmpty {
-                session.restore(using: lookupRecipe)
+            // Order: cook first (most frequent), then recipe URL share,
+            // then file open, then the two share-extension handoffs.
+            // All disjoint by scheme/host/file-extension so order is
+            // strict only within each predicate match.
+
+            if let recipeID = parseCookDeepLink(url) {
+                routeCookDeepLink(recipeID)
+            } else if url.scheme == "llamascookbook", url.host == "recipe" {
+                routeShareURL(url)
+            } else if url.isFileURL, url.pathExtension.lowercased() == "llamarecipe" {
+                routeShareFile(url)
+            } else if url.scheme == "llamascookbook", url.host == "share-url" {
+                routeShareExtensionURL(url)
+            } else if url.scheme == "llamascookbook", url.host == "share-incoming" {
+                routeShareExtensionFile(url)
             }
-            if let cook = session.activeCooks.first(where: { $0.recipe.id == recipeID }) {
-                session.foreground(cookID: cook.id)
-            } else if session.activeCooks.isEmpty, let recipe = lookupRecipe(recipeID) {
-                session.start(recipe)
-            } else {
-                // Active cooks exist but none matches this recipeID —
-                // edge case (stale Live Activity from a deleted recipe,
-                // probably). Surface whatever's already in the session
-                // rather than no-oping.
-                session.resume()
-            }
+        }
+        .sheet(item: $pendingShareImport) { envelope in
+            RecipeImportPreviewView(envelope: envelope)
+                // @Observable values can drop out across sheet
+                // boundaries — re-injecting is cheap insurance, same
+                // pattern as the Cook Mode cover above.
+                .environment(appearance)
+        }
+        .alert(
+            "Couldn't import recipe",
+            isPresented: shareImportErrorPresented,
+            presenting: shareImportError
+        ) { _ in
+            Button("OK") { shareImportError = nil }
+        } message: { message in
+            Text(message)
         }
         .fullScreenCover(isPresented: cookingSheetPresented) {
             if let recipe = session.foregroundedRecipe,
@@ -164,6 +197,121 @@ struct RootView: View {
         )
     }
 
+    private var shareImportErrorPresented: Binding<Bool> {
+        Binding(
+            get: { shareImportError != nil },
+            set: { if !$0 { shareImportError = nil } }
+        )
+    }
+
+    // MARK: deep-link routing
+
+    /// `llamascookbook://cook/<recipeID>` — Live Activity tap or
+    /// notification tap. Multi-cook aware: matches by recipeID and
+    /// foregrounds that specific cook (so cook B's lock-screen
+    /// activity lands the user in cook B's view, not whichever cook
+    /// happened to be foregrounded last).
+    private func routeCookDeepLink(_ recipeID: UUID) {
+        // Cold launch with persisted cooks → restore first, then route
+        // by recipeID so a tap on a Live Activity from cold doesn't
+        // skip the rehydration step.
+        if session.activeCooks.isEmpty {
+            session.restore(using: lookupRecipe)
+        }
+        if let cook = session.activeCooks.first(where: { $0.recipe.id == recipeID }) {
+            session.foreground(cookID: cook.id)
+        } else if session.activeCooks.isEmpty, let recipe = lookupRecipe(recipeID) {
+            // No persisted session and no live cook for that recipe —
+            // start a fresh cook. Live Activity outlived the session.
+            session.start(recipe)
+        } else {
+            // Active cooks exist but none matches this recipeID —
+            // edge case (stale Live Activity from a deleted recipe).
+            // Surface whatever's already in the session rather than
+            // no-oping.
+            session.resume()
+        }
+    }
+
+    /// `llamascookbook://recipe/v1/<base64url>` — recipient tapped a
+    /// chat-app share link. Decodes inline (URL form has no photos)
+    /// and queues the import preview.
+    private func routeShareURL(_ url: URL) {
+        do {
+            if let envelope = try RecipeShare.decode(url: url) {
+                pendingShareImport = envelope
+            }
+        } catch let error as RecipeShare.Error {
+            shareImportError = error.errorDescription
+        } catch {
+            shareImportError = error.localizedDescription
+        }
+    }
+
+    /// `file:///private/var/.../something.llamarecipe` — recipient
+    /// opened a `.llamarecipe` attachment from AirDrop / Files / Mail.
+    /// `LSSupportsOpeningDocumentsInPlace = NO` means iOS hands us a
+    /// copy in our Inbox (`tmp/.../Inbox/...`); we read it once and
+    /// move on. iOS handles the inbox cleanup eventually.
+    private func routeShareFile(_ url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            let envelope = try RecipeShare.decode(fileData: data)
+            pendingShareImport = envelope
+        } catch let error as RecipeShare.Error {
+            shareImportError = error.errorDescription
+        } catch {
+            shareImportError = error.localizedDescription
+        }
+    }
+
+    /// `llamascookbook://share-url/<base64url>` — user invoked the
+    /// Llamas Cookbook share extension on a URL (Safari, Reddit,
+    /// recipe-blog reader). Decode the base64url back to the original
+    /// URL and route through the existing import-from-text sheet
+    /// with the URL pre-filled. The sheet's URL fetch + AI parser run
+    /// the same code path as a manual paste.
+    private func routeShareExtensionURL(_ url: URL) {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard let encoded = parts.first,
+              let data = Data(base64URLEncoded: encoded),
+              let urlString = String(data: data, encoding: .utf8),
+              !urlString.isEmpty
+        else {
+            shareImportError = "Couldn't read the shared link."
+            return
+        }
+        editor.startImport(prefilledURL: urlString)
+    }
+
+    /// `llamascookbook://share-incoming/<uuid>` — user invoked the
+    /// share extension on a `.llamarecipe` file (Files / Mail). The
+    /// extension wrote the bytes to `share-inbox/<uuid>.llamarecipe`
+    /// in the App Group container; we read + decode + present the
+    /// Import Preview, then delete the inbox copy. Cleanup is
+    /// idempotent — sweeping on launch (§ `task` below) catches any
+    /// orphans from extension runs that didn't reach this handler.
+    private func routeShareExtensionFile(_ url: URL) {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard let id = parts.first, !id.isEmpty else {
+            shareImportError = "Malformed share handoff."
+            return
+        }
+        let fileURL = SharedContainer.shareInboxURL().appendingPathComponent("\(id).llamarecipe")
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let envelope = try RecipeShare.decode(fileData: data)
+            pendingShareImport = envelope
+            try? FileManager.default.removeItem(at: fileURL)
+        } catch let error as RecipeShare.Error {
+            shareImportError = error.errorDescription
+            try? FileManager.default.removeItem(at: fileURL)
+        } catch {
+            shareImportError = error.localizedDescription
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
     private func lookupRecipe(_ id: UUID) -> Recipe? {
         let descriptor = FetchDescriptor<Recipe>(predicate: #Predicate { $0.id == id })
         return try? modelContext.fetch(descriptor).first
@@ -199,8 +347,8 @@ private struct EditorSheetHost: View {
                 RecipeEditorView(recipe: nil, onSaved: onClose)
             case .edit(let recipe):
                 RecipeEditorView(recipe: recipe, onSaved: onClose)
-            case .importFromText:
-                ImportRecipeView()
+            case .importFromText(let prefilledURL):
+                ImportRecipeView(prefilledURL: prefilledURL)
             }
         }
         .presentationDetents([.large, .height(80)], selection: $detent)

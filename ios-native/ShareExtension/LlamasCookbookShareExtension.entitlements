@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      App Group shared container, paired with the same entitlement on
+      Resources/LlamasCookbook.entitlements (main app). Required for
+      the extension to write `.llamarecipe` files to the inbox the
+      main app reads from. See Share-Extension-Plan.md §3 + §7.
+    -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.com.llamascookbook.app</string>
+    </array>
+</dict>
+</plist>

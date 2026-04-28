@@ -28,7 +28,15 @@ final class EditorCoordinator {
     enum ActiveSheet: Identifiable, Hashable {
         case new
         case edit(Recipe)
-        case importFromText
+        /// Import sheet. The optional `prefilledURL` carries a URL
+        /// string the share extension extracted from another app's
+        /// Share menu (Safari, Reddit, etc.) so the link-import field
+        /// opens with the URL already in place. Nil for the plain
+        /// "Import from text" entry from the Library FAB. Identity /
+        /// equality ignores the prefill — switching from a manual
+        /// import to a share-extension import shouldn't trip the
+        /// dirty-state discard alert.
+        case importFromText(prefilledURL: String? = nil)
 
         var id: String {
             switch self {
@@ -49,7 +57,9 @@ final class EditorCoordinator {
 
     func startNew() { attemptSwitch(to: .new) }
     func startEdit(_ recipe: Recipe) { attemptSwitch(to: .edit(recipe)) }
-    func startImport() { attemptSwitch(to: .importFromText) }
+    func startImport(prefilledURL: String? = nil) {
+        attemptSwitch(to: .importFromText(prefilledURL: prefilledURL))
+    }
 
     /// Explicit close (after Save or Cancel-with-no-changes). Skips the
     /// dirty check because the caller has already decided to discard.

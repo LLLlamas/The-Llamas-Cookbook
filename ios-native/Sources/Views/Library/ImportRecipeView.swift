@@ -2,6 +2,18 @@ import SwiftUI
 import UIKit
 
 struct ImportRecipeView: View {
+    /// URL string the share extension extracted from another app's
+    /// share sheet (Safari, Reddit, recipe-blog readers). When
+    /// non-nil, `onAppear` populates the link-import field with this
+    /// value and kicks off the URL fetch immediately so the user
+    /// lands on the parsed preview instead of an empty form. Nil
+    /// for the plain "Import from text" entry from the Library FAB.
+    let prefilledURL: String?
+
+    init(prefilledURL: String? = nil) {
+        self.prefilledURL = prefilledURL
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
@@ -128,6 +140,18 @@ struct ImportRecipeView: View {
                 .presentationDragIndicator(.visible)
         }
         .onAppear {
+            // Share extension handoff: prefill the URL field and
+            // kick off the fetch so the user lands on the parsed
+            // preview, not an empty form. The help sheet still pops
+            // for first-time users — share-extension users have at
+            // least already seen the share-sheet UX, so the help
+            // overlay isn't load-bearing here.
+            if let prefill = prefilledURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !prefill.isEmpty,
+               urlText.isEmpty {
+                urlText = prefill
+                Task { await fetchURL() }
+            }
             if !hasSeenImportHelp {
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(350))

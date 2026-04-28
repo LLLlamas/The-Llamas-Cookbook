@@ -8,16 +8,20 @@ name: iOS Native (Swift) TestFlight
 #
 # Required repo secrets:
 #
-#   IOS_DIST_CERT_P12_BASE64              base64 of iOS Distribution .p12
-#   IOS_DIST_CERT_P12_PASSWORD            password for that .p12
-#   IOS_PROVISIONING_PROFILE_BASE64       base64 of App Store .mobileprovision
-#                                          for com.llamascookbook.app
-#   IOS_WIDGET_PROVISIONING_PROFILE_BASE64 base64 of App Store .mobileprovision
-#                                          for com.llamascookbook.app.widget
-#                                          (see ROADMAP.md for setup steps)
-#   APPSTORE_API_KEY_P8_BASE64            base64 of AuthKey_<KEYID>.p8
-#   APPSTORE_API_KEY_ID                   10-char ASC API Key ID
-#   APPSTORE_API_ISSUER_ID                ASC API issuer UUID
+#   IOS_DIST_CERT_P12_BASE64                base64 of iOS Distribution .p12
+#   IOS_DIST_CERT_P12_PASSWORD              password for that .p12
+#   IOS_PROVISIONING_PROFILE_BASE64         base64 of App Store .mobileprovision
+#                                            for com.llamascookbook.app
+#   IOS_WIDGET_PROVISIONING_PROFILE_BASE64  base64 of App Store .mobileprovision
+#                                            for com.llamascookbook.app.widget
+#                                            (see ROADMAP.md for setup steps)
+#   IOS_SHARE_EXT_PROVISIONING_PROFILE_BASE64
+#                                          base64 of App Store .mobileprovision
+#                                            for com.llamascookbook.app.shareext
+#                                            (see Share-Extension-Plan.md §8)
+#   APPSTORE_API_KEY_P8_BASE64              base64 of AuthKey_<KEYID>.p8
+#   APPSTORE_API_KEY_ID                     10-char ASC API Key ID
+#   APPSTORE_API_ISSUER_ID                  ASC API issuer UUID
 
 on:
   workflow_dispatch:
@@ -35,6 +39,7 @@ env:
   APPLE_TEAM_ID: GYFN949Q5E
   BUNDLE_ID: com.llamascookbook.app
   WIDGET_BUNDLE_ID: com.llamascookbook.app.widget
+  SHARE_EXT_BUNDLE_ID: com.llamascookbook.app.shareext
 
 jobs:
   build:
@@ -147,6 +152,7 @@ jobs:
           P12_B64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
           PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
           WIDGET_PROFILE_B64: ${{ secrets.IOS_WIDGET_PROVISIONING_PROFILE_BASE64 }}
+          SHARE_EXT_PROFILE_B64: ${{ secrets.IOS_SHARE_EXT_PROVISIONING_PROFILE_BASE64 }}
           KEY_P8_B64: ${{ secrets.APPSTORE_API_KEY_P8_BASE64 }}
           KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
         working-directory: ${{ github.workspace }}
@@ -156,6 +162,7 @@ jobs:
           echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/signing/dist.p12"
           echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/signing/profile.mobileprovision"
           echo "$WIDGET_PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/signing/widget.mobileprovision"
+          echo "$SHARE_EXT_PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/signing/shareext.mobileprovision"
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$KEY_P8_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
           chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
@@ -205,6 +212,19 @@ jobs:
           echo "WIDGET_PROFILE_UUID=$WIDGET_UUID" >> "$GITHUB_ENV"
           echo "WIDGET_PROFILE_NAME=$WIDGET_NAME" >> "$GITHUB_ENV"
           echo "Installed widget profile: $WIDGET_NAME ($WIDGET_UUID)"
+
+          # Share extension profile — see Share-Extension-Plan.md §8.
+          # Carries the App Group entitlement (group.com.llamascookbook.app)
+          # so the extension can write to the shared inbox the main app
+          # reads from.
+          SHARE_EXT_SRC="$RUNNER_TEMP/signing/shareext.mobileprovision"
+          SHARE_EXT_PLIST=$(security cms -D -i "$SHARE_EXT_SRC")
+          SHARE_EXT_UUID=$(echo "$SHARE_EXT_PLIST" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin)
+          SHARE_EXT_NAME=$(echo "$SHARE_EXT_PLIST" | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin)
+          cp "$SHARE_EXT_SRC" "$PROFILE_DIR/$SHARE_EXT_UUID.mobileprovision"
+          echo "SHARE_EXT_PROFILE_UUID=$SHARE_EXT_UUID" >> "$GITHUB_ENV"
+          echo "SHARE_EXT_PROFILE_NAME=$SHARE_EXT_NAME" >> "$GITHUB_ENV"
+          echo "Installed share extension profile: $SHARE_EXT_NAME ($SHARE_EXT_UUID)"
 
       - name: Generate timer alarm sound
         run: |
@@ -315,6 +335,7 @@ jobs:
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             MAIN_PROFILE_NAME="$PROFILE_NAME" \
             WIDGET_PROFILE_NAME="$WIDGET_PROFILE_NAME" \
+            SHARE_EXT_PROFILE_NAME="$SHARE_EXT_PROFILE_NAME" \
             archive
 
       - name: Export .ipa
@@ -336,6 +357,8 @@ jobs:
               <string>${PROFILE_NAME}</string>
               <key>${WIDGET_BUNDLE_ID}</key>
               <string>${WIDGET_PROFILE_NAME}</string>
+              <key>${SHARE_EXT_BUNDLE_ID}</key>
+              <string>${SHARE_EXT_PROFILE_NAME}</string>
             </dict>
           </dict>
           </plist>

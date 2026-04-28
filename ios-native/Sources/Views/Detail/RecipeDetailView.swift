@@ -79,6 +79,17 @@ struct RecipeDetailView: View {
                         .foregroundStyle(appearance.accentColor)
                         .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
+                    // Provenance line for recipes imported from another
+                    // user. Sticky through local edits on purpose —
+                    // see Recipe-Sharing.md §8.3 ("a cookbook-from-Mom
+                    // is a cookbook-from-Mom even after you tweak the
+                    // salt amount").
+                    if let provenance = provenanceLine {
+                        Text(provenance)
+                            .font(AppFont.eyebrow)
+                            .foregroundStyle(AppColor.textTertiary)
+                    }
+
                     if let summary = recipe.summary, !summary.isEmpty {
                         Text(summary)
                             .font(AppFont.body)
@@ -836,6 +847,25 @@ struct RecipeDetailView: View {
             recipe.ingredients.append(ingredient)
         }
         recipe.updatedAt = .now
+    }
+
+    // MARK: - Provenance
+
+    /// "Originally shared by Lorenzo · Apr 27" when both name and date
+    /// are present; "Originally shared by Lorenzo" alone when only the
+    /// name is set; nil when `sharedBy` is empty/nil. Locally-authored
+    /// recipes always return nil. Stamped at materialize time and
+    /// never cleared by `Recipe.apply(_:)` — the editor leaves it
+    /// alone so credit survives local edits.
+    private var provenanceLine: String? {
+        guard let by = recipe.sharedBy?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !by.isEmpty else { return nil }
+        guard let at = recipe.sharedAt else {
+            return "Originally shared by \(by)"
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return "Originally shared by \(by) · \(formatter.string(from: at))"
     }
 
     // MARK: - Share flow
