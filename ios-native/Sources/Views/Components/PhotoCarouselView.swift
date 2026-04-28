@@ -60,6 +60,7 @@ struct PhotoCarouselView: View {
     @State private var selectedPage: Int
     @State private var pendingDeleteIndex: Int?
     @State private var isProcessing: Bool = false
+    @State private var showingReorderSheet = false
 
     /// Custom init so `selectedPage` seeds from `initialPage` exactly
     /// once at view-storage allocation. Parent re-renders (e.g. after
@@ -176,6 +177,43 @@ struct PhotoCarouselView: View {
                 pendingDeleteIndex = nil
             }
         }
+        // Tile-grid reorder sheet. The sheet drives the same `onReorder`
+        // closure as the (removed) chevron buttons did, so callers stay
+        // in sync — only the entry-point UI changed. Each drop fires
+        // a single `(IndexSet, Int)` move; the sheet keeps its own
+        // local state so re-renders driven by the parent don't race
+        // the user's drag.
+        .sheet(isPresented: $showingReorderSheet) {
+            PhotoReorderView(
+                initialPhotos: photoData,
+                title: title
+            ) { from, to in
+                onReorder?(from, to)
+                // Keep the carousel pointing at the photo the user was
+                // already on. After a reorder the indices shift; track
+                // the current page through the move so swiping back into
+                // the carousel doesn't land on a different photo.
+                selectedPage = adjustedSelectedPage(after: from, to: to)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// Recompute `selectedPage` given the same `(IndexSet, Int)` move
+    /// the sheet just applied to the underlying array. Mirrors
+    /// `Array.move(fromOffsets:toOffset:)`'s effect on a single index:
+    /// if the watched photo was the one moved, follow it; otherwise
+    /// shift its index by ±1 if it sat between source and destination.
+    private func adjustedSelectedPage(after from: IndexSet, to: Int) -> Int {
+        guard let source = from.first else { return selectedPage }
+        // The post-move index of the dragged item.
+        let landed = source < to ? to - 1 : to
+        if selectedPage == source { return landed }
+        // Page is some other photo; shift if the move passed over it.
+        if source < selectedPage && landed >= selectedPage { return selectedPage - 1 }
+        if source > selectedPage && landed <= selectedPage { return selectedPage + 1 }
+        return selectedPage
     }
 
     // MARK: - Toolbar
@@ -203,7 +241,7 @@ struct PhotoCarouselView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: AppSpacing.md) {
                     if canReorder {
-                        reorderButtons
+                        reorderModeButton
                     }
                     if canDelete && !photoData.isEmpty {
                         deleteButton
@@ -216,32 +254,25 @@ struct PhotoCarouselView: View {
         }
     }
 
-    /// Move-left / move-right pair. Acts on whichever photo is in
-    /// view (`selectedPage`). Disabled at the array's edges. Uses
-    /// chevrons so the affordance reads as "shift this photo" rather
-    /// than the navigation back/forward you'd see in a List.
-    private var reorderButtons: some View {
-        HStack(spacing: AppSpacing.sm) {
-            Button {
-                moveCurrent(by: -1)
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
-            }
-            .disabled(selectedPage <= 0)
-            .foregroundStyle(selectedPage <= 0 ? AppColor.textTertiary : AppColor.accent)
-            .accessibilityLabel("Move photo left")
-
-            Button {
-                moveCurrent(by: 1)
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 17, weight: .semibold))
-            }
-            .disabled(selectedPage >= photoData.count - 1)
-            .foregroundStyle(selectedPage >= photoData.count - 1 ? AppColor.textTertiary : AppColor.accent)
-            .accessibilityLabel("Move photo right")
+    /// Single button that opens the dedicated reorder sheet
+    /// (`PhotoReorderView`). Inline directional arrows in a paging
+    /// `TabView` read as navigation, not item shuffle — the dedicated
+    /// mode pulls the user out of the carousel and into a tile grid
+    /// where drag-and-drop is the unambiguous interaction.
+    /// `rectangle.on.rectangle.angled` is two rotated rectangles — the
+    /// closest SF Symbol to a fanned stack of cards (which is the
+    /// affordance Lorenzo asked for: "rectangles/outlines of a few
+    /// cards fanned out", no numbers or symbols).
+    private var reorderModeButton: some View {
+        Button {
+            Haptics.selection()
+            showingReorderSheet = true
+        } label: {
+            Image(systemName: "rectangle.on.rectangle.angled")
+                .font(.system(size: 17, weight: .semibold))
         }
+        .foregroundStyle(AppColor.accent)
+        .accessibilityLabel("Rearrange photos")
     }
 
     /// Visible delete affordance. Mirrors the long-press path — both
@@ -278,26 +309,6 @@ struct PhotoCarouselView: View {
         }
         .disabled(isProcessing || pickLimit == 0)
         .foregroundStyle(AppColor.accent)
-    }
-
-    /// Shift the currently visible photo by `delta` slots (-1 = left,
-    /// +1 = right). Translates to SwiftUI's `move(fromOffsets:toOffset:)`
-    /// convention before handing off to the caller's `onReorder`, then
-    /// optimistically updates `selectedPage` so the user keeps watching
-    /// the same photo as it slides into its new position.
-    private func moveCurrent(by delta: Int) {
-        guard let onReorder else { return }
-        let from = selectedPage
-        let to = from + delta
-        guard to >= 0, to < photoData.count else { return }
-        // SwiftUI's move convention: destination is the index in the
-        // pre-removal array. Moving right by 1 means "land at offset
-        // from+2" (drop is past the original neighbor). Left moves
-        // are simpler — toOffset == target index.
-        let toOffset = delta > 0 ? from + 2 : to
-        Haptics.selection()
-        onReorder(IndexSet([from]), toOffset)
-        selectedPage = to
     }
 
     // MARK: - Body content
