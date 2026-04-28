@@ -75,6 +75,10 @@ struct LibraryView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
+                // Trailing breathing room before the profile icon —
+                // without this, "Cookbook" runs flush against the
+                // person.crop.circle glyph on iPhone widths.
+                .padding(.trailing, AppSpacing.sm)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

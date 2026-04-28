@@ -155,6 +155,139 @@ extension LCRecipeShareV1 {
             recipe: strippedRecipe
         )
     }
+
+    /// Returns a copy of this envelope with every `SharePhoto.image`
+    /// replaced by an empty string, but the photo arrays themselves
+    /// (and per-photo `id` / `order` / `caption`) preserved. Used by
+    /// the cloud-permalink upload path: photo *bytes* travel as
+    /// separate `CKAsset` fields on the parent record (no base64
+    /// inflation, no JSON-encoding cost), and the receiver walks the
+    /// envelope's photo arrays in canonical order to re-inject the
+    /// asset bytes during `fetchShare`. Empty `image` strings are the
+    /// signal that "the bytes live on a sibling field." Distinct
+    /// from `withoutPhotos()` — that drops the photo arrays
+    /// entirely, used by the URL-form share where there's no place
+    /// to attach assets at all.
+    func withClearedPhotoBytes() -> LCRecipeShareV1 {
+        let clearedSteps = recipe.steps.map { step in
+            ShareStep(
+                id: step.id,
+                order: step.order,
+                text: step.text,
+                needsTimer: step.needsTimer,
+                specialNote: step.specialNote,
+                photos: step.photos.map { p in
+                    SharePhoto(id: p.id, order: p.order, caption: p.caption, image: "")
+                }
+            )
+        }
+        let clearedPhotos = recipe.photos.map { p in
+            SharePhoto(id: p.id, order: p.order, caption: p.caption, image: "")
+        }
+        let clearedRecipe = ShareRecipe(
+            id: recipe.id,
+            title: recipe.title,
+            summary: recipe.summary,
+            sourceUrl: recipe.sourceUrl,
+            servings: recipe.servings,
+            cookTimeMinutes: recipe.cookTimeMinutes,
+            notes: recipe.notes,
+            tags: recipe.tags,
+            prefaceNote: recipe.prefaceNote,
+            epilogueNote: recipe.epilogueNote,
+            generalNote: recipe.generalNote,
+            ingredients: recipe.ingredients,
+            steps: clearedSteps,
+            photos: clearedPhotos
+        )
+        return LCRecipeShareV1(
+            schemaVersion: schemaVersion,
+            share: share,
+            recipe: clearedRecipe
+        )
+    }
+
+    /// Flattens every photo's bytes (recipe gallery first, then each
+    /// step's photos in step order, each in `order` order) into a
+    /// single array. The position in this array IS the index used as
+    /// the suffix in the CloudKit record's `photo<N>` Asset field.
+    /// Pairs with `withClearedPhotoBytes()` on upload and
+    /// `injecting(photoBytes:)` on download. Photos that fail to
+    /// base64-decode (corrupt sender-side bytes) land as empty
+    /// `Data()` so the index sequence stays aligned.
+    func flattenedPhotoBytes() -> [Data] {
+        var result: [Data] = []
+        for p in recipe.photos.sorted(by: { $0.order < $1.order }) {
+            result.append(Data(base64Encoded: p.image) ?? Data())
+        }
+        for step in recipe.steps.sorted(by: { $0.order < $1.order }) {
+            for p in step.photos.sorted(by: { $0.order < $1.order }) {
+                result.append(Data(base64Encoded: p.image) ?? Data())
+            }
+        }
+        return result
+    }
+
+    /// Inverse of `withClearedPhotoBytes()` + `flattenedPhotoBytes()`:
+    /// walks the envelope's photo arrays in the same canonical order
+    /// (recipe gallery, then each step's photos) and base64-encodes
+    /// the matching bytes into each `SharePhoto.image` field.
+    /// Bytes shorter than the photo array (= the upload was capped)
+    /// leave trailing photos with empty image strings — those render
+    /// as missing in `RecipeImportPreviewView` and skip during
+    /// `RecipeShare.materialize` (the `Data(base64Encoded:)` guard).
+    func injecting(photoBytes: [Data]) -> LCRecipeShareV1 {
+        var index = 0
+        let injectedRecipePhotos: [SharePhoto] = recipe.photos
+            .sorted(by: { $0.order < $1.order })
+            .map { p in
+                let bytes: Data = index < photoBytes.count ? photoBytes[index] : Data()
+                index += 1
+                let encoded = bytes.isEmpty ? "" : bytes.base64EncodedString()
+                return SharePhoto(id: p.id, order: p.order, caption: p.caption, image: encoded)
+            }
+        let injectedSteps: [ShareStep] = recipe.steps
+            .sorted(by: { $0.order < $1.order })
+            .map { step in
+                let injectedStepPhotos: [SharePhoto] = step.photos
+                    .sorted(by: { $0.order < $1.order })
+                    .map { p in
+                        let bytes: Data = index < photoBytes.count ? photoBytes[index] : Data()
+                        index += 1
+                        let encoded = bytes.isEmpty ? "" : bytes.base64EncodedString()
+                        return SharePhoto(id: p.id, order: p.order, caption: p.caption, image: encoded)
+                    }
+                return ShareStep(
+                    id: step.id,
+                    order: step.order,
+                    text: step.text,
+                    needsTimer: step.needsTimer,
+                    specialNote: step.specialNote,
+                    photos: injectedStepPhotos
+                )
+            }
+        let injectedRecipe = ShareRecipe(
+            id: recipe.id,
+            title: recipe.title,
+            summary: recipe.summary,
+            sourceUrl: recipe.sourceUrl,
+            servings: recipe.servings,
+            cookTimeMinutes: recipe.cookTimeMinutes,
+            notes: recipe.notes,
+            tags: recipe.tags,
+            prefaceNote: recipe.prefaceNote,
+            epilogueNote: recipe.epilogueNote,
+            generalNote: recipe.generalNote,
+            ingredients: recipe.ingredients,
+            steps: injectedSteps,
+            photos: injectedRecipePhotos
+        )
+        return LCRecipeShareV1(
+            schemaVersion: schemaVersion,
+            share: share,
+            recipe: injectedRecipe
+        )
+    }
 }
 
 // MARK: - RecipeShare

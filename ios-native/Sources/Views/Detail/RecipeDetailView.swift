@@ -233,76 +233,71 @@ struct RecipeDetailView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")
             }
-            // Trailing trio — each its own ToolbarItem so iOS spreads them
-            // out, each wrapped in an identical frame so heart/share/edit
-            // all sit on exactly the same horizontal axis (without the
-            // explicit frame, the share-link image renders at a slightly
-            // different intrinsic height and ends up a hair below the
-            // others). All three use the same font + accent.
+            // Trailing trio collapsed into a single ToolbarItem so we
+            // control the spacing between heart / share / edit (iOS's
+            // default per-item padding spread them apart enough that
+            // they read as three separate clusters). Heart gets a 1pt
+            // downward offset because the SF Symbol's optical center
+            // sits a hair above the geometric center, and the explicit
+            // 30×30 frame uses geometric centering — without the
+            // offset, heart visibly floats above share + edit on the
+            // y-axis.
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Haptics.selection()
-                    recipe.favorite.toggle()
-                    recipe.updatedAt = .now
-                } label: {
-                    Image(systemName: recipe.favorite ? "heart.fill" : "heart")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(appearance.accentColor)
-                        .frame(width: 30, height: 30)
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    // URL form — `llamascookbook://recipe/v<N>/<base64url>`
-                    // deep link, photos stripped to keep it under the
-                    // URL byte ceiling. Tapping the link on a recipient
-                    // with the app installed lands them straight in the
-                    // import preview — no attachment-tap dance. Photo-
-                    // bearing recipes still go through; the recipient
-                    // sees the recipe without photos and can re-add
-                    // their own.
-                    //
-                    // Cloud-first routing: when iCloud is available
-                    // (almost always on iPhone), `shareViaPreferredTransport`
-                    // uploads to CloudKit and emits a short
-                    // `llamascookbook://share/<6char-id>` permalink with
-                    // photos included. iCloud-unavailable / upload-failed
-                    // → falls back to the self-contained
-                    // `llamascookbook://recipe/v2/<base64url>` URL form
-                    // (lzma-compressed, photos stripped). The internal
-                    // `.file` ShareAction + `shareAsFile()` are kept as
-                    // a paranoid last-resort fallback in
-                    // `shareAsLocalURL()` for pathological long-text
-                    // recipes that still trip the URL ceiling.
+                HStack(spacing: AppSpacing.xs) {
                     Button {
-                        triggerShare(.url)
+                        Haptics.selection()
+                        recipe.favorite.toggle()
+                        recipe.updatedAt = .now
                     } label: {
-                        Label("Share recipe", systemImage: "square.and.arrow.up")
+                        Image(systemName: recipe.favorite ? "heart.fill" : "heart")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(appearance.accentColor)
+                            .frame(width: 30, height: 30)
+                            .offset(y: 1)
                     }
-                    // Text form — existing plain-text export. Bridge for
-                    // recipients without the app. Skips the name prompt
-                    // because plain text doesn't carry provenance.
+                    .accessibilityLabel(recipe.favorite ? "Unfavorite" : "Favorite")
+                    Menu {
+                        // Cloud-first routing: when iCloud is available
+                        // (almost always on iPhone), `shareViaPreferredTransport`
+                        // uploads to CloudKit and emits a short
+                        // `llamascookbook://share/<6char-id>` permalink with
+                        // photos included. iCloud-unavailable / upload-failed
+                        // → falls back to the self-contained
+                        // `llamascookbook://recipe/v2/<base64url>` URL form
+                        // (lzma-compressed, photos stripped). The internal
+                        // `.file` ShareAction + `shareAsFile()` are kept as
+                        // a paranoid last-resort fallback in
+                        // `shareAsLocalURL()` for pathological long-text
+                        // recipes that still trip the URL ceiling.
+                        Button {
+                            triggerShare(.url)
+                        } label: {
+                            Label("Share recipe", systemImage: "square.and.arrow.up")
+                        }
+                        // Text form — existing plain-text export. Bridge for
+                        // recipients without the app. Skips the name prompt
+                        // because plain text doesn't carry provenance.
+                        Button {
+                            triggerShare(.text)
+                        } label: {
+                            Label("Share as text", systemImage: "doc.plaintext")
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(appearance.accentColor)
+                            .frame(width: 30, height: 30)
+                    }
+                    .accessibilityLabel("Share recipe")
                     Button {
-                        triggerShare(.text)
+                        editor.startEdit(recipe)
                     } label: {
-                        Label("Share as text", systemImage: "doc.plaintext")
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(appearance.accentColor)
+                            .frame(width: 30, height: 30)
                     }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(appearance.accentColor)
-                        .frame(width: 30, height: 30)
-                }
-                .accessibilityLabel("Share recipe")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    editor.startEdit(recipe)
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(appearance.accentColor)
-                        .frame(width: 30, height: 30)
+                    .accessibilityLabel("Edit recipe")
                 }
             }
         }
@@ -1004,17 +999,16 @@ struct RecipeDetailView: View {
     }
 
     /// Blocking overlay while the cloud upload is in flight. Cream
-    /// card on a dimmed scrim; matches the visual language of
-    /// existing modal indicators. Animated with a spring so it
-    /// doesn't snap in/out jarringly.
+    /// card on a dimmed scrim; uses the branded `LlamaProgressIndicator`
+    /// (logo with halo filling bottom-to-top) instead of a plain
+    /// `ProgressView` so the user gets a recognizable signal that the
+    /// app is working rather than the generic "is it stuck?" spinner.
     private var cloudShareLoadingOverlay: some View {
         ZStack {
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
             VStack(spacing: AppSpacing.md) {
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(appearance.accentColor)
+                LlamaProgressIndicator(size: 76, accent: appearance.accentColor)
                 Text("Preparing share…")
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textPrimary)

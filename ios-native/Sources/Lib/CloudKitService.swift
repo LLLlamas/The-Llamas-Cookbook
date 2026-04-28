@@ -48,6 +48,17 @@ enum CloudKitService {
     /// Two-attempt retry on save covers the rare case.
     static let recordIDLength = 6
 
+    /// Maximum number of per-photo `CKAsset` fields (`photo0` …
+    /// `photo<maxCloudPhotoCount-1>`) we attach to a single record.
+    /// Photos beyond this cap are dropped from the upload — the
+    /// cloud-share recipient sees them as missing thumbnails. Realistic
+    /// ceiling for a recipe is well under 20 (4-photo gallery cap +
+    /// up to 3 photos per step × ~5 steps with photos = ~19), so the
+    /// cap is mostly defensive. CloudKit Dashboard schema must declare
+    /// `photo0` … `photo19` as Asset fields (all optional) to back
+    /// this; the schema deploy is a one-time portal trip.
+    static let maxCloudPhotoCount = 20
+
     /// Alphabet for record IDs: uppercase A-Z + digits, with `I`,
     /// `O`, `0`, `1` removed so a recipient typing the link by hand
     /// (rare but possible) doesn't confuse lookalikes. Mirrors the
@@ -89,30 +100,83 @@ enum CloudKitService {
     /// record and returns the random 6-char record name. Caller mints
     /// `llamascookbook://share/<recordName>` from this.
     ///
-    /// Encoding: full envelope JSON (photos inline as base64) → temp
-    /// file → `CKAsset`. CloudKit handles the binary upload as part
-    /// of `save`. Temp file cleaned up regardless of save outcome.
+    /// Encoding strategy (revised 2026-04-28 for upload speed):
+    /// - `envelope` field: photo-less JSON envelope written to a temp
+    ///   file (KB-scale; photo arrays preserve `id` / `order` /
+    ///   `caption` but `image` is empty).
+    /// - `photo0` … `photo<N-1>` fields: each photo's *raw* bytes
+    ///   (typically JPEG, already storage-budget-sized) attached as
+    ///   `CKAsset`. No base64 inflation, no JSON-encoding of binary.
+    /// - Receiver walks `LCRecipeShareV1.injecting(photoBytes:)` to
+    ///   re-base64 the asset bytes into the envelope before
+    ///   materializing.
+    ///
+    /// On the wire this saves ~33% bandwidth (no base64 overhead) and
+    /// massively reduces the JSON envelope size, which is the dominant
+    /// CPU cost for photo-heavy recipes. Cap of `maxCloudPhotoCount`
+    /// flat photos; anything beyond drops on the floor (rare in
+    /// practice).
     ///
     /// Retries once on `serverRecordChanged` (record-name collision)
     /// with a fresh ID; beyond that, the rare collision becomes a
     /// thrown error and the caller falls back to the local URL form.
+    /// Temp files (envelope + each photo) cleaned up via `defer`
+    /// regardless of save outcome.
     static func uploadShare(
         _ envelope: LCRecipeShareV1,
         senderDisplayName: String?
     ) async throws -> String {
-        let json = try makeEncoder().encode(envelope)
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("share-\(UUID().uuidString).json")
-        try json.write(to: tempURL, options: .atomic)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
+        // 1. Strip photo bytes from the envelope JSON so it stays a
+        //    few KB; the bytes travel as separate CKAsset fields.
+        let strippedJSON = try makeEncoder().encode(envelope.withClearedPhotoBytes())
+        let envelopeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("share-envelope-\(UUID().uuidString).json")
+        try strippedJSON.write(to: envelopeURL, options: .atomic)
 
-        // Two attempts — collision is vanishingly unlikely (~1e-6 at
-        // 1k records) but cheap to retry once on a fresh ID.
+        // 2. Flatten photo bytes (recipe gallery first, then each
+        //    step's photos in canonical order). The position in this
+        //    list IS the suffix of the record's `photo<N>` field.
+        let photoBytes = envelope.flattenedPhotoBytes()
+        let attachedCount = min(photoBytes.count, maxCloudPhotoCount)
+
+        // 3. Each photo's bytes get their own temp file (CKAsset
+        //    requires a file URL). `nil` slots represent empty / decode-
+        //    failed photos — we skip attaching those as assets so the
+        //    record doesn't carry empty `photo<N>` fields.
+        var photoURLs: [URL?] = []
+        for i in 0..<attachedCount {
+            let bytes = photoBytes[i]
+            guard !bytes.isEmpty else {
+                photoURLs.append(nil)
+                continue
+            }
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("share-photo\(i)-\(UUID().uuidString).bin")
+            try bytes.write(to: url, options: .atomic)
+            photoURLs.append(url)
+        }
+
+        // 4. Cleanup of all temp files happens regardless of save
+        //    outcome (success path or any retry/throw above).
+        defer {
+            try? FileManager.default.removeItem(at: envelopeURL)
+            for url in photoURLs.compactMap({ $0 }) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        // 5. Two attempts — collision is vanishingly unlikely (~1e-6
+        //    at 1k records) but cheap to retry once on a fresh ID.
         for attempt in 0..<2 {
             let recordName = generateRecordID()
             let recordID = CKRecord.ID(recordName: recordName)
             let record = CKRecord(recordType: recipeShareRecordType, recordID: recordID)
-            record["envelope"] = CKAsset(fileURL: tempURL)
+            record["envelope"] = CKAsset(fileURL: envelopeURL)
+            for (i, urlOpt) in photoURLs.enumerated() {
+                if let url = urlOpt {
+                    record["photo\(i)"] = CKAsset(fileURL: url)
+                }
+            }
             if let name = senderDisplayName, !name.isEmpty {
                 record["senderDisplayName"] = name as NSString
             }
@@ -136,10 +200,14 @@ enum CloudKitService {
     // MARK: - Fetch
 
     /// Fetches a `RecipeShare` by record name and reconstructs the
-    /// envelope. Throws `CloudKitServiceError.envelopeMissing` if the
-    /// asset / file is unreachable; rethrows the underlying CKError
-    /// otherwise (network failure, no-such-record, account
-    /// unavailable). Caller maps these to user-facing messages.
+    /// envelope. Reads the photo-less envelope from the `envelope`
+    /// CKAsset, then walks `photo0` … `photo<N-1>` in canonical order
+    /// to re-inject photo bytes via
+    /// `LCRecipeShareV1.injecting(photoBytes:)`. Throws
+    /// `CloudKitServiceError.envelopeMissing` if the envelope asset
+    /// is unreachable; rethrows underlying CKError otherwise (network
+    /// failure, no-such-record, account unavailable). Caller maps
+    /// these to user-facing messages.
     static func fetchShare(recordName: String) async throws -> LCRecipeShareV1 {
         let recordID = CKRecord.ID(recordName: recordName)
         let record = try await publicDB.record(for: recordID)
@@ -152,7 +220,27 @@ enum CloudKitService {
         // Route through the canonical decoder so schema-version
         // checking and friendly error mapping stay consistent with the
         // file / URL paths.
-        return try RecipeShare.decode(fileData: data)
+        let strippedEnvelope = try RecipeShare.decode(fileData: data)
+
+        // Walk the photo<N> asset fields in flat canonical order; the
+        // injecting helper on LCRecipeShareV1 walks the same order to
+        // re-base64 each into the matching SharePhoto.image field.
+        // Stop at the envelope's actual photo count rather than
+        // probing all maxCloudPhotoCount slots blindly.
+        let totalPhotos = strippedEnvelope.recipe.photos.count + strippedEnvelope.recipe.steps.reduce(0) { $0 + $1.photos.count }
+        let probeCount = min(totalPhotos, maxCloudPhotoCount)
+        var photoBytes: [Data] = []
+        photoBytes.reserveCapacity(probeCount)
+        for i in 0..<probeCount {
+            guard let photoAsset = record["photo\(i)"] as? CKAsset,
+                  let url = photoAsset.fileURL,
+                  let bytes = try? Data(contentsOf: url) else {
+                photoBytes.append(Data())
+                continue
+            }
+            photoBytes.append(bytes)
+        }
+        return strippedEnvelope.injecting(photoBytes: photoBytes)
     }
 
     // MARK: - Delete
