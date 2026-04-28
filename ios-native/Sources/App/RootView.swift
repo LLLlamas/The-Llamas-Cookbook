@@ -7,6 +7,13 @@ struct RootView: View {
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
     @State private var navContext = NavigationContext()
+    /// Programmatic-path binding for the library NavigationStack. Lets
+    /// `LibraryView`'s existing `NavigationLink(value: recipe)` taps
+    /// keep working while also giving us a hook to push Detail
+    /// programmatically — used after a share import is Saved so the
+    /// recipient lands directly on the new recipe's Detail view rather
+    /// than back on the library list.
+    @State private var libraryPath = NavigationPath()
 
     /// Decoded incoming share envelope. Non-nil → present
     /// `RecipeImportPreviewView` as a sheet so the user can review +
@@ -21,7 +28,7 @@ struct RootView: View {
     @State private var shareImportError: String?
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $libraryPath) {
             LibraryView()
         }
         .tint(appearance.accentColor)
@@ -96,11 +103,23 @@ struct RootView: View {
             }
         }
         .sheet(item: $pendingShareImport) { envelope in
-            RecipeImportPreviewView(envelope: envelope)
-                // @Observable values can drop out across sheet
-                // boundaries — re-injecting is cheap insurance, same
-                // pattern as the Cook Mode cover above.
-                .environment(appearance)
+            RecipeImportPreviewView(envelope: envelope) { savedRecipe in
+                // Defer the nav push until the sheet has had time to
+                // dismiss; pushing immediately leaves the user staring
+                // at a half-dismissed sheet and SwiftUI sometimes drops
+                // the push entirely if it lands mid-animation. ~350ms
+                // is the same modal-stacking workaround the share
+                // prompt → share sheet path uses, see
+                // RecipeDetailView.deferredExecutePendingShare.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    libraryPath.append(savedRecipe)
+                }
+            }
+            // @Observable values can drop out across sheet
+            // boundaries — re-injecting is cheap insurance, same
+            // pattern as the Cook Mode cover above.
+            .environment(appearance)
         }
         .alert(
             "Couldn't import recipe",

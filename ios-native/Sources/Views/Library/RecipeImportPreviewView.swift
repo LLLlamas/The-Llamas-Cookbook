@@ -26,6 +26,15 @@ struct RecipeImportPreviewView: View {
     @Environment(AppearanceSettings.self) private var appearance
 
     let envelope: LCRecipeShareV1
+    /// Called after `RecipeShare.materialize` returns the new
+    /// `Recipe` and before the sheet dismisses. RootView uses it to
+    /// push the recipient straight into the new recipe's Detail view
+    /// — appending to its programmatic NavigationPath after a brief
+    /// delay so the dismiss animation doesn't race with the push.
+    /// Defaults to a no-op so call sites that just want the import
+    /// without the navigation hand-off (tests, future entry points)
+    /// don't have to supply one.
+    var onSaved: (Recipe) -> Void = { _ in }
 
     /// Decoded gallery photos. Computed in `onAppear` once so we don't
     /// re-base64-decode on every render. Step photos are surfaced as a
@@ -311,9 +320,13 @@ struct RecipeImportPreviewView: View {
         guard !isSaving else { return }
         isSaving = true
         Task { @MainActor in
-            _ = await RecipeShare.materialize(envelope, into: modelContext)
+            let recipe = await RecipeShare.materialize(envelope, into: modelContext)
             isSaving = false
             Haptics.success()
+            // Hand the new recipe back to the parent BEFORE dismiss —
+            // RootView uses it to queue a Detail push that fires once
+            // the sheet finishes its dismiss animation.
+            onSaved(recipe)
             dismiss()
         }
     }

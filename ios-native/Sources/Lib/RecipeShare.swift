@@ -163,13 +163,37 @@ extension LCRecipeShareV1 {
 /// Stateless. All callers (sender's `Transferable`, receiver's
 /// `onOpenURL` branches, future cloud transport) route through here.
 enum RecipeShare {
+    /// JSON envelope schema version. Lives on the wire inside
+    /// `LCRecipeShareV1.schemaVersion` and is the gate for the
+    /// `unsupportedSchemaVersion` error. Independent of the URL-form
+    /// encoding version below — a single schema can be carried by
+    /// multiple URL encodings, and a future schema v2 would also
+    /// keep its own URL encoding version stream.
     static let currentVersion = 1
 
+    /// URL-form encoding version. Bumped 2026-04-28 to v2 when we
+    /// switched from `base64url(JSON)` to `base64url(lzma(JSON))` —
+    /// a typical recipe URL shrinks ~60% (text JSON compresses
+    /// extremely well, repeated keys + English vocab). Decoders
+    /// accept both:
+    ///
+    /// - **v1** = `llamascookbook://recipe/v1/<base64url-of-JSON>`
+    ///   (legacy; still produced by older app builds and by any test
+    ///   links sitting in iMessage history pre-2026-04-28)
+    /// - **v2** = `llamascookbook://recipe/v2/<base64url-of-lzma(JSON)>`
+    ///   (current default; what `encodeURL` mints)
+    ///
+    /// Encoder always emits v2. Receiver branches on the path
+    /// component before peeking schema version.
+    static let currentURLEncodingVersion = 2
+
     /// URL-form payload size ceiling — past this we refuse to mint a
-    /// `llamascookbook://recipe/v1/<...>` URL and fall back to the
+    /// `llamascookbook://recipe/v<N>/<...>` URL and fall back to the
     /// file form. ~6000 chars keeps us clear of practical clipboard /
     /// SMS transport limits while leaving headroom for chat-app
-    /// surrounding metadata (link previews etc.).
+    /// surrounding metadata (link previews etc.). With v2's lzma
+    /// compression most photoless recipes land well under this; the
+    /// ceiling exists for the long-form pathological case.
     static let urlByteCeiling = 6000
 
     enum Error: Swift.Error, LocalizedError {
@@ -279,10 +303,22 @@ enum RecipeShare {
     /// resulting URL exceeds `urlByteCeiling` — caller (the sender's
     /// share menu) decides whether to fall back to file or hide the
     /// "Share as link" option.
+    ///
+    /// Pipeline: JSON-encode → lzma-compress → base64url. lzma is the
+    /// best-ratio of `NSData.CompressionAlgorithm` for KB-scale text
+    /// (recipe envelopes compress ~60-70%); speed is irrelevant for a
+    /// one-shot encode. iOS-only (no Android/web target) so the
+    /// non-portable algorithm is fine.
     static func encodeURL(_ envelope: LCRecipeShareV1) throws -> URL {
         let json = try makeEncoder().encode(envelope)
-        let b64url = json.base64URLEncodedString()
-        guard let url = URL(string: "llamascookbook://recipe/v\(currentVersion)/\(b64url)") else {
+        let compressed: Data
+        do {
+            compressed = try (json as NSData).compressed(using: .lzma) as Data
+        } catch {
+            throw Error.decodeFailure(underlying: error)
+        }
+        let b64url = compressed.base64URLEncodedString()
+        guard let url = URL(string: "llamascookbook://recipe/v\(currentURLEncodingVersion)/\(b64url)") else {
             throw Error.malformedShareURL
         }
         let length = url.absoluteString.utf8.count
@@ -314,9 +350,21 @@ enum RecipeShare {
         }
     }
 
-    /// Parses `llamascookbook://recipe/v1/<base64url>`. Returns nil for
-    /// any other scheme/host so the existing cook deep-link branch in
-    /// `RootView.onOpenURL` can match its own shape without overlap.
+    /// Parses `llamascookbook://recipe/v<N>/<base64url>`. Returns nil
+    /// for any other scheme/host so the existing cook deep-link branch
+    /// in `RootView.onOpenURL` can match its own shape without overlap.
+    ///
+    /// Accepts both:
+    /// - **v1**: payload = `base64url(JSON)`. Legacy; emitted by app
+    ///   builds before 2026-04-28 and by any test links still sitting
+    ///   in iMessage history.
+    /// - **v2**: payload = `base64url(lzma(JSON))`. Current encoder.
+    ///
+    /// The path version is the URL-form encoding version (see
+    /// `currentURLEncodingVersion`), which is independent of the JSON
+    /// envelope's `schemaVersion`. Both are checked: path version
+    /// gates the decompression step; envelope schema version gates the
+    /// "you need a newer app" error.
     static func decode(url: URL) throws -> LCRecipeShareV1? {
         guard url.scheme == "llamascookbook", url.host == "recipe" else {
             return nil
@@ -327,16 +375,29 @@ enum RecipeShare {
             throw Error.malformedShareURL
         }
         let versionTag = parts[0]
-        guard versionTag.hasPrefix("v"), let version = Int(versionTag.dropFirst()) else {
+        guard versionTag.hasPrefix("v"), let urlVersion = Int(versionTag.dropFirst()) else {
             throw Error.malformedShareURL
         }
-        guard version == currentVersion else {
-            throw Error.unsupportedSchemaVersion(version)
-        }
-        guard let data = Data(base64URLEncoded: parts[1]) else {
+        guard let raw = Data(base64URLEncoded: parts[1]) else {
             throw Error.malformedShareURL
         }
-        return try decode(fileData: data)
+        let json: Data
+        switch urlVersion {
+        case 1:
+            json = raw
+        case 2:
+            do {
+                json = try (raw as NSData).decompressed(using: .lzma) as Data
+            } catch {
+                throw Error.decodeFailure(underlying: error)
+            }
+        default:
+            // Unknown URL encoding version — sender is on a newer app
+            // build than us. Reuse the schema-version error since the
+            // user-facing remediation is the same ("update the app").
+            throw Error.unsupportedSchemaVersion(urlVersion)
+        }
+        return try decode(fileData: json)
     }
 
     // MARK: - Materialize

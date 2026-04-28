@@ -241,35 +241,31 @@ struct RecipeDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    // URL form — `llamascookbook://recipe/v1/<base64url>`
+                    // URL form — `llamascookbook://recipe/v<N>/<base64url>`
                     // deep link, photos stripped to keep it under the
-                    // URL byte ceiling. Default share action because it
-                    // works in Messages, Mail, copy-link, and anywhere
-                    // else iOS will tap a custom-scheme URL: tapping the
-                    // link on a recipient with the app installed lands
-                    // them straight in the import preview, no
-                    // attachment-tap dance. Always available now;
-                    // photo-bearing recipes still go through (the
-                    // recipient sees the recipe without photos and can
-                    // either re-add their own or ask the sender to
-                    // AirDrop the file form for full fidelity).
+                    // URL byte ceiling. Tapping the link on a recipient
+                    // with the app installed lands them straight in the
+                    // import preview — no attachment-tap dance. Photo-
+                    // bearing recipes still go through; the recipient
+                    // sees the recipe without photos and can re-add
+                    // their own.
+                    //
+                    // The file-form ("Share with photos") option was
+                    // removed 2026-04-28 because the .llamarecipe
+                    // attachment doesn't reliably open in Llamas
+                    // Cookbook from Messages — the URL form is a
+                    // strictly better experience for the channels users
+                    // actually share through. Full-photo cloud transport
+                    // is queued behind PR 2 of
+                    // Implementing-User-Sign-In.md (CKAsset upload + a
+                    // permalink). The internal `.file` ShareAction +
+                    // `shareAsFile()` are kept as a paranoid fallback in
+                    // `shareAsURL()` for pathological long-text
+                    // recipes that still trip the URL ceiling.
                     Button {
                         triggerShare(.url)
                     } label: {
                         Label("Share recipe", systemImage: "square.and.arrow.up")
-                    }
-                    // File form — full fidelity, includes photos. Only
-                    // surfaced when photos exist (otherwise the URL form
-                    // already covers everything). Best for AirDrop /
-                    // Files / Mail to a recipient with the app, where
-                    // the `.llamarecipe` attachment can flow through
-                    // the OS share sheet on tap.
-                    if hasAnyPhotos {
-                        Button {
-                            triggerShare(.file)
-                        } label: {
-                            Label("Share with photos", systemImage: "photo.on.rectangle.angled")
-                        }
                     }
                     // Text form — existing plain-text export. Bridge for
                     // recipients without the app. Skips the name prompt
@@ -881,16 +877,6 @@ struct RecipeDetailView: View {
 
     // MARK: - Share flow
 
-    /// True when the recipe has at least one gallery photo or step
-    /// photo. Surfaces the "Share with photos" file-form option in the
-    /// share menu — for photoless recipes the URL form already covers
-    /// everything, so the extra option would just clutter the menu.
-    /// (The URL form is always offered; it strips photos via
-    /// `LCRecipeShareV1.withoutPhotos()` before encoding.)
-    private var hasAnyPhotos: Bool {
-        !recipe.photos.isEmpty || recipe.steps.contains { !$0.photos.isEmpty }
-    }
-
     /// Menu-tap entry point. Routes through the first-share name
     /// prompt for file/url forms; text form skips the prompt because
     /// plain text doesn't carry provenance.
@@ -909,9 +895,10 @@ struct RecipeDetailView: View {
 
     /// Synchronous "build the payload, drop it into `pendingShareItem`
     /// so the sheet binding fires" helper. URL form falls back to file
-    /// form if `encodeURL` rejects the payload (shouldn't happen when
-    /// `hasAnyPhotos` is false, but the URL ceiling is conservative
-    /// and a sufficiently long photoless recipe could still trip it).
+    /// form if `encodeURL` rejects the payload — shouldn't happen
+    /// since photos are stripped before encoding and lzma compression
+    /// is generous, but the URL ceiling is conservative and a
+    /// sufficiently long all-text recipe could still trip it.
     private func executeShare(_ action: ShareAction) {
         switch action {
         case .file:
