@@ -78,29 +78,35 @@ struct RootView: View {
             await userAccount.refreshCredentialState()
         }
         .onOpenURL { url in
-            // Five URL shapes land here:
+            // Six URL shapes land here:
             //   1. llamascookbook://cook/<recipeID>          ← cook deep link
             //      (Live Activity tap, notification tap)
-            //   2. llamascookbook://recipe/v1/<base64url>    ← URL-form share
-            //      (recipient tapped a chat-app link)
-            //   3. file://...something.llamarecipe           ← document open
+            //   2. llamascookbook://recipe/v<N>/<base64url>  ← URL-form share
+            //      (recipient tapped a chat-app link from before cloud
+            //      hosting; also the iCloud-unavailable fallback path)
+            //   3. llamascookbook://share/<recordName>       ← cloud-permalink
+            //      share — recipient tapped a `share/<6char-id>` link, we
+            //      fetch the RecipeShare record from CloudKit public DB
+            //   4. file://...something.llamarecipe           ← document open
             //      (AirDrop accept, Files / Mail attachment tap)
-            //   4. llamascookbook://share-url/<base64url>    ← Share Extension
+            //   5. llamascookbook://share-url/<base64url>    ← Share Extension
             //      handoff for a URL the user shared from another app
             //      (Safari, Reddit, etc.)
-            //   5. llamascookbook://share-incoming/<uuid>    ← Share Extension
+            //   6. llamascookbook://share-incoming/<uuid>    ← Share Extension
             //      handoff for a `.llamarecipe` file the user shared
             //      from Files / Mail; bytes wait in the App Group inbox
             //
-            // Order: cook first (most frequent), then recipe URL share,
-            // then file open, then the two share-extension handoffs.
-            // All disjoint by scheme/host/file-extension so order is
-            // strict only within each predicate match.
+            // Order: cook first (most frequent), then the three share
+            // forms, then file open, then the two share-extension
+            // handoffs. All disjoint by scheme/host/file-extension so
+            // order is strict only within each predicate match.
 
             if let recipeID = parseCookDeepLink(url) {
                 routeCookDeepLink(recipeID)
             } else if url.scheme == "llamascookbook", url.host == "recipe" {
                 routeShareURL(url)
+            } else if url.scheme == "llamascookbook", url.host == "share" {
+                routeCloudShareLink(url)
             } else if url.isFileURL, url.pathExtension.lowercased() == "llamarecipe" {
                 routeShareFile(url)
             } else if url.scheme == "llamascookbook", url.host == "share-url" {
@@ -271,6 +277,35 @@ struct RootView: View {
             shareImportError = error.errorDescription
         } catch {
             shareImportError = error.localizedDescription
+        }
+    }
+
+    /// `llamascookbook://share/<recordName>` — recipient tapped a
+    /// cloud-permalink share link. Fetches the `RecipeShare` record
+    /// from CloudKit's public DB; on success, presents the same import
+    /// preview the file / URL paths use (single sheet binding, single
+    /// materialize path). Errors surface via `shareImportError`. The
+    /// fetch happens off the main actor; UI mutations stay on it.
+    private func routeCloudShareLink(_ url: URL) {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard let recordName = parts.first, !recordName.isEmpty else {
+            shareImportError = "Malformed share link."
+            return
+        }
+        Task { @MainActor in
+            do {
+                let envelope = try await CloudKitService.fetchShare(recordName: recordName)
+                pendingShareImport = envelope
+            } catch let recipeError as RecipeShare.Error {
+                shareImportError = recipeError.errorDescription
+            } catch let cloudError as CloudKitServiceError {
+                shareImportError = cloudError.errorDescription
+            } catch {
+                // CKError, network, unknown record — surface the system
+                // message. iCloud-not-signed-in lands here as
+                // CKError.notAuthenticated; phrasing is close enough.
+                shareImportError = error.localizedDescription
+            }
         }
     }
 

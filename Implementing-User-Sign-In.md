@@ -14,6 +14,84 @@
 
 ---
 
+## 🔄 Revision note — 2026-04-28: architecture simplified
+
+**The friend-code + inbox + push delivery model described in the
+sections below has been dropped.** PR 1 (Sign-in-with-Apple +
+Profile sheet + Keychain identity) shipped as planned; PR 2+ has
+been reframed as a much simpler **cloud-permalink hosting** model
+that better fits the user's actual mental model ("share a link via
+Messages, recipient taps it") instead of "DM somebody."
+
+**What changed:**
+- **Sender uploads** the share envelope (with photos as `CKAsset`)
+  to CloudKit's public DB with a random 6-char record ID.
+- **Sender shares** `llamascookbook://share/<6char-id>` (~50 chars
+  total) — a true short link, photos included.
+- **Recipient taps** the link → app fetches the record from
+  CloudKit → existing `RecipeImportPreviewView` → Save → Detail.
+- **No friend codes.** No "to:" address; the link itself is the
+  ticket.
+- **No inbox / no push.** Recipes arrive when the recipient taps
+  the link, not via background notification.
+- **Sign-in-with-Apple is no longer required for sharing.** Cloud
+  upload only requires iCloud (system-level, automatic for iPhone
+  users). PR 1's identity layer stays as foundation for any
+  future "social layer" PR; the Profile sheet's friend-code
+  "Coming soon" placeholder is now a permanent placeholder until
+  that PR materializes.
+
+**What's preserved from the original plan:**
+- PR 1 (Sign-in-with-Apple, Keychain identity, Profile sheet,
+  cold-launch revocation check) — fully shipped.
+- The `LCRecipeShareV1` envelope schema (untouched, byte-for-byte
+  reusable).
+- `OwnerProfile.userName` continues to provide "Originally shared
+  by Lorenzo" attribution.
+- The local URL form (`llamascookbook://recipe/v2/<base64url>`,
+  lzma-compressed, photos stripped) survives as a fallback when
+  iCloud is unavailable.
+- App Store Review Guideline 5.1.1(v) compliance — Delete Account
+  cascade is wired via a local UserDefaults outbox (Slice 3).
+
+**Revised PR 2 scope (three slices, all three implemented
+2026-04-28, awaiting CI):**
+- **Slice 1** — iCloud entitlement on
+  `Resources/LlamasCookbook.entitlements` + `Lib/CloudKitService.swift`
+  skeleton with `accountStatus()` probe.
+- **Slice 2** — `CloudKitService.uploadShare` /
+  `fetchShare` / `deleteShare`. "Share recipe" menu in
+  `RecipeDetailView` probes iCloud and prefers the cloud-permalink
+  form when available, falls back to the existing local URL form
+  otherwise. New `routeCloudShareLink` branch in
+  `RootView.onOpenURL`.
+- **Slice 3** — UserDefaults-backed outbox (`cloudShareOutbox.v1`)
+  populated on every successful upload; `UserAccount.deleteAccount`
+  fires `CloudKitService.deleteAuthoredShares()` detached so the
+  cascade runs without blocking the UI.
+
+**Portal action items (collapsed):**
+- Apple Developer Portal → Identifiers → `com.llamascookbook.app`
+  → enable both **Sign in with Apple** AND **iCloud** (with
+  CloudKit support, container `iCloud.com.llamascookbook.app`).
+- Profiles → edit the main app's distribution profile → Save
+  (regenerates with both new entitlements baked in).
+- Update `IOS_PROVISIONING_PROFILE_BASE64` GitHub Secret with the
+  fresh profile.
+- CloudKit Dashboard → create record type `RecipeShare` with
+  fields `envelope` (Asset), `senderDisplayName` (String),
+  `recipeTitle` (String), `createdAt` (Date/Time, queryable +
+  sortable). **Deploy schema from Development to Production**
+  before the first TestFlight build that exercises the cloud
+  path.
+
+**Sections below describe the original (now-obsoleted) friend-code
+architecture; they're preserved as historical record but are
+NOT a guide to the current implementation.** Use this revision
+note + CLAUDE.md as the current source of truth for what's live.
+
+---
+
 ## 0. The 60-second summary
 
 Today's app-to-app sharing (PRs 1–4 of Recipe-Sharing) requires a

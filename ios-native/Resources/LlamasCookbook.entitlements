@@ -31,5 +31,37 @@
     <array>
         <string>Default</string>
     </array>
+    <!--
+      iCloud / CloudKit — recipe-share permalink hosting. Sender
+      uploads the share envelope (with photos as CKAsset) to the
+      public DB, gets back a random 6-char record ID, mints
+      `llamascookbook://share/<id>` and ships that to the recipient.
+      Recipient fetches by record ID; no Llamas Cookbook account
+      required on the receive side, only a system iCloud account
+      (which iPhone users effectively always have).
+
+      Same portal+profile dance as Sign in with Apple above:
+      capability enabled on the App ID in Apple Developer Portal,
+      container `iCloud.com.llamascookbook.app` created, and the
+      main app's provisioning profile regenerated after the
+      capability is added — the entitlement is baked into the
+      profile at issue time, so a stale profile fails sign with
+      "Provisioning profile doesn't include the
+      com.apple.developer.icloud-services entitlement." See
+      Implementing-User-Sign-In.md §10.
+
+      Container identifier MUST match `CloudKitService.containerID`
+      in Sources/Lib/CloudKitService.swift — three places, one
+      string, no drift (here, the Swift constant, and the App ID
+      Capabilities config in the portal).
+    -->
+    <key>com.apple.developer.icloud-container-identifiers</key>
+    <array>
+        <string>iCloud.com.llamascookbook.app</string>
+    </array>
+    <key>com.apple.developer.icloud-services</key>
+    <array>
+        <string>CloudKit</string>
+    </array>
 </dict>
 </plist>

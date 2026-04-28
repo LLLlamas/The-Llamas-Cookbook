@@ -133,14 +133,23 @@ final class UserAccount {
         status = .signedOut
     }
 
-    /// PR 1 surface: same as `signOut()`. PR 2 layers in a CloudKit
-    /// cascade — delete the `User` record + every `RecipeShare`
-    /// authored by us. The Profile screen should still call this
-    /// (rather than `signOut`) so PR 2 doesn't need to change the
-    /// callsite.
+    /// Wipes local identity AND fires a best-effort CloudKit cascade
+    /// to delete every cloud share this device has authored (per the
+    /// local outbox in `CloudKitService.deleteAuthoredShares`). The
+    /// local wipe is synchronous so the UI flips to signed-out
+    /// instantly; the cloud cleanup runs detached in the background
+    /// and tolerates failures (a stranded record gets garbage-
+    /// collected by the eventual TTL janitor / 14-day retention
+    /// rather than blocking sign-out on a network blip).
+    ///
+    /// Required by App Store Review Guideline 5.1.1(v) since 2022 —
+    /// any app with account creation must offer in-app deletion.
     func deleteAccount() {
         wipeLocalState()
         status = .signedOut
+        Task.detached {
+            await CloudKitService.deleteAuthoredShares()
+        }
     }
 
     /// Profile screen edit. No-op when signed out.

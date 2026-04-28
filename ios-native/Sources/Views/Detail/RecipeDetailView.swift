@@ -53,6 +53,13 @@ struct RecipeDetailView: View {
     /// text (no cleanup).
     @State private var pendingShareItem: ShareItem?
 
+    /// True while we're uploading the envelope to CloudKit. Drives a
+    /// blocking loading overlay so the user doesn't tap "Share recipe"
+    /// and stare at nothing for the second or two an upload takes.
+    /// Slice 2 of the cloud-share rollout (Implementing-User-Sign-In.md
+    /// §0 architecture pivot 2026-04-28).
+    @State private var isPreparingCloudShare = false
+
     private enum ShareAction {
         case file, url, text
     }
@@ -205,6 +212,11 @@ struct RecipeDetailView: View {
                 startCookingBar
             }
         }
+        .overlay {
+            if isPreparingCloudShare {
+                cloudShareLoadingOverlay
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // Center: llama icon → opens accent-color picker. Slightly
@@ -250,17 +262,17 @@ struct RecipeDetailView: View {
                     // sees the recipe without photos and can re-add
                     // their own.
                     //
-                    // The file-form ("Share with photos") option was
-                    // removed 2026-04-28 because the .llamarecipe
-                    // attachment doesn't reliably open in Llamas
-                    // Cookbook from Messages — the URL form is a
-                    // strictly better experience for the channels users
-                    // actually share through. Full-photo cloud transport
-                    // is queued behind PR 2 of
-                    // Implementing-User-Sign-In.md (CKAsset upload + a
-                    // permalink). The internal `.file` ShareAction +
-                    // `shareAsFile()` are kept as a paranoid fallback in
-                    // `shareAsURL()` for pathological long-text
+                    // Cloud-first routing: when iCloud is available
+                    // (almost always on iPhone), `shareViaPreferredTransport`
+                    // uploads to CloudKit and emits a short
+                    // `llamascookbook://share/<6char-id>` permalink with
+                    // photos included. iCloud-unavailable / upload-failed
+                    // → falls back to the self-contained
+                    // `llamascookbook://recipe/v2/<base64url>` URL form
+                    // (lzma-compressed, photos stripped). The internal
+                    // `.file` ShareAction + `shareAsFile()` are kept as
+                    // a paranoid last-resort fallback in
+                    // `shareAsLocalURL()` for pathological long-text
                     // recipes that still trip the URL ceiling.
                     Button {
                         triggerShare(.url)
@@ -893,18 +905,21 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// Synchronous "build the payload, drop it into `pendingShareItem`
-    /// so the sheet binding fires" helper. URL form falls back to file
-    /// form if `encodeURL` rejects the payload — shouldn't happen
-    /// since photos are stripped before encoding and lzma compression
-    /// is generous, but the URL ceiling is conservative and a
-    /// sufficiently long all-text recipe could still trip it.
+    /// Routes the user-picked transport to the right builder. The
+    /// `.url` path is async — we probe iCloud first and prefer the
+    /// cloud-permalink form (short URL, photos included) when
+    /// available, falling back to the local self-contained URL form
+    /// (lzma-compressed, photos stripped) when iCloud is signed out
+    /// or upload fails. `.file` and `.text` stay synchronous since
+    /// they don't depend on network.
     private func executeShare(_ action: ShareAction) {
         switch action {
         case .file:
             shareAsFile()
         case .url:
-            shareAsURL()
+            Task { @MainActor in
+                await shareViaPreferredTransport()
+            }
         case .text:
             pendingShareItem = .text(recipe.exportText)
         }
@@ -924,13 +939,59 @@ struct RecipeDetailView: View {
         }
     }
 
-    private func shareAsURL() {
-        // Always strip photos before URL encoding — base64 image bytes
-        // blow past `RecipeShare.urlByteCeiling` on the first photo,
-        // and the URL form is the only one that lands in Messages /
-        // Mail as a tappable link. The recipient's import preview just
-        // shows empty photo arrays; users who want full fidelity pick
-        // "Share with photos" (file form) instead.
+    /// Cloud-first share routing for the "Share recipe" menu entry.
+    /// Probes iCloud account state (cheap, locally cached) and
+    /// attempts a CloudKit upload when available. Cloud success →
+    /// short permalink (~50 chars, photos included). Anything else →
+    /// fall back to the existing self-contained URL form.
+    @MainActor
+    private func shareViaPreferredTransport() async {
+        let status = await CloudKitService.accountStatus()
+        if status == .available, await tryShareViaCloud() {
+            return
+        }
+        shareAsLocalURL()
+    }
+
+    /// Returns true on a successful cloud upload; the caller (and
+    /// `shareViaPreferredTransport`) treats false as "fall back to
+    /// the local URL form." Surfaces a blocking spinner via
+    /// `isPreparingCloudShare` while the upload is in flight.
+    @MainActor
+    private func tryShareViaCloud() async -> Bool {
+        isPreparingCloudShare = true
+        defer { isPreparingCloudShare = false }
+
+        let envelope = makeShareEnvelope()
+        let trimmedName = ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let recordName = try await CloudKitService.uploadShare(
+                envelope,
+                senderDisplayName: trimmedName.isEmpty ? nil : trimmedName
+            )
+            guard let url = URL(string: "llamascookbook://share/\(recordName)") else {
+                // Vanishingly unlikely (recordName uses an
+                // alphanumeric-only alphabet) — clean up the
+                // orphaned record best-effort and fall through.
+                try? await CloudKitService.deleteShare(recordName: recordName)
+                return false
+            }
+            pendingShareItem = .url(url)
+            return true
+        } catch {
+            // Network blip, schema not yet deployed, account state
+            // changed mid-flight, etc. — silent fall-through to the
+            // local URL form is friendlier than a "couldn't share"
+            // alert when the user just wants to send a recipe.
+            return false
+        }
+    }
+
+    /// Self-contained URL form, used as fallback when iCloud is
+    /// unavailable or the cloud upload fails. Photos are stripped to
+    /// keep the URL under `RecipeShare.urlByteCeiling`; recipient
+    /// gets the recipe data without photos and can re-add their own.
+    private func shareAsLocalURL() {
         let envelope = makeShareEnvelope().withoutPhotos()
         if let url = try? RecipeShare.encodeURL(envelope) {
             pendingShareItem = .url(url)
@@ -940,6 +1001,31 @@ struct RecipeDetailView: View {
             // form rather than silently failing.
             shareAsFile()
         }
+    }
+
+    /// Blocking overlay while the cloud upload is in flight. Cream
+    /// card on a dimmed scrim; matches the visual language of
+    /// existing modal indicators. Animated with a spring so it
+    /// doesn't snap in/out jarringly.
+    private var cloudShareLoadingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+            VStack(spacing: AppSpacing.md) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(appearance.accentColor)
+                Text("Preparing share…")
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+            }
+            .padding(AppSpacing.xl)
+            .background(AppColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .shadow(color: AppColor.shadow, radius: 12, y: 4)
+        }
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.18), value: isPreparingCloudShare)
     }
 
     /// Defers the actual share sheet present by ~350ms after the
