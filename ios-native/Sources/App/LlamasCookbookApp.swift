@@ -11,6 +11,12 @@ struct LlamasCookbookApp: App {
     /// preferences Observables, kept separate per the
     /// one-Observable-per-concern pattern. See Recipe-Sharing.md §7.4.
     @State private var ownerProfile = OwnerProfile()
+    /// Sign-in-with-Apple identity + (PR 2+) cloud user binding.
+    /// Sibling to `ownerProfile`; `OwnerProfile` continues to power
+    /// the file/link share flow's display name until PR 2 routes that
+    /// path through `UserAccount` instead. See
+    /// Implementing-User-Sign-In.md §3.
+    @State private var userAccount = UserAccount()
     /// Owns the UNUserNotificationCenter delegate. SwiftUI keeps this
     /// alive for the app lifetime so foreground notification handling
     /// (sound + banner while Cook Mode is minimized) keeps working.
@@ -34,6 +40,7 @@ struct LlamasCookbookApp: App {
             RootView()
                 .environment(appearance)
                 .environment(ownerProfile)
+                .environment(userAccount)
                 // The cream + terracotta palette has no dark-mode variant
                 // (AppColor values are hard sRGB, not asset-catalog system
                 // colors). Locking to light keeps SwiftUI's default fills

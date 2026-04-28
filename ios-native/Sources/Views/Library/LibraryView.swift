@@ -31,12 +31,15 @@ struct LibraryView: View {
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
+    @Environment(UserAccount.self) private var userAccount
+    @Environment(OwnerProfile.self) private var ownerProfile
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
     @State private var sort: LibrarySort = .aToZ
     @State private var deletingRecipe: Recipe?
     @State private var showingAppearance = false
+    @State private var showingProfile = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -51,6 +54,24 @@ struct LibraryView: View {
         .navigationTitle("Llamas Cookbook")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    Haptics.selection()
+                    showingProfile = true
+                } label: {
+                    // Filled glyph when signed in, outline when not — gives
+                    // the user a quiet visual cue that the app knows who
+                    // they are without surfacing the display name in the
+                    // toolbar (no room, and the Profile sheet shows it
+                    // prominently anyway).
+                    Image(systemName: userAccount.status.isSignedIn
+                          ? "person.crop.circle.fill"
+                          : "person.crop.circle")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(appearance.accentColor)
+                }
+                .accessibilityLabel("Profile")
+            }
             ToolbarItem(placement: .principal) {
                 HStack(spacing: AppSpacing.sm) {
                     Button {
@@ -71,6 +92,17 @@ struct LibraryView: View {
         .sheet(isPresented: $showingAppearance) {
             AccentColorPicker(settings: appearance)
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingProfile) {
+            ProfileView()
+                // Re-inject @Observable values across the sheet boundary
+                // — same belt-and-suspenders dance as the Cook Mode
+                // cover and the share-import sheet in RootView.
+                .environment(userAccount)
+                .environment(ownerProfile)
+                .environment(appearance)
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
         .toolbarBackground(AppColor.background, for: .navigationBar)
@@ -583,6 +615,8 @@ private struct LetterIndex: View {
         .environment(EditorCoordinator())
         .environment(NavigationContext())
         .environment(AppearanceSettings())
+        .environment(UserAccount())
+        .environment(OwnerProfile())
 }
 
 #Preview("Empty") {
@@ -592,6 +626,8 @@ private struct LetterIndex: View {
         .environment(EditorCoordinator())
         .environment(NavigationContext())
         .environment(AppearanceSettings())
+        .environment(UserAccount())
+        .environment(OwnerProfile())
 }
 
 @MainActor

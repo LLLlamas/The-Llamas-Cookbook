@@ -17,5 +17,19 @@
     <array>
         <string>group.com.llamascookbook.app</string>
     </array>
+    <!--
+      Sign in with Apple — identity primitive for cloud recipe delivery.
+      See Implementing-User-Sign-In.md §3 + §10. Entitlement must be
+      enabled on the App ID in Apple Developer Portal AND the
+      provisioning profile regenerated after enabling it; the
+      capability is baked into the profile at issue time, so a stale
+      profile silently strips the entitlement at sign and the runtime
+      `ASAuthorizationController` call fails with error 1000
+      ("not handled").
+    -->
+    <key>com.apple.developer.applesignin</key>
+    <array>
+        <string>Default</string>
+    </array>
 </dict>
 </plist>

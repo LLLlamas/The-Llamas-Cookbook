@@ -3,6 +3,7 @@ import SwiftData
 
 struct RootView: View {
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(UserAccount.self) private var userAccount
     @Environment(\.modelContext) private var modelContext
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
@@ -69,6 +70,12 @@ struct RootView: View {
             // successful read, this catches the cases where the user
             // invoked the extension but never opened the main app.
             SharedContainer.sweepShareInbox()
+            // Apple-ID revocation check. If the user opened iOS
+            // Settings → Apple ID → Sign in with Apple → "Stop Using
+            // Apple ID" for our app while we were backgrounded, this
+            // call drops them back to signed-out so the next Profile
+            // open prompts a fresh sign-in. No-op when signed out.
+            await userAccount.refreshCredentialState()
         }
         .onOpenURL { url in
             // Five URL shapes land here:
@@ -543,4 +550,6 @@ private struct AddToCookButton: View {
     RootView()
         .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self, RecipeStepPhoto.self], inMemory: true)
         .environment(AppearanceSettings())
+        .environment(OwnerProfile())
+        .environment(UserAccount())
 }
