@@ -113,6 +113,50 @@ extension LCRecipeShareV1: Identifiable {
     var id: UUID { share.id }
 }
 
+extension LCRecipeShareV1 {
+    /// Returns a copy of this envelope with every photo byte stripped
+    /// — recipe-level gallery and per-step gallery both empty.
+    /// Used by the URL-form share path so a photo-bearing recipe can
+    /// still slip under `RecipeShare.urlByteCeiling`; base64-encoded
+    /// JPEGs blow past it on a single photo. Receivers see the recipe
+    /// with empty photo arrays and can re-add their own. The file form
+    /// (`encodeFile`) preserves photos for AirDrop / Files / Mail
+    /// when full fidelity matters.
+    func withoutPhotos() -> LCRecipeShareV1 {
+        let strippedSteps = recipe.steps.map { step in
+            ShareStep(
+                id: step.id,
+                order: step.order,
+                text: step.text,
+                needsTimer: step.needsTimer,
+                specialNote: step.specialNote,
+                photos: []
+            )
+        }
+        let strippedRecipe = ShareRecipe(
+            id: recipe.id,
+            title: recipe.title,
+            summary: recipe.summary,
+            sourceUrl: recipe.sourceUrl,
+            servings: recipe.servings,
+            cookTimeMinutes: recipe.cookTimeMinutes,
+            notes: recipe.notes,
+            tags: recipe.tags,
+            prefaceNote: recipe.prefaceNote,
+            epilogueNote: recipe.epilogueNote,
+            generalNote: recipe.generalNote,
+            ingredients: recipe.ingredients,
+            steps: strippedSteps,
+            photos: []
+        )
+        return LCRecipeShareV1(
+            schemaVersion: schemaVersion,
+            share: share,
+            recipe: strippedRecipe
+        )
+    }
+}
+
 // MARK: - RecipeShare
 
 /// Encode / decode / materialize entry points for the share envelope.

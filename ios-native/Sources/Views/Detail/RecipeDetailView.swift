@@ -241,23 +241,34 @@ struct RecipeDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    // File form — full fidelity, includes photos. Always
-                    // available; recipient must have the app to open the
-                    // `.llamarecipe` attachment.
-                    Button {
-                        triggerShare(.file)
-                    } label: {
-                        Label("Share recipe", systemImage: "square.and.arrow.up.on.square")
-                    }
                     // URL form — `llamascookbook://recipe/v1/<base64url>`
-                    // deep link. Hidden when any photos are present
-                    // because base64 image bytes blow past the URL
-                    // length budget; file form covers the rich case.
-                    if !hasAnyPhotos {
+                    // deep link, photos stripped to keep it under the
+                    // URL byte ceiling. Default share action because it
+                    // works in Messages, Mail, copy-link, and anywhere
+                    // else iOS will tap a custom-scheme URL: tapping the
+                    // link on a recipient with the app installed lands
+                    // them straight in the import preview, no
+                    // attachment-tap dance. Always available now;
+                    // photo-bearing recipes still go through (the
+                    // recipient sees the recipe without photos and can
+                    // either re-add their own or ask the sender to
+                    // AirDrop the file form for full fidelity).
+                    Button {
+                        triggerShare(.url)
+                    } label: {
+                        Label("Share recipe", systemImage: "square.and.arrow.up")
+                    }
+                    // File form — full fidelity, includes photos. Only
+                    // surfaced when photos exist (otherwise the URL form
+                    // already covers everything). Best for AirDrop /
+                    // Files / Mail to a recipient with the app, where
+                    // the `.llamarecipe` attachment can flow through
+                    // the OS share sheet on tap.
+                    if hasAnyPhotos {
                         Button {
-                            triggerShare(.url)
+                            triggerShare(.file)
                         } label: {
-                            Label("Share as link", systemImage: "link")
+                            Label("Share with photos", systemImage: "photo.on.rectangle.angled")
                         }
                     }
                     // Text form — existing plain-text export. Bridge for
@@ -870,11 +881,12 @@ struct RecipeDetailView: View {
 
     // MARK: - Share flow
 
-    /// Hides the URL transport when any photos are attached — base64
-    /// inflation pushes any photo'd recipe past the URL byte ceiling
-    /// (`RecipeShare.urlByteCeiling`) and we'd rather hide the option
-    /// than offer it and silently fall back. The file form covers the
-    /// rich case.
+    /// True when the recipe has at least one gallery photo or step
+    /// photo. Surfaces the "Share with photos" file-form option in the
+    /// share menu — for photoless recipes the URL form already covers
+    /// everything, so the extra option would just clutter the menu.
+    /// (The URL form is always offered; it strips photos via
+    /// `LCRecipeShareV1.withoutPhotos()` before encoding.)
     private var hasAnyPhotos: Bool {
         !recipe.photos.isEmpty || recipe.steps.contains { !$0.photos.isEmpty }
     }
@@ -926,10 +938,19 @@ struct RecipeDetailView: View {
     }
 
     private func shareAsURL() {
-        let envelope = makeShareEnvelope()
+        // Always strip photos before URL encoding — base64 image bytes
+        // blow past `RecipeShare.urlByteCeiling` on the first photo,
+        // and the URL form is the only one that lands in Messages /
+        // Mail as a tappable link. The recipient's import preview just
+        // shows empty photo arrays; users who want full fidelity pick
+        // "Share with photos" (file form) instead.
+        let envelope = makeShareEnvelope().withoutPhotos()
         if let url = try? RecipeShare.encodeURL(envelope) {
             pendingShareItem = .url(url)
         } else {
+            // Pathological fallback — a photoless recipe with enormous
+            // notes/steps could still trip the ceiling. Drop to file
+            // form rather than silently failing.
             shareAsFile()
         }
     }
