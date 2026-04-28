@@ -12,6 +12,7 @@ final class Recipe {
     var imageUri: String?
     var servings: Int?
     var cookTimeMinutes: Int?
+    var prepTimeMinutes: Int?
     var notes: String
     var favorite: Bool
     var tags: [String]
@@ -65,6 +66,7 @@ final class Recipe {
         imageUri: String? = nil,
         servings: Int? = nil,
         cookTimeMinutes: Int? = nil,
+        prepTimeMinutes: Int? = nil,
         notes: String = "",
         favorite: Bool = false,
         tags: [String] = []
@@ -76,6 +78,7 @@ final class Recipe {
         self.imageUri = imageUri
         self.servings = servings
         self.cookTimeMinutes = cookTimeMinutes
+        self.prepTimeMinutes = prepTimeMinutes
         self.notes = notes
         self.favorite = favorite
         self.tags = tags

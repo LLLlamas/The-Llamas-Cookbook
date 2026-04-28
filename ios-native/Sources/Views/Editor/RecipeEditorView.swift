@@ -38,10 +38,11 @@ struct RecipeEditorView: View {
                 summaryField
 
                 servingsField
+                prepTimeField
 
                 photosButton
 
-                sectionHeader("Categories")
+                categoriesHeader
                 TagInputView(tags: $draft.tags)
 
                 sectionHeader("Ingredients")
@@ -355,6 +356,58 @@ struct RecipeEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// Prep time in minutes — sits directly below servings so the two
+    /// quantitative cooking inputs share a vertical column. Same shape
+    /// as `servingsField` (label + numeric pad input + caption hint) so
+    /// the user reads it as a sibling control. Detail surfaces it next
+    /// to the servings line under the photo strip.
+    private var prepTimeField: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("Prep time (minutes)")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textSecondary)
+            HStack(alignment: .center, spacing: AppSpacing.sm) {
+                TextField("15", text: $draft.prepTimeMinutes)
+                    .keyboardType(.numberPad)
+                    .focused($isNumericFocused)
+                    .padding(.horizontal, AppSpacing.sm + 2)
+                    .padding(.vertical, AppSpacing.xs + 2)
+                    .frame(maxWidth: 90, minHeight: 36)
+                    .background(AppColor.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppRadius.sm)
+                            .stroke(AppColor.divider, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                Text("How long the prep work takes before cooking starts.")
+                    .font(AppFont.caption)
+                    .foregroundStyle(AppColor.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Categories section header with an inline nudge pointing users at
+    /// the Sourdough tag — adding it is what unlocks the sourdough
+    /// calculator chip in Detail view, so the hint lives next to the
+    /// label that controls it.
+    private var categoriesHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs + 2) {
+            Text("Categories")
+                .font(AppFont.sectionHeading)
+                .foregroundStyle(AppColor.textPrimary)
+            Text("-- add the Sourdough tag if you need the calculator!")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, AppSpacing.md)
     }
 
     /// Photos entry-point. Same vertical position as in Detail (below

@@ -104,12 +104,6 @@ struct RecipeDetailView: View {
                             .foregroundStyle(AppColor.textSecondary)
                     }
 
-                    if !timeParts.isEmpty {
-                        Text(timeParts.joined(separator: "  ·  "))
-                            .font(AppFont.caption)
-                            .foregroundStyle(AppColor.textSecondary)
-                    }
-
                     if !recipe.tags.isEmpty {
                         FlowRow(spacing: AppSpacing.xs) {
                             // Sort at display time so legacy recipes with
@@ -122,6 +116,12 @@ struct RecipeDetailView: View {
                     }
 
                     photosButton
+
+                    if !timeParts.isEmpty {
+                        Text(timeParts.joined(separator: "  ·  "))
+                            .font(AppFont.caption)
+                            .foregroundStyle(AppColor.textSecondary)
+                    }
 
                     if !sortedIngredients.isEmpty {
                         section("Ingredients", accessory: { ingredientAccessories }) {
@@ -848,6 +848,9 @@ struct RecipeDetailView: View {
         var parts: [String] = []
         if let s = recipe.servings {
             parts.append("\(s) serving\(s == 1 ? "" : "s")")
+        }
+        if let prep = recipe.prepTimeMinutes {
+            parts.append("Prep \(prep)m")
         }
         if let cook = recipe.cookTimeMinutes {
             parts.append("Cook \(cook)m")

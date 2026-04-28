@@ -8,6 +8,7 @@ struct DraftRecipe: Equatable {
     var sourceUrl: String = ""
     var servings: String = ""
     var cookTimeMinutes: String = ""
+    var prepTimeMinutes: String = ""
     var tags: [String] = []
     var favorite: Bool = false
     var ingredients: [DraftIngredient] = []
@@ -178,6 +179,7 @@ extension Recipe {
             sourceUrl: sourceUrl ?? "",
             servings: servings.map(String.init) ?? "",
             cookTimeMinutes: cookTimeMinutes.map(String.init) ?? "",
+            prepTimeMinutes: prepTimeMinutes.map(String.init) ?? "",
             tags: tags,
             favorite: favorite,
             ingredients: sortedIngredients.map {
@@ -236,6 +238,7 @@ extension Recipe {
         sourceUrl = draft.sourceUrl.trimmed.nilIfEmpty
         servings = Int(draft.servings.trimmed)
         cookTimeMinutes = Int(draft.cookTimeMinutes.trimmed)
+        prepTimeMinutes = Int(draft.prepTimeMinutes.trimmed)
         // `notes` field is no longer surfaced — UI uses per-step special
         // notes instead. We deliberately don't write here, so any legacy
         // notes data on existing recipes survives untouched until the
