@@ -125,6 +125,18 @@ final class UserAccount {
         status = .signInFailed(error.localizedDescription)
     }
 
+    /// Belt-and-suspenders recovery: if status is still `.signingIn`
+    /// when ProfileView reappears, force it back to `.signedOut` so
+    /// the button is interactive again. Hedge against the iOS 18
+    /// `SignInWithAppleButton` regression where `onCompletion`
+    /// sometimes doesn't deliver on swipe-down dismiss, stranding us
+    /// in `.signingIn` indefinitely.
+    func cancelInFlightSignIn() {
+        if case .signingIn = status {
+            status = .signedOut
+        }
+    }
+
     /// Clears local identity but does NOT touch any cloud-side records.
     /// The user can sign back in immediately and (in PR 2+) re-bind to
     /// the same CloudKit `User` record via the `appleSub` lookup.

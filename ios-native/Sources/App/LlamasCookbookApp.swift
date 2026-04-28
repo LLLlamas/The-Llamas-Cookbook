@@ -49,7 +49,49 @@ struct LlamasCookbookApp: App {
                 // Library scroll area fall through to system black.
                 .preferredColorScheme(.light)
         }
-        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self, RecipeStepPhoto.self])
+        // Explicit ModelConfiguration with `cloudKitDatabase: .none` so
+        // adding the iCloud entitlement (for the cloud-permalink share
+        // path in `Lib/CloudKitService.swift`) doesn't accidentally
+        // flip SwiftData into CloudKit-backed sync mode. Our schema
+        // uses `.cascade` delete rules and several non-optional
+        // properties without defaults, neither of which CloudKit-
+        // backed SwiftData accepts — auto-opt-in would silently fail
+        // container open and fall back to in-memory storage,
+        // surfacing as "no recipes yet" + new recipes vanishing on
+        // relaunch. (The app's CloudKit usage is *only* the share-
+        // permalink path; SwiftData stays strictly local.)
+        .modelContainer(makeModelContainer())
+    }
+
+    @MainActor
+    private static func makeModelContainer() -> ModelContainer {
+        let schema = Schema([
+            Recipe.self,
+            Ingredient.self,
+            RecipeStep.self,
+            RecipePhoto.self,
+            RecipeStepPhoto.self,
+        ])
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            cloudKitDatabase: .none
+        )
+        do {
+            return try ModelContainer(for: schema, configurations: configuration)
+        } catch {
+            // Last-resort: in-memory so the app still launches and
+            // the user sees a working UI rather than a crash. They'll
+            // notice their recipes are missing and can report; we'll
+            // see the underlying error on device console. Force-try
+            // is OK here because the schema is fully defaulted —
+            // in-memory always succeeds.
+            let fallback = ModelConfiguration(
+                schema: schema,
+                isStoredInMemoryOnly: true
+            )
+            return try! ModelContainer(for: schema, configurations: fallback)
+        }
     }
 }
 

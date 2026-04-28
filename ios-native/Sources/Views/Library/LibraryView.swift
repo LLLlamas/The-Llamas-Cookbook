@@ -54,7 +54,29 @@ struct LibraryView: View {
         .navigationTitle("Llamas Cookbook")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: AppSpacing.xs) {
+                    Button {
+                        Haptics.selection()
+                        showingAppearance = true
+                    } label: {
+                        // Sized down from 72 → 52 since the principal
+                        // toolbar slot now coexists with a trailing
+                        // profile button; the previous logo+title pair
+                        // overflowed when the right side was occupied.
+                        LlamaLogo(size: 52, shadowColor: appearance.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Customize accent color")
+                    Text("Llamas Cookbook")
+                        .font(.system(size: 22, weight: .heavy, design: .serif))
+                        .foregroundStyle(appearance.accentColor)
+                        .tracking(0.2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Haptics.selection()
                     showingProfile = true
@@ -71,22 +93,6 @@ struct LibraryView: View {
                         .foregroundStyle(appearance.accentColor)
                 }
                 .accessibilityLabel("Profile")
-            }
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: AppSpacing.sm) {
-                    Button {
-                        Haptics.selection()
-                        showingAppearance = true
-                    } label: {
-                        LlamaLogo(size: 72, shadowColor: appearance.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Customize accent color")
-                    Text("Llamas Cookbook")
-                        .font(.system(size: 28, weight: .heavy, design: .serif))
-                        .foregroundStyle(appearance.accentColor)
-                        .tracking(0.3)
-                }
             }
         }
         .sheet(isPresented: $showingAppearance) {

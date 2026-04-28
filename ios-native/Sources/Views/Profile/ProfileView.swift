@@ -33,12 +33,19 @@ struct ProfileView: View {
                     header
 
                     switch userAccount.status {
-                    case .signedOut:
+                    case .signedOut, .signingIn:
+                        // `.signingIn` shares the visual treatment with
+                        // signed-out — Apple's SignInWithAppleButton
+                        // surfaces its own modal sheet that gates user
+                        // input, so we don't need to gray our button on
+                        // top of that. (We learned the hard way: in iOS
+                        // 18 the button's onCompletion sometimes never
+                        // delivers when the user dismisses the Apple
+                        // sheet via swipe-down, leaving status stuck at
+                        // .signingIn forever and the button visibly
+                        // disabled. Treating the two states identically
+                        // here means the user can always re-tap.)
                         signedOutBody
-                    case .signingIn:
-                        signedOutBody
-                            .opacity(0.5)
-                            .allowsHitTesting(false)
                     case .signedIn(let identity):
                         signedInBody(identity: identity)
                     case .signInFailed(let message):
@@ -75,6 +82,12 @@ struct ProfileView: View {
             } message: {
                 Text("This signs you out and forgets your in-app identity. Recipes saved on this device will not be removed.")
             }
+            .onAppear {
+                // Recover from a stranded `.signingIn` from a previous
+                // attempt (see comment in the switch above). Idempotent
+                // — no-op when status isn't `.signingIn`.
+                userAccount.cancelInFlightSignIn()
+            }
         }
     }
 
@@ -105,7 +118,12 @@ struct ProfileView: View {
                 .padding(.horizontal, AppSpacing.md)
 
             SignInWithAppleButton(.signIn) { request in
-                userAccount.beginSignIn()
+                // Don't pre-flip status to `.signingIn`; Apple's modal
+                // sheet is the natural input lock and onCompletion
+                // doesn't always fire on swipe-down dismiss in iOS 18,
+                // which would strand the UI in `.signingIn` (button
+                // grayed forever). Status only moves on a real
+                // outcome — success, hard error, or cancel.
                 SignInWithAppleService.configure(request)
             } onCompletion: { result in
                 do {

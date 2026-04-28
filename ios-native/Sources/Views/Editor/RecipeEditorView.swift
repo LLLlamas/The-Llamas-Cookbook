@@ -477,6 +477,15 @@ struct RecipeEditorView: View {
             let newRecipe = Recipe.new(from: draft)
             modelContext.insert(newRecipe)
         }
+        // Force-flush to disk before dismissing the sheet. SwiftData's
+        // auto-save is best-effort and runs asynchronously around app
+        // lifecycle events; if the user immediately backgrounds or
+        // kills the app after Save, an unsaved insert can be lost.
+        // try? swallows the error path — if save fails (rare), the
+        // user's changes still live in the in-memory context until
+        // the next auto-save attempt. Without this, we saw recipes
+        // appear in the @Query briefly then vanish on relaunch.
+        try? modelContext.save()
         if let onSaved {
             onSaved()
         } else {
