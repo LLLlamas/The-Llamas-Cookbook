@@ -61,6 +61,16 @@ struct PhotoCarouselView: View {
     @State private var pendingDeleteIndex: Int?
     @State private var isProcessing: Bool = false
     @State private var showingReorderSheet = false
+    /// Lifted-up caption focus. Each per-page `CaptionRow` binds its
+    /// TextField to `.focused(captionFocus, equals: pageIndex)` so this
+    /// single state is the source of truth for "which caption (if any)
+    /// is currently editing." Setting it to `nil` un-focuses any active
+    /// field, which is what the keyboard-toolbar Done button does.
+    /// Lifting was required because the previous inline Done button —
+    /// rendered inside the photoPage VStack — sat in the same gesture
+    /// surface as the paging TabView and tapping it could be misread
+    /// as a swipe to the next photo.
+    @FocusState private var captionFocusedPage: Int?
 
     /// Custom init so `selectedPage` seeds from `initialPage` exactly
     /// once at view-storage allocation. Parent re-renders (e.g. after
@@ -250,6 +260,24 @@ struct PhotoCarouselView: View {
                 }
             }
         }
+        // Keyboard-attached Done button. Lives above the keyboard's
+        // suggestions row, right-aligned via leading Spacer. Setting
+        // `captionFocusedPage = nil` resigns whichever caption field
+        // is in focus, which fires the CaptionRow's commit and dismisses
+        // the keyboard — and crucially it sits OUTSIDE the paging
+        // TabView, so tapping it can't be mistaken for a swipe to the
+        // next photo (the bug the previous inline Done caused).
+        ToolbarItemGroup(placement: .keyboard) {
+            Spacer()
+            Button {
+                Haptics.selection()
+                captionFocusedPage = nil
+            } label: {
+                Text("Done")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AppColor.accent)
+            }
+        }
     }
 
     /// Single button that opens the dedicated reorder sheet
@@ -391,13 +419,14 @@ struct PhotoCarouselView: View {
             // description reads as part of the picture rather than a
             // strip floating at the sheet's bottom edge. Each page
             // owns its own CaptionRow + draft state — that's fine
-            // because the page index is fixed and tab-swipe focus
-            // changes drive the commit through `fieldFocused`.
+            // because the page index is fixed and the lifted-up
+            // `captionFocusedPage` drives commits via onChange below.
             if captionsEnabled {
                 CaptionRow(
                     pageIndex: index,
                     caption: caption(at: index),
                     editable: onSetCaption != nil,
+                    captionFocus: $captionFocusedPage,
                     onCommit: { newCaption in
                         onSetCaption?(index, newCaption)
                     }
@@ -583,44 +612,56 @@ struct PhotoCarouselView: View {
 ///   - **Editable** — TextField is always rendered when editable. The
 ///     placeholder ("Add a description…") doubles as the empty-state
 ///     affordance, and tapping the field focuses it + raises the
-///     keyboard. Tapping Done dismisses the keyboard; the field stays
-///     visible with the typed text. There is **no swap** to a separate
-///     "display" view on Done — that swap was responsible for two
-///     bugs: (a) layout would shift when the editor's reserved-3-line
-///     height collapsed to a 1-line display row, and (b) the user's
-///     just-released Done finger could land on the freshly-rendered
-///     display row and bring the keyboard right back up.
+///     keyboard. Done lives on the keyboard toolbar (owned by
+///     `PhotoCarouselView`), not inline — the previous inline Done
+///     sat in the same gesture surface as the paging TabView and
+///     could be misread as a swipe to the next photo when tapped.
 ///
 ///   - **Read-only** — italic text display when caption is non-empty;
 ///     collapses to nothing when caption is empty.
 ///
-/// Caption persistence funnels entirely through `onChange(of: fieldFocused)`:
-/// any path that drops focus (Done button, tap-away, page swipe, view
-/// teardown) calls `commit()` once. Caller's `onCommit` is idempotent
-/// w.r.t. unchanged text, so multiple commits during a session are safe.
+/// Caption persistence funnels through `onChange(of: captionFocus.wrappedValue)`:
+/// any path that takes focus away from this row's `pageIndex` (keyboard
+/// Done, tap-away, page swipe, view teardown) calls `commit()` once.
+/// Caller's `onCommit` is idempotent w.r.t. unchanged text, so multiple
+/// commits during a session are safe.
 private struct CaptionRow: View {
     let pageIndex: Int
     let caption: String?
     let editable: Bool
+    /// Lifted-up focus state owned by `PhotoCarouselView`. Each
+    /// per-page CaptionRow binds with `.focused(captionFocus, equals: pageIndex)`
+    /// so the carousel-level keyboard-toolbar Done button (which sets
+    /// the wrapped value to `nil`) can dismiss whichever caption is
+    /// currently editing without each row carrying its own button.
+    var captionFocus: FocusState<Int?>.Binding
     let onCommit: (String?) -> Void
 
     @State private var draft: String
-    @FocusState private var fieldFocused: Bool
 
     init(
         pageIndex: Int,
         caption: String?,
         editable: Bool,
+        captionFocus: FocusState<Int?>.Binding,
         onCommit: @escaping (String?) -> Void
     ) {
         self.pageIndex = pageIndex
         self.caption = caption
         self.editable = editable
+        self.captionFocus = captionFocus
         self.onCommit = onCommit
         // Seed `draft` from the caption at view-storage allocation so
         // the TextField shows existing text on first render — no
         // post-onAppear flicker.
         self._draft = State(initialValue: caption ?? "")
+    }
+
+    /// True when the carousel-level focus state currently points at
+    /// this row's page. Drives the focused-border styling and the
+    /// commit-on-blur logic.
+    private var isFocused: Bool {
+        captionFocus.wrappedValue == pageIndex
     }
 
     var body: some View {
@@ -638,7 +679,7 @@ private struct CaptionRow: View {
             // captions array, or another flow updated it). Mirror to
             // `draft` only when the user isn't actively typing — we'd
             // never want to clobber unsaved input.
-            if !fieldFocused {
+            if !isFocused {
                 draft = newCaption ?? ""
             }
         }
@@ -646,76 +687,51 @@ private struct CaptionRow: View {
             // Defensive: each per-page CaptionRow has a static
             // pageIndex so this rarely fires, but if it ever does
             // commit any unsaved typing first, then re-sync the draft.
-            if fieldFocused { commit() }
+            if isFocused { commit() }
             draft = caption ?? ""
         }
-        .onChange(of: fieldFocused) { _, focused in
-            // Single commit funnel — Done button, tap-away, page
-            // swipe, view teardown all flow through here.
-            if !focused {
+        .onChange(of: captionFocus.wrappedValue) { oldValue, newValue in
+            // Single commit funnel — keyboard-toolbar Done, tap-away,
+            // page swipe, focus moving to a different page's caption,
+            // and view teardown all flow through here. Only fire when
+            // focus moved *away from* this row specifically.
+            if oldValue == pageIndex && newValue != pageIndex {
                 commit()
             }
         }
     }
 
     private var editor: some View {
-        VStack(alignment: .trailing, spacing: AppSpacing.xs) {
-            TextField(
-                "Description",
-                text: $draft,
-                prompt: Text("Add a description…")
-                    .foregroundStyle(AppColor.textTertiary),
-                axis: .vertical
-            )
-            // `reservesSpace: true` keeps the field at 3 lines tall
-            // even when the user has only typed one — so adding a
-            // newline doesn't reflow the page and shrink the photo
-            // above. The 3-line cap matches the previous max.
-            .lineLimit(3, reservesSpace: true)
-            .focused($fieldFocused)
-            // System Return on the keyboard so newlines insert
-            // naturally inside the multi-line field.
-            .submitLabel(.return)
-            .font(.system(size: 14, weight: .regular, design: .serif))
-            .italic()
-            .foregroundStyle(AppColor.textPrimary)
-            .padding(AppSpacing.sm + 2)
-            .background(AppColor.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(
-                        fieldFocused ? AppColor.accent.opacity(0.5) : AppColor.divider,
-                        lineWidth: 1
-                    )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-
-            // Done button. Action is **just** "dismiss focus" — the
-            // commit happens through `onChange(of: fieldFocused)` so
-            // the codepath is identical to tap-away or page-swipe
-            // dismissal. The button stays mounted regardless of
-            // focus state so the editor's overall height never shifts;
-            // when `fieldFocused == false` it's effectively a no-op
-            // (resigning a non-existent first responder is harmless).
-            Button {
-                fieldFocused = false
-                // Belt-and-suspenders responder resign — some sheet
-                // contexts drop the focus binding mid-dismiss, and
-                // we want the keyboard gone every time Done fires.
-                UIApplication.shared.sendAction(
-                    #selector(UIResponder.resignFirstResponder),
-                    to: nil, from: nil, for: nil
+        TextField(
+            "Description",
+            text: $draft,
+            prompt: Text("Add a description…")
+                .foregroundStyle(AppColor.textTertiary),
+            axis: .vertical
+        )
+        // `reservesSpace: true` keeps the field at 3 lines tall
+        // even when the user has only typed one — so adding a
+        // newline doesn't reflow the page and shrink the photo
+        // above. The 3-line cap matches the previous max.
+        .lineLimit(3, reservesSpace: true)
+        .focused(captionFocus, equals: pageIndex)
+        // System Return on the keyboard so newlines insert
+        // naturally inside the multi-line field. Done lives on the
+        // keyboard toolbar one level up.
+        .submitLabel(.return)
+        .font(.system(size: 14, weight: .regular, design: .serif))
+        .italic()
+        .foregroundStyle(AppColor.textPrimary)
+        .padding(AppSpacing.sm + 2)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(
+                    isFocused ? AppColor.accent.opacity(0.5) : AppColor.divider,
+                    lineWidth: 1
                 )
-            } label: {
-                Text("Done")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(fieldFocused ? AppColor.accent : AppColor.accent.opacity(0.4))
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.xs + 2)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     private func readOnlyRow(_ caption: String) -> some View {
