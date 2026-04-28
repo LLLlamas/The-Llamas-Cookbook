@@ -1,62 +1,58 @@
 # CLAUDE.md
 
-This file is the single source of truth for the current state of the app. When this file disagrees with PROJECT.md or any feature plan doc, this file wins. When it disagrees with the code, the code wins — update this file. Last refreshed 2026-04-28 (sign-in PR 1 + share-link rework + cloud-permalink Slices 1–3 integrated; SwiftData `cloudKitDatabase: .none` opt-out + sign-in stuck recovery + profile-icon move landed on top; cloud upload speed-up — photos as separate `CKAsset` fields — + `LlamaProgressIndicator` + Detail toolbar tightening landed; photo carousel polish round landed last — visible delete (`−`) + reorder-mode trigger (`rectangle.on.rectangle.angled`) → new `PhotoReorderView` tile-grid drag-and-drop sheet, hero recipe title moved above the photo (out of the toolbar principal slot), per-field keyboard caption Done, Detail ingredient row always-dash separator, bigger centered Library watermark + translucent A–Z magnified badge, Detail bottom-overlay clearance so Delete button isn't hidden under the Start Cooking bar; **launch-readiness hardening pass landed last** — `Resources/PrivacyInfo.xcprivacy` (App Store required-reason manifest), `RecipeShare.maxInboundBytes = 25_000_000` enforced by every decode path including `CloudKitService.fetchShare` envelope read + per-photo CKAsset cap (`maxCloudPhotoBytes = 10_000_000`), single-source `RecipeShare.cappedDisplayName(_:)` helper enforces `maxDisplayNameLength = 40` at every trust boundary (encode, render, write — both Detail + ImportPreview render with `.lineLimit(1)`), Sign-in-with-Apple nonce generated via `SecRandomCopyBytes` + SHA256-hashed onto `request.nonce` in `SignInWithAppleService.configure`, Delete-Account CloudKit cascade restructured into a persistent `cloudSharePendingDelete.v1` queue with launch-path `retryPendingDeletes` so reviewer-test network blips can't permanently strand records, share-incoming UUID validation on `share-incoming/<uuid>`, `ImportPreview` `createdAt` clamped to `min(now, createdAt)` so a sender can't future-date provenance, `MARKETING_VERSION` bumped to `1.0.0`).
+Single source of truth for the current state of the app. When this file disagrees with PROJECT.md or any feature plan doc, this file wins. When it disagrees with the code, the code wins — update this file. Last refreshed 2026-04-28.
 
 ## Source of truth — read in this order
 
-1. **CLAUDE.md** (this file) — current implementation snapshot, architectural patterns, CI gotchas, what's done / what's deferred. Loaded automatically every session.
-2. **[PROJECT.md](./PROJECT.md)** — stable project reference: tech-stack rationale, signing material, dev workflow. The "current status" sections are stale; this file supersedes them.
+1. **CLAUDE.md** (this file) — current snapshot, patterns, CI gotchas. Loaded automatically.
+2. **[PROJECT.md](./PROJECT.md)** — tech-stack rationale, signing material, dev workflow. Its "current status" sections are stale.
 3. **[llamas-cookbook-plan.md](./llamas-cookbook-plan.md)** — original product spec. Vision / JTBD / UX principles still authoritative.
-4. **[ROADMAP.md](./ROADMAP.md)** — deferred work + the Live Activity portal-setup checklist.
-5. **STATE.md** — **archived 2026-04-27**, content folded into this file. Kept on disk for historical reference; do not update.
+4. **[ROADMAP.md](./ROADMAP.md)** — deferred work + Live Activity portal-setup checklist.
+5. **STATE.md** — archived 2026-04-27, do not update.
 
-Feature design docs are *plans*, not specs — verify against the code before quoting them:
+Feature design docs are *plans*, not specs — verify against code before quoting:
 
-- **[Multi-Recipe-Cook-Mode.md](./Multi-Recipe-Cook-Mode.md)** — **mostly implemented** (PR 1 + PR 2 landed). `CookingSession.activeCooks` array, `addParallel`, `remove(cookID:)`, `foreground(cookID:)`, multi-cook pills bar, "Add to Cook Mode" green button on Detail, v1→v2 persistence migration. **Not yet done:** per-cook timer registry — `TimerLiveActivityController` is still a single instance per `CookModeView`, so two parallel timers will collide on Live Activity / alarm (see Audit notes when extending).
-- **[Photo-Capability.md](./Photo-Capability.md)** — **fully implemented** beyond the plan: gallery (`Recipe.photos` → `RecipePhoto`), per-step gallery up to 3 photos (`RecipeStep.photos` → `RecipeStepPhoto`, **not** the original `RecipeStep.image: Data?` slot — that field is deprecated and lingers for migration only), shared `PhotoCarouselView` + `PhotoReorderView` + `RecipeImageView` + `ImageProcessing` infra. Carousel toolbar exposes visible delete (`−`) + reorder-mode trigger (`rectangle.on.rectangle.angled`) + add (`+`); reorder opens a separate 3-column tile-grid sheet (`PhotoReorderView`) with `NSItemProvider`/`DropDelegate` drag-and-drop. Recipe title floats above the photo as a hero header (`AppFont.recipeTitle`, accent color), not in the principal toolbar slot. Caption Done lives on each TextField's per-field keyboard toolbar (declaring `placement: .keyboard` at the carousel's NavigationStack level didn't propagate reliably through the paging `TabView` — the bar was missing on some focuses). 350ms picker-dismiss delay still wired (iOS 18 sheet-in-sheet alert race workaround).
-- **[Recipe-Sharing.md](./Recipe-Sharing.md)** — **PR 1 + PR 2 + PR 3 implemented, all four PRs of recipe-sharing in flight; share-menu reworked 2026-04-28 so URL-deep-link is the only Llamas-Cookbook-aware share form, lzma-compressed and v2-prefixed (~60% URL shrink), and Save in import preview pushes the recipient straight to Detail**. Adds app-to-app recipe sharing via a `llamascookbook://recipe/v2/<base64url-of-lzma(JSON)>` deep link — works in Messages / Mail / chat apps that respect custom schemes, photos stripped via `LCRecipeShareV1.withoutPhotos()` before encoding. The `.llamarecipe` file form (UTType + base64-photo JSON envelope) is still wired for AirDrop-incoming (`onOpenURL` file-URL branch) but the outbound user-facing menu entry was dropped because `.llamarecipe` attachments don't reliably open from Messages. Full-fidelity photo cloud transport designed in but queued behind PR 2 of [Implementing-User-Sign-In.md](./Implementing-User-Sign-In.md). **Done:** schema (`LCRecipeShareV1`), encode/decode/materialize (`Lib/RecipeShare.swift`), `OwnerProfile` Observable, provenance fields on `Recipe`, UTType + `LSSupportsOpeningDocumentsInPlace` Plist additions (PR 1); Detail share menu with `ShareSheet` UIActivityViewController wrapper + first-share name prompt + 350ms post-alert delay (PR 2); `RootView.onOpenURL` branches for `recipe` URL scheme + `.llamarecipe` file URLs, `RecipeImportPreviewView` (read-only mini-Detail with Save/Cancel that drives `RecipeShare.materialize` on save), provenance line in `RecipeDetailView` rendering "Originally shared by Lorenzo · Apr 27" below the title when `Recipe.sharedBy` is non-nil (PR 3). PR 4 (Share Extension) implemented in parallel — see Share-Extension-Plan.md.
-- **[Implementing-User-Sign-In.md](./Implementing-User-Sign-In.md)** — **architecture pivoted 2026-04-28: friend-code + inbox + push model dropped, replaced by cloud-permalink hosting**. PR 1 (Sign-in-with-Apple identity primitive + Profile sheet) implemented; PR 2 reframed as three slices, all three implemented locally and awaiting CI: **Slice 1** wired iCloud entitlement (`com.apple.developer.icloud-services`) + `Lib/CloudKitService.swift` skeleton with account-status probe; **Slice 2** added `uploadShare` / `fetchShare` / `deleteShare` against the public DB, made the "Share recipe" menu probe iCloud and prefer cloud-permalink (`llamascookbook://share/<6char-id>`, photos hosted as `CKAsset`) when available, fall back to the existing local URL form (`llamascookbook://recipe/v2/...`, photos stripped) otherwise; **Slice 3** added a local UserDefaults outbox + `deleteAuthoredShares` cascade so `UserAccount.deleteAccount()` cleans up the device's cloud records. **Sign-in-with-Apple is no longer required for sharing** — only iCloud (system-level, automatic for iPhone users); PR 1's identity stays as foundation for any future social layer. Portal action items: enable Sign-in-with-Apple AND iCloud capabilities on `com.llamascookbook.app`, create CloudKit container `iCloud.com.llamascookbook.app`, regenerate the provisioning profile, update `IOS_PROVISIONING_PROFILE_BASE64`, and create the `RecipeShare` record type in CloudKit Dashboard with fields `envelope` (Asset), `senderDisplayName` (String), `recipeTitle` (String), `createdAt` (Date/Time queryable + sortable). See revision note at top of Implementing-User-Sign-In.md.
-- **[Share-Extension-Plan.md](./Share-Extension-Plan.md)** — **PR 4 implemented, awaiting CI verification**. Adds a separate `LlamasCookbookShareExtension` app-extension target (`com.llamascookbook.app.shareext`) so Llamas Cookbook appears as a destination in iOS share sheets across all apps (Safari, Files, Mail, Reddit, etc.). Activation rule accepts `public.url` and `com.llamascookbook.recipe` UTIs. Architecture is **transparent passthrough** — `ShareViewController` reads the NSItemProvider, hands off to the main app via deep link (URLs encoded as `llamascookbook://share-url/<base64url>`, `.llamarecipe` files written to an App Group shared container at `group.com.llamascookbook.app/share-inbox/<uuid>.llamarecipe` and handed off via `llamascookbook://share-incoming/<uuid>`). No SwiftData in the extension, no duplicated parsers. New `Sources/Shared/SharedContainer.swift` + `Sources/Shared/Base64URL.swift` are cross-target helpers. Apple Developer Portal setup (App Group + new App ID + new provisioning profile) is required before the build will sign — see Share-Extension-Plan.md §8.
-- **[SDK-Update-Plan.md](./SDK-Update-Plan.md)** — done. Build SDK is iOS 26.x; `UIDesignRequiresCompatibility = true` keeps the legacy chrome until the aesthetic pass adopts Liquid Glass.
+- **[Multi-Recipe-Cook-Mode.md](./Multi-Recipe-Cook-Mode.md)** — PR 1 + PR 2 landed (`activeCooks` array, pills bar, v1→v2 migration). **Not done:** per-cook `TimerLiveActivityRegistry`; two parallel timers collide on Live Activity / alarm.
+- **[Photo-Capability.md](./Photo-Capability.md)** — fully implemented. Gallery + per-step photos (≤3), shared `PhotoCarouselView` / `PhotoReorderView` / `RecipeImageView` / `ImageProcessing` infra. `RecipeStep.image: Data?` is **deprecated** (migration only); never write to it.
+- **[Recipe-Sharing.md](./Recipe-Sharing.md)** — PR 1–3 implemented. URL-deep-link is the only outbound Llamas-Cookbook share form, lzma-compressed and v2-prefixed. `.llamarecipe` file form is wired for AirDrop-incoming + paranoid fallback only. PR 4 (Share Extension) implemented in parallel.
+- **[Implementing-User-Sign-In.md](./Implementing-User-Sign-In.md)** — architecture pivoted 2026-04-28: friend-code + inbox + push dropped, replaced by cloud-permalink hosting. PR 1 (Sign-in-with-Apple + Profile + Keychain) implemented; PR 2 reframed as three slices (iCloud entitlement + `CloudKitService`; cloud upload + permalink + receive; Delete-Account cascade), all three implemented locally. **Sign-in-with-Apple is no longer required for sharing** — only iCloud (system-level).
+- **[Share-Extension-Plan.md](./Share-Extension-Plan.md)** — PR 4 implemented. Separate `LlamasCookbookShareExtension` target. Transparent passthrough to main app via `llamascookbook://share-url/<base64url>` (URLs) or App Group `share-inbox/<uuid>.llamarecipe` + `llamascookbook://share-incoming/<uuid>` (files).
+- **[SDK-Update-Plan.md](./SDK-Update-Plan.md)** — done. Build SDK iOS 26.x; `UIDesignRequiresCompatibility = true` keeps legacy chrome until aesthetic pass.
 
-## TL;DR — where the app stands
+## TL;DR
 
-Core CRUD is done end-to-end. Library, Detail, Editor, Cook Mode, Conversions, Sourdough calculator, ShareLink export, Live Activity / Dynamic Island timer, A–Z scrub, drag-to-reorder steps, minimizable Cook Mode (tucks to a small detent while the user browses). Past parity with the archived RN app on every screen except Settings (still a stub).
+Core CRUD is done end-to-end. Library, Detail, Editor, Cook Mode, Conversions, Sourdough, ShareLink export, Live Activity / Dynamic Island timer, A–Z scrub, drag-to-reorder steps, minimizable Cook Mode. Past parity with the archived RN app on every screen except Settings.
 
-Two recent feature pushes have landed:
-- **Photos** — gallery + per-step photos (up to 3 per step), shared rendering/carousel infra.
-- **Multi-recipe Cook Mode** — `CookingSession.activeCooks` (1–4), pills bar, persistence v1→v2 migration. Outstanding hole: per-cook timer registry (see §"Multi-cook timer hole" below).
+Recent feature pushes: photos (gallery + per-step ≤3), multi-recipe Cook Mode (1–4 active cooks).
 
-Active queue: recipe sharing between users (PR 1 + PR 2 shipped — schema, UTType, Detail share menu; PR 3 + PR 4 implemented — inbound `onOpenURL` + Import Preview + provenance line + Share Extension target with App Group handoff, all awaiting CI verification), user sign-in (PR 1 implemented — Sign-in-with-Apple + Profile sheet + Keychain identity, awaiting CI + portal capability), then per-cook `TimerLiveActivityRegistry`, then the aesthetic / typography pass.
+Active queue: recipe sharing PR 3 + PR 4 (awaiting CI), user sign-in PR 1 + PR 2 slices 1–3 (awaiting CI + portal capability), per-cook `TimerLiveActivityRegistry`, aesthetic / typography pass.
 
-## Capability map — one line per surface
+## Capability map
 
-| Capability | Where it lives | Notes |
+| Capability | Where | Notes |
 |---|---|---|
-| Profile sheet | `Views/Profile/ProfileView.swift` + person-circle in `LibraryView` toolbar | Sign-in-with-Apple toggle (signed-out: SwiftUI `SignInWithAppleButton` + explainer; signed-in: editable display name, friend-code "Coming soon" placeholder, friends-list placeholder, Sign Out, Delete Account confirm). Identity flows through `App/UserAccount.swift` Observable; `appleSub` + display name persist in Keychain via `Lib/KeychainStore.swift` so they survive reinstall. |
-| Library list | `Views/Library/LibraryView.swift` | All / Favorites / one chip per tag. Long-press + context-menu Delete. |
-| A–Z letter scrub | `LibraryView` right-edge strip | Tap or drag to jump. Dimmed letters route to next populated. |
-| Mascot watermark | `LibraryView` | 6% opacity llama pinned behind the list. |
-| Add / Import FAB | `LibraryView` | Menu: "New recipe" · "Import from text" (handles URL fetch and text paste). |
-| Recipe Detail | `Views/Detail/RecipeDetailView.swift` | Sections, gallery + step-photo thumbnails, share menu (link / text), sourdough chip, "Add to Cook Mode" green button when a cook is already active. |
+| Profile sheet | `Views/Profile/ProfileView.swift` + person-circle in `LibraryView` toolbar | Sign-in-with-Apple toggle. Identity in `App/UserAccount.swift`; `appleSub` + display name in Keychain via `Lib/KeychainStore.swift`. |
+| Library list | `Views/Library/LibraryView.swift` | All / Favorites / tag chips. Long-press + context-menu Delete. A–Z scrub on right edge. Mascot watermark 6%. |
+| Add / Import FAB | `LibraryView` | "New recipe" / "Import from text" (text paste + URL fetch). |
+| Recipe Detail | `Views/Detail/RecipeDetailView.swift` | Sections, gallery + step thumbnails, share menu, sourdough chip, "Add to Cook Mode" green button when a cook is active. |
 | Favorite toggle | `RecipeDetailView` | Heart toolbar, syncs `updatedAt`. |
-| Export (text) | `Lib/RecipeExport.swift` + share menu | Plain-text out — Notes, Messages, Mail, AirDrop. Second / last option in the share menu (bridge for recipients without the app); the URL-link default precedes it. |
-| Recipe sharing (cloud + link) | `Lib/CloudKitService.swift` + `Lib/RecipeShare.swift` + `Views/Components/ShareSheet.swift` + `Views/Components/LlamaProgressIndicator.swift` | **Cloud-permalink first, local URL fallback.** When iCloud is available (`CKAccountStatus.available`), "Share recipe" uploads to the CloudKit public DB as a `RecipeShare` record. **Photos travel as separate `CKAsset` fields** (`photo0`–`photo19`) on the record — the envelope JSON is photo-less (KB-scale) so no base64 inflation, no big JSON encode/upload. The receiver walks `LCRecipeShareV1.injecting(photoBytes:)` to re-base64 the asset bytes back into the envelope before materializing. Sender shares `llamascookbook://share/<6char-id>` (~50 chars total, photos included). When iCloud is unavailable or the upload fails, falls back to the self-contained `llamascookbook://recipe/v2/<base64url>` URL form (lzma-compressed, photos stripped). Both hand the recipient into the same `RecipeImportPreviewView`. The cloud upload runs behind a blocking branded overlay (`isPreparingCloudShare` → `LlamaProgressIndicator`: the LlamaLogo with its drop-shadow halo filling bottom-to-top via `TimelineView`-driven animation). Outbox tracking in UserDefaults (`cloudShareOutbox.v1` key) lets `UserAccount.deleteAccount()` cascade-delete every cloud record this device authored. The `.llamarecipe` file form is still wired internally as a paranoid last-resort fallback in `shareAsLocalURL`. State-machine driven: first-share name prompt → `UIActivityViewController` via `ShareSheet`. |
-| Recipe import (share) | `Views/Library/RecipeImportPreviewView.swift` + `RootView.onOpenURL` branches | Receiver flow for: incoming `.llamarecipe` files (AirDrop / Files / Mail), `llamascookbook://recipe/v<N>/<base64url>` self-contained URL shares (decoder handles both v1 uncompressed + v2 lzma-compressed), and `llamascookbook://share/<recordName>` cloud permalinks (RootView's `routeCloudShareLink` calls `CloudKitService.fetchShare` which reads the `RecipeShare` record's envelope CKAsset and routes through the canonical `RecipeShare.decode(fileData:)`). All three converge on the same read-only mini-Detail preview with Save/Cancel; Save calls `RecipeShare.materialize` (rewrites UUIDs, stamps `sharedBy/sharedAt/sourceShareID`, resolves title collisions, re-runs photos through `ImageProcessing`) then invokes `onSaved(recipe)` — RootView captures the new `Recipe`, dismisses the sheet, and pushes the recipient straight onto Detail via `libraryPath.append(recipe)` (`NavigationPath` bound to RootView's `NavigationStack`, push deferred ~350ms so it doesn't race the sheet's dismiss animation). Provenance line renders in `RecipeDetailView` below the title and is sticky through editor saves (`Recipe.apply(_:)` leaves it untouched). |
-| Share Extension | `ShareExtension/ShareViewController.swift` + `Sources/Shared/SharedContainer.swift` + `Sources/Shared/Base64URL.swift` | Separate `app-extension` target (`com.llamascookbook.app.shareext`) — appears as a destination in OTHER apps' share sheets (Safari, Files, Reddit, Mail, etc.). Accepts URLs and `.llamarecipe` files via `NSExtensionActivationRule`. Transparent passthrough: encodes a deep link and calls `extensionContext.open(_:)` to launch the main app. URLs go through `llamascookbook://share-url/<base64url>` → `EditorCoordinator.startImport(prefilledURL:)` → `ImportRecipeView` auto-fetches. Files written to App Group at `group.com.llamascookbook.app/share-inbox/<uuid>.llamarecipe` + handed off via `llamascookbook://share-incoming/<uuid>` → main app reads, decodes, presents Import Preview. No SwiftData / `Recipe` types in the extension. |
-| Conversions | `Views/Detail/ConversionsView.swift` | Reference cards + live calculator (vol / weight / temp, cross-category guard). |
-| Sourdough calculator | `Views/Detail/SourdoughCalculatorView.swift` + `Lib/SourdoughCalculator.swift` | Hydration / starter math. Surfaced when recipe tagged `sourdough` / `bread` / `baking`. |
-| Recipe Editor | `Views/Editor/RecipeEditorView.swift` | Hero, required title, summary, ingredient/step quick-add, per-step timer toggle, drag-to-reorder, tags, special notes, photos button. |
-| Recipe Import (text) | `Views/Library/ImportRecipeView.swift` + `Lib/RecipeImporter.swift` | Single textbox, live "Title / First ingredient / First Step" checklist. Block format default; labeled headers and TikTok-style single-newline pastes both handled. |
-| Recipe Import (URL) | `Lib/RecipeURLImporter.swift` + `Lib/RecipeSchemaParser.swift` | JSON-LD → OG fallback, TikTok via oEmbed, Pinterest HTML, IG/FB blocked with "paste the caption" hint. |
-| AI parser (hybrid) | `Lib/RecipeAIParser.swift` | iOS 26+ `FoundationModels` / `@Generable`. Best-of vs regex via `pickBetterDraft` — regex wins if AI's longest step > 200 chars or step count drops below 70% of regex's. Silent fallback to regex on older OS / no Apple Intelligence. |
-| Cook Mode | `Views/Cook/CookModeView.swift` | Two-phase (Prep ↔ Cook), servings scaler, per-step check-off, floating timer banner, adjust sheet, ready overlay, alarm sound, Mark-as-cooked. |
-| Multi-cook pills bar | `Views/Cook/...` (in CookModeView family) | 1–4 active cooks. Foregrounded cook in solid pill; rest as outline pills with tap-to-foreground. "Add to Cook Mode" only when current Detail recipe isn't already an active cook. |
-| Cook Mode tuck-down | `RootView` cover detents | `[.large, .height(80)]` — minimize to a tab-sized bar and keep browsing. |
-| Timer w/ Live Activity | `Lib/TimerLiveActivityController.swift` + `WidgetExtension/TimerLiveActivity.swift` | Lock screen + Dynamic Island (compact / minimal / expanded). Background ding via `TimerNotifications`. Ready overlay vibrates every 1.2s, loops bundled `timer-alarm.caf`. |
-| Persistence (cook session) | `App/CookingSessionStore.swift` | `[CookingSessionState]` JSON in UserDefaults under `cooking-session-states.v2`; v1→v2 migration on first load. Force-kill mid-cook recoverable. |
-| Editor coordinator | `App/EditorCoordinator.swift` | Single source of truth for editor sheet open/dirty; gates sheet switches behind a discard alert. |
-| Appearance (accent) | `App/AppearanceSettings.swift` | User-customizable accent, persisted as hex string. |
+| Export (text) | `Lib/RecipeExport.swift` | Plain-text bridge for non-app recipients. Last option in share menu. |
+| Recipe sharing | `Lib/CloudKitService.swift` + `Lib/RecipeShare.swift` + `Views/Components/ShareSheet.swift` + `Views/Components/LlamaProgressIndicator.swift` | **Cloud-permalink first, local URL fallback.** When `CKAccountStatus.available`, uploads to public DB as `RecipeShare` record; **photos travel as separate `CKAsset` fields** (`photo0`–`photo19`) so envelope JSON stays KB-scale. Sender shares `llamascookbook://share/<6char-id>`. Fallback: `llamascookbook://recipe/v2/<base64url>` (lzma-compressed, photos stripped). Outbox in UserDefaults (`cloudShareOutbox.v1`) lets Delete-Account cascade-delete every record this device authored. Upload runs behind branded `LlamaProgressIndicator` overlay. |
+| Recipe import (share) | `Views/Library/RecipeImportPreviewView.swift` + `RootView.onOpenURL` | Receiver flow for `.llamarecipe` files, `recipe/v<N>/` URLs, and `share/<id>` cloud permalinks. All three converge on read-only mini-Detail with Save/Cancel; Save calls `RecipeShare.materialize` (rewrites UUIDs, stamps `sharedBy/sharedAt/sourceShareID`) then pushes recipient onto Detail via deferred `libraryPath.append`. |
+| Share Extension | `ShareExtension/ShareViewController.swift` + `Sources/Shared/SharedContainer.swift` + `Sources/Shared/Base64URL.swift` | Transparent passthrough. URLs → `share-url/<base64url>` → `EditorCoordinator.startImport(prefilledURL:)`. Files → App Group → `share-incoming/<uuid>`. No SwiftData / `Recipe` types in extension. |
+| Conversions | `Views/Detail/ConversionsView.swift` | Reference cards + live calculator (vol / weight / temp). |
+| Sourdough calculator | `Views/Detail/SourdoughCalculatorView.swift` + `Lib/SourdoughCalculator.swift` | Surfaced for `sourdough` / `bread` / `baking` tags. |
+| Recipe Editor | `Views/Editor/RecipeEditorView.swift` | Quick-add ingredients/steps, per-step timer toggle, drag-to-reorder, tags, special notes, photos. |
+| Recipe Import (text) | `Views/Library/ImportRecipeView.swift` + `Lib/RecipeImporter.swift` | Live "Title / First ingredient / First Step" checklist. |
+| Recipe Import (URL) | `Lib/RecipeURLImporter.swift` + `Lib/RecipeSchemaParser.swift` | JSON-LD → OG fallback, TikTok via oEmbed, Pinterest HTML. IG/FB blocked with paste-the-caption hint. |
+| AI parser (hybrid) | `Lib/RecipeAIParser.swift` | iOS 26+ `FoundationModels` / `@Generable`. `pickBetterDraft` vs regex. Silent fallback. |
+| Cook Mode | `Views/Cook/CookModeView.swift` | Two-phase, servings scaler, per-step check-off, floating timer banner, ready overlay, alarm. |
+| Multi-cook pills | in `CookModeView` family | 1–4 cooks. Solid foreground pill, outline rest. |
+| Cook Mode tuck-down | `RootView` cover detents | `[.large, .height(80)]`. |
+| Timer w/ Live Activity | `Lib/TimerLiveActivityController.swift` + `WidgetExtension/TimerLiveActivity.swift` | Lock screen + Dynamic Island. Background ding via `TimerNotifications`. |
+| Persistence (cook session) | `App/CookingSessionStore.swift` | `[CookingSessionState]` JSON in UserDefaults under `cooking-session-states.v2`; v1→v2 migration. Force-kill recoverable. |
+| Editor coordinator | `App/EditorCoordinator.swift` | Sheet open/dirty gating with discard alert. |
+| Appearance (accent) | `App/AppearanceSettings.swift` | User-customizable accent, persisted as hex. |
 
 ## Tech stack
 
@@ -65,21 +61,19 @@ Active queue: recipe sharing between users (PR 1 + PR 2 shipped — schema, UTTy
 | Language | Swift 5.10 |
 | UI | SwiftUI, iOS 18+ deployment |
 | State | `@State`, `@Observable`, SwiftData `@Model` |
-| Persistence | SwiftData (`ModelContainer` injected at `@main`) + UserDefaults (cook-session JSON, accent hex, owner profile, user-account auxiliaries) + Keychain (`appleSub` + display name via `Lib/KeychainStore.swift`, survives reinstall, no iCloud sync) |
-| Navigation | `NavigationStack` + `.sheet` + `.fullScreenCover`. Cook Mode and Editor/Import sheets hoisted to `RootView` with coordinators. |
-| Notifications | `UNUserNotificationCenter` — per-cook identifier `cooking-timer-<cookID>`, scheduled at timer start, rescheduled on extend, cancelled on stop. |
-| Live Activity | `ActivityKit`. Shared `TimerAttributes` (in `Sources/Shared/`) cross-compiled into both targets. |
-| On-device AI | `FoundationModels` (iOS 26+, Apple Intelligence). `LanguageModelSession` + `@Generable` schema. Hard-gated by `@available(iOS 26.0, *)` and `SystemLanguageModel.default.availability`. Regex pipeline is the universal floor. |
-| Alarm sound | Bundled `timer-alarm.caf` (generated in CI by ffmpeg + afconvert), played on loop via `AVAudioPlayer`. Falls back silently when missing. |
-| Haptics | `Lib/Haptics.swift` wrapper around UIKit feedback generators. |
-| Icons | SF Symbols only. Mascot is a SwiftUI `Canvas` port (not an asset). |
+| Persistence | SwiftData + UserDefaults (cook session, accent, owner profile, user-account aux) + Keychain (`appleSub` + display name) |
+| Navigation | `NavigationStack` + `.sheet` + `.fullScreenCover`. Cook Mode and Editor sheets hoisted to `RootView`. |
+| Notifications | `UNUserNotificationCenter` — per-cook ID `cooking-timer-<cookID>`. |
+| Live Activity | `ActivityKit`. `TimerAttributes` cross-compiled into both targets via `Sources/Shared/`. |
+| On-device AI | `FoundationModels` (iOS 26+, Apple Intelligence). Hard-gated. Regex pipeline is the universal floor. |
+| Alarm sound | Bundled `timer-alarm.caf` (CI-generated by ffmpeg + afconvert), `AVAudioPlayer` loop. |
 | Project file | XcodeGen — `ios-native/project.yml`, `.xcodeproj` gitignored, regenerated per CI run. |
-| Build | GitHub Actions `macos-26` → `xcodebuild archive` → TestFlight upload via `xcrun altool`. Manual `workflow_dispatch`, ~15–25 min round-trip. |
-| Build SDK | **iOS 26.x** (currently 26.4 SDK from `Xcode_26.4.1.app`). Required by Apple's 2026-04-28 ITMS-90725 cutoff. |
-| Min iOS | 18.0 (build SDK and deployment target are independent). |
+| Build | GitHub Actions `macos-26` → `xcodebuild archive` → TestFlight via `xcrun altool`. Manual `workflow_dispatch`. |
+| Build SDK | **iOS 26.x** (required by Apple's 2026-04-28 ITMS-90725 cutoff). |
+| Min iOS | 18.0. |
 | Devices | iPhone only, portrait. |
 
-What we don't use and won't without a clear reason: **no UIKit views beyond two `appearance()` proxies (keyboard tint, PageControl dot color), no Combine, no SPM/CocoaPods packages, no Core Data.**
+**What we don't use:** no UIKit views beyond two `appearance()` proxies (keyboard tint, PageControl dot color) and one `UIViewControllerRepresentable` (`ShareSheet`); no Combine; no SPM/CocoaPods packages; no Core Data.
 
 ## Data model
 
@@ -89,224 +83,184 @@ What we don't use and won't without a clear reason: **no UIKit views beyond two 
 @Model final class Recipe {
     var id, title, summary, sourceUrl, imageUri, servings, cookTimeMinutes,
         notes, favorite, tags, lastCookedAt, cookCount, createdAt, updatedAt
-    var prefaceNote, epilogueNote, generalNote: String?   // recipe-level note slots
+    var prefaceNote, epilogueNote, generalNote: String?
     @Relationship(.cascade) var ingredients: [Ingredient]
     @Relationship(.cascade) var steps: [RecipeStep]
-    @Relationship(.cascade) var photos: [RecipePhoto]    // gallery
+    @Relationship(.cascade) var photos: [RecipePhoto]
     var sortedIngredients / sortedSteps / sortedPhotos
 }
 
-@Model final class Ingredient {
-    var id, quantity: String?, unit, name, order, recipe
-}
+@Model final class Ingredient { var id, quantity: String?, unit, name, order, recipe }
 
 @Model final class RecipeStep {
     var id, order, text, needsTimer
-    var specialNote: String?                              // per-step note
-    @Attribute(.externalStorage) var image: Data? = nil   // DEPRECATED — see note
+    var specialNote: String?
+    @Attribute(.externalStorage) var image: Data? = nil   // DEPRECATED
     @Relationship(.cascade) var photos: [RecipeStepPhoto] // up to 3 per step
     var sortedStepPhotos
 }
 
-@Model final class RecipePhoto {
-    var id, image: Data?, caption: String?, order, recipe
-}   // @Attribute(.externalStorage) on image
-
-@Model final class RecipeStepPhoto {
-    var id, image: Data?, caption: String?, order, step
-}   // @Attribute(.externalStorage) on image
+@Model final class RecipePhoto     { var id, image: Data?, caption: String?, order, recipe }
+@Model final class RecipeStepPhoto { var id, image: Data?, caption: String?, order, step }
 ```
 
-`RecipeStep.image: Data?` is **deprecated** but kept declared so SwiftData lightweight migration doesn't drop it on existing TestFlight installs. Step photos go through `RecipeStep.photos` (the relationship); never write to `image`.
+`RecipeStep.image: Data?` is deprecated but kept declared so SwiftData lightweight migration doesn't drop it on existing TestFlight installs. Step photos go through the `photos` relationship; never write to `image`.
 
-`DraftRecipe` / `DraftIngredient` / `DraftStep` / `DraftPhoto` (in `Models/DraftRecipe.swift`) are plain structs — see "Editor edits a draft, not the model" pattern below.
+`DraftRecipe` / `DraftIngredient` / `DraftStep` / `DraftPhoto` (in `Models/DraftRecipe.swift`) are plain structs — see "Editor edits a draft" below.
 
-## Live code lives in `ios-native/` only
+## Repo + dev loop
 
-Repo root = docs + `outdated/rn-expo/` (archived first implementation; **do not modify**). All app work happens under [`ios-native/`](./ios-native).
+Live code lives in `ios-native/` only. Repo root = docs + `outdated/rn-expo/` (archived; **do not modify**).
 
-## Dev loop is CI-only — there is no local build
+**Dev loop is CI-only.** Developer is on Windows; Swift can't build iOS on Windows. Every build runs on `macos-26` via `.github/workflows/ios-native-ci.yml`, manual `workflow_dispatch`, ~15–25 min round-trip. Implications:
+- No Xcode Previews. `#Preview` blocks compile but can't be visually inspected.
+- Compile errors live in the `CompileSwift normal arm64` log section, *above* the "build commands failed" tail.
+- Don't run `xcodegen` / `xcodebuild` / `pod` from this environment.
+- Plan one CI cycle per syntactic mistake. Be deliberate.
 
-The developer is on Windows; Swift cannot build iOS apps on Windows. Every build runs on `macos-26` via [`.github/workflows/ios-native-ci.yml`](./.github/workflows/ios-native-ci.yml), triggered by manual `workflow_dispatch`. Round-trip is ~15–25 min per build.
+**XcodeGen, not pbxproj.** `LlamasCookbookNative.xcodeproj` is gitignored and regenerated from `ios-native/project.yml`. Add files / source folders / build settings via `project.yml` — never hand-edit a pbxproj.
 
-Implications:
-- No Xcode Previews. `#Preview` blocks compile in CI but cannot be visually inspected. Layout/visual issues need a real TestFlight install.
-- Compile errors live in the `CompileSwift normal arm64` log section, *above* the "The following build commands failed" tail.
-- Don't assume any Mac-side tooling is available — do not run `xcodegen`, `xcodebuild`, or `pod` from this environment.
-- Plan one CI cycle per syntactic mistake (missing import, missing `await`). Be deliberate.
+**Three targets ship from one archive:**
+- `LlamasCookbookNative` — app, `com.llamascookbook.app`.
+- `LlamasCookbookTimerWidget` — Live Activity, `com.llamascookbook.app.widget`.
+- `LlamasCookbookShareExtension` — system share-sheet target, `com.llamascookbook.app.shareext`.
 
-## Project generation, not project file
+`CFBundleVersion = date -u +%s` (Unix timestamp) so re-runs never collide on TestFlight. `MARKETING_VERSION = 1.0.0` bumped manually in `project.yml`.
 
-`ios-native/LlamasCookbookNative.xcodeproj` is **gitignored and regenerated** from [`ios-native/project.yml`](./ios-native/project.yml) by [XcodeGen](https://github.com/yonaskolb/XcodeGen) on every CI run. To add files, source folders, or build settings, edit `project.yml` — never hand-edit a pbxproj.
-
-Two targets ship from one archive:
-- `LlamasCookbookNative` — the app, `com.llamascookbook.app`, sources `Sources/` + `Resources/Assets.xcassets` (+ optional `Resources/timer-alarm.caf` generated in CI).
-- `LlamasCookbookTimerWidget` — Live Activity / widget extension, `com.llamascookbook.app.widget`, sources `WidgetExtension/` + the shared `Sources/Shared/TimerAttributes.swift` cross-compiled into both targets.
-
-Each target carries its own `PROVISIONING_PROFILE_SPECIFIER: $(MAIN_PROFILE_NAME)` / `$(WIDGET_PROFILE_NAME)`, which CI passes as build settings at archive time. `CFBundleVersion = date -u +%s` (Unix timestamp) so re-runs never collide on TestFlight. `MARKETING_VERSION = 1.0.0` is bumped manually in `project.yml`.
-
-The app target uses an **explicit Info.plist** (`Resources/AppInfo.plist`, `GENERATE_INFOPLIST_FILE: NO`) because `CFBundleURLTypes` (the `llamascookbook://` URL scheme) and `UIDesignRequiresCompatibility` (Liquid Glass opt-out) can't be expressed via `INFOPLIST_KEY_*`. The widget target uses its own `WidgetExtension/Info.plist`.
+App target uses **explicit Info.plist** (`Resources/AppInfo.plist`, `GENERATE_INFOPLIST_FILE: NO`) because `CFBundleURLTypes` and `UIDesignRequiresCompatibility` can't be expressed via `INFOPLIST_KEY_*`.
 
 ## Source layout (under `ios-native/Sources/`)
 
-- **`App/`** — `@main` (`LlamasCookbookApp.swift` + `AppDelegate` for `UNUserNotificationCenter` foreground handling and `didReceive` deep-link routing) and the app-scope coordinators all hung off `RootView`:
-  - `CookingSession` (multi-cook state — `activeCooks: [ActiveCook]`, `foregroundedCookID`, `pendingRestoration`)
-  - `CookingSessionState` + `CookingSessionStore` (Codable mirror + UserDefaults persistence with v1→v2 migration)
+- **`App/`** — `@main` (`LlamasCookbookApp.swift` + `AppDelegate` for foreground notifications + deep-link routing) and coordinators hung off `RootView`:
+  - `CookingSession` (multi-cook state — `activeCooks`, `foregroundedCookID`, `pendingRestoration`)
+  - `CookingSessionState` + `CookingSessionStore` (Codable + UserDefaults, v1→v2 migration)
   - `EditorCoordinator` (single-sheet gating with dirty-flag discard alert)
-  - `NavigationContext` (which `Recipe.id` is currently in Detail — read by the multi-cook pills bar to decide whether to show "Add to Cook Mode")
-  - `AppearanceSettings` (user-customizable accent, persisted as hex string)
-  - `OwnerProfile` (sender display name + first-share-prompt flag for app-to-app recipe sharing, persisted to UserDefaults)
-  - `UserAccount` (Sign-in-with-Apple identity — `Status` enum (signedOut / signingIn / signedIn(UserIdentity) / signInFailed), `appleSub` + display name in Keychain, other fields in UserDefaults; `cloudKitUserRecordID` and `friendCode` nil throughout PR 1, populated when PR 2 lands. Migrates `OwnerProfile.userName` once on first sign-in. `refreshCredentialState()` runs from `RootView`'s cold-launch task.)
-- **`Models/`** — `Recipe.swift` declares five `@Model` classes: `Recipe`, `Ingredient`, `RecipeStep`, `RecipePhoto`, `RecipeStepPhoto`. `DraftRecipe.swift` holds the editor draft structs (`DraftRecipe`, `DraftIngredient`, `DraftStep`, `DraftPhoto`) and the `toDraft()` / `apply(_:)` bridge.
-- **`Lib/`** — pure logic / utilities (no SwiftUI views):
-  - Formatting: `Quantity` (parse/format/scale + measurable-fraction snap + `ClockFormat.mmss` + `StringCase`), `Plural` (unit pluralization + `needsConnector` for "of" insertion), `IngredientDisplay` (`Ingredient.display(scaledBy:)` → `Display { quantity, unit, takesOf, name, measure, fullLine }`)
-  - Import: `RecipeImporter` (text-paste, three-fallback step splitter, caption-style fallback), `RecipeURLImporter` (platform-routed fetch), `RecipeSchemaParser` (JSON-LD + OG), `RecipeAIParser` (iOS 26+ FoundationModels with quality gate)
+  - `NavigationContext` (current Detail's `Recipe.id` — read by pills bar)
+  - `AppearanceSettings` (accent hex)
+  - `OwnerProfile` (sender display name + first-share-prompt flag)
+  - `UserAccount` (Sign-in-with-Apple identity; Keychain-backed `appleSub` + display name; `refreshCredentialState()` from cold-launch task)
+- **`Models/`** — five `@Model` classes; `DraftRecipe.swift` holds editor draft structs + `toDraft()` / `apply(_:)` bridge.
+- **`Lib/`** — pure logic, no SwiftUI views:
+  - Formatting: `Quantity` (parse / format / scale + measurable-fraction snap, `ClockFormat.mmss`, `StringCase`), `Plural` (unit pluralization + `needsConnector`), `IngredientDisplay`
+  - Import: `RecipeImporter` (text paste, three-fallback step splitter), `RecipeURLImporter`, `RecipeSchemaParser`, `RecipeAIParser` (iOS 26+, quality gate)
   - Recipe ops: `RecipeExport`, `SourdoughCalculator`, `TagPresets`
-  - Timer + audio: `AlarmPlayer` (looped `.caf` via `AVAudioPlayer`), `TimerNotifications` (per-cook `cooking-timer-<cookID>` identifiers, legacy-id cleanup), `TimerLiveActivityController` (per-instance ActivityKit wrapper)
+  - Timer + audio: `AlarmPlayer`, `TimerNotifications` (per-cook IDs), `TimerLiveActivityController` (per-instance ActivityKit wrapper)
   - Photos: `ImageProcessing` (`CGImageSource`/`CGImageDestination` resize + format-preserving re-encode + bytes guard, `Task.detached`)
-  - Auth: `KeychainStore` (string in / string out wrapper around `SecItem*` keyed by service+account, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` so survives reboot but doesn't sync across devices), `SignInWithAppleService` (only place that imports `AuthenticationServices` — configures `ASAuthorizationAppleIDRequest` scopes, processes the SwiftUI `SignInWithAppleButton` completion `Result` into a flat `Credential`, async `credentialState(for:)` for cold-launch revocation checks)
-  - Cloud: `CloudKitService` (wraps `CKContainer(identifier: "iCloud.com.llamascookbook.app").publicCloudDatabase`; exposes `accountStatus()` probe, `uploadShare(envelope:senderDisplayName:)` / `fetchShare(recordName:)` / `deleteShare(recordName:)` for the cloud-permalink share path, plus a UserDefaults-backed outbox + `deleteAuthoredShares()` cascade for the Delete-Account flow; record IDs are 6-char `[A-Z2-9]` strings minus I/O/0/1 to keep recipients from confusing lookalikes)
+  - Auth: `KeychainStore` (`SecItem*` wrapper, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`), `SignInWithAppleService` (only place that imports `AuthenticationServices`)
+  - Cloud: `CloudKitService` (wraps `CKContainer(identifier: "iCloud.com.llamascookbook.app").publicCloudDatabase`; `accountStatus()`, `uploadShare`, `fetchShare`, `deleteShare`, outbox, `deleteAuthoredShares`; record IDs are 6-char `[A-Z2-9]` minus I/O/0/1)
   - UI utilities: `Haptics`, `KeyboardDismiss.focusedNumeric`, `Shake`
-- **`Shared/`** — cross-target Swift files compiled into multiple targets. `TimerAttributes` (`ActivityAttributes`, used by main app + widget; carries `recipeID` + optional `cookID`). `SharedContainer` (App Group container access for the share extension, `group.com.llamascookbook.app`). `Base64URL` (URL-safe base64 helpers — used by `RecipeShare.encodeURL/decode(url:)` and the share extension's URL handoff). Anything in `Sources/Shared/` must be self-contained (Foundation only — no SwiftData, no SwiftUI) so it compiles cleanly into both extension targets.
-- **`Theme/`** — `AppColor` (cream/terracotta palette + `.onAccent` semantic token), `AppFont` (system serif placeholder; Fraunces/Inter not bundled), `AppSpacing`/`AppRadius`, `ColorHex` (Color↔"#RRGGBB" round-trip).
+- **`Shared/`** — cross-target Swift, Foundation only (no SwiftData, no SwiftUI). `TimerAttributes` (main app + widget). `SharedContainer` (App Group `group.com.llamascookbook.app`). `Base64URL` (URL-safe base64).
+- **`Theme/`** — `AppColor` (cream/terracotta + `.onAccent` semantic token), `AppFont` (system serif placeholder), `AppSpacing` (xs=4 / sm=8 / md=12 / lg=16 / xl=24 / xxl=32 / xxxl=48), `AppRadius` (sm=8 / md=12 / lg=16 / xl=24), `ColorHex`.
 - **`Views/`** — one folder per feature area:
-  - `Components/` — `LlamaLogo` (bitmap brand artwork from `Assets.xcassets/LlamaLogo.imageset` with an accent-driven drop shadow — replaces the old hand-drawn `LlamaMascot` Canvas), `LlamaProgressIndicator` (branded indeterminate-progress: LlamaLogo with its halo continuously filling bottom-to-top via `TimelineView`-driven cosine wave; used by the cloud-share upload overlay so the user sees a recognizable signal of work-in-progress instead of a stuck-looking spinner), `EmptyLibraryView`, `RecipeImageView` (single rendering surface for all photos, NSCache-backed), `PhotoCarouselView` (closure-driven gallery + step-image viewer with hero recipe title above the photo, visible `−` delete + reorder-mode trigger + `+` add toolbar cluster, per-field keyboard caption Done), `PhotoReorderView` (3-column tile-grid drag-and-drop sheet opened from the carousel's reorder-mode button — local `[UUID]` + `[Data]` state mutated atomically per drop and forwarded to the same `(IndexSet, Int)` `onReorder` closure the carousel takes), `AccentColorPicker`
-  - `Library/` — `LibraryView` (FAB menu, A–Z scrub, mascot watermark, filter chips), `RecipeCardView`, `ImportRecipeView`, `ImportHelpView`
-  - `Detail/` — `RecipeDetailView` (sections, gallery + step-photo thumbnails, ShareLink, sourdough chip), `ConversionsView` (reference cards + live calculator), `SourdoughCalculatorView`
-  - `Editor/` — `RecipeEditorView` (root form, drag-to-reorder steps via `StepDropDelegate`, photos button, special-notes editor), `IngredientQuickAdd`, `IngredientRowEditor`, `StepQuickAdd`, `StepRowEditor`, `TagInputView`, `SpecialNotesEditor`, `PhotoToggleButton`, `Chips/{QuantityChips,UnitChips}`
-  - `Cook/` — `CookModeView` (the whole single-cook UI; presented per-foregrounded cook via `.id(cookID)`)
-  - `Profile/` — `ProfileView` (sheet-presented from `LibraryView`'s person-circle toolbar button; signed-out renders `SignInWithAppleButton` + tagline, signed-in renders editable display-name row + friend-code placeholder + Coming-soon friends row + Sign Out + Delete Account confirm)
+  - `Components/` — `LlamaLogo` (bitmap from `Assets.xcassets/LlamaLogo.imageset` + accent-driven drop shadow), `LlamaProgressIndicator` (branded indeterminate progress: halo fills bottom-to-top via `TimelineView`), `EmptyLibraryView`, `RecipeImageView` (NSCache-backed), `PhotoCarouselView`, `PhotoReorderView` (3-column tile-grid drag-and-drop), `AccentColorPicker`, `ShareSheet` (UIActivityViewController wrapper)
+  - `Library/` — `LibraryView`, `RecipeCardView`, `ImportRecipeView`, `ImportHelpView`, `RecipeImportPreviewView`
+  - `Detail/` — `RecipeDetailView`, `ConversionsView`, `SourdoughCalculatorView`
+  - `Editor/` — `RecipeEditorView`, `IngredientQuickAdd`, `IngredientRowEditor`, `StepQuickAdd`, `StepRowEditor`, `TagInputView`, `SpecialNotesEditor`, `PhotoToggleButton`, `Chips/{QuantityChips,UnitChips}`
+  - `Cook/` — `CookModeView` (single-cook UI; presented per-foregrounded cook via `.id(cookID)`)
+  - `Profile/` — `ProfileView`
+
+**Reach-for helpers** (don't roll local versions):
+- Sort: `Recipe.sortedIngredients` / `.sortedSteps` / `.sortedPhotos`, `RecipeStep.sortedStepPhotos`. Never `.sorted { $0.order < $1.order }` inline.
+- Display: `Ingredient.display(scaledBy:)` → `Display { quantity, unit, takesOf, name, measure, fullLine }`.
+- Quantity: `Quantity.parse / format / scale / displayFormat / splitForChips / combine`.
+- Plural: `Plural.unit(_, for:)` / `.needsConnector(_)`.
+- Photos: `RecipeImageView` (rendering), `PhotoCarouselView` + `PhotoReorderView` (edit), `ImageProcessing` (resize + bytes guard).
+- UI: `FlowRow`, `shake(count:)`, `focusedNumeric(_, when:)`. House list-row transition: `.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity.combined(with: .scale(scale: 0.9)))` + `.spring(response: 0.42, dampingFraction: 0.82)`.
 
 ## Architectural patterns worth knowing
 
-**Editor edits a draft, not the model.** `Recipe` is a SwiftData `@Model` (reference type), so direct edits would auto-persist on every keystroke. The editor takes a snapshot into `DraftRecipe` on open and only calls `Recipe.apply(_:)` on Save. **Critical sub-rule:** `apply(_:)` does `ingredients.removeAll()` + `steps.removeAll()` + `photos.removeAll()` + `step.photos` rebuild on every save, which cascade-deletes external-storage sidecars. **Bytes must be carried through the draft** (`DraftPhoto.image: Data?` for gallery, `DraftStep.images: [Data]` for step photos) or every save silently loses every image. See `Recipe.apply(_:)` in `Models/DraftRecipe.swift`.
+**Editor edits a draft, not the model.** `Recipe` is a SwiftData `@Model` (reference type), so direct edits would auto-persist on every keystroke. Editor snapshots into `DraftRecipe` on open and only calls `Recipe.apply(_:)` on Save. **Critical:** `apply(_:)` does `ingredients.removeAll()` + `steps.removeAll()` + `photos.removeAll()` + step photos rebuild on every save, cascade-deleting external-storage sidecars. **Bytes must be carried through the draft** (`DraftPhoto.image: Data?`, `DraftStep.images: [Data]`) or every save silently loses every image.
 
-**Coordinators above the NavigationStack.** `CookingSession`, `EditorCoordinator`, `NavigationContext`, `AppearanceSettings` all live as `@State` in `RootView` and are propagated via `.environment(...)`. The Cook Mode `.fullScreenCover` and editor/import `.sheet` are both hoisted to RootView so they survive Library→Detail navigation. Re-inject environments explicitly into covers — `@Observable` values can drop out across cover boundaries (see `RootView` line ~109).
+**Coordinators above the NavigationStack.** `CookingSession`, `EditorCoordinator`, `NavigationContext`, `AppearanceSettings` live as `@State` in `RootView`, propagated via `.environment(...)`. Cook Mode `.fullScreenCover` and editor `.sheet` are hoisted to RootView so they survive Library→Detail nav. **Re-inject environments explicitly into covers** — `@Observable` values can drop out across cover boundaries.
 
-**Multi-cook session shape.** `CookingSession.activeCooks: [ActiveCook]` (private(set)) holds 0–4 cooks. Mutations route through `start` (replaces), `addParallel` (additive, refuses duplicates and over-cap), `remove(cookID:)` (drops one; if last, `endAll`; if foregrounded, hands off + seeds `pendingRestoration`), `foreground(cookID:)`, `minimize`, `resume`, `restore`. **`ActiveCook.id` is distinct from `recipe.id`** because the same recipe could in principle be cooked twice — but `addParallel` *currently dedups by `recipe.id`*, so v1 disallows that case in the UI even though the model would allow it. **`CookModeView` is recreated on every cook switch** via `.id(cookID)` in RootView, so its `@State` for phase/strikes/timer seeds fresh per cook from `pendingRestoration`.
+**Multi-cook session shape.** `CookingSession.activeCooks: [ActiveCook]` (private(set)) holds 0–4. Mutations: `start` (replaces), `addParallel` (additive, dedups by `recipe.id`, refuses over-cap), `remove(cookID:)`, `foreground(cookID:)`, `minimize`, `resume`, `restore`. `ActiveCook.id` is distinct from `recipe.id` (model allows duplicates; UI v1 doesn't). **`CookModeView` is recreated on every cook switch** via `.id(cookID)` in RootView, so `@State` for phase/strikes/timer seeds fresh from `pendingRestoration`.
 
-**Per-cook persistence.** Every meaningful state change in `CookModeView` calls `persistSnapshot()` → `CookingSession.persistForegroundedSnapshot(_:)` → `CookingSessionStore.save(...)` (writes the full `[CookingSessionState]` JSON to UserDefaults under `cooking-session-states.v2`). v1→v2 migration runs once on first load, wraps the legacy single-state payload in a 1-element array, and removes the v1 key. Force-kill mid-cook is recoverable: `CookingSession.restore` on launch rebuilds from disk, expired timers surface the ready overlay on first render rather than auto-restarting the alarm (re-opening to a screaming app would be hostile).
+**Per-cook persistence.** Every meaningful state change in `CookModeView` calls `persistSnapshot()` → `CookingSession.persistForegroundedSnapshot(_:)` → `CookingSessionStore.save(...)` (full `[CookingSessionState]` JSON to UserDefaults under `cooking-session-states.v2`). v1→v2 migration runs once on first load. Force-kill mid-cook recoverable: expired timers surface ready overlay rather than auto-restarting alarm (re-opening to a screaming app would be hostile).
 
-**Timer notification IDs are per-cook.** `TimerNotifications.identifier(for: cookID:)` produces `cooking-timer-<uuid>`. Two parallel cooks each get distinct lock-screen banners. `cancelAll` also wipes the legacy single-id `"cooking-timer"` for clean upgrades. Notification `userInfo` carries `recipeID` + `cookID`; the `AppDelegate.didReceive` handler routes via `llamascookbook://cook/<recipeID>` and the Live Activity widget bakes the same URL into `widgetURL`. RootView's `onOpenURL` looks up the matching `ActiveCook` by `recipe.id` and calls `foreground(cookID:)`.
+**Timer notification IDs are per-cook.** `TimerNotifications.identifier(for: cookID:)` produces `cooking-timer-<uuid>`. `cancelAll` also wipes legacy single-id `"cooking-timer"` for clean upgrades. `userInfo` carries `recipeID` + `cookID`; `AppDelegate.didReceive` routes via `llamascookbook://cook/<recipeID>`; widget bakes same URL into `widgetURL`.
 
-**Multi-cook timer hole (outstanding).** `TimerLiveActivityController` is per-`CookModeView`, not per-session. Each `CookModeView` instance owns one controller; `adopt(forRecipeID:)` filters by `attributes.recipeID` so kill/restore re-attaches the right Live Activity. **When two cooks have running timers simultaneously, only the foregrounded cook's CookModeView exists**, so the backgrounded cook's Live Activity is unmanaged from the app side. iOS will keep ticking it (because `TimerAttributes.ContentState.endDate` drives countdown locally), but extending/cancelling from the foregrounded cook's banner won't reach it. See Multi-Recipe-Cook-Mode.md §6 for the planned `TimerLiveActivityRegistry` lift.
+**Multi-cook timer hole (outstanding).** `TimerLiveActivityController` is per-`CookModeView`, not per-session. When two cooks have running timers simultaneously, only the foregrounded cook's `CookModeView` exists, so the backgrounded cook's Live Activity is unmanaged. iOS keeps ticking it (because `endDate` drives countdown locally), but extending/cancelling from foreground won't reach it. Planned fix: `TimerLiveActivityRegistry` keyed by `cookID`.
 
-**Quantity strings, not numbers.** `Ingredient.quantity` is `String?` (`"2 & 1/2"`) so mixed fractions survive a round trip. `Lib/Quantity.swift` parses, scales (Cook Mode servings scaler), and formats — snapping scaled values to measurable fractions only (no `0.42 tsp`). Both `&` and space-separated forms accepted on input; `&` is canonical on output.
+**Quantity strings, not numbers.** `Ingredient.quantity` is `String?` (`"2 & 1/2"`) so mixed fractions survive round-trip. `Lib/Quantity.swift` parses, scales, and formats — snapping to measurable fractions only (no `0.42 tsp`). Both `&` and space-separated input accepted; `&` is canonical on output.
 
-**Per-step timer flag with text-based duration extraction.** `RecipeStep.needsTimer: Bool` is the source of truth for "should this step show a timer affordance in Cook Mode." When true, `CookModeView.timerSeconds(for:)` extracts a duration from the step text first (`extractDurationSeconds` regex pair handles ranges by taking the *smaller* number), then falls back to `recipe.cookTimeMinutes`, then to a 5-minute hard default. The keyword extractor (`oven`, `bake`, `simmer`, …) only labels the timer chip — it doesn't gate visibility.
+**Per-step timer flag.** `RecipeStep.needsTimer: Bool` is the source of truth. When true, `CookModeView.timerSeconds(for:)` extracts duration from step text first (range regex takes the *smaller* number), falls back to `recipe.cookTimeMinutes`, then 5-min default. Keyword extractor labels the chip — doesn't gate visibility.
 
-**Special notes have four placement slots.** `Recipe.prefaceNote` / `epilogueNote` / `generalNote` are recipe-level; `RecipeStep.specialNote` is per-step. The `SpecialNotesEditor` enforces "one note per slot" at the picker layer (only shows empty slots) — to edit, the user taps the existing row and types into the same slot.
+**Special notes have four placement slots.** `Recipe.prefaceNote` / `epilogueNote` / `generalNote` (recipe-level) + `RecipeStep.specialNote` (per-step). `SpecialNotesEditor` enforces "one per slot" at the picker.
 
-**Detail-quick-edit vs. Editor-full-edit gallery.** Gallery photos in Detail mutate `recipe.photos` directly through `recipe.photos.append(RecipePhoto(...))` and `modelContext.delete(sorted[index])` — **persistence is immediate** (like favorite-toggle), no Save needed. Gallery photos in Editor mutate `draft.photos` and only commit on Save through `Recipe.apply(_:)` — which means Cancel discards adds. Both paths use `PhotoCarouselView` with closure-based callbacks; the carousel doesn't know which mode it's in. **Reorder follows the same dichotomy:** Detail's `onReorder` rewrites every `RecipePhoto.order` on the live `@Model` (immediate persist, nil-image rows pushed past the visible tail so a future re-render still sorts correctly); Editor's `onReorder` reseats the displayable rows in `draft.photos` and waits for Save → `apply(_:)` to assign new `order` values from iteration position. Step-photo reorder (StepRowEditor + StepQuickAdd) uses `step.images.move(fromOffsets:toOffset:)` directly because step-photo arrays don't carry nil-image rows in practice.
+**Detail-quick-edit vs. Editor-full-edit gallery.** Detail mutates `recipe.photos` directly through `append(...)` and `modelContext.delete(...)` — **persistence is immediate**, no Save. Editor mutates `draft.photos`, commits on Save through `apply(_:)` — Cancel discards. Both use `PhotoCarouselView` with closure callbacks. **Reorder follows the same dichotomy:** Detail rewrites every `RecipePhoto.order` on the live `@Model` (nil-image rows pushed past visible tail); Editor reseats `draft.photos` and waits for Save. Step-photo reorder uses `step.images.move(fromOffsets:toOffset:)` directly.
 
-**Single keyboard `Done` for numeric fields.** A single `@FocusState private var isNumericFocused: Bool` lives in `RecipeEditorView` and is threaded down via `FocusState<Bool>.Binding`; `focusedNumeric(_, when:)` in `Lib/KeyboardDismiss.swift` attaches it only to numeric keyboards. The single root `ToolbarItemGroup(placement: .keyboard)` lights up the Done button only when `isNumericFocused == true`. Add new numeric fields with this helper, not their own toolbar.
+**Single keyboard `Done` for numeric fields.** A single `@FocusState private var isNumericFocused: Bool` lives in `RecipeEditorView`, threaded down via binding; `focusedNumeric(_, when:)` attaches it only to numeric keyboards. Single root `ToolbarItemGroup(placement: .keyboard)` lights up Done when `isNumericFocused == true`. Add new numeric fields with this helper, not their own toolbar.
 
-**Don't rely on `placement: .keyboard` inside a paging `TabView` presented in a sheet — use `safeAreaInset(edge: .bottom)` instead.** SwiftUI's `placement: .keyboard` toolbar is genuinely flaky for TextFields nested inside a `TabView(.page)` that's itself inside a `.sheet` / `.fullScreenCover`. Tried at the carousel's NavigationStack level: bar missed first focus, intermittently appeared on later focuses. Tried per-field on each TextField via `.toolbar { ... }`: also missed first focus, only started showing reliably after some other modal cycle (e.g. opening + closing the reorder sheet) primed SwiftUI's toolbar discovery. The deterministic fix used in `PhotoCarouselView.captionKeyboardAccessory`: a custom Done bar in `safeAreaInset(edge: .bottom)`, gated by a lifted-up `@FocusState<Int?>` on the carousel (`captionFocusedPage != nil` → render). iOS's keyboard avoidance lifts the safe-area inset above the keyboard automatically, so visually it sits exactly where a native accessory would (above the suggestions strip). Tap Done → `captionFocusedPage = nil` → focus drops, keyboard dismisses, CaptionRow's commit funnel fires. Skip the SwiftUI keyboard placement entirely for any future deeply-nested TextField context.
+**`placement: .keyboard` is unreliable inside `TabView(.page)` in a sheet — use `safeAreaInset(edge: .bottom)`.** The keyboard toolbar misses first focus and intermittently appears later. Deterministic fix in `PhotoCarouselView.captionKeyboardAccessory`: custom Done bar in `safeAreaInset(edge: .bottom)`, gated by lifted `@FocusState<Int?>`. iOS keyboard avoidance lifts the inset above the keyboard automatically.
 
-**SF Symbols + SwiftUI primitives only.** No UIKit views beyond `UIViewRepresentable` last-resort, no Combine, no SPM/CocoaPods packages. The brand logo is a bitmap loaded from `Assets.xcassets/LlamaLogo.imageset` (`Views/Components/LlamaLogo.swift`) — the old Canvas-port `LlamaMascot` was replaced when the design system shipped real artwork. The PNG body color is baked in; only the drop shadow is tintable, and it tracks `appearance.accentColor` so the user's color picker drives the halo (mirrors the SVG export's `--llama-shadow` CSS variable contract). UIKit appearance proxies are used twice deliberately: keyboard tint (`UIView.appearance().tintColor` in `App.init`) and PageControl dot color (`UIPageControl.appearance()` in `PhotoCarouselView.stylePageControl`). One `UIViewControllerRepresentable` exception: `Views/Components/ShareSheet.swift` wraps `UIActivityViewController` because SwiftUI's `ShareLink` can't be triggered programmatically — the recipe-sharing flow needs the first-share prompt to resolve before the share sheet opens, which forces state-driven presentation. Single-purpose, no other UIKit reaches downstream.
-
-## Shared helpers — reach for these before rolling local versions
-
-**Theme tokens (`Theme/AppColor.swift`):** `.background`, `.surface`, `.surfaceRaised`, `.surfaceSunken`; `.textPrimary` / `.textSecondary` / `.textTertiary`; `.accent` / `.accentDeep` / `.accentSoft`; **`.onAccent`** (cream text/icon on accent fills — 25 hard-coded `Color(red: 1, green: 0.992, blue: 0.972)` literals were replaced by this token); `.success`, `.destructive`, `.divider`, `.dividerStrong`, `.cookModeBackground`, `.shadow`, `.shadowSoft`.
-
-**Type (`Theme/AppFont.swift`):** `.display`, `.recipeTitle`, `.sectionHeading`, `.eyebrow`, `.body`, `.ingredient`, `.ingredientCook`, `.caption`. `Text.eyebrowStyle(_:)` for small-caps eyebrows. All system fonts (`.serif` design for headings); custom Fraunces/Inter not bundled — target of the aesthetic pass.
-
-**Spacing (`Theme/AppSpacing.swift`):** `xs=4 / sm=8 / md=12 / lg=16 / xl=24 / xxl=32 / xxxl=48`. `AppRadius`: `sm=8 / md=12 / lg=16 / xl=24`.
-
-**Formatting:**
-- `Recipe.sortedIngredients` / `.sortedSteps` / `.sortedPhotos`, `RecipeStep.sortedStepPhotos` — single sort helpers; never write `.sorted { $0.order < $1.order }` inline.
-- `Ingredient.display(scaledBy:)` → `Display { quantity, unit, takesOf, name, measure, fullLine }` — single qty + plural unit + "of" connector + name pipeline.
-- `ClockFormat.mmss(_:)` — "M:SS" countdown.
-- `StringCase.capitalizeFirst(_:)` / `.titleCase(_:)`.
-- `Quantity.parse / format / scale / displayFormat / splitForChips / combine` — all quantity math goes through here. Snaps to measurable fractions on format.
-- `Plural.unit(_, for:)` / `.needsConnector(_)` — English -s/-es; `needsConnector` flags discrete-count units ("3 cloves of garlic" vs "2 cups flour").
-- `RecipeImporter.parse(_:)` — text-paste path, three-fallback step splitter (newlines → numbered markers → comma-then / comma-digit → sentence boundaries). Caption-style fallback: when ≤2 blank-line blocks but ≥6 lines, hand off to `parseUnstructuredLines` + `looksLikeIngredient`.
-- `RecipeURLImporter.fetch(_:)` + `RecipeSchemaParser.parse(html:)` — JSON-LD → OG fallback; `aiParse(_:sourceUrl:)` runs both regex and AI, `pickBetterDraft` chooses. Tags are **not** auto-populated from hashtags / keywords (user-controlled via `TagPresets`); hashtags are stripped from caption text.
-- `RecipeAIParser.parse(_:sourceUrl:)` — iOS 26+ on-device LLM, returns nil silently on unavailable / quality-gate fail.
-- `recipe.exportText` — plain-text export.
-
-**Photos:**
-- `RecipeImageView` — single rendering surface; NSCache-backed; size hints to drive thumbnail vs full-bleed.
-- `PhotoCarouselView` — closure-driven (doesn't know Detail-quick-edit vs Editor-draft mode). Hero recipe title above the photo, visible delete (`−`) + reorder-mode trigger (`rectangle.on.rectangle.angled`) + add (`+`) toolbar cluster, per-field keyboard caption Done.
-- `PhotoReorderView` — sibling sheet opened from `PhotoCarouselView`'s reorder-mode toolbar button. 3-column `LazyVGrid` of square tiles with `NSItemProvider`/`PhotoTileDropDelegate` drag-and-drop; each drop forwards a `(IndexSet, Int)` move to the same `onReorder` closure the carousel takes. All four edit-mode call sites (Detail gallery, Editor gallery, StepRowEditor, StepQuickAdd) wire `onReorder`; view-only call sites (CookModeView step viewer, Detail step viewer) leave it nil so the reorder-mode button hides.
-- `ImageProcessing` — `Task.detached` resize + format-preserving re-encode + bytes guard via `CGImageSource`/`CGImageDestination`.
-
-**UI utilities:**
-- `FlowRow` — line-wrapping chip container.
-- `shake(count:)` — counter-driven horizontal shake; pair with `Haptics.warning()`.
-- `focusedNumeric(_, when:)` — single editor-root Done button for numeric keyboards only.
-- House list-row transition: `.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity.combined(with: .scale(scale: 0.9)))` + `.spring(response: 0.42, dampingFraction: 0.82)`.
+**SF Symbols + SwiftUI primitives only.** No UIKit beyond `UIViewRepresentable` last-resort, no Combine, no SPM/CocoaPods. Brand logo is a bitmap from `Assets.xcassets/LlamaLogo.imageset`; PNG body color is baked in, only drop shadow is tintable (tracks `appearance.accentColor`). Three deliberate UIKit reaches: keyboard tint (`UIView.appearance().tintColor`), PageControl dot color (`UIPageControl.appearance()`), `ShareSheet` wraps `UIActivityViewController` (SwiftUI `ShareLink` can't be triggered programmatically — first-share prompt forces state-driven presentation).
 
 ## UX principles (still binding)
-
-From llamas-cookbook-plan.md and PROJECT.md §6:
 
 1. **One-thumb operable.** Primary actions in bottom half or toolbar.
 2. **Input friction = death.** Quick-add, visible add buttons, Return-submits-and-refocuses, one conditional Done.
 3. **Cook Mode is its own world.** Warmer bg, larger type (`ingredientCook`), slower pacing.
-4. **Gestures have visible fallbacks.** Long-press Delete also has a context-menu Delete.
+4. **Gestures have visible fallbacks.** Long-press Delete also has context-menu Delete.
 5. **Generous whitespace.**
 6. **Silent save.** Only warn on Cancel when there's real loss.
 7. **Forgiving.** Deletions confirmed. Timer cancel is destructive-styled.
 
 **Canonical interaction details (don't regress):**
-- Quantity chips: two rows (wholes bigger/bolder, fractions smaller). Only measurable fractions — no 3/8 · 5/8 · 7/8. Tapping active deselects. Cook-mode scaling snaps to the same set.
+- Quantity chips: two rows (wholes bigger/bolder, fractions smaller). Only measurable fractions — no 3/8 · 5/8 · 7/8. Tapping active deselects.
 - Ampersand fractions: `2 & 1/2 cups` on display. Parser also accepts `2 1/2`.
 - Detail ingredient row: `•  2 & 1/2 cups  —  flour`. Quantity in accent semibold monospaced, em-dash, name in textPrimary.
-- Per-step timer flag: clock glyph on step quick-add and row editor. Cook Mode shows the timer affordance only for `needsTimer == true`.
-- Floating timer banner pinned between phase header and scroll. Tap opens the running-timer sheet with a 1–60 min wheel.
+- Per-step timer flag: clock glyph on step quick-add and row editor.
+- Floating timer banner pinned between phase header and scroll. Tap opens running-timer sheet with 1–60 min wheel.
 - Ready overlay: full-screen terracotta with bell + `"{Label} timer ready!"`, embedded MinutePicker + filled Extend (preserves `timerStepId`), outlined Stop. Vibration + haptic warning every 1.2s until Stop/Extend.
 
 ## Signing & CI gotchas
 
-- **Bundle id:** `com.llamascookbook.app` (widget: `com.llamascookbook.app.widget`). **Team:** `GYFN949Q5E`. **ASC app id:** `6762527184`.
+- **Bundle ids:** `com.llamascookbook.app`, `.widget`, `.shareext`. **Team:** `GYFN949Q5E`. **ASC app id:** `6762527184`.
 - **CFBundleVersion** = Unix timestamp; **MARKETING_VERSION** = `1.0.0` (bump in `project.yml`).
-- **`Resources/PrivacyInfo.xcprivacy`** is required by App Store Connect (auto-rejection without it since 2024-05-01). Declares `NSPrivacyAccessedAPICategoryUserDefaults` (CA92.1, for the cooking-session JSON / accent / outbox / pending-delete queue / owner profile / user-account aux fields) + `NSPrivacyAccessedAPICategoryFileTimestamp` (C617.1, for `SharedContainer.sweepShareInbox`'s `.contentModificationDateKey` lookup). `NSPrivacyTracking = false`, `NSPrivacyCollectedDataTypes` empty (every data point lives on-device or in the user's own iCloud, never on a server we control). If a future feature touches a new required-reason API, add the declaration here BEFORE the next TestFlight upload — App Store validation is the canary.
-- **Secrets** (GitHub Actions): `IOS_DIST_CERT_P12_BASE64`/`_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `IOS_WIDGET_PROVISIONING_PROFILE_BASE64`, `APPSTORE_API_KEY_P8_BASE64`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_ISSUER_ID`.
+- **`Resources/PrivacyInfo.xcprivacy`** is required (auto-rejection without it since 2024-05-01). Declares `NSPrivacyAccessedAPICategoryUserDefaults` (CA92.1) + `NSPrivacyAccessedAPICategoryFileTimestamp` (C617.1, for `SharedContainer.sweepShareInbox`). `NSPrivacyTracking = false`. If a future feature touches a new required-reason API, declare it here BEFORE next TestFlight upload.
+- **GitHub Secrets:** `IOS_DIST_CERT_P12_BASE64`/`_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `IOS_WIDGET_PROVISIONING_PROFILE_BASE64`, `IOS_SHARE_EXT_PROVISIONING_PROFILE_BASE64`, `APPSTORE_API_KEY_P8_BASE64`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_ISSUER_ID`.
 
-These are intentional and have stories — don't "clean them up" without checking comments in [`ios-native-ci.yml`](./.github/workflows/ios-native-ci.yml):
+These are intentional — don't "clean up" without checking comments in `ios-native-ci.yml`:
 
-- **`macos-26` runner pinned explicitly.** `macos-latest` resolves to macOS 15 / Xcode 16, which fails ITMS-90725.
-- **Xcode 26 selection prefers stable over beta.** Beta SDKs ship a simulator-runtime build mismatch that breaks `actool` during archive even on device builds (e.g. `error: No simulator runtime version from [...] available to use with iphonesimulator SDK version 23F5054d`). The picker globs `Xcode_26*.app`, filters `beta`, sorts by version (`sort -V`), falls back to beta with a `::warning::` only if no stable exists. **Don't hardcode the app name** — Apple ships point releases (26.0.1, 26.1.1, 26.4.1) and a hardcoded path fails fast. A naive `sort -V | tail -1` picks the beta because `26.5_beta > 26.4.1`.
-- **`DEVELOPER_DIR` written to `$GITHUB_ENV`** as belt-and-suspenders alongside `xcode-select -s`. The runner image pre-sets `DEVELOPER_DIR` in shell profile pointing at the default Xcode (currently beta), which silently overrides `xcode-select` for every subsequent step's fresh shell.
-- **`xcodebuild -downloadPlatform iOS`** runs after `-runFirstLaunch` even though we're not building for the simulator; `actool`'s thinning step still cross-checks simulator runtimes. Includes a 3-attempt retry loop with backoff because Apple's content endpoint is flaky from CI.
-- **App icon PNGs sanitized at CI time** by ImageMagick with `-alpha remove -alpha off -colorspace sRGB -define png:color-type=2`. The legacy multi-size icon set (14 PNGs under `Assets.xcassets/AppIcon.appiconset/`) ships as committed RGBA from the design export pipeline; the CI step strips alpha in place per build because Xcode 26 hard-rejects RGBA app icons (`CompileAssetCatalogVariant thinned` archive failure). The placeholder-generation fallback is gone now that real artwork is committed — if the appiconset is empty CI fails fast with a clear error rather than silently shipping a placeholder.
-- **Timer alarm `.caf` generated at CI time** by ffmpeg + afconvert. Listed `optional: true` in `project.yml`; the app falls back to `UNNotificationSound.default` and `AlarmPlayer.start` no-ops silently when missing.
-- **`UIDesignRequiresCompatibility = true`** in `Resources/AppInfo.plist` keeps legacy chrome rendering on iOS 26 (Liquid Glass opt-out). The flag is **temporary** — Apple has signaled removal in iOS 27. Adoption is queued as part of the aesthetic pass.
-- **Share Extension provisioning** — the `LlamasCookbookShareExtension` target ships with its own bundle id (`com.llamascookbook.app.shareext`) + provisioning profile (`IOS_SHARE_EXT_PROVISIONING_PROFILE_BASE64` secret). The App Group entitlement (`group.com.llamascookbook.app`) MUST be present on BOTH the main app's profile and the extension's profile, or signing fails with `Provisioning profile doesn't include the app-groups entitlement`. After enabling App Groups on a target's App ID in the Apple Developer Portal, the matching provisioning profile must be regenerated (Edit → Save) — the entitlement is baked into the profile at issue time. Three string literals must agree: `SharedContainer.appGroupID` (Swift), the entitlements files in `Resources/` and `ShareExtension/`, and the App Group identifier in the Developer Portal. See [Share-Extension-Plan.md §8](./Share-Extension-Plan.md) for the full portal walkthrough.
-- **`LSSupportsOpeningDocumentsInPlace = <false/>`** in `Resources/AppInfo.plist` is required because we declare `CFBundleDocumentTypes` (for `.llamarecipe`). Without it App Store Connect emits `ITMS-90737` on every upload (warning, not rejection — but pollutes the build report). `false` is the right semantic: we copy the incoming file into our Inbox, materialize into SwiftData, and never touch the source again. Switching to `true` would imply security-scoped editing of the original file, which is the document-based-app pattern, not ours. If we ever add another `CFBundleDocumentTypes` entry, this same key still covers it (it's app-wide, not per-type).
-- **Sign-in-with-Apple entitlement** — `com.apple.developer.applesignin = ["Default"]` in `Resources/LlamasCookbook.entitlements`. The capability MUST also be enabled on the main App ID in the Apple Developer Portal (Identifiers → `com.llamascookbook.app` → Capabilities → Sign In with Apple → Configure → Enable as primary App ID), and the provisioning profile MUST be regenerated after enabling — the entitlement is baked into the profile at issue time. Build fails to sign with "Provisioning profile doesn't include the com.apple.developer.applesignin entitlement" otherwise; `IOS_PROVISIONING_PROFILE_BASE64` GitHub Secret needs the freshly-regenerated profile pasted in. No new GitHub Secret needed for the auth itself — Apple manages all keys server-side. See [Implementing-User-Sign-In.md §10](./Implementing-User-Sign-In.md) for the full portal walkthrough.
-- **iCloud / CloudKit entitlement** — `com.apple.developer.icloud-container-identifiers = ["iCloud.com.llamascookbook.app"]` and `com.apple.developer.icloud-services = ["CloudKit"]` in `Resources/LlamasCookbook.entitlements`. The capability MUST be enabled on the main App ID in the Apple Developer Portal (Identifiers → `com.llamascookbook.app` → Capabilities → iCloud → Configure → check "Include CloudKit support" → click "+" → create container `iCloud.com.llamascookbook.app`). Pair this with the Sign-in-with-Apple capability enable so the provisioning profile only regenerates once for both. Same `IOS_PROVISIONING_PROFILE_BASE64` GitHub Secret needs the regenerated profile. After signing works, the `RecipeShare` record type must be created in CloudKit Dashboard (https://icloud.developer.apple.com/dashboard/) with these fields: `envelope` (Asset), `senderDisplayName` (String), `recipeTitle` (String), `createdAt` (Date/Time, queryable + sortable), AND `photo0` through `photo19` (Asset, all optional — these carry photo bytes split off from the envelope for upload speed; cap matches `CloudKitService.maxCloudPhotoCount`). Schema must be deployed from Development to Production before any TestFlight build that exercises the cloud-share path — forgetting this is the canonical "works in dev, fails in TestFlight" CloudKit gotcha. CloudKit's dev-mode auto-discovers new fields when the first record uses them, so deploying via the dashboard's "Deploy Schema Changes" picks up `photo0`–`photo19` automatically once the new code has run a single share in development. Container identifier is shared across three places (entitlement, `CloudKitService.containerID`, portal config) — match exactly. See revision note at top of [Implementing-User-Sign-In.md](./Implementing-User-Sign-In.md).
-- **SwiftData `cloudKitDatabase: .none` opt-out** — `LlamasCookbookApp.makeModelContainer()` builds a `ModelConfiguration` with `cloudKitDatabase: .none` explicitly. Without this, SwiftData's default `.automatic` behavior detects the iCloud entitlement (added for the cloud-permalink share path) and tries to back the container with CloudKit sync — which fails on our schema (we use `.cascade` `@Relationship` delete rules and several non-optional properties without defaults; CloudKit-backed SwiftData rejects both). The failure mode is silent: container open errors out, SwiftData falls back to in-memory, recipes appear to save but vanish on relaunch, library shows "No recipes yet" on every launch. Discovered the hard way 2026-04-28; the explicit `.none` is mandatory. **Don't switch to the `.modelContainer(for:)` View/Scene modifier here** — that initializer doesn't expose `cloudKitDatabase`, so it'd reintroduce the regression. Use `makeModelContainer()` instead.
+- **`macos-26` runner pinned explicitly.** `macos-latest` resolves to macOS 15 / Xcode 16, fails ITMS-90725.
+- **Xcode 26 selection prefers stable over beta.** Beta SDKs ship a simulator-runtime mismatch that breaks `actool` during archive even on device builds. Picker globs `Xcode_26*.app`, filters `beta`, sorts by version, falls back to beta with `::warning::` only if no stable. **Don't hardcode the app name** — Apple ships point releases (26.0.1, 26.1.1, 26.4.1). Naive `sort -V | tail -1` picks beta because `26.5_beta > 26.4.1`.
+- **`DEVELOPER_DIR` written to `$GITHUB_ENV`** as belt-and-suspenders alongside `xcode-select -s`. Runner image pre-sets `DEVELOPER_DIR` in shell profile pointing at default Xcode (currently beta), silently overrides `xcode-select`.
+- **`xcodebuild -downloadPlatform iOS`** runs after `-runFirstLaunch`; `actool` thinning cross-checks simulator runtimes even on device builds. Includes 3-attempt retry loop because Apple's content endpoint is flaky from CI.
+- **App icon PNGs sanitized at CI** by ImageMagick with `-alpha remove -alpha off -colorspace sRGB -define png:color-type=2`. Xcode 26 hard-rejects RGBA app icons. Empty appiconset fails fast.
+- **Timer alarm `.caf` generated at CI** by ffmpeg + afconvert. `optional: true` in `project.yml`; app falls back to `UNNotificationSound.default`.
+- **`UIDesignRequiresCompatibility = true`** in `Resources/AppInfo.plist` keeps legacy chrome rendering on iOS 26 (Liquid Glass opt-out). Temporary — Apple has signaled removal in iOS 27.
+- **Share Extension provisioning** — App Group entitlement (`group.com.llamascookbook.app`) MUST be on BOTH main app and extension profiles. After enabling App Groups on a target's App ID, the matching profile must be regenerated (entitlement is baked at issue time). Three string literals must agree: `SharedContainer.appGroupID`, the entitlements files in `Resources/` and `ShareExtension/`, and the App Group identifier in the Developer Portal.
+- **`LSSupportsOpeningDocumentsInPlace = <false/>`** in `AppInfo.plist` is required because we declare `CFBundleDocumentTypes` (for `.llamarecipe`). Without it, App Store Connect emits ITMS-90737 warning. `false` is the right semantic: we copy into Inbox, materialize, and never touch the source again.
+- **Sign-in-with-Apple entitlement** — `com.apple.developer.applesignin = ["Default"]` in `Resources/LlamasCookbook.entitlements`. Capability MUST also be enabled on main App ID in Developer Portal AND profile regenerated. `IOS_PROVISIONING_PROFILE_BASE64` needs the regenerated profile.
+- **iCloud / CloudKit entitlement** — `com.apple.developer.icloud-container-identifiers = ["iCloud.com.llamascookbook.app"]` and `com.apple.developer.icloud-services = ["CloudKit"]`. Capability MUST be enabled on App ID + container created in portal + profile regenerated. `RecipeShare` record type fields: `envelope` (Asset), `senderDisplayName` (String), `recipeTitle` (String), `createdAt` (Date/Time, queryable + sortable), `photo0`–`photo19` (Asset, optional). **Schema must be deployed Dev→Prod before any TestFlight build that exercises cloud-share** — the canonical "works in dev, fails in TestFlight" CloudKit gotcha. Container identifier shared across three places (entitlement, `CloudKitService.containerID`, portal config) — match exactly.
+- **SwiftData `cloudKitDatabase: .none` opt-out** — `LlamasCookbookApp.makeModelContainer()` builds a `ModelConfiguration` with `cloudKitDatabase: .none` explicitly. Without this, SwiftData's default `.automatic` detects the iCloud entitlement and tries to back the container with CloudKit sync — which fails on our schema (`.cascade` `@Relationship` rules + non-optional properties without defaults). Failure mode is silent: container falls back to in-memory, recipes appear to save but vanish on relaunch. Discovered 2026-04-28; explicit `.none` is mandatory. **Don't switch to the `.modelContainer(for:)` modifier** — that initializer doesn't expose `cloudKitDatabase`.
 
-Watch points for the next image rotation: the `Print toolchain` CI step's `iphoneos --show-sdk-version` line is the canary — if it drops below 26.x, ITMS-90725 returns. The picker's `::warning::` line will also appear in the log if only a beta is available.
+Watch points: `Print toolchain` step's `iphoneos --show-sdk-version` is the canary — if it drops below 26.x, ITMS-90725 returns.
 
 ## Known limitations / deferred
 
-- **Multi-cook timer registry** — see "Multi-cook timer hole" pattern above. Two parallel running timers, the backgrounded one is unmanaged. `TimerLiveActivityRegistry` lift is the planned fix.
-- **Settings screen** — still a stub. Nothing wired beyond accent color (which lives elsewhere via `AppearanceSettings`).
-- **App icon** — placeholder generated in CI. Real 1024×1024 artwork not yet in the asset catalog.
+- **Multi-cook timer registry** — see "Multi-cook timer hole" above.
+- **Settings screen** — stub. Only accent color wired (via `AppearanceSettings`).
 - **Keep-awake during Cook Mode** — `UIApplication.shared.isIdleTimerDisabled = true` not yet wired.
-- **iPad** — iPhone only; no iPad layout.
+- **iPad** — iPhone only.
 - **Live Activity App Intents** — in-island +1/−1/cancel deferred.
-- **Custom type** — Fraunces / Inter not bundled; `AppFont` uses system serif as placeholder.
-- **iCloud sync** — not configured (SwiftData + CloudKit is the path).
-- **`RecipeStep.image: Data?`** — deprecated single-image slot, kept for migration. Will be removed in a future cleanup migration.
+- **Custom type** — Fraunces / Inter not bundled; `AppFont` uses system serif.
+- **iCloud sync for SwiftData** — not configured (intentional `.none` opt-out, see above).
+- **`RecipeStep.image: Data?`** — deprecated, kept for migration.
+- **Liquid Glass** — must adopt before iOS 27 SDK becomes mandatory and `UIDesignRequiresCompatibility` is removed.
 
 ## What's next
 
-**Short-term active queue:**
-1. **Recipe sharing between users**, per [Recipe-Sharing.md](./Recipe-Sharing.md) + [Share-Extension-Plan.md](./Share-Extension-Plan.md). Four-PR sequence: PR 1 schema/UTType/provenance fields (✅ shipped) → PR 2 outbound Detail share menu + first-share prompt (✅ shipped) → PR 3 inbound `onOpenURL` + Import Preview + provenance display (✅ implemented, awaiting CI verification) → PR 4 Share Extension target + App Group handoff + main-app `share-url` / `share-incoming` routing (✅ implemented, awaiting CI verification — Apple Developer Portal setup done, GitHub Secrets updated with regenerated main + new share-ext profiles). Cloud transport designed in but not implemented.
-2. **User sign-in + cloud recipe delivery**, per [Implementing-User-Sign-In.md](./Implementing-User-Sign-In.md) (architecture pivoted 2026-04-28 — friend-code + inbox + push dropped in favor of cloud permalinks). PR 1 Sign-in-with-Apple + Profile sheet + Keychain identity (✅ implemented, awaiting CI + portal capability) → PR 2 reframed as three slices, all three implemented locally and awaiting CI: Slice 1 iCloud entitlement + `CloudKitService` skeleton, Slice 2 cloud upload + `llamascookbook://share/<id>` permalink + receive flow, Slice 3 Delete-Account cascade via local outbox. Friend codes / inbox / push subscriptions deferred indefinitely (would resurface only if a future "social layer" PR demands them). Portal action items collected in the Sign-in-with-Apple + iCloud entries under Signing & CI Gotchas.
-3. Per-cook `TimerLiveActivityRegistry` (lift the controller out of `CookModeView`, key by `cookID`, stop the foregrounded-only blind spot).
-4. Aesthetic / typography pass — Fraunces + Inter bundled, real app icon, richer Library cards, Detail rhythm (drop caps, dividers), Cook Mode differentiation, transitions polish.
-5. Liquid Glass adoption (must land before iOS 27 SDK becomes mandatory and `UIDesignRequiresCompatibility` is removed).
+1. Recipe sharing PR 3 + PR 4 land (CI verification).
+2. User sign-in PR 1 + PR 2 slices 1–3 land (CI + portal capability).
+3. Per-cook `TimerLiveActivityRegistry` (lift controller out of `CookModeView`, key by `cookID`).
+4. Aesthetic / typography pass — Fraunces + Inter, real app icon, richer Library cards, Detail rhythm, Cook Mode differentiation.
+5. Liquid Glass adoption.
 
-**Queued / deferred:** dark mode (palette is sRGB-explicit; needs semantic light/dark tokens), Settings screen, iPad layout, iCloud sync, App Intents on the Live Activity.
+Queued: dark mode (palette is sRGB-explicit, needs semantic light/dark tokens), Settings screen, iPad, App Intents on Live Activity.
 
 ## Working with this documentation
 
 - **CLAUDE.md is the document the user keeps current.** When you change product behavior, update this file.
 - **Code wins over docs.** When memory or docs disagree with code, code wins, and update the doc.
-- Feature plan docs (`Multi-Recipe-Cook-Mode.md`, `Photo-Capability.md`, etc.) decay after implementation; before quoting them, grep the code for the type / function they reference.
-- PROJECT.md's "current status" sections are stale — defer to this file.
+- Feature plan docs decay after implementation; before quoting them, grep code for the type / function they reference.
