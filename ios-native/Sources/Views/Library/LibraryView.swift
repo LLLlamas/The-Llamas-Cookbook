@@ -166,19 +166,21 @@ struct LibraryView: View {
         }
     }
 
-    /// Faint mascot watermark sitting behind everything. Pinned toward
-    /// the bottom-center so it feels like an emblem rather than a pattern,
-    /// and low-opacity enough that cards stay legible on top.
+    /// Faint mascot watermark sitting behind everything. Sized to nearly
+    /// fill the smaller screen dimension and centered in the available
+    /// area so it reads as a page-wide emblem; opacity stays low enough
+    /// that cards remain legible on top.
     private var mascotWatermark: some View {
-        VStack {
-            Spacer(minLength: 0)
+        GeometryReader { geo in
+            // 95% of the smaller dimension keeps the mascot inside the
+            // safe visible area on every iPhone width without clipping.
+            let dim = min(geo.size.width, geo.size.height) * 0.95
             // Watermark at 6% opacity — drop the shadow entirely
             // (a halo on a faint logo just muddies the page).
-            LlamaLogo(size: 300, shadowOpacity: 0)
+            LlamaLogo(size: dim, shadowOpacity: 0)
                 .opacity(0.06)
-                .padding(.bottom, 120)
+                .frame(width: geo.size.width, height: geo.size.height)
         }
-        .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
     }
 
@@ -601,11 +603,27 @@ private struct LetterIndex: View {
     }
 
     private func magnifiedBadge(letter: String) -> some View {
+        // Translucent vertical gradient mirrors the Library FAB's
+        // `addButton`: 0.95 → 0.80 opacity on the accent fill so the
+        // floating badge has the same "raised translucent disc" feel
+        // as the new-recipe button rather than a solid block. Recipe
+        // cards behind the badge stay faintly visible during scrubbing.
         Text(letter)
             .font(.system(size: 30, weight: .heavy, design: .serif))
             .foregroundStyle(AppColor.onAccent)
             .frame(width: badgeSize, height: badgeSize)
-            .background(Circle().fill(accent))
+            .background(
+                Circle().fill(
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(0.95),
+                            accent.opacity(0.80)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            )
             .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 3)
     }
 

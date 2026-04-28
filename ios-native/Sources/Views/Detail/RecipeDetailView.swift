@@ -369,6 +369,9 @@ struct RecipeDetailView: View {
                 },
                 onSetCaption: { index, newCaption in
                     setPhotoCaption(at: index, to: newCaption)
+                },
+                onReorder: { indices, destination in
+                    reorderPhotos(fromOffsets: indices, toOffset: destination)
                 }
             )
         }
@@ -522,9 +525,8 @@ struct RecipeDetailView: View {
 
     private func ingredientRow(_ ingredient: Ingredient) -> some View {
         let display = ingredient.display()
-        let takesOf = display.takesOf
 
-        // Always reserve the qty/unit column + separator so name-only
+        // Always reserve the qty/unit column + dash separator so name-only
         // ingredients (vanilla, salt) line up with measured ones in the
         // same list — the user explicitly asked for the name column to
         // stay anchored on the right even when there's no measurement.
@@ -552,15 +554,9 @@ struct RecipeDetailView: View {
             }
             .frame(width: 96, alignment: .leading)
 
-            if takesOf {
-                Text("of")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(AppColor.textSecondary)
-            } else {
-                Text("—")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(AppColor.dividerStrong)
-            }
+            Text("—")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(AppColor.dividerStrong)
 
             Text(ingredient.name)
                 .font(AppFont.ingredient)
@@ -771,6 +767,20 @@ struct RecipeDetailView: View {
         guard displayable.indices.contains(index) else { return }
         let trimmed = newCaption?.trimmingCharacters(in: .whitespacesAndNewlines)
         displayable[index].caption = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        recipe.updatedAt = .now
+    }
+
+    /// Apply a SwiftUI-style `.move(fromOffsets:toOffset:)` against the
+    /// displayable photos, then rewrite every `RecipePhoto.order` to
+    /// match the new sequence. Photos with nil image bytes are pushed
+    /// past the visible tail so any future re-render still sorts the
+    /// real photos in the order the user just chose.
+    private func reorderPhotos(fromOffsets: IndexSet, toOffset: Int) {
+        var displayable = recipe.sortedPhotos.filter { $0.image != nil }
+        let hidden = recipe.sortedPhotos.filter { $0.image == nil }
+        displayable.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        for (i, photo) in displayable.enumerated() { photo.order = i }
+        for (i, photo) in hidden.enumerated() { photo.order = displayable.count + i }
         recipe.updatedAt = .now
     }
 

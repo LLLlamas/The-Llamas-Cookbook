@@ -92,6 +92,9 @@ struct StepRowEditor: View {
                     guard step.images.indices.contains(idx) else { return }
                     step.images[idx].caption = newCaption
                 },
+                onReorder: { indices, destination in
+                    step.images.move(fromOffsets: indices, toOffset: destination)
+                },
                 maxImages: PhotoToggleButton.maxImages
             )
             .presentationDetents([.large])

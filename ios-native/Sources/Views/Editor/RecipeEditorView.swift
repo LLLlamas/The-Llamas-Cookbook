@@ -241,6 +241,9 @@ struct RecipeEditorView: View {
                 },
                 onSetCaption: { index, newCaption in
                     setPhotoCaption(at: index, to: newCaption)
+                },
+                onReorder: { indices, destination in
+                    reorderPhotos(fromOffsets: indices, toOffset: destination)
                 }
             )
         }
@@ -434,6 +437,22 @@ struct RecipeEditorView: View {
         guard displayIndices.indices.contains(index) else { return }
         let trimmed = newCaption?.trimmingCharacters(in: .whitespacesAndNewlines)
         draft.photos[displayIndices[index]].caption = (trimmed?.isEmpty ?? true) ? nil : trimmed
+    }
+
+    /// Apply a SwiftUI `.move(fromOffsets:toOffset:)` against the
+    /// displayable subset of `draft.photos`, then reseat each shuffled
+    /// row back at its original index in the underlying array. Photos
+    /// without image bytes (rare) keep their slots so they don't get
+    /// reshuffled around the user's intent.
+    private func reorderPhotos(fromOffsets: IndexSet, toOffset: Int) {
+        let displayIndices = draft.photos.indices.filter { draft.photos[$0].image != nil }
+        var displayables = displayIndices.map { draft.photos[$0] }
+        displayables.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        var newPhotos = draft.photos
+        for (offset, draftIdx) in displayIndices.enumerated() {
+            newPhotos[draftIdx] = displayables[offset]
+        }
+        draft.photos = newPhotos
     }
 
     private func sectionHeader(_ title: String) -> some View {

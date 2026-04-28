@@ -76,6 +76,9 @@ struct StepQuickAdd: View {
                     guard stagedImages.indices.contains(idx) else { return }
                     stagedImages[idx].caption = newCaption
                 },
+                onReorder: { indices, destination in
+                    stagedImages.move(fromOffsets: indices, toOffset: destination)
+                },
                 maxImages: PhotoToggleButton.maxImages
             )
             .presentationDetents([.large])

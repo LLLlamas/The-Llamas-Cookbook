@@ -43,9 +43,11 @@ struct PhotoCarouselView: View {
     /// value or `nil` if the field was cleared. Caller is responsible
     /// for trimming + nil-empty normalization on the persistence side.
     var onSetCaption: ((Int, String?) -> Void)? = nil
-    /// Reorder callback. Plumbed for v2; not surfaced in the v1 UI
-    /// because drag-to-reorder inside a `TabView` is non-trivial and
-    /// not load-bearing for personal use.
+    /// Reorder callback in SwiftUI's `move(fromOffsets:toOffset:)`
+    /// convention. When provided, the toolbar surfaces ←/→ controls
+    /// that shift the currently visible photo by one slot — much
+    /// simpler than drag-to-reorder inside a paging `TabView`. Pass
+    /// nil for view-only carousels.
     var onReorder: ((IndexSet, Int) -> Void)? = nil
     /// Total cap for the gallery this carousel is editing. `nil` =
     /// uncapped (recipe-level gallery). Set to 3 for step photos. The
@@ -100,6 +102,10 @@ struct PhotoCarouselView: View {
         return true
     }
     private var canDelete: Bool { onDelete != nil }
+    /// Reorder controls surface only when the caller wired `onReorder`
+    /// AND there's more than one photo to shuffle. Single-photo galleries
+    /// hide the arrows entirely so the toolbar doesn't carry dead chrome.
+    private var canReorder: Bool { onReorder != nil && photoData.count > 1 }
     /// True when caller passed a captions array — the caption row
     /// should render. False (legacy callers) collapses the row.
     private var captionsEnabled: Bool { captions != nil }
@@ -189,27 +195,109 @@ struct PhotoCarouselView: View {
                     .truncationMode(.tail)
             }
         }
-        if canAdd {
+        // Pack reorder + delete + add into one trailing slot so SwiftUI's
+        // default per-item spacing doesn't spread them apart and break
+        // the "controls for the current photo" mental grouping. Same
+        // pattern as RecipeDetailView's heart/share/edit cluster.
+        if canReorder || (canDelete && !photoData.isEmpty) || canAdd {
             ToolbarItem(placement: .topBarTrailing) {
-                PhotosPicker(
-                    selection: $pickerItems,
-                    // 10-per-round library cap, narrowed further when
-                    // `maxImages` is set so a multi-pick can't push
-                    // past the gallery's total cap (3 for steps).
-                    maxSelectionCount: pickLimit,
-                    matching: .images,
-                    photoLibrary: .shared()
-                ) {
-                    if isProcessing {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "plus")
+                HStack(spacing: AppSpacing.md) {
+                    if canReorder {
+                        reorderButtons
+                    }
+                    if canDelete && !photoData.isEmpty {
+                        deleteButton
+                    }
+                    if canAdd {
+                        addButton
                     }
                 }
-                .disabled(isProcessing || pickLimit == 0)
-                .foregroundStyle(AppColor.accent)
             }
         }
+    }
+
+    /// Move-left / move-right pair. Acts on whichever photo is in
+    /// view (`selectedPage`). Disabled at the array's edges. Uses
+    /// chevrons so the affordance reads as "shift this photo" rather
+    /// than the navigation back/forward you'd see in a List.
+    private var reorderButtons: some View {
+        HStack(spacing: AppSpacing.sm) {
+            Button {
+                moveCurrent(by: -1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .disabled(selectedPage <= 0)
+            .foregroundStyle(selectedPage <= 0 ? AppColor.textTertiary : AppColor.accent)
+            .accessibilityLabel("Move photo left")
+
+            Button {
+                moveCurrent(by: 1)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .disabled(selectedPage >= photoData.count - 1)
+            .foregroundStyle(selectedPage >= photoData.count - 1 ? AppColor.textTertiary : AppColor.accent)
+            .accessibilityLabel("Move photo right")
+        }
+    }
+
+    /// Visible delete affordance. Mirrors the long-press path — both
+    /// flow into the same confirmation dialog so the destructive
+    /// behaviour stays consistent regardless of how the user got there.
+    private var deleteButton: some View {
+        Button {
+            Haptics.warning()
+            pendingDeleteIndex = selectedPage
+        } label: {
+            Image(systemName: "minus")
+                .font(.system(size: 17, weight: .semibold))
+        }
+        .foregroundStyle(AppColor.destructive)
+        .accessibilityLabel("Remove this photo")
+    }
+
+    private var addButton: some View {
+        PhotosPicker(
+            selection: $pickerItems,
+            // 10-per-round library cap, narrowed further when
+            // `maxImages` is set so a multi-pick can't push
+            // past the gallery's total cap (3 for steps).
+            maxSelectionCount: pickLimit,
+            matching: .images,
+            photoLibrary: .shared()
+        ) {
+            if isProcessing {
+                ProgressView()
+            } else {
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+        }
+        .disabled(isProcessing || pickLimit == 0)
+        .foregroundStyle(AppColor.accent)
+    }
+
+    /// Shift the currently visible photo by `delta` slots (-1 = left,
+    /// +1 = right). Translates to SwiftUI's `move(fromOffsets:toOffset:)`
+    /// convention before handing off to the caller's `onReorder`, then
+    /// optimistically updates `selectedPage` so the user keeps watching
+    /// the same photo as it slides into its new position.
+    private func moveCurrent(by delta: Int) {
+        guard let onReorder else { return }
+        let from = selectedPage
+        let to = from + delta
+        guard to >= 0, to < photoData.count else { return }
+        // SwiftUI's move convention: destination is the index in the
+        // pre-removal array. Moving right by 1 means "land at offset
+        // from+2" (drop is past the original neighbor). Left moves
+        // are simpler — toOffset == target index.
+        let toOffset = delta > 0 ? from + 2 : to
+        Haptics.selection()
+        onReorder(IndexSet([from]), toOffset)
+        selectedPage = to
     }
 
     // MARK: - Body content

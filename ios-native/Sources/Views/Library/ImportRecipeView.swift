@@ -343,15 +343,16 @@ struct ImportRecipeView: View {
         }
     }
 
-    /// Single-line tip that sits between the check panel and the editor.
-    /// Steers the message toward "the parser does the work" rather than
-    /// "type these labels": all the user needs to remember is line 1 =
-    /// title, blank lines separate the rest.
+    /// Tip that sits between the check panel and the editor. Spells
+    /// out both the blank-line convention and the explicit "Ingredient" /
+    /// "Steps" header fallback so users who paste single-line-block
+    /// captions know they have a way out.
     private var firstLineHint: some View {
-        HStack(spacing: AppSpacing.xs + 2) {
+        HStack(alignment: .top, spacing: AppSpacing.xs + 2) {
             Image(systemName: "info.circle")
                 .font(.system(size: 11, weight: .semibold))
-            Text("First line is your recipe title — blank lines separate the sections below.")
+                .padding(.top, 1)
+            Text("First line is your recipe title — leave a blank space before the first ingredient or type 'Ingredient' above the first ingredient, same goes for 'Steps' and we'll handle the rest!")
                 .font(.system(size: 11, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
