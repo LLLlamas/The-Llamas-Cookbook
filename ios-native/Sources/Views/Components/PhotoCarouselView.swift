@@ -154,6 +154,20 @@ struct PhotoCarouselView: View {
             .background(carouselBackground.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            // Custom keyboard accessory. SwiftUI's `placement: .keyboard`
+            // toolbar — both at this NavigationStack level and on the
+            // per-field TextField — was unreliable here: the bar would
+            // miss the first focus and only appear after some other
+            // modal cycle (e.g. opening + closing the reorder sheet)
+            // primed SwiftUI's toolbar discovery. `safeAreaInset` is
+            // deterministic — keyboard avoidance lifts whatever sits
+            // here above the keyboard, and the conditional render is
+            // driven by our own focus state so the bar shows the moment
+            // any caption focuses. Sits above the keyboard's suggestions
+            // strip; visually equivalent to the missing accessory.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                captionKeyboardAccessory
+            }
         }
         // Stable modifiers — attached to the NavigationStack so they
         // survive any internal view swaps inside `Group`.
@@ -305,6 +319,46 @@ struct PhotoCarouselView: View {
         }
         .foregroundStyle(AppColor.destructive)
         .accessibilityLabel("Remove this photo")
+    }
+
+    /// Custom keyboard accessory bar — shown only while a caption
+    /// TextField is the focused first responder. Lives in the bottom
+    /// safe-area inset so iOS's keyboard avoidance pushes it directly
+    /// above the keyboard (above the suggestions strip), giving the
+    /// user the same visual position they'd get from a native
+    /// `placement: .keyboard` toolbar — minus the SwiftUI flakiness
+    /// that's specific to nested TabView pages inside a sheet.
+    /// Tapping Done resigns whichever caption is focused
+    /// (`captionFocusedPage = nil`), which fires the CaptionRow's
+    /// commit funnel and dismisses the keyboard.
+    @ViewBuilder
+    private var captionKeyboardAccessory: some View {
+        if captionFocusedPage != nil {
+            HStack(spacing: 0) {
+                Spacer()
+                Button {
+                    Haptics.selection()
+                    captionFocusedPage = nil
+                } label: {
+                    Text("Done")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(AppColor.accent)
+                        .padding(.horizontal, AppSpacing.lg)
+                        .padding(.vertical, AppSpacing.sm + 2)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity, minHeight: 40)
+            // Translucent material so the bar reads as keyboard
+            // chrome rather than app content.
+            .background(.thinMaterial)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(AppColor.divider)
+                    .frame(height: 0.5)
+            }
+        }
     }
 
     /// Hero header above the photo. Mirrors the `recipeTitle` style
@@ -708,7 +762,11 @@ private struct CaptionRow: View {
         .focused(captionFocus, equals: pageIndex)
         // System Return on the keyboard so newlines insert
         // naturally inside the multi-line field. Done lives on the
-        // keyboard accessory toolbar attached directly below.
+        // carousel-level `captionKeyboardAccessory` bar (a
+        // `safeAreaInset(edge: .bottom)` view that iOS's keyboard
+        // avoidance lifts above the keyboard) rather than a
+        // SwiftUI `placement: .keyboard` toolbar — the latter is
+        // unreliable in this nested TabView-in-sheet context.
         .submitLabel(.return)
         .font(.system(size: 14, weight: .regular, design: .serif))
         .italic()
@@ -723,28 +781,6 @@ private struct CaptionRow: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-        // Per-field keyboard toolbar. Attaching `placement: .keyboard`
-        // directly on the TextField (rather than on the carousel's
-        // outer NavigationStack toolbar) ties the Done bar to this
-        // specific field's focus context — the previous outer-level
-        // declaration didn't always propagate through the paging
-        // TabView, so the Done button was missing on some focuses.
-        // Each per-page CaptionRow declares its own toolbar; SwiftUI
-        // surfaces only the focused field's, so the user always sees
-        // exactly one Done above the keyboard.
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button {
-                    Haptics.selection()
-                    captionFocus.wrappedValue = nil
-                } label: {
-                    Text("Done")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(AppColor.accent)
-                }
-            }
-        }
     }
 
     private func readOnlyRow(_ caption: String) -> some View {
