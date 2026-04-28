@@ -95,6 +95,7 @@ struct RecipeDetailView: View {
                         Text(provenance)
                             .font(AppFont.eyebrow)
                             .foregroundStyle(AppColor.textTertiary)
+                            .lineLimit(1)
                     }
 
                     if let summary = recipe.summary, !summary.isEmpty {
@@ -407,8 +408,7 @@ struct RecipeDetailView: View {
             TextField("Your name (optional)", text: $pendingNameInput)
                 .textInputAutocapitalization(.words)
             Button("Continue") {
-                let trimmed = pendingNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                ownerProfile.userName = trimmed
+                ownerProfile.userName = RecipeShare.cappedDisplayName(pendingNameInput) ?? ""
                 ownerProfile.hasPromptedForName = true
                 deferredExecutePendingShare()
             }
@@ -900,9 +900,11 @@ struct RecipeDetailView: View {
     /// recipes always return nil. Stamped at materialize time and
     /// never cleared by `Recipe.apply(_:)` — the editor leaves it
     /// alone so credit survives local edits.
+    /// Display-name cap is enforced here as a render-side defense for
+    /// envelopes from older app versions that predate the encode-side
+    /// cap.
     private var provenanceLine: String? {
-        guard let by = recipe.sharedBy?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !by.isEmpty else { return nil }
+        guard let by = RecipeShare.cappedDisplayName(recipe.sharedBy) else { return nil }
         guard let at = recipe.sharedAt else {
             return "Originally shared by \(by)"
         }

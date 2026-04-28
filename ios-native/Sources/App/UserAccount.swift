@@ -145,17 +145,22 @@ final class UserAccount {
         status = .signedOut
     }
 
-    /// Wipes local identity AND fires a best-effort CloudKit cascade
-    /// to delete every cloud share this device has authored (per the
-    /// local outbox in `CloudKitService.deleteAuthoredShares`). The
-    /// local wipe is synchronous so the UI flips to signed-out
-    /// instantly; the cloud cleanup runs detached in the background
-    /// and tolerates failures (a stranded record gets garbage-
-    /// collected by the eventual TTL janitor / 14-day retention
-    /// rather than blocking sign-out on a network blip).
+    /// Wipes local identity AND fires a CloudKit cascade to delete
+    /// every cloud share this device has authored (per the local
+    /// outbox in `CloudKitService.deleteAuthoredShares`). The local
+    /// wipe is synchronous so the UI flips to signed-out instantly;
+    /// the cloud cleanup runs detached in the background.
     ///
+    /// **Persistent retry semantics.** The cascade promotes the
+    /// outbox into a pending-delete queue and drains it; per-record
+    /// failures (network blip, throttling, etc.) stay queued for
+    /// `CloudKitService.retryPendingDeletes` to pick up on the next
+    /// launch. Records can only drop from the queue when the cloud
+    /// confirms deletion (or already-gone via `unknownItem`).
     /// Required by App Store Review Guideline 5.1.1(v) since 2022 —
-    /// any app with account creation must offer in-app deletion.
+    /// any app with account creation must offer in-app deletion,
+    /// and reviewers test it under conditions that include slow /
+    /// flaky networks.
     func deleteAccount() {
         wipeLocalState()
         status = .signedOut
@@ -165,10 +170,13 @@ final class UserAccount {
     }
 
     /// Profile screen edit. No-op when signed out.
+    /// Capped + sanitized via `RecipeShare.cappedDisplayName` so the
+    /// stored name can never exceed the wire-format limit; a sender
+    /// can't smuggle a longer name into a share envelope by editing
+    /// their profile and immediately sharing.
     func updateDisplayName(_ name: String) {
         guard case .signedIn(var identity) = status else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? "Cook" : trimmed
+        let resolved = RecipeShare.cappedDisplayName(name) ?? "Cook"
         identity.displayName = resolved
         persist(identity)
         status = .signedIn(identity)
@@ -246,16 +254,19 @@ final class UserAccount {
     /// sign-in, only if the user agreed) → existing OwnerProfile
     /// userName (carryover from the file/link share path) → "Cook"
     /// (the Apple-blessed default in §11.4 of the plan).
+    /// Each candidate runs through `RecipeShare.cappedDisplayName`
+    /// so the stored name conforms to the wire-format display-name
+    /// rules from the moment it lands.
     private static func resolveDisplayName(
         credentialName: String?,
         ownerProfileName: String
     ) -> String {
-        if let name = credentialName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
+        if let name = RecipeShare.cappedDisplayName(credentialName) {
             return name
         }
-        let trimmed = ownerProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
+        if let name = RecipeShare.cappedDisplayName(ownerProfileName) {
+            return name
+        }
         return "Cook"
     }
 }

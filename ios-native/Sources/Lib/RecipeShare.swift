@@ -329,10 +329,64 @@ enum RecipeShare {
     /// ceiling exists for the long-form pathological case.
     static let urlByteCeiling = 6000
 
+    /// Hard cap on inbound share payloads, enforced by every decode
+    /// path (`decode(fileData:)`, `decode(url:)` post-decompress,
+    /// `decode(fileURL:)` pre-read, `CloudKitService.fetchShare`'s
+    /// envelope read). 25 MB is generous: a fully-photo'd recipe
+    /// envelope (4 gallery + 3 step photos × ~10 steps, each ~150 KB
+    /// JPEG) lands at ~5 MB; the cap leaves 5× headroom for unusual
+    /// content and still hard-stops a 500 MB attacker-supplied
+    /// `.llamarecipe` from OOM-killing the app on lower-end devices.
+    /// Also blocks a decompression-bomb attack on the URL form (a
+    /// small base64 payload that lzma-expands to gigabytes).
+    static let maxInboundBytes = 25_000_000
+
+    /// Hard cap on the sender's display name (`sharedBy` in the
+    /// envelope, `senderDisplayName` on the CloudKit record). 40
+    /// grapheme clusters fits any real name (the Library of Congress
+    /// "longest legal name" stat sits at ~32) and short-circuits two
+    /// attacker patterns:
+    /// 1. **Layout break** — a 10 KB display name would push every
+    ///    consumer of the provenance line off-screen.
+    /// 2. **UI spoof** — `"Apple Inc. — VERIFIED ✓"` against an
+    ///    unbounded field reads as system trust; capping at 40 keeps
+    ///    the field a label, not a banner. Render sites also apply
+    ///    `lineLimit(1)`.
+    /// Enforced everywhere a display name crosses a trust boundary
+    /// (write-time in `UserAccount.updateDisplayName` /
+    /// `OwnerProfile`, encode-time in `envelope(...)`, render-time
+    /// in the two provenance lines for defense-in-depth against
+    /// older-app-version envelopes that didn't enforce on encode).
+    static let maxDisplayNameLength = 40
+
+    /// Sanitizes and caps a display name for safe rendering.
+    /// 1. Trims surrounding whitespace.
+    /// 2. Collapses every whitespace / newline run (including embedded
+    ///    `\n`, `\t`, control chars) to a single space — stops a
+    ///    sender from smuggling a multi-line spoof inside the 40-char
+    ///    budget ("Apple Inc.\n✓ VERIFIED"). Render sites still apply
+    ///    `lineLimit(1)` belt-and-suspenders.
+    /// 3. Caps to `maxDisplayNameLength` grapheme clusters.
+    /// 4. Returns nil for empty input so the call site can use
+    ///    `if let` to skip rendering entirely.
+    /// Single helper so the six call sites (UserAccount, OwnerProfile,
+    /// encode, two render sites, ImportPreview) stay byte-identical.
+    static func cappedDisplayName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let collapsed = raw
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        if collapsed.count <= maxDisplayNameLength { return collapsed }
+        return String(collapsed.prefix(maxDisplayNameLength))
+    }
+
     enum Error: Swift.Error, LocalizedError {
         case unsupportedSchemaVersion(Int)
         case decodeFailure(underlying: Swift.Error)
         case payloadTooLargeForURL(bytes: Int)
+        case payloadTooLarge(bytes: Int)
         case malformedShareURL
 
         var errorDescription: String? {
@@ -343,6 +397,8 @@ enum RecipeShare {
                 return "Couldn't read this recipe share: \(err.localizedDescription)"
             case .payloadTooLargeForURL(let bytes):
                 return "This recipe is too large to share as a link (\(bytes) bytes). Share it as a file instead."
+            case .payloadTooLarge(let bytes):
+                return "This recipe share is too large to import (\(bytes) bytes)."
             case .malformedShareURL:
                 return "This share link is malformed."
             }
@@ -405,7 +461,7 @@ enum RecipeShare {
             share: LCRecipeShareV1.ShareEnvelope(
                 id: UUID(),
                 createdAt: .now,
-                sharedBy: sharedBy,
+                sharedBy: cappedDisplayName(sharedBy),
                 sourceRecipeID: recipe.id,
                 appVersion: appVersion
             ),
@@ -463,7 +519,16 @@ enum RecipeShare {
 
     // MARK: - Decode
 
-    static func decode(fileData: Data) throws -> LCRecipeShareV1 {
+    /// Single guarded entry point for all inbound share data. Every
+    /// caller (file URL, App Group inbox, CloudKit asset, decompressed
+    /// URL payload) routes through here so the size cap is enforced
+    /// once. Caller-supplied `maxBytes` lets callers tighten for their
+    /// own context; the default `maxInboundBytes` is the floor everyone
+    /// agrees on.
+    static func decode(fileData: Data, maxBytes: Int = maxInboundBytes) throws -> LCRecipeShareV1 {
+        guard fileData.count <= maxBytes else {
+            throw Error.payloadTooLarge(bytes: fileData.count)
+        }
         // Peek schemaVersion first so a future v2 surfaces the
         // friendly "needs newer version" error instead of a generic
         // decodeFailure with garbled key paths.
@@ -481,6 +546,22 @@ enum RecipeShare {
         } catch {
             throw Error.decodeFailure(underlying: error)
         }
+    }
+
+    /// File-URL convenience that stat-checks the file size *before*
+    /// loading bytes into memory. Without this, a 500 MB
+    /// `.llamarecipe` from AirDrop / Files / Mail / share-extension
+    /// inbox would be fully read into memory and then rejected by
+    /// `decode(fileData:)` — same security outcome, much worse memory
+    /// behavior on lower-end devices. `Data(contentsOf:)` itself has
+    /// no built-in size cap.
+    static func decode(fileURL: URL) throws -> LCRecipeShareV1 {
+        let attrs = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)) ?? [:]
+        if let size = attrs[.size] as? Int, size > maxInboundBytes {
+            throw Error.payloadTooLarge(bytes: size)
+        }
+        let data = try Data(contentsOf: fileURL)
+        return try decode(fileData: data)
     }
 
     /// Parses `llamascookbook://recipe/v<N>/<base64url>`. Returns nil
@@ -514,6 +595,13 @@ enum RecipeShare {
         guard let raw = Data(base64URLEncoded: parts[1]) else {
             throw Error.malformedShareURL
         }
+        // Pre-decompress cap on the base64-decoded blob — stops an
+        // attacker from constructing a small URL whose payload alone
+        // is gigabytes (would never lzma-expand smaller than its input,
+        // so this is a safe upper bound).
+        guard raw.count <= maxInboundBytes else {
+            throw Error.payloadTooLarge(bytes: raw.count)
+        }
         let json: Data
         switch urlVersion {
         case 1:
@@ -530,6 +618,10 @@ enum RecipeShare {
             // user-facing remediation is the same ("update the app").
             throw Error.unsupportedSchemaVersion(urlVersion)
         }
+        // Post-decompress cap — lzma is the canonical decompression-
+        // bomb vector (small input, huge output). Belt-and-suspenders
+        // against a hostile sender even though the pre-decompress cap
+        // already guards the upstream byte count.
         return try decode(fileData: json)
     }
 

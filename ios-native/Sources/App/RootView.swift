@@ -76,6 +76,16 @@ struct RootView: View {
             // call drops them back to signed-out so the next Profile
             // open prompts a fresh sign-in. No-op when signed out.
             await userAccount.refreshCredentialState()
+            // Drain any pending CloudKit deletions left over from a
+            // previous Delete-Account whose cascade hit a network
+            // failure. Idempotent + early-return when the queue is
+            // empty (the common case), so this doesn't add latency
+            // to launches that don't need it. Apple App Review
+            // tests Delete Account, and we can't have records
+            // stranded in CloudKit just because the cascade hit a
+            // blip — `CloudKitService.drainPendingDeletes` keeps
+            // retrying until the cloud confirms gone.
+            await CloudKitService.retryPendingDeletes()
         }
         .onOpenURL { url in
             // Six URL shapes land here:
@@ -314,10 +324,11 @@ struct RootView: View {
     /// `LSSupportsOpeningDocumentsInPlace = NO` means iOS hands us a
     /// copy in our Inbox (`tmp/.../Inbox/...`); we read it once and
     /// move on. iOS handles the inbox cleanup eventually.
+    /// `decode(fileURL:)` stat-checks size before reading so a 500 MB
+    /// payload doesn't even touch memory.
     private func routeShareFile(_ url: URL) {
         do {
-            let data = try Data(contentsOf: url)
-            let envelope = try RecipeShare.decode(fileData: data)
+            let envelope = try RecipeShare.decode(fileURL: url)
             pendingShareImport = envelope
         } catch let error as RecipeShare.Error {
             shareImportError = error.errorDescription
@@ -354,22 +365,23 @@ struct RootView: View {
     /// orphans from extension runs that didn't reach this handler.
     private func routeShareExtensionFile(_ url: URL) {
         let parts = url.pathComponents.filter { $0 != "/" }
-        guard let id = parts.first, !id.isEmpty else {
+        // UUID validation on the handoff id — explicitly documents the
+        // "this is an opaque random key, not a path component" intent
+        // and hardens against any future URL-parsing-quirk that might
+        // sneak `..` past the pathComponents normalizer.
+        guard let id = parts.first, !id.isEmpty, UUID(uuidString: id) != nil else {
             shareImportError = "Malformed share handoff."
             return
         }
         let fileURL = SharedContainer.shareInboxURL().appendingPathComponent("\(id).llamarecipe")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
         do {
-            let data = try Data(contentsOf: fileURL)
-            let envelope = try RecipeShare.decode(fileData: data)
+            let envelope = try RecipeShare.decode(fileURL: fileURL)
             pendingShareImport = envelope
-            try? FileManager.default.removeItem(at: fileURL)
         } catch let error as RecipeShare.Error {
             shareImportError = error.errorDescription
-            try? FileManager.default.removeItem(at: fileURL)
         } catch {
             shareImportError = error.localizedDescription
-            try? FileManager.default.removeItem(at: fileURL)
         }
     }
 

@@ -28,6 +28,15 @@ import UniformTypeIdentifiers
 final class ShareViewController: UIViewController {
     private static let llamaRecipeUTI = "com.llamascookbook.recipe"
 
+    /// Hard cap on `.llamarecipe` bytes the extension will commit to
+    /// the App Group inbox. Mirrors `RecipeShare.maxInboundBytes` (the
+    /// main app's decode-time cap) so a hostile 500 MB attachment
+    /// never even hits disk in our App Group container — much less
+    /// the main app's memory. The extension can't import
+    /// `Sources/Lib/RecipeShare.swift` (SwiftData drag), so we
+    /// duplicate the literal here; if either changes, both must.
+    private static let maxInboundBytes = 25_000_000
+
     override func viewDidLoad() {
         super.viewDidLoad()
         // Cream backdrop matches the main app's chrome so the brief
@@ -85,10 +94,24 @@ final class ShareViewController: UIViewController {
             let raw = try await attachment.loadItem(forTypeIdentifier: Self.llamaRecipeUTI)
             let data: Data
             if let url = raw as? URL {
+                // Stat-check before reading. A hostile 500 MB
+                // attachment from another app would otherwise be fully
+                // read into the extension's memory before we even know
+                // its size. Memory pressure in an extension causes
+                // jetsam-kill before the main app handoff lands.
+                let attrs = (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
+                if let size = attrs[.size] as? Int, size > Self.maxInboundBytes {
+                    await complete(); return
+                }
                 data = try Data(contentsOf: url)
             } else if let direct = raw as? Data {
                 data = direct
             } else {
+                await complete(); return
+            }
+            // Belt-and-suspenders: in-memory `Data` path (no URL stat
+            // available) is also checked before write.
+            guard data.count <= Self.maxInboundBytes else {
                 await complete(); return
             }
 

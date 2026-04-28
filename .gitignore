@@ -31,6 +31,11 @@ testing/
 .env
 .env*.local
 
+# Claude Code agent definitions and agent memory — local tooling, not shared.
+# Agents live at user scope (~/.claude/agents/) so the project doesn't need a copy.
+.claude/agents/
+.claude/agent-memory/
+
 # Leftover Expo / React Native artifacts on disk (the RN source itself lives
 # in outdated/rn-expo/ and is tracked). These directories can be deleted once
 # Lorenzo no longer needs to run `npm install` in the archived folder.

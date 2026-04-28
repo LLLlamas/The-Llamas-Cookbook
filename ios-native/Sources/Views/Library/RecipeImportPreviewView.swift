@@ -119,6 +119,7 @@ struct RecipeImportPreviewView: View {
                 Text(provenance)
                     .font(AppFont.eyebrow)
                     .foregroundStyle(AppColor.textTertiary)
+                    .lineLimit(1)
             }
         }
     }
@@ -272,13 +273,17 @@ struct RecipeImportPreviewView: View {
     /// fields are present; "Originally shared by Lorenzo" alone when
     /// only the name is set; nil when sharedBy is empty/nil (matches
     /// Recipe-Sharing.md §15 test #14 — empty-name share emits no
-    /// provenance line).
+    /// provenance line). Display-name cap is enforced here as a
+    /// render-side defense for envelopes from older app versions
+    /// that predate the encode-side cap.
+    /// `createdAt` is clamped to "now" to stop a sender from emitting
+    /// a future-dated provenance line ("shared by X · Jan 1 2099").
     private var provenanceLine: String? {
-        guard let by = envelope.share.sharedBy?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !by.isEmpty else { return nil }
+        guard let by = RecipeShare.cappedDisplayName(envelope.share.sharedBy) else { return nil }
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
-        let dateString = formatter.string(from: envelope.share.createdAt)
+        let safeDate = min(envelope.share.createdAt, Date())
+        let dateString = formatter.string(from: safeDate)
         return "Originally shared by \(by) · \(dateString)"
     }
 

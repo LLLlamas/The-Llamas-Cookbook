@@ -1,5 +1,6 @@
 import Foundation
 import AuthenticationServices
+import CryptoKit
 
 /// Glue between SwiftUI's `SignInWithAppleButton` and the
 /// `UserAccount` Observable. The button itself owns the whole
@@ -21,7 +22,25 @@ import AuthenticationServices
 /// everything downstream (UserAccount, ProfileView) speaks
 /// `Credential` and the `CredentialState` enum below, so swapping
 /// providers later (Sign-in-with-Google in PR 5+) is a drop-in.
+///
+/// **Nonce handling.** Every request generates a fresh cryptographic
+/// nonce via `SecRandomCopyBytes`; the SHA256 hash is set as
+/// `request.nonce` so Apple's identity token JWT carries it as the
+/// `nonce` claim. The raw nonce is stashed in `pendingNonce` for the
+/// duration of one sign-in round trip so a future server-side
+/// validator can compare `sha256(pendingNonce)` against the JWT's
+/// claim. We don't currently validate (no backend for the
+/// CloudKit-only flow), but emitting the nonce future-proofs every
+/// sign-in for the day we do — and per Apple's HIG, even client-only
+/// flows are recommended to attach one.
 enum SignInWithAppleService {
+    /// Raw nonce from the most recent `configure(_:)` call. Held in
+    /// memory only for the duration of one sign-in round trip; cleared
+    /// on `processCompletion(_:)` regardless of outcome. Static so the
+    /// SwiftUI `SignInWithAppleButton(onRequest:onCompletion:)` callback
+    /// pair (separate closures, no shared instance) can see it across
+    /// the call sequence.
+    private(set) static var pendingNonce: String?
     /// Flat, Codable-friendly snapshot of an Apple sign-in result. The
     /// fields we care about for downstream use:
     /// - `appleSub` — the stable opaque user identifier. Required.
@@ -74,14 +93,23 @@ enum SignInWithAppleService {
     /// `SignInWithAppleButton(onRequest:)`. We only ask for `.fullName`
     /// — `email` is not stored anywhere in the app and asking for it
     /// produces a noisier consent sheet for no benefit.
+    /// Generates a fresh nonce per call and sets the SHA256 hash as
+    /// `request.nonce`; raw value stored in `pendingNonce` for any
+    /// future server-side validation against the JWT's `nonce` claim.
     static func configure(_ request: ASAuthorizationAppleIDRequest) {
         request.requestedScopes = [.fullName]
+        let nonce = makeNonce()
+        pendingNonce = nonce
+        request.nonce = sha256Hex(nonce)
     }
 
     /// Decode the button's completion `Result`. Maps Apple's nested
     /// optional chain into our flat `Credential`, mapping cancel and
-    /// other errors into our `SignInError`.
+    /// other errors into our `SignInError`. Always clears the
+    /// `pendingNonce` on the way out so a stale nonce from a prior
+    /// canceled attempt can't bleed into the next request.
     static func processCompletion(_ result: Result<ASAuthorization, Error>) throws -> Credential {
+        defer { pendingNonce = nil }
         switch result {
         case .failure(let error):
             if let asError = error as? ASAuthorizationError, asError.code == .canceled {
@@ -99,6 +127,29 @@ enum SignInWithAppleService {
                 identityToken: appleCred.identityToken
             )
         }
+    }
+
+    // MARK: - Nonce helpers
+
+    /// 32 random bytes hex-encoded (64-char hex string). 256 bits of
+    /// entropy is well above the practical replay-attack threshold and
+    /// matches what Apple's sample code uses. `SecRandomCopyBytes` is
+    /// CSPRNG; falls back to `UUID().uuidString` only if the system
+    /// RNG fails (which essentially never happens on iOS, but the
+    /// fallback keeps sign-in working rather than crashing).
+    private static func makeNonce() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            return UUID().uuidString + UUID().uuidString
+        }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func sha256Hex(_ input: String) -> String {
+        let data = Data(input.utf8)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Check whether the cached `appleSub` is still valid. Called from

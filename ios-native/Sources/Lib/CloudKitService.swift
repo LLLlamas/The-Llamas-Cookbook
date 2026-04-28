@@ -177,7 +177,11 @@ enum CloudKitService {
                     record["photo\(i)"] = CKAsset(fileURL: url)
                 }
             }
-            if let name = senderDisplayName, !name.isEmpty {
+            // Cap the record-level display-name column the same way the
+            // envelope's `sharedBy` is capped — kept in lockstep so a
+            // sender can't smuggle a longer / spoof-y name in via the
+            // sibling field.
+            if let name = RecipeShare.cappedDisplayName(senderDisplayName) {
                 record["senderDisplayName"] = name as NSString
             }
             record["recipeTitle"] = envelope.recipe.title as NSString
@@ -208,6 +212,16 @@ enum CloudKitService {
     /// is unreachable; rethrows underlying CKError otherwise (network
     /// failure, no-such-record, account unavailable). Caller maps
     /// these to user-facing messages.
+    /// Per-photo CKAsset size cap. CloudKit doesn't refuse oversized
+    /// uploads on the public DB, so a malicious sender could attach a
+    /// 1 GB photo asset and starve the receiver's memory. 10 MB is
+    /// well above what `ImageProcessing.prepare` would emit for a
+    /// gallery photo (~250 KB-2 MB target) and leaves headroom for
+    /// HEIC originals; combined with `maxCloudPhotoCount = 20`, total
+    /// per-record photo bytes are bounded at 200 MB before
+    /// `injecting(photoBytes:)` even runs.
+    static let maxCloudPhotoBytes = 10_000_000
+
     static func fetchShare(recordName: String) async throws -> LCRecipeShareV1 {
         let recordID = CKRecord.ID(recordName: recordName)
         let record = try await publicDB.record(for: recordID)
@@ -216,11 +230,11 @@ enum CloudKitService {
               let assetURL = asset.fileURL else {
             throw CloudKitServiceError.envelopeMissing
         }
-        let data = try Data(contentsOf: assetURL)
-        // Route through the canonical decoder so schema-version
-        // checking and friendly error mapping stay consistent with the
-        // file / URL paths.
-        let strippedEnvelope = try RecipeShare.decode(fileData: data)
+        // Stat-check + size-cap before reading bytes. `decode(fileURL:)`
+        // is the same guarded entry point the file / share-extension
+        // ingest paths use; routing through it keeps the OOM-defense
+        // and schema-version checks in one place.
+        let strippedEnvelope = try RecipeShare.decode(fileURL: assetURL)
 
         // Walk the photo<N> asset fields in flat canonical order; the
         // injecting helper on LCRecipeShareV1 walks the same order to
@@ -234,13 +248,33 @@ enum CloudKitService {
         for i in 0..<probeCount {
             guard let photoAsset = record["photo\(i)"] as? CKAsset,
                   let url = photoAsset.fileURL,
-                  let bytes = try? Data(contentsOf: url) else {
+                  let bytes = readCappedAsset(at: url) else {
+                // Empty Data() keeps the index sequence aligned with
+                // the envelope's photo arrays — `injecting(photoBytes:)`
+                // treats empty entries as "missing" and skips them
+                // during materialize.
                 photoBytes.append(Data())
                 continue
             }
             photoBytes.append(bytes)
         }
         return strippedEnvelope.injecting(photoBytes: photoBytes)
+    }
+
+    /// Reads a CKAsset file URL with the per-photo size cap enforced
+    /// *before* loading bytes into memory. Returns nil for
+    /// over-cap files (caller treats nil as "missing photo" and
+    /// continues), and for any underlying read error (network blip
+    /// during CKAsset materialization, asset not yet downloaded). The
+    /// stat check uses `attributesOfItem` rather than reading the
+    /// whole file and measuring, so a hostile 1 GB asset never hits
+    /// the heap.
+    private static func readCappedAsset(at url: URL) -> Data? {
+        let attrs = (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
+        if let size = attrs[.size] as? Int, size > maxCloudPhotoBytes {
+            return nil
+        }
+        return try? Data(contentsOf: url)
     }
 
     // MARK: - Delete
@@ -257,29 +291,55 @@ enum CloudKitService {
     // MARK: - Outbox / cascade
 
     /// UserDefaults key for the local outbox — flat array of record
-    /// names this device has uploaded. Used by `deleteAuthoredShares`
-    /// (the Delete-Account cascade) to find what to clean up. Local
-    /// to this install: a fresh reinstall has an empty outbox even if
-    /// records still exist in CloudKit. The future TTL janitor (~14
-    /// days) covers anything stranded that way.
+    /// names this device has uploaded. Used as the cascade source
+    /// when the user hits Delete Account. Local to this install: a
+    /// fresh reinstall has an empty outbox even if records still
+    /// exist in CloudKit. The eventual TTL janitor (~14 days) covers
+    /// records stranded that way.
     private static let outboxKey = "cloudShareOutbox.v1"
 
-    /// Best-effort cascade for `UserAccount.deleteAccount()`. Walks
-    /// the local outbox, deletes each cloud record, then clears the
-    /// outbox. Per-record failures are swallowed so one network blip
-    /// doesn't strand the whole cleanup — the user's expectation is
-    /// "press button, my data is gone," and a partial cascade still
-    /// improves on no cascade.
+    /// UserDefaults key for the pending-delete queue — records the
+    /// user has *asked* to delete (via Delete Account) but where the
+    /// CloudKit deletion hasn't confirmed success yet. On
+    /// `deleteAuthoredShares`, the outbox is atomically promoted into
+    /// this queue and we drain it; per-record failures stay queued
+    /// for the next launch retry, so a network blip during the
+    /// initial cascade doesn't permanently strand records in
+    /// CloudKit. Apple App Review tests Delete Account; "best-effort"
+    /// isn't good enough — we must keep retrying until the cloud
+    /// confirms gone.
+    private static let pendingDeleteKey = "cloudSharePendingDelete.v1"
+
+    /// Cascade for `UserAccount.deleteAccount()`. Atomically moves the
+    /// current outbox into the pending-delete queue (so a crash
+    /// mid-drain doesn't lose track of records that need cleanup),
+    /// then drains the queue. Records that delete successfully — or
+    /// that CloudKit reports as already gone (`unknownItem`) — drop
+    /// out of the queue. Records that fail with any other error
+    /// (network blip, account unavailable, throttling) stay queued
+    /// for `retryPendingDeletes` to pick up on the next launch.
     static func deleteAuthoredShares() async {
-        let names = outboxRecordNames()
-        for name in names {
-            try? await deleteShare(recordName: name)
-        }
-        clearOutbox()
+        promoteOutboxToPendingDeletes()
+        await drainPendingDeletes()
+    }
+
+    /// Launch-path retry. No-op when the queue is empty (the common
+    /// case for a signed-in user who never deleted their account).
+    /// When non-empty, retries deletion of every queued record;
+    /// per-record success drops it from the queue. Idempotent —
+    /// safe to call on every launch. Wired into `RootView.task`
+    /// after the credential-revocation check.
+    static func retryPendingDeletes() async {
+        guard !pendingDeleteRecordNames().isEmpty else { return }
+        await drainPendingDeletes()
     }
 
     static func outboxRecordNames() -> [String] {
         UserDefaults.standard.stringArray(forKey: outboxKey) ?? []
+    }
+
+    static func pendingDeleteRecordNames() -> [String] {
+        UserDefaults.standard.stringArray(forKey: pendingDeleteKey) ?? []
     }
 
     private static func appendToOutbox(_ recordName: String) {
@@ -290,6 +350,57 @@ enum CloudKitService {
 
     private static func clearOutbox() {
         UserDefaults.standard.removeObject(forKey: outboxKey)
+    }
+
+    private static func setPendingDeletes(_ names: [String]) {
+        if names.isEmpty {
+            UserDefaults.standard.removeObject(forKey: pendingDeleteKey)
+        } else {
+            UserDefaults.standard.set(names, forKey: pendingDeleteKey)
+        }
+    }
+
+    /// Atomically combines outbox + existing pending-delete queue
+    /// into the queue, then clears the outbox. Combining handles the
+    /// edge case where a previous Delete-Account didn't fully
+    /// complete and left entries queued — those don't get lost just
+    /// because the user signed back in, authored more shares, then
+    /// hit Delete Account again. `Set` collapses duplicates from
+    /// either path.
+    private static func promoteOutboxToPendingDeletes() {
+        let combined = Array(Set(pendingDeleteRecordNames() + outboxRecordNames()))
+        setPendingDeletes(combined)
+        clearOutbox()
+    }
+
+    /// Per-record drain with success-gated removal. Anything we
+    /// successfully delete — or that CloudKit confirms is already
+    /// gone — drops from the queue. Anything else (network failure,
+    /// rate limit, account state error) stays queued for next
+    /// launch. The whole walk runs serially so we don't hammer
+    /// CloudKit on a per-record basis; for typical outbox sizes
+    /// (single digits) this is already fast.
+    private static func drainPendingDeletes() async {
+        let queue = pendingDeleteRecordNames()
+        var remaining: [String] = []
+        for name in queue {
+            do {
+                try await deleteShare(recordName: name)
+            } catch let ckError as CKError where ckError.code == .unknownItem {
+                // Already gone — server agrees the record doesn't
+                // exist. Drop from queue (don't re-queue) since
+                // there's nothing left to retry.
+            } catch {
+                // Network blip, schema mismatch, account unavailable,
+                // throttling, etc. Keep in the queue so a future
+                // launch can retry. CloudKit deletions are
+                // idempotent: re-deleting a record we successfully
+                // deleted earlier just hits the `unknownItem`
+                // branch above.
+                remaining.append(name)
+            }
+        }
+        setPendingDeletes(remaining)
     }
 
     // MARK: - Helpers

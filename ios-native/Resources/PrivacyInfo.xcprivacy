@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      App-store-required privacy manifest. Apple has been auto-rejecting
+      submissions without this file since 2024-05-01. Two scopes:
+
+      1. NSPrivacyAccessedAPITypes — declarations for required-reason
+         APIs we touch. Apple maintains the canonical list; reason
+         codes (CA92.1, C617.1, etc.) match Apple's documented reasons.
+      2. NSPrivacyCollectedDataTypes — data we collect to a server we
+         control. Empty: every data point lives on-device (SwiftData,
+         Keychain, UserDefaults) or in the user's own iCloud
+         (CloudKit public DB for shared recipes — the user's iCloud,
+         not ours). Apple treats both as "user data on user device,"
+         not developer collection.
+    -->
+
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <!--
+          UserDefaults: cooking-session JSON (CookingSessionStore),
+          accent color hex (AppearanceSettings), owner profile
+          (OwnerProfile), user-account auxiliaries (UserAccount),
+          cloud-share outbox + pending-delete queue (CloudKitService).
+          Reason CA92.1 covers app-internal preference storage.
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>CA92.1</string>
+            </array>
+        </dict>
+        <!--
+          File timestamp: SharedContainer.sweepShareInbox uses
+          .contentModificationDateKey to age out orphaned share-inbox
+          files older than 24 hours. Reason C617.1 covers reading
+          file timestamps for app-internal data the app itself created.
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

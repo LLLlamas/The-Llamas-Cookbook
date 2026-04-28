@@ -7,7 +7,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0.0"
+    # CURRENT_PROJECT_VERSION is overridden at archive time by CI to a
+    # Unix timestamp (`date -u +%s`) — the "1" here is just a default
+    # so a local generator run produces a valid pbxproj. See
+    # `.github/workflows/ios-native-ci.yml` "Inject build settings".
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: GYFN949Q5E
 targets:
@@ -17,6 +21,11 @@ targets:
     sources:
       - path: Sources
       - path: Resources/Assets.xcassets
+      # App Store-required privacy manifest. Declares required-reason
+      # API usage (UserDefaults, file timestamps). Without this file,
+      # App Store Connect auto-rejects the upload. See
+      # Resources/PrivacyInfo.xcprivacy for the full declaration.
+      - path: Resources/PrivacyInfo.xcprivacy
       # Timer alarm sound — generated at CI time via ffmpeg + afconvert
       # (see .github/workflows/ios-native-ci.yml "Generate timer alarm
       # sound" step). Not committed to git. If missing locally, the app
