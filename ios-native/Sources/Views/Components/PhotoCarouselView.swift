@@ -123,21 +123,24 @@ struct PhotoCarouselView: View {
 
     var body: some View {
         NavigationStack {
-            // `Group` gives the conditional content a stable parent so
-            // the modifiers below sit on a consistent view identity.
-            // Without this wrapper, swapping between `emptyState` and
-            // `carousel` could tear down attached modifiers (notably
-            // `.alert`), which caused the step-photo add to "escape"
-            // mid-confirm — the alert was destroyed during the picker
-            // dismiss animation, never re-presented.
-            Group {
-                if photoData.isEmpty {
-                    emptyState
-                } else {
-                    carousel
+            VStack(spacing: 0) {
+                heroTitle
+                // `Group` gives the conditional content a stable parent so
+                // the modifiers below sit on a consistent view identity.
+                // Without this wrapper, swapping between `emptyState` and
+                // `carousel` could tear down attached modifiers (notably
+                // `.alert`), which caused the step-photo add to "escape"
+                // mid-confirm — the alert was destroyed during the picker
+                // dismiss animation, never re-presented.
+                Group {
+                    if photoData.isEmpty {
+                        emptyState
+                    } else {
+                        carousel
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(carouselBackground.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -224,15 +227,10 @@ struct PhotoCarouselView: View {
             Button("Done") { dismiss() }
                 .foregroundStyle(AppColor.accent)
         }
-        if let title, !title.isEmpty {
-            ToolbarItem(placement: .principal) {
-                Text(StringCase.titleCase(title))
-                    .font(.system(size: 17, weight: .semibold, design: .serif))
-                    .foregroundStyle(AppColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        }
+        // Title moved out of the principal slot — it now renders as a
+        // hero header above the photo (see `heroTitle`). Lorenzo wanted
+        // the recipe name as its own headline rather than a small chip
+        // squeezed between Done and the action cluster.
         // Pack reorder + delete + add into one trailing slot so SwiftUI's
         // default per-item spacing doesn't spread them apart and break
         // the "controls for the current photo" mental grouping. Same
@@ -288,6 +286,34 @@ struct PhotoCarouselView: View {
         }
         .foregroundStyle(AppColor.destructive)
         .accessibilityLabel("Remove this photo")
+    }
+
+    /// Hero header above the photo. Mirrors the `recipeTitle` style
+    /// used at the top of `RecipeDetailView` so the carousel reads as
+    /// a continuation of the same recipe — the user already knows
+    /// where they came from. Renders nothing when `title` is nil/empty
+    /// (e.g. the step-photo viewer in Detail / Cook Mode), so those
+    /// callers don't grow a phantom header strip.
+    @ViewBuilder
+    private var heroTitle: some View {
+        if let title, !title.isEmpty {
+            Text(StringCase.titleCase(title))
+                .font(AppFont.recipeTitle)
+                .foregroundStyle(AppColor.accent)
+                .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, AppSpacing.lg)
+                // `top: md` pushes the title a touch below the nav bar
+                // so it reads as a hero rather than a bar-adjacent label.
+                // `bottom: sm` keeps it nicely paired with the photo
+                // beneath without doubling up on the photoPage's own
+                // top padding.
+                .padding(.top, AppSpacing.md)
+                .padding(.bottom, AppSpacing.sm)
+        }
     }
 
     private var addButton: some View {
