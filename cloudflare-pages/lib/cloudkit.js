@@ -8,9 +8,10 @@
 // each outbound request, and Apple verifies the signature against
 // the public key registered in CloudKit Console.
 //
-// Files in `functions/_lib/` are NOT routed by Cloudflare Pages
-// (underscore-prefixed paths are reserved); only sibling functions
-// import from here.
+// Lives outside the `functions/` directory so it isn't auto-routed —
+// Pages Functions only routes files inside `functions/`. The bundler
+// follows the relative `import` from each route handler and pulls
+// this module into the deployment automatically.
 
 /**
  * Look up a single record from the public database by record name.

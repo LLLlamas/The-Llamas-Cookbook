@@ -16,6 +16,8 @@ URL; this Pages project handles everything else.
 | `/.well-known/apple-app-site-association` | static file | Universal Links AASA — tells iOS that `/r/*` URLs belong to the Llama's Cookbook app. |
 | `/llama-icon.png` | static file | Brand icon used as the OG image fallback. |
 
+The shared CloudKit client lives at `lib/cloudkit.js` (outside `functions/`) so the Pages bundler picks it up via the relative `import` in each route handler without auto-routing it as `/cloudkit`.
+
 ## Required environment variables
 
 Configure all four in **Cloudflare dashboard → Pages → llamascookbook → Settings → Environment Variables**, scoped to **both Production AND Preview**:

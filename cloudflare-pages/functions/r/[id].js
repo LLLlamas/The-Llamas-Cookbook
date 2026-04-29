@@ -14,7 +14,7 @@
 // URL directly in the app, bypassing this page entirely. So this
 // function is mostly serving link-preview scrapers + non-iOS users.
 
-import { fetchShareRecord, extractPreviewFields } from '../_lib/cloudkit.js';
+import { fetchShareRecord, extractPreviewFields } from '../../lib/cloudkit.js';
 
 export async function onRequest(context) {
   const { request, env, params } = context;

@@ -12,7 +12,7 @@
 // CloudKit error, asset missing, network blip) so the OG preview
 // always renders something rather than a broken image.
 
-import { fetchShareRecord, extractPreviewFields } from '../_lib/cloudkit.js';
+import { fetchShareRecord, extractPreviewFields } from '../../lib/cloudkit.js';
 
 export async function onRequest(context) {
   const { request, env, params } = context;
