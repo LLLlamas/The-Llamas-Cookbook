@@ -45,100 +45,125 @@ struct ImportFromLinkView: View {
     @State private var urlEnrichment: DraftRecipe?
     @State private var parsedDraft: DraftRecipe?
     @State private var showEditor = false
-    @State private var showHelp = false
+    @State private var showTour = false
     @FocusState private var urlFocused: Bool
     @AppStorage("hasSeenImportHelp") private var hasSeenImportHelp = false
+    @AppStorage("hasSeenLinkImportTour") private var hasSeenLinkImportTour = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                heroRow
-                    .padding(.top, AppSpacing.md)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AppSpacing.lg) {
+                    heroRow
+                        .padding(.top, AppSpacing.md)
+                        .tourTarget(.linkImportHero)
 
-                linkImportSection
+                    linkImportSection
 
-                actionRow(canPreview: canPreview)
+                    actionRow(canPreview: canPreview)
 
-                Color.clear.frame(height: 32)
+                    Color.clear.frame(height: 32)
+                }
+                .padding(AppSpacing.lg)
+                .contentShape(Rectangle())
+                .onTapGesture { dismissKeyboards() }
             }
-            .padding(AppSpacing.lg)
-            .contentShape(Rectangle())
-            .onTapGesture { dismissKeyboards() }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(appearance.accentColor)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Haptics.selection()
+                        showTour = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                    .accessibilityLabel("Replay walkthrough")
+                    .tourTarget(.linkImportHelpIcon)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button {
+                        Haptics.selection()
+                        dismissKeyboards()
+                    } label: {
+                        Text("Done")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $showEditor) {
+                if let draft = parsedDraft {
+                    RecipeEditorView(recipe: nil, initialDraft: draft) { savedRecipe in
+                        // Hand the new recipe up to RootView so it
+                        // can close the editor sheet AND push Detail.
+                        // No local dismiss() call — the import sheet
+                        // closes via `editor.end()` triggered by
+                        // RootView.
+                        onSaved(savedRecipe)
+                    }
+                }
+            }
+            .onAppear {
+                // Migration: legacy `hasSeenImportHelp` users have
+                // seen the static help once — treat as having seen
+                // the walkthrough too so the auto-tour doesn't fire
+                // on update.
+                if hasSeenImportHelp && !hasSeenLinkImportTour {
+                    hasSeenLinkImportTour = true
+                }
+
+                // Share extension handoff: prefill the URL field and
+                // kick off the fetch so the user lands on the parsed
+                // preview, not an empty form. Skip the auto-tour on
+                // this entry — the user is task-driven (came from a
+                // Share sheet); a walkthrough on top would feel
+                // intrusive. Mark seen so a later organic open
+                // doesn't pop it on top of remembered context.
+                if let prefill = prefilledURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !prefill.isEmpty,
+                   urlText.isEmpty {
+                    urlText = prefill
+                    hasSeenLinkImportTour = true
+                    Task { await fetchURL() }
+                } else if !hasSeenLinkImportTour {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(500))
+                        showTour = true
+                    }
+                }
+                updateDirty()
+            }
+            .onChange(of: urlEnrichment) { _, _ in updateDirty() }
+            .onDisappear {
+                editor.hasUnsavedChanges = false
+            }
+            .overlayPreferenceValue(LlamaTourTargetKey.self) { anchors in
+                if showTour {
+                    LlamaIntroOverlay(
+                        steps: LinkImportTour.steps,
+                        anchors: anchors,
+                        scrollProxy: proxy,
+                        onFinish: {
+                            showTour = false
+                            hasSeenLinkImportTour = true
+                        }
+                    )
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.25), value: showTour)
+                }
+            }
         }
         .background(AppColor.background)
         .navigationTitle("Import From Link")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(true)
         .tint(appearance.accentColor)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                    .foregroundStyle(appearance.accentColor)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Haptics.selection()
-                    showHelp = true
-                } label: {
-                    Image(systemName: "questionmark.circle")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor)
-                }
-                .accessibilityLabel("How import works")
-            }
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button {
-                    Haptics.selection()
-                    dismissKeyboards()
-                } label: {
-                    Text("Done")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor)
-                }
-            }
-        }
-        .navigationDestination(isPresented: $showEditor) {
-            if let draft = parsedDraft {
-                RecipeEditorView(recipe: nil, initialDraft: draft) { savedRecipe in
-                    // Hand the new recipe up to RootView so it can
-                    // close the editor sheet AND push Detail. No
-                    // local dismiss() call — the import sheet closes
-                    // via `editor.end()` triggered by RootView.
-                    onSaved(savedRecipe)
-                }
-            }
-        }
-        .sheet(isPresented: $showHelp) {
-            ImportHelpView { showHelp = false }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .onAppear {
-            // Share extension handoff: prefill the URL field and
-            // kick off the fetch so the user lands on the parsed
-            // preview, not an empty form. The help sheet still pops
-            // for first-time users — share-extension users have at
-            // least already seen the share-sheet UX, so the help
-            // overlay isn't load-bearing here.
-            if let prefill = prefilledURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !prefill.isEmpty,
-               urlText.isEmpty {
-                urlText = prefill
-                Task { await fetchURL() }
-            } else if !hasSeenImportHelp {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    showHelp = true
-                    hasSeenImportHelp = true
-                }
-            }
-            updateDirty()
-        }
-        .onChange(of: urlEnrichment) { _, _ in updateDirty() }
-        .onDisappear {
-            editor.hasUnsavedChanges = false
-        }
     }
 
     // MARK: - Subviews
@@ -164,8 +189,8 @@ struct ImportFromLinkView: View {
             Text("From a link").eyebrowStyle()
 
             HStack(spacing: AppSpacing.sm) {
-                urlField
-                fetchButton
+                urlField.tourTarget(.urlField)
+                fetchButton.tourTarget(.fetchButton)
             }
 
             if let banner = urlBanner {

@@ -25,32 +25,174 @@ struct RecipeEditorView: View {
     @State private var editingIngredientId: UUID? = nil
     @State private var draggingStepId: UUID? = nil
     @State private var showingPhotoCarousel = false
+    @State private var showTour = false
     @FocusState private var isNumericFocused: Bool
+
+    /// Tracks whether this editor instance was opened from a from-
+    /// scratch entry vs. seeded from an import (text/link/photo) or
+    /// an existing recipe. Used to gate the auto-tour: the user
+    /// only sees the new-recipe walkthrough when they actually
+    /// started a new-recipe flow.
+    private let openedFromScratch: Bool
+
+    @AppStorage("hasSeenNewRecipeTour") private var hasSeenNewRecipeTour = false
+    @AppStorage("hasSeenImportHelp") private var hasSeenImportHelp = false
 
     init(recipe: Recipe?, initialDraft: DraftRecipe? = nil, onSaved: ((Recipe) -> Void)? = nil) {
         self.recipe = recipe
         self.onSaved = onSaved
         _draft = State(initialValue: initialDraft ?? recipe?.toDraft() ?? DraftRecipe())
+        // No recipe AND no seed = "Write Down Your Recipe" entry
+        // from the FAB. Imports / photo Edit-then-Save hand-offs
+        // pass an `initialDraft` so they skip the tour.
+        self.openedFromScratch = (recipe == nil && initialDraft == nil)
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            scrollContent
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { attemptCancel() }
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                    // Help icon — only shown when creating a new recipe.
+                    // Editing an existing recipe doesn't surface the
+                    // tour; the user already knows the layout, and the
+                    // icon would also crowd the Save pill on narrow
+                    // phones.
+                    if openedFromScratch {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                Haptics.selection()
+                                showTour = true
+                            } label: {
+                                Image(systemName: "questionmark.circle")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(appearance.accentColor)
+                            }
+                            .accessibilityLabel("Replay walkthrough")
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            save()
+                        } label: {
+                            Text("Save")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(AppColor.onAccent)
+                                .padding(.horizontal, AppSpacing.md)
+                                .padding(.vertical, 6)
+                                .background(appearance.accentColor)
+                                .clipShape(Capsule())
+                                .opacity(draft.canSave ? 1 : 0.4)
+                        }
+                        .disabled(!draft.canSave)
+                        .tourTarget(.saveButton)
+                    }
+                    ToolbarItemGroup(placement: .keyboard) {
+                        if isNumericFocused {
+                            Spacer()
+                            Button("Done") {
+                                isNumericFocused = false
+                            }
+                            .foregroundStyle(appearance.accentColor)
+                            .font(.system(size: 16, weight: .semibold))
+                        }
+                    }
+                }
+                .alert("Discard changes?", isPresented: $showDiscardAlert) {
+                    Button("Keep editing", role: .cancel) { }
+                    Button("Discard", role: .destructive) { dismiss() }
+                } message: {
+                    Text("Your edits will be lost.")
+                }
+                .fullScreenCover(isPresented: $showingPhotoCarousel) {
+                    PhotoCarouselView(
+                        photoData: draft.photos.compactMap(\.image),
+                        title: draft.title,
+                        // Parallel captions array. Filtering by image
+                        // presence keeps captions aligned with the
+                        // displayed photoData — in practice no
+                        // DraftPhoto reaches this state with a nil
+                        // image (apply() filters them), but the
+                        // explicit pairing avoids index drift.
+                        captions: draft.photos.compactMap { $0.image == nil ? nil : $0.caption },
+                        onAdd: { rawDataArray in
+                            await addPhotos(from: rawDataArray)
+                        },
+                        onDelete: { index in
+                            deletePhoto(at: index)
+                        },
+                        onSetCaption: { index, newCaption in
+                            setPhotoCaption(at: index, to: newCaption)
+                        },
+                        onReorder: { indices, destination in
+                            reorderPhotos(fromOffsets: indices, toOffset: destination)
+                        }
+                    )
+                }
+                .onAppear {
+                    syncDirty()
+                    // Legacy `hasSeenImportHelp` users have already
+                    // seen the static text/link help once — treat
+                    // them as having seen the editor walkthrough too
+                    // so the auto-tour doesn't fire on update.
+                    if hasSeenImportHelp && !hasSeenNewRecipeTour {
+                        hasSeenNewRecipeTour = true
+                    }
+                    if openedFromScratch && !hasSeenNewRecipeTour {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(500))
+                            showTour = true
+                        }
+                    }
+                }
+                .onChange(of: draft) { _, _ in syncDirty() }
+                .onDisappear { editor.hasUnsavedChanges = false }
+                .overlayPreferenceValue(LlamaTourTargetKey.self) { anchors in
+                    if showTour {
+                        LlamaIntroOverlay(
+                            steps: NewRecipeTour.steps,
+                            anchors: anchors,
+                            scrollProxy: proxy,
+                            onFinish: {
+                                showTour = false
+                                hasSeenNewRecipeTour = true
+                            }
+                        )
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.25), value: showTour)
+                    }
+                }
+        }
+        .scrollDismissesKeyboard(.immediately)
+        .background(AppColor.background)
+        .navigationTitle(headerTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .tint(appearance.accentColor)
+    }
+
+    private var scrollContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppSpacing.md) {
-                heroRow
-                titleBlock
-                summaryField
+                heroRow.tourTarget(.editorHero)
+                titleBlock.tourTarget(.titleField)
+                summaryField.tourTarget(.summaryField)
 
-                servingsField
-                prepTimeField
+                servingsField.tourTarget(.servingsField)
+                prepTimeField.tourTarget(.prepTimeField)
 
-                photosButton
+                photosButton.tourTarget(.photosButton)
 
-                categoriesHeader
+                categoriesHeader.tourTarget(.categoriesHeader)
                 TagInputView(tags: $draft.tags)
 
                 sectionHeader("Ingredients")
                 sectionHint("Only the ingredient name is required. Leave quantity and unit blank if they don't have any in particular.")
                 IngredientQuickAdd(numericFocus: $isNumericFocused) { draft.ingredients.append($0) }
+                    .tourTarget(.ingredientQuickAdd)
                 if !draft.ingredients.isEmpty {
                     VStack(spacing: 3) {
                         ForEach($draft.ingredients) { $ingredient in
@@ -81,6 +223,7 @@ struct RecipeEditorView: View {
                 StepQuickAdd(nextNumber: draft.steps.count + 1) {
                     draft.steps.append($0)
                 }
+                .tourTarget(.stepQuickAdd)
                 if !draft.steps.isEmpty {
                     VStack(spacing: AppSpacing.xs) {
                         ForEach($draft.steps) { $step in
@@ -130,6 +273,7 @@ struct RecipeEditorView: View {
                     epilogueNote: $draft.epilogueNote,
                     generalNote: $draft.generalNote
                 )
+                .tourTarget(.specialNotesEditor)
 
                 sectionHeader("Reference Link")
                 sectionHint("Optional. Paste a URL if you adapted this from somewhere online.")
@@ -181,80 +325,6 @@ struct RecipeEditorView: View {
                 if editingIngredientId != nil { editingIngredientId = nil }
             }
         )
-        // Snap the keyboard down the moment a scroll begins — matches
-        // the Import flow and lines up with the user's expectation across
-        // every text field in this editor (qty/unit/ingredient, edit
-        // ingredients, servings, custom category, reference link).
-        .scrollDismissesKeyboard(.immediately)
-        .background(AppColor.background)
-        .navigationTitle(headerTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
-        .tint(appearance.accentColor)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { attemptCancel() }
-                    .foregroundStyle(appearance.accentColor)
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    save()
-                } label: {
-                    Text("Save")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(AppColor.onAccent)
-                        .padding(.horizontal, AppSpacing.md)
-                        .padding(.vertical, 6)
-                        .background(appearance.accentColor)
-                        .clipShape(Capsule())
-                        .opacity(draft.canSave ? 1 : 0.4)
-                }
-                .disabled(!draft.canSave)
-            }
-            ToolbarItemGroup(placement: .keyboard) {
-                if isNumericFocused {
-                    Spacer()
-                    Button("Done") {
-                        isNumericFocused = false
-                    }
-                    .foregroundStyle(appearance.accentColor)
-                    .font(.system(size: 16, weight: .semibold))
-                }
-            }
-        }
-        .alert("Discard changes?", isPresented: $showDiscardAlert) {
-            Button("Keep editing", role: .cancel) { }
-            Button("Discard", role: .destructive) { dismiss() }
-        } message: {
-            Text("Your edits will be lost.")
-        }
-        .fullScreenCover(isPresented: $showingPhotoCarousel) {
-            PhotoCarouselView(
-                photoData: draft.photos.compactMap(\.image),
-                title: draft.title,
-                // Parallel captions array. Filtering by image presence
-                // keeps captions aligned with the displayed photoData
-                // — in practice no DraftPhoto reaches this state with
-                // a nil image (apply() filters them), but the explicit
-                // pairing avoids index drift if it ever does.
-                captions: draft.photos.compactMap { $0.image == nil ? nil : $0.caption },
-                onAdd: { rawDataArray in
-                    await addPhotos(from: rawDataArray)
-                },
-                onDelete: { index in
-                    deletePhoto(at: index)
-                },
-                onSetCaption: { index, newCaption in
-                    setPhotoCaption(at: index, to: newCaption)
-                },
-                onReorder: { indices, destination in
-                    reorderPhotos(fromOffsets: indices, toOffset: destination)
-                }
-            )
-        }
-        .onAppear { syncDirty() }
-        .onChange(of: draft) { _, _ in syncDirty() }
-        .onDisappear { editor.hasUnsavedChanges = false }
     }
 
     /// Keep EditorCoordinator's dirty flag in sync with the live draft.

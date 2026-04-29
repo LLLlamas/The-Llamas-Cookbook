@@ -39,11 +39,10 @@ struct ImportFromTextView: View {
     @State private var pastedText = ""
     @State private var parsedDraft: DraftRecipe?
     @State private var showEditor = false
-    @State private var showHelp = false
+    @State private var showTour = false
     @FocusState private var pasteFocused: Bool
     @AppStorage("hasSeenImportHelp") private var hasSeenImportHelp = false
-
-    private enum ScrollAnchor: Hashable { case pasteSection, editorBottom }
+    @AppStorage("hasSeenTextImportTour") private var hasSeenTextImportTour = false
 
     var body: some View {
         let parsed = RecipeImporter.parse(pastedText)
@@ -57,9 +56,9 @@ struct ImportFromTextView: View {
                 VStack(alignment: .leading, spacing: AppSpacing.lg) {
                     heroRow
                         .padding(.top, AppSpacing.md)
+                        .tourTarget(.textImportHero)
 
                     pasteImportSection(parsed: parsed)
-                        .id(ScrollAnchor.pasteSection)
 
                     actionRow(canPreview: canPreview)
 
@@ -84,8 +83,98 @@ struct ImportFromTextView: View {
                     // cursor visibility as the user types, so we
                     // don't re-scroll on every keystroke.
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        proxy.scrollTo(ScrollAnchor.editorBottom, anchor: .bottom)
+                        proxy.scrollTo(LlamaTourTarget.pasteEditor, anchor: .bottom)
                     }
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(appearance.accentColor)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Haptics.selection()
+                        showTour = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                    .accessibilityLabel("Replay walkthrough")
+                    .tourTarget(.textImportHelpIcon)
+                }
+                // Done button above the keyboard — explicit dismiss
+                // now that scroll-to-dismiss is off. Themed with the
+                // user's accent so it pairs with the other primary
+                // actions.
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button {
+                        Haptics.selection()
+                        dismissKeyboards()
+                    } label: {
+                        Text("Done")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $showEditor) {
+                if let draft = parsedDraft {
+                    RecipeEditorView(recipe: nil, initialDraft: draft) { savedRecipe in
+                        // Hand the new recipe up to RootView so it
+                        // can close the editor sheet AND push Detail.
+                        // No local dismiss() call — the import sheet
+                        // closes via `editor.end()` triggered by
+                        // RootView.
+                        onSaved(savedRecipe)
+                    }
+                }
+            }
+            .onAppear {
+                // Migration: legacy `hasSeenImportHelp` users have
+                // seen the static help once — treat as having seen
+                // the walkthrough too so an update doesn't re-trigger
+                // first-time chrome.
+                if hasSeenImportHelp && !hasSeenTextImportTour {
+                    hasSeenTextImportTour = true
+                }
+
+                // Photo-import fallback: pre-fill the editor with
+                // OCR'd text so the user can clean it up by hand
+                // instead of retyping. Skip auto-tour on this entry
+                // — the user has already been through one parser,
+                // no need to overlay a walkthrough on top.
+                if let seed = seedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !seed.isEmpty,
+                   pastedText.isEmpty {
+                    pastedText = seed
+                } else if !hasSeenTextImportTour {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(500))
+                        showTour = true
+                    }
+                }
+                updateDirty()
+            }
+            .onChange(of: pastedText) { _, _ in updateDirty() }
+            .onDisappear {
+                editor.hasUnsavedChanges = false
+            }
+            .overlayPreferenceValue(LlamaTourTargetKey.self) { anchors in
+                if showTour {
+                    LlamaIntroOverlay(
+                        steps: TextImportTour.steps,
+                        anchors: anchors,
+                        scrollProxy: proxy,
+                        onFinish: {
+                            showTour = false
+                            hasSeenTextImportTour = true
+                        }
+                    )
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.25), value: showTour)
                 }
             }
         }
@@ -94,76 +183,6 @@ struct ImportFromTextView: View {
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(true)
         .tint(appearance.accentColor)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                    .foregroundStyle(appearance.accentColor)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Haptics.selection()
-                    showHelp = true
-                } label: {
-                    Image(systemName: "questionmark.circle")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor)
-                }
-                .accessibilityLabel("How import works")
-            }
-            // Done button above the keyboard — explicit dismiss now that
-            // scroll-to-dismiss is off. Themed with the user's accent so
-            // it visually pairs with the other primary actions.
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button {
-                    Haptics.selection()
-                    dismissKeyboards()
-                } label: {
-                    Text("Done")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor)
-                }
-            }
-        }
-        .navigationDestination(isPresented: $showEditor) {
-            if let draft = parsedDraft {
-                RecipeEditorView(recipe: nil, initialDraft: draft) { savedRecipe in
-                    // Hand the new recipe up to RootView so it can
-                    // close the editor sheet AND push Detail. No
-                    // local dismiss() call — the import sheet closes
-                    // via `editor.end()` triggered by RootView.
-                    onSaved(savedRecipe)
-                }
-            }
-        }
-        .sheet(isPresented: $showHelp) {
-            ImportHelpView { showHelp = false }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .onAppear {
-            // Photo-import fallback: pre-fill the editor with OCR'd
-            // text so the user can clean it up by hand instead of
-            // retyping. Skip auto-help on this entry — the user has
-            // already been through one parser, no need to overlay
-            // first-time-help on top.
-            if let seed = seedText?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !seed.isEmpty,
-               pastedText.isEmpty {
-                pastedText = seed
-            } else if !hasSeenImportHelp {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    showHelp = true
-                    hasSeenImportHelp = true
-                }
-            }
-            updateDirty()
-        }
-        .onChange(of: pastedText) { _, _ in updateDirty() }
-        .onDisappear {
-            editor.hasUnsavedChanges = false
-        }
     }
 
     // MARK: - Subviews
@@ -196,6 +215,7 @@ struct ImportFromTextView: View {
             // into ingredients" failure mode before reaching the
             // editor. Animates on every change to the parsed values.
             formatHint(parsed: parsed)
+                .tourTarget(.formatHint)
 
             firstLineHint
 
@@ -213,7 +233,6 @@ struct ImportFromTextView: View {
                 }
             }
             .frame(minHeight: 280)
-            .id(ScrollAnchor.editorBottom)
             .background(AppColor.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
@@ -221,6 +240,10 @@ struct ImportFromTextView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .animation(.easeInOut(duration: 0.15), value: pasteFocused)
+            // tourTarget applies `.id(LlamaTourTarget.pasteEditor)`
+            // — also serves as the on-focus scroll anchor (see
+            // `.onChange(of: pasteFocused)` above).
+            .tourTarget(.pasteEditor)
         }
     }
 
@@ -433,6 +456,7 @@ struct ImportFromTextView: View {
                 .opacity(canPreview ? 1 : 0.4)
             }
             .disabled(!canPreview)
+            .tourTarget(.previewButton)
         }
     }
 
