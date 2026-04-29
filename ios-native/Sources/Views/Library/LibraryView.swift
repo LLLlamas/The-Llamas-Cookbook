@@ -401,13 +401,25 @@ struct LibraryView: View {
                 Haptics.impact(.light)
                 editor.startNew()
             } label: {
-                Label("New Recipe", systemImage: "square.and.pencil")
+                Label("Write Down Your Recipe", systemImage: "square.and.pencil")
             }
             Button {
                 Haptics.impact(.light)
-                editor.startImport()
+                editor.startImportFromText()
             } label: {
-                Label("Import from text", systemImage: "doc.on.clipboard")
+                Label("Import From Text", systemImage: "doc.on.clipboard")
+            }
+            Button {
+                Haptics.impact(.light)
+                editor.startImportFromLink()
+            } label: {
+                Label("Import From Link", systemImage: "link")
+            }
+            Button {
+                Haptics.impact(.light)
+                editor.startImportFromPhoto()
+            } label: {
+                Label("Import From Photo", systemImage: "doc.viewfinder")
             }
         } label: {
             Image(systemName: "plus")

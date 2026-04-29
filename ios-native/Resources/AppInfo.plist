@@ -41,6 +41,18 @@
     <false/>
     <key>UIDesignRequiresCompatibility</key>
     <true/>
+    <!--
+      Camera permission, required by the photo-import path: the
+      "Import From Photo" entry in the Library FAB presents
+      VNDocumentCameraViewController which uses the camera. App
+      Reviewer auto-rejects builds that present a camera UI without a
+      usage-description string. The string itself doubles as the
+      user-facing copy in the iOS permission prompt — keep it honest
+      about scope ("photos stay on your device") so users don't worry
+      we're shipping their kitchen-counter photos somewhere.
+    -->
+    <key>NSCameraUsageDescription</key>
+    <string>Llamas Cookbook uses the camera to scan recipe pages. The photos stay on your device.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

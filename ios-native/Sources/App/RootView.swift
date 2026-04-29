@@ -222,10 +222,24 @@ struct RootView: View {
             }
         }
         .sheet(item: editorBinding) { sheet in
-            EditorSheetHost(sheet: sheet, onClose: { editor.end() })
-                .environment(appearance)
-                .environment(editor)
-                .environment(session)
+            EditorSheetHost(
+                sheet: sheet,
+                onClose: { editor.end() },
+                onPhotoImportSaved: { savedRecipe in
+                    // Same pattern as the share-recipient hand-off:
+                    // close the editor sheet, then push Detail after
+                    // the dismiss animation has had time to clear so
+                    // SwiftUI doesn't drop the push mid-animation.
+                    editor.end()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        libraryPath.append(savedRecipe)
+                    }
+                }
+            )
+            .environment(appearance)
+            .environment(editor)
+            .environment(session)
         }
         .alert(
             "Discard changes?",
@@ -423,7 +437,7 @@ struct RootView: View {
             shareImportError = "Couldn't read the shared link."
             return
         }
-        editor.startImport(prefilledURL: urlString)
+        editor.startImportFromLink(url: urlString)
     }
 
     /// `llamascookbook://share-incoming/<uuid>` — user invoked the
@@ -480,6 +494,10 @@ struct RootView: View {
 private struct EditorSheetHost: View {
     let sheet: EditorCoordinator.ActiveSheet
     let onClose: () -> Void
+    /// Called by the photo-import flow with the saved Recipe so
+    /// RootView can dismiss the editor sheet and push Detail. Other
+    /// sheet cases ignore it.
+    let onPhotoImportSaved: (Recipe) -> Void
 
     @State private var detent: PresentationDetent = .large
 
@@ -490,8 +508,12 @@ private struct EditorSheetHost: View {
                 RecipeEditorView(recipe: nil, onSaved: onClose)
             case .edit(let recipe):
                 RecipeEditorView(recipe: recipe, onSaved: onClose)
-            case .importFromText(let prefilledURL):
-                ImportRecipeView(prefilledURL: prefilledURL)
+            case .importFromText(let seedText):
+                ImportFromTextView(seedText: seedText)
+            case .importFromLink(let prefilledURL):
+                ImportFromLinkView(prefilledURL: prefilledURL)
+            case .importFromPhoto:
+                ImportFromPhotoView(onSaved: onPhotoImportSaved)
             }
         }
         .presentationDetents([.large, .height(80)], selection: $detent)

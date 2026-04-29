@@ -20,7 +20,8 @@ final class EditorCoordinator {
     /// non-nil. `confirmDiscard` commits the swap; `cancelDiscard` drops it.
     private(set) var pendingSwitch: ActiveSheet?
 
-    /// Fed from the active sheet content (RecipeEditorView / ImportRecipeView)
+    /// Fed from the active sheet content (RecipeEditorView /
+    /// ImportFromTextView / ImportFromLinkView / ImportFromPhotoView)
     /// via onAppear / onChange / onDisappear. When false, switches happen
     /// immediately; when true, they get queued behind a discard alert.
     var hasUnsavedChanges: Bool = false
@@ -28,21 +29,36 @@ final class EditorCoordinator {
     enum ActiveSheet: Identifiable, Hashable {
         case new
         case edit(Recipe)
-        /// Import sheet. The optional `prefilledURL` carries a URL
-        /// string the share extension extracted from another app's
-        /// Share menu (Safari, Reddit, etc.) so the link-import field
-        /// opens with the URL already in place. Nil for the plain
-        /// "Import from text" entry from the Library FAB. Identity /
-        /// equality ignores the prefill — switching from a manual
-        /// import to a share-extension import shouldn't trip the
-        /// dirty-state discard alert.
-        case importFromText(prefilledURL: String? = nil)
+        /// Plain text-paste import. The optional `seedText` carries
+        /// OCR'd text from the partial-OCR fallback in the photo
+        /// import path — when set, the text editor pre-populates so
+        /// the user can clean it up by hand. Identity / equality
+        /// ignores the seed so swapping between FAB-no-seed and
+        /// photo-handoff-with-seed forms doesn't trip the dirty-state
+        /// discard alert.
+        case importFromText(seedText: String? = nil)
+        /// URL import sheet. The optional `prefilledURL` carries a
+        /// URL string the share extension extracted from another app's
+        /// Share menu (Safari, Reddit, etc.) so the URL field opens
+        /// with the URL already in place. Nil for the plain "Import
+        /// From Link" entry from the Library FAB. Identity / equality
+        /// ignores the prefill — switching from a manual import to a
+        /// share-extension import shouldn't trip the dirty-state
+        /// discard alert.
+        case importFromLink(prefilledURL: String? = nil)
+        /// Photo import sheet. Camera + library picker live inside
+        /// the sheet; on success the OCR'd draft surfaces in a
+        /// separate read-only preview view (modeled on the share-
+        /// recipient preview).
+        case importFromPhoto
 
         var id: String {
             switch self {
-            case .new: return "new"
-            case .edit(let recipe): return "edit-\(recipe.id.uuidString)"
-            case .importFromText: return "import"
+            case .new:                return "new"
+            case .edit(let recipe):   return "edit-\(recipe.id.uuidString)"
+            case .importFromText:     return "import-text"
+            case .importFromLink:     return "import-link"
+            case .importFromPhoto:    return "import-photo"
             }
         }
 
@@ -57,8 +73,14 @@ final class EditorCoordinator {
 
     func startNew() { attemptSwitch(to: .new) }
     func startEdit(_ recipe: Recipe) { attemptSwitch(to: .edit(recipe)) }
-    func startImport(prefilledURL: String? = nil) {
-        attemptSwitch(to: .importFromText(prefilledURL: prefilledURL))
+    func startImportFromText(seedText: String? = nil) {
+        attemptSwitch(to: .importFromText(seedText: seedText))
+    }
+    func startImportFromLink(url: String? = nil) {
+        attemptSwitch(to: .importFromLink(prefilledURL: url))
+    }
+    func startImportFromPhoto() {
+        attemptSwitch(to: .importFromPhoto)
     }
 
     /// Explicit close (after Save or Cancel-with-no-changes). Skips the

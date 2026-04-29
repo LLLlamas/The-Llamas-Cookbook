@@ -16,8 +16,8 @@ struct ImportHelpView: View {
                             rows: [
                                 "Paste a recipe blog URL — I'll pull title, ingredients, steps, and times automatically.",
                                 "Pinterest pins work too — I'll grab the description, or follow it to the source recipe.",
-                                "TikTok captions come through. The body fills automatically; tidy it using the format below.",
-                                "Instagram and Facebook block link previews — paste the caption text in the box below instead."
+                                "TikTok captions come through. The body fills automatically; if it doesn't quite land I'll hand you over to the text editor.",
+                                "Instagram and Facebook block link previews — copy the caption text and paste it on the From Text screen instead."
                             ]
                         )
 
@@ -28,6 +28,16 @@ struct ImportHelpView: View {
                                 "Leave a **blank line**, then list each **ingredient** on its own line.",
                                 "Leave **another blank line**, then list each **step** on its own line.",
                                 "No keywords needed — bullets, numbers, fractions (½, 1/4), and units (g, tbsp, cup) all parse automatically."
+                            ]
+                        )
+
+                        section(
+                            eyebrow: "FROM A PHOTO",
+                            rows: [
+                                "Tap **Take a Photo** to scan a cookbook spread, magazine clipping, or recipe card with the camera.",
+                                "Or pick an image from your photo library — multi-page scans concatenate top-to-bottom.",
+                                "Lighting and framing help — flat surface, full page in the frame, no glare on glossy paper.",
+                                "I OCR the page and parse it into the same preview screen as a shared recipe — review, then save."
                             ]
                         )
 
@@ -72,7 +82,7 @@ struct ImportHelpView: View {
                 Text("Hi there!")
                     .font(.system(size: 22, weight: .bold, design: .serif))
                     .foregroundStyle(appearance.accentColor)
-                Text("Two ways to import a recipe")
+                Text("Three ways to import a recipe")
                     .font(.system(size: 13, weight: .medium))
                     .tracking(0.3)
                     .foregroundStyle(AppColor.textSecondary)

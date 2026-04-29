@@ -4,18 +4,19 @@ import FoundationModels
 /// On-device LLM recipe parser, gated to iOS 26+ with Apple Intelligence
 /// enabled. Used as the *first* attempt on the messy URL-import paths
 /// (TikTok captions, Pinterest pin descriptions, blog OG-fallback
-/// summaries) where caption-style writing outpaces what the regex
-/// parser can resolve. Returns nil when the model is unavailable so
-/// the caller can fall back to `RecipeImporter.parse` — the regex
-/// pipeline stays the universal floor for older devices, devices
-/// without Apple Intelligence, and the model-not-ready window after
-/// first install.
+/// summaries) and on the OCR-import path (cookbook pages, magazine
+/// clippings, handwritten cards) where free-form prose hides the
+/// structure. Returns nil when the model is unavailable so the caller
+/// can fall back to `RecipeImporter.parse` — the regex pipeline stays
+/// the universal floor for older devices, devices without Apple
+/// Intelligence, and the model-not-ready window after first install.
 ///
-/// **Why only the URL paths**: a user who pastes pre-structured text
+/// **Why only the messy paths**: a user who pastes pre-structured text
 /// already did the hard work; spending 2-5 seconds running the LLM on
 /// clean input would be a regression. Schema.org JSON-LD likewise has
 /// real structure already, no LLM needed. The LLM earns its keep on
-/// social-media captions where free-form prose hides the structure.
+/// social-media captions and OCR'd cookbook pages where the structure
+/// is implicit.
 enum RecipeAIParser {
 
     /// True when the on-device language model is ready to answer.
@@ -61,6 +62,75 @@ enum RecipeAIParser {
         }
     }
 
+    /// Best-of parse: run *both* the LLM (when available) and the regex
+    /// pipeline against the same text, then pick whichever produced
+    /// the more usable draft. Centralized here so each call site
+    /// (URL importer for TikTok / Pinterest / OG-fallback, OCR
+    /// importer for cookbook pages) calls one line.
+    ///
+    /// Returns nil only when *both* parsers produce nothing worth
+    /// previewing — at which point each call site falls back to the
+    /// existing seed-text-and-edit flow rather than dropping the user
+    /// into an empty editor.
+    ///
+    /// **Why best-of, not AI-first**: the LLM occasionally mashes
+    /// several actions into one step (we saw a 13-step sourdough
+    /// caption come back as four steps with everything glued onto
+    /// step four). The regex pipeline has been tightened enough that
+    /// it's a strong baseline; if the AI loses on step count or
+    /// produces a giant blob-step, we use the regex result instead.
+    static func parseBestOf(_ text: String, sourceUrl: String?) async -> DraftRecipe? {
+        let urlString = sourceUrl ?? ""
+        let regexDraft = makeRegexDraft(text, sourceUrl: urlString)
+        guard #available(iOS 26.0, *), isAvailable else {
+            return regexDraft
+        }
+        let aiDraft = await parse(text, sourceUrl: sourceUrl)
+        return pickBetterDraft(ai: aiDraft, regex: regexDraft)
+    }
+
+    /// Run the regex pipeline and stamp the source URL on it, gated
+    /// by the same minimum bar the AI quality gate uses (title + at
+    /// least one ingredient or step). Anything weaker isn't worth
+    /// auto-jumping to the editor for.
+    private static func makeRegexDraft(_ text: String, sourceUrl: String) -> DraftRecipe? {
+        var draft = RecipeImporter.parse(text)
+        if !sourceUrl.isEmpty { draft.sourceUrl = sourceUrl }
+        let hasTitle = !draft.title.trimmed.isEmpty
+        let hasContent = !draft.ingredients.isEmpty || !draft.steps.isEmpty
+        return (hasTitle && hasContent) ? draft : nil
+    }
+
+    /// Compare two parser outputs and pick the higher-quality one.
+    /// Heuristics, in order:
+    ///
+    /// 1. If only one side produced a draft, use it.
+    /// 2. If the AI's longest step is implausibly long (> 200 chars)
+    ///    it almost certainly mashed several actions together — regex
+    ///    wins. A healthy cooking step is typically 50-100 chars; the
+    ///    threshold is well above that to avoid false positives on
+    ///    legitimately wordy single-action steps.
+    /// 3. If the regex pulled out 5+ steps and the AI got fewer than
+    ///    70% of that count, the AI under-split — regex wins.
+    /// 4. Otherwise the AI wins. It generally beats regex on title
+    ///    cleanup, ingredient quantity/unit splitting, and lifting
+    ///    "while X" reminders into special notes.
+    private static func pickBetterDraft(ai: DraftRecipe?, regex: DraftRecipe?) -> DraftRecipe? {
+        guard let ai = ai else { return regex }
+        guard let regex = regex else { return ai }
+
+        let aiLongest = ai.steps.map(\.text.count).max() ?? 0
+        if aiLongest > 200 { return regex }
+
+        let aiSteps = ai.steps.count
+        let regexSteps = regex.steps.count
+        if regexSteps >= 5, aiSteps * 10 < regexSteps * 7 {
+            return regex
+        }
+
+        return ai
+    }
+
     /// Minimum bar for "AI got something useful": title and at least
     /// one ingredient OR one step. Below that we'd be handing the
     /// editor an empty preview, which is worse UX than letting the
@@ -71,28 +141,38 @@ enum RecipeAIParser {
         return hasTitle && hasContent
     }
 
-    /// Instructions tuned for caption-style input. Each rule maps to a
-    /// real failure mode we've seen in the wild: TikTok handle suffixes,
-    /// glued steps, parenthetical "while X" hints, ranges. Kept compact —
-    /// the model behaves better with directives than with prose. The
-    /// worked example at the bottom is the single biggest quality lever
-    /// for small on-device models; it pins the title-cleanup pass, the
-    /// "let sit … then …" split, the parenthetical lift, and the
-    /// compound-noun timer guard ("8 hour sourdough") in one shot.
+    /// Instructions tuned for both caption-style and cookbook-page
+    /// input. Each rule maps to a real failure mode we've seen in the
+    /// wild: TikTok handle suffixes, glued steps, parenthetical
+    /// "while X" hints, ranges, and OCR'd cookbook headers. Kept
+    /// compact — the model behaves better with directives than with
+    /// prose. Two worked examples (caption + cookbook) pin the most
+    /// common shapes the parser sees.
     private static let instructions: String = """
-    You parse messy recipe text from social media (TikTok, Instagram, \
-    Pinterest, recipe blogs) into structured fields. Follow these rules:
+    You parse messy recipe text into structured fields. Inputs vary: \
+    social-media captions (TikTok, Instagram, Pinterest, recipe blogs) \
+    and OCR'd printed pages (cookbooks, magazines, handwritten cards). \
+    Follow these rules:
 
     1. Title: the dish name. Usually the first non-empty line. Strip \
        social-media decorations like @handles, #hashtags, emoji runs, \
        and "RECIPE:" / "Recipe -" / "Recipe👇" prefixes.
     2. Summary: short blurb if the caption has one. Empty otherwise.
-    3. Ingredients: split each into quantity / unit / name. \
+    3. Servings: numeric prefix when stated ("Serves 4" -> "4", \
+       "Yield: 1 loaf" -> "1", "Makes 12 cookies" -> "12"). Empty \
+       when not stated.
+    4. cookTimeMinutes: total cook/bake minutes when stated ("Cook \
+       45 min", "Bake: 60 min", "Total: 1 hour" -> "60"). Empty \
+       when not stated.
+    5. prepTimeMinutes: prep minutes when stated separately from \
+       cook time ("Prep: 15 min" -> "15"). Empty when not stated or \
+       when the source only gives a single total.
+    6. Ingredients: split each into quantity / unit / name. \
        "2 cups flour" -> quantity "2", unit "cup", name "flour". \
        "salt to taste" -> quantity "", unit "", name "salt to taste". \
        "1 1/2 tbsp butter" -> quantity "1 1/2", unit "tbsp", name "butter". \
        Use canonical singular units (cup, tbsp, tsp, oz, lb, g, kg, ml, l).
-    4. Steps: ONE cooking action per step — never glue multiple \
+    7. Steps: ONE cooking action per step — never glue multiple \
        actions into a single step. Each line break, each "then", each \
        comma-then transition, and each separate sentence is its own \
        step. "Let sit for 1 hour, then do 8 stretch and folds" is TWO \
@@ -100,17 +180,17 @@ enum RecipeAIParser {
        Strip leading numbering like "Step 1:" or "1.". When in doubt, \
        split into MORE steps rather than fewer — keeping waits and \
        actions on separate lines is what makes Cook Mode work.
-    5. needsTimer: true when a step mentions a duration ("for 30 \
+    8. needsTimer: true when a step mentions a duration ("for 30 \
        minutes", "1-2 hours"). False when the duration is part of a \
        compound noun ("8 hour sourdough", "30 minute meal").
-    6. specialNote: only set this when the step has a parenthetical \
+    9. specialNote: only set this when the step has a parenthetical \
        reminder or a "while X is happening" clause. Move that phrase \
        to specialNote and keep the main action in the step text. \
        Empty otherwise.
-    7. Strip trailing creator handles (@username) and hashtag runs from \
-       every field; they aren't part of the recipe.
+    10. Strip trailing creator handles (@username) and hashtag runs \
+        from every field; they aren't part of the recipe.
 
-    Worked example (study the splits and the `needsTimer` calls):
+    Worked example #1 (TikTok caption):
 
     INPUT:
     Recipe👇🏻Same day sourdough is the best sourdough!😍🙌🏻 100g \
@@ -123,6 +203,9 @@ enum RecipeAIParser {
     OUTPUT:
     title: "Same day sourdough"
     summary: ""
+    servings: ""
+    cookTimeMinutes: ""
+    prepTimeMinutes: ""
     ingredients:
       - quantity "100", unit "g", name "active starter"
       - quantity "390", unit "g", name "water"
@@ -143,6 +226,63 @@ enum RecipeAIParser {
     main action kept clean; and how "8 hour sourdough" did NOT get \
     needsTimer because the duration is part of the dish name, not a \
     timing instruction.
+
+    Worked example #2 (printed cookbook page, OCR'd):
+
+    INPUT:
+    Classic Banana Bread
+    Yield: 1 loaf • Prep: 15 min • Bake: 60 min
+
+    INGREDIENTS
+    3 ripe bananas, mashed
+    1/3 cup melted butter
+    3/4 cup sugar
+    1 egg, beaten
+    1 tsp vanilla extract
+    1 tsp baking soda
+    Pinch of salt
+    1 1/2 cups all-purpose flour
+
+    DIRECTIONS
+    1. Preheat oven to 350°F. Grease a 4x8-inch loaf pan.
+    2. In a large bowl, mash bananas until smooth.
+    3. Stir melted butter into bananas. Mix in sugar, egg, and vanilla.
+    4. Sprinkle baking soda and salt over mixture; mix in.
+    5. Add flour; mix until just combined.
+    6. Pour batter into prepared pan. Bake 60 minutes.
+    7. Cool on rack before slicing.
+
+    OUTPUT:
+    title: "Classic Banana Bread"
+    summary: ""
+    servings: "1"
+    cookTimeMinutes: "60"
+    prepTimeMinutes: "15"
+    ingredients:
+      - quantity "3", unit "", name "ripe bananas, mashed"
+      - quantity "1/3", unit "cup", name "melted butter"
+      - quantity "3/4", unit "cup", name "sugar"
+      - quantity "1", unit "", name "egg, beaten"
+      - quantity "1", unit "tsp", name "vanilla extract"
+      - quantity "1", unit "tsp", name "baking soda"
+      - quantity "", unit "pinch", name "salt"
+      - quantity "1 1/2", unit "cup", name "all-purpose flour"
+    steps:
+      - text "Preheat oven to 350°F", needsTimer false, \
+        specialNote "Grease a 4x8-inch loaf pan"
+      - text "In a large bowl, mash bananas until smooth", needsTimer false, specialNote ""
+      - text "Stir melted butter into bananas. Mix in sugar, egg, and vanilla", needsTimer false, specialNote ""
+      - text "Sprinkle baking soda and salt over mixture; mix in", needsTimer false, specialNote ""
+      - text "Add flour; mix until just combined", needsTimer false, specialNote ""
+      - text "Pour batter into prepared pan. Bake 60 minutes", needsTimer true, specialNote ""
+      - text "Cool on rack before slicing", needsTimer false, specialNote ""
+
+    Notice how "Yield: 1 loaf" became servings "1" (the numeric prefix); \
+    "Prep: 15 min" became prepTimeMinutes "15"; "Bake: 60 min" became \
+    cookTimeMinutes "60". Numbered "1." / "2." prefixes were stripped \
+    from each step. The parenthetical-equivalent "Grease a 4x8-inch \
+    loaf pan" stayed grouped with the preheat step as a specialNote \
+    since it's a setup hint, not a separate cooking action.
     """
 }
 
@@ -163,6 +303,15 @@ private struct ParsedRecipe {
 
     @Guide(description: "Short blurb if any; empty otherwise.")
     let summary: String
+
+    @Guide(description: "Servings count if stated ('Serves 4', 'Yield: 12 cookies'). Empty otherwise.")
+    let servings: String
+
+    @Guide(description: "Total cook/bake minutes if stated. Empty otherwise.")
+    let cookTimeMinutes: String
+
+    @Guide(description: "Prep minutes if stated separately from cook time. Empty otherwise.")
+    let prepTimeMinutes: String
 
     @Guide(description: "Each ingredient broken into pieces.")
     let ingredients: [ParsedIngredient]
@@ -204,6 +353,9 @@ private extension ParsedRecipe {
         var draft = DraftRecipe()
         draft.title = RecipeImporter.cleanTitle(title.trimmed)
         draft.summary = summary.trimmed
+        draft.servings = servings.trimmed
+        draft.cookTimeMinutes = cookTimeMinutes.trimmed
+        draft.prepTimeMinutes = prepTimeMinutes.trimmed
         if let sourceUrl, !sourceUrl.isEmpty {
             draft.sourceUrl = sourceUrl
         }

@@ -220,7 +220,7 @@ enum RecipeImporter {
             }
 
             if sectionMatches(lower, ["ingredients"]) { section = .ingredients; continue }
-            if sectionMatches(lower, ["steps", "instructions", "directions", "method"]) { section = .steps; continue }
+            if sectionMatches(lower, ["steps", "instructions", "directions", "method", "preparation", "procedure"]) { section = .steps; continue }
 
             if applyHeaderField(line, lower: lower, into: &draft) { continue }
 
@@ -405,14 +405,44 @@ enum RecipeImporter {
     }
 
     /// Try to interpret `line` as a header-style metadata row (Source:,
-    /// Serves:, Cook time:). Returns true when consumed so the caller
-    /// can skip it in the summary / block flow.
+    /// Serves:, Cook time:, Yield:, Makes:, Prep:, Bake:, Total time:).
+    /// Returns true when consumed so the caller can skip it in the
+    /// summary / block flow. Cookbook synonyms folded in alongside the
+    /// caption-style headers so the same parser works on OCR'd printed
+    /// pages.
     private static func applyHeaderField(_ line: String, lower: String, into draft: inout DraftRecipe) -> Bool {
         if let s = extractNumber(after: #"(?i)^serves?\s*:?\s*"#, in: line) {
             draft.servings = s
             return true
         }
+        // Yield: 12 cookies / Yield: 1 loaf — pull the numeric prefix
+        // (caller's display layer handles the trailing noun).
+        if let s = extractNumber(after: #"(?i)^yields?\s*:?\s*"#, in: line) {
+            draft.servings = s
+            return true
+        }
+        if let s = extractNumber(after: #"(?i)^makes\s*:?\s*"#, in: line) {
+            draft.servings = s
+            return true
+        }
+        // Prep: / Prep time: — separate from cook time when stated.
+        if let s = extractNumber(after: #"(?i)^prep(?:\s+time)?\s*:?\s*"#, in: line) {
+            draft.prepTimeMinutes = s
+            return true
+        }
         if let s = extractNumber(after: #"(?i)^cook(?:\s+time)?\s*:?\s*"#, in: line) {
+            draft.cookTimeMinutes = s
+            return true
+        }
+        // Bake / Bake time / Total / Total time — all map to the same
+        // cook-time slot. Most cookbook pages use one or the other and
+        // the user just wants "how long does it take" surfaced in the
+        // metadata strip.
+        if let s = extractNumber(after: #"(?i)^bake(?:\s+time)?\s*:?\s*"#, in: line) {
+            draft.cookTimeMinutes = s
+            return true
+        }
+        if let s = extractNumber(after: #"(?i)^total(?:\s+time)?\s*:?\s*"#, in: line) {
             draft.cookTimeMinutes = s
             return true
         }
@@ -441,7 +471,8 @@ enum RecipeImporter {
     }
 
     private static let sectionHeaderKeywords: Set<String> = [
-        "ingredients", "steps", "instructions", "directions", "method"
+        "ingredients", "steps", "instructions", "directions", "method",
+        "preparation", "procedure"
     ]
 
     private enum Section { case header, ingredients, steps }
