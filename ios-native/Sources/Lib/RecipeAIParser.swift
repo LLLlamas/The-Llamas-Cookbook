@@ -455,6 +455,11 @@ private extension ParsedRecipe {
             )
             return RecipeImporter.enrichAIStep(raw)
         }
+        // Orphan-duration merge — the regex pipeline applies the same
+        // pass via `RecipeImporter.parse`. Running it here keeps the
+        // best-of picker comparing two drafts that have both gone
+        // through the same final-shape normalization.
+        draft.steps = RecipeImporter.mergeOrphanDurationSteps(draft.steps)
         return draft
     }
 }

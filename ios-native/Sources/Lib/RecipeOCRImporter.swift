@@ -367,17 +367,30 @@ enum RecipeOCRImporter {
             with: "$1 & $2/$3 $4",
             options: .regularExpression
         )
-        // "1⅙½ cup" / "1⅙¼ cup" → "1 & 1/2 cup". Handwritten `&` next
-        // to a vulgar fraction (e.g. "1 & ½") frequently misreads as
-        // "⅙" (U+2159, one-sixth). Real recipes virtually never use
-        // sixths, so a ⅙ wedged between a digit and another vulgar
-        // fraction is almost certainly a misread `&`. Drop the bogus
-        // ⅙ and insert the explicit `& ` separator the parser
-        // expects. Scoped to a unit suffix to avoid corrupting any
-        // legitimate step text that mentions the glyph.
+        // "1⅙½ cup" / "1⅛½ cup" / "1¼½ cup" → "1 & ½ cup". Handwritten
+        // `&` next to a vulgar fraction (e.g. "1 & ½") routinely
+        // misreads as a stray vulgar-fraction glyph from Vision —
+        // observed: ⅙, ⅛, ¼, ⅜. Two adjacent vulgar fractions never
+        // make sense in a real recipe quantity, so the second
+        // fraction is the legitimate one and the first is a misread
+        // `&`. Drop the first, keep the second, insert the explicit
+        // `& ` separator the parser expects. Scoped to a unit suffix
+        // to avoid corrupting any step text that mentions the glyph.
+        // Replacement uses literal-space separators rather than back-
+        // to-back `$N` references to avoid NSRegularExpression's
+        // greedy `$23` parsing ambiguity.
         out = out.replacingOccurrences(
-            of: "(\\d)\u{2159}([\u{00BC}-\u{215E}])(\\s*)(\(unitClass))\\b",
-            with: "$1 & $2$3$4",
+            of: "(\\d)[\u{00BC}-\u{215E}]([\u{00BC}-\u{215E}])\\s*(\(unitClass))\\b",
+            with: "$1 & $2 $3",
+            options: .regularExpression
+        )
+        // "1%½ cup" — same misread shape but with `%` for the misread
+        // glyph (lobes line up with handwritten `&`). Existing rule
+        // earlier handled `\d%\d/\d` — the vulgar-fraction trailing
+        // shape was missed. Drop the `%`, keep the vulgar fraction.
+        out = out.replacingOccurrences(
+            of: "(\\d)\\s*%\\s*([\u{00BC}-\u{215E}])\\s*(\(unitClass))\\b",
+            with: "$1 & $2 $3",
             options: .regularExpression
         )
         return out

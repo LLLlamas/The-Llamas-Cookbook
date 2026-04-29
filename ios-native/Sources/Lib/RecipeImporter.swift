@@ -16,10 +16,62 @@ enum RecipeImporter {
     static func parse(_ text: String) -> DraftRecipe {
         let cleaned = stripTrailingHandle(text)
         let exploded = explodeSingleParagraph(cleaned)
+        var draft: DraftRecipe
         if hasExplicitSectionLabels(exploded) {
-            return parseLabeled(exploded)
+            draft = parseLabeled(exploded)
+        } else {
+            draft = parseBlocks(exploded)
         }
-        return parseBlocks(exploded)
+        // Post-merge orphan-duration steps. Vision sometimes returns a
+        // handwritten "Bake 425 degrees, 10 mins" as two separate
+        // observations (the comma + space happens to land at a natural
+        // break point) — each observation becomes its own step, leaving
+        // a meaningless "10 mins" standalone step. The single-line
+        // splitter in `splitIntoSteps` can't help once the input is
+        // already split across lines, so this pass glues any pure-
+        // duration step back onto the preceding action.
+        draft.steps = mergeOrphanDurationSteps(draft.steps)
+        return draft
+    }
+
+    /// Detect "pure duration" steps ("10 mins", "30 minutes", "1-2
+    /// hours") that shouldn't stand alone and merge them into the
+    /// preceding step's text. Standalone durations are nonsensical as
+    /// instructions — they're always a time annotation glued to the
+    /// previous action by some upstream split (Vision splitting a line
+    /// at a comma, or the user pasting with stray newlines).
+    ///
+    /// Pure-duration as the FIRST step (no prior to merge into) is
+    /// preserved as-is — extremely rare, and the fallback at least
+    /// keeps the data visible to the user.
+    ///
+    /// Exposed (non-private) so the AI path can apply the same merge
+    /// via `RecipeAIParser.toDraft`. Both parser pipelines now go
+    /// through the same orphan-duration normalizer, which keeps the
+    /// best-of picker comparing step counts on equal footing.
+    static func mergeOrphanDurationSteps(_ steps: [DraftStep]) -> [DraftStep] {
+        var merged: [DraftStep] = []
+        for step in steps {
+            if isPureDuration(step.text), let last = merged.last {
+                var lastText = last.text.trimmingCharacters(in: .whitespaces)
+                if lastText.hasSuffix(",") {
+                    lastText = String(lastText.dropLast())
+                        .trimmingCharacters(in: .whitespaces)
+                }
+                let combinedText = lastText + ", " + step.text
+                let combinedStep = DraftStep(
+                    id: last.id,
+                    text: combinedText,
+                    needsTimer: last.needsTimer || hasTimerSignal(combinedText),
+                    specialNote: last.specialNote,
+                    images: last.images
+                )
+                merged[merged.count - 1] = combinedStep
+            } else {
+                merged.append(step)
+            }
+        }
+        return merged
     }
 
     /// Strip TikTok-style `@handle` decorations from a pasted caption.
@@ -274,6 +326,19 @@ enum RecipeImporter {
         // matcher and leave us with no title.
         var blocks: [[String]] = []
         for (blockIdx, block) in rawBlocks.enumerated() {
+            // Metadata-shape detection: a small block (≤ 2 lines)
+            // where every line is a short digit-led pair without an
+            // ampersand or fraction is almost certainly an OCR'd
+            // metadata block ("8 servings\n20 min prep time") even
+            // when the keyword itself misread ("8 serugs", "20 min
+            // piep time"). The shape-based fallback below kicks in
+            // only when the block matches this profile, so it can't
+            // hijack ingredient blocks that legitimately lead with a
+            // digit.
+            let allLooksMetadata = blockIdx > 0
+                && block.count <= 2
+                && block.allSatisfy { lineLooksLikeMetadataShape($0) }
+
             var remaining: [String] = []
             for (lineIdx, line) in block.enumerated() {
                 if blockIdx == 0 && lineIdx == 0 {
@@ -282,6 +347,8 @@ enum RecipeImporter {
                 }
                 let lower = line.lowercased()
                 if applyHeaderField(line, lower: lower, into: &draft) { continue }
+                if allLooksMetadata,
+                   applyMetadataShapeFallback(line, into: &draft) { continue }
                 remaining.append(line)
             }
             if !remaining.isEmpty {
@@ -532,6 +599,66 @@ enum RecipeImporter {
             draft.sourceUrl = String(line.dropFirst("source:".count))
                 .trimmingCharacters(in: .whitespaces)
             return true
+        }
+        return false
+    }
+
+    /// True when the line has the *shape* of a metadata row — short,
+    /// digit-led, no ampersand or fraction — even if the keyword on
+    /// the line is mis-spelled. Used by `parseBlocks` to decide
+    /// whether to invoke the lenient `applyMetadataShapeFallback`
+    /// extractor on lines that escaped the strict `applyHeaderField`
+    /// matcher because their keyword OCR'd wrong ("8 serugs" instead
+    /// of "8 servings", "20 min piep time" instead of "prep time").
+    ///
+    /// Restrictions kept tight on purpose: ampersand or a vulgar
+    /// fraction in the line is a strong "this is an ingredient
+    /// quantity, not metadata" signal, and word count > 5 lands us
+    /// well past the "8 servings" / "20 min prep time" window.
+    private static func lineLooksLikeMetadataShape(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.contains("&") || trimmed.contains("/") { return false }
+        if trimmed.unicodeScalars.contains(where: { (0x00BC...0x215E).contains(Int($0.value)) }) {
+            return false
+        }
+        let pattern = #/^\d+(?:\s+[A-Za-z]+){1,4}\s*$/#
+        return (try? pattern.wholeMatch(in: trimmed)) != nil
+    }
+
+    /// Lenient metadata extractor for lines that look like metadata
+    /// but whose keyword OCR'd wrong. Fired only when the entire
+    /// containing block has metadata shape (small, digit-led, no
+    /// fraction markers) so we don't mis-classify ingredient lines.
+    ///
+    /// Two patterns recognized:
+    ///   - `<digit> <word>` → servings (e.g. "8 serugs", "8 servings"),
+    ///     skipping any word that's a known unit ("8 cups" stays an
+    ///     ingredient).
+    ///   - `<digit> min(s) <word> [time]` → time annotation. Defaulted
+    ///     to prepTime when the middle word doesn't lead with `c`/`b`
+    ///     (cook/bake). Cookbook lines tend to use "Bake X min" rather
+    ///     than reverse-form anyway, so the c/b heuristic catches the
+    ///     few cases where reverse-form bake time appears.
+    private static func applyMetadataShapeFallback(_ line: String, into draft: inout DraftRecipe) -> Bool {
+        // <digit> min <word> [time]
+        if let m = try? #/(?i)^(\d+)\s+min(?:ute)?s?\s+([a-z]+)(?:\s+time)?\s*$/#.wholeMatch(in: line) {
+            let value = String(m.output.1)
+            let middle = String(m.output.2).lowercased()
+            if middle.hasPrefix("c") || middle.hasPrefix("b") {
+                if draft.cookTimeMinutes.isEmpty { draft.cookTimeMinutes = value }
+            } else {
+                if draft.prepTimeMinutes.isEmpty { draft.prepTimeMinutes = value }
+            }
+            return true
+        }
+        // <digit> <word>  (servings shape; reject when the word is a
+        // known unit so "8 cups" stays an ingredient)
+        if let m = try? #/(?i)^(\d+)\s+([a-z]+)\s*$/#.wholeMatch(in: line) {
+            let word = String(m.output.2).lowercased()
+            if !knownUnits.contains(word) {
+                if draft.servings.isEmpty { draft.servings = String(m.output.1) }
+                return true
+            }
         }
         return false
     }
@@ -856,7 +983,26 @@ enum RecipeImporter {
         // signals in caption prose. Lookahead keeps the trigger word
         // with the second piece so it reads naturally.
         let commaBoundaryRegex = #/,\s+(?=[Tt]hen\b|\d)/#
-        let commas = Array(s.matches(of: commaBoundaryRegex))
+        let allCommas = Array(s.matches(of: commaBoundaryRegex))
+
+        // Filter out splits where the trailing fragment is just a
+        // duration annotation ("10 mins", "30 minutes", "1 hour").
+        // "Bake at 425 degrees, 10 mins" should stay as ONE step;
+        // splitting on the comma would orphan the duration as a
+        // standalone "10 mins" step that means nothing on its own.
+        // Splits that produce a real next-instruction (with "then" or
+        // multi-word content) survive the filter unchanged.
+        var commas: [Regex<Substring>.Match] = []
+        for (i, m) in allCommas.enumerated() {
+            let nextStart: String.Index = i + 1 < allCommas.count
+                ? allCommas[i + 1].range.lowerBound
+                : s.endIndex
+            let trailing = String(s[m.range.upperBound..<nextStart])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !isPureDuration(trailing) {
+                commas.append(m)
+            }
+        }
         if !commas.isEmpty {
             var pieces: [String] = []
             var cursor = s.startIndex
@@ -901,6 +1047,16 @@ enum RecipeImporter {
         }
 
         return [s]
+    }
+
+    /// True when the input is *only* a duration annotation, with no
+    /// other content — "10 mins", "30 minutes", "1-2 hours", "1 hr".
+    /// Used by the comma-digit step splitter to keep duration tails
+    /// glued to their preceding action ("Bake 425 degrees, 10 mins"
+    /// is one step, not two).
+    private static func isPureDuration(_ s: String) -> Bool {
+        let pattern = #/^\d+(?:\s*[-–—]\s*\d+)?\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|sec|secs|second|seconds)\s*$/#
+        return (try? pattern.wholeMatch(in: s)) != nil
     }
 
     /// Layer the post-parse enrichments onto a freshly-parsed step:
