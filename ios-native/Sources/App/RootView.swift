@@ -108,14 +108,20 @@ struct RootView: View {
             //   6. llamascookbook://share-incoming/<uuid>    ← Share Extension
             //      handoff for a `.llamarecipe` file the user shared
             //      from Files / Mail; bytes wait in the App Group inbox
-            //
-            // Universal Links (https://<host>/r/<recordName>) arrive via
-            // `.onContinueUserActivity` below, NOT here.
+            //   7. https://<shareLinkHost>/r/<recordName>   ← Universal
+            //      Link (the same recipe-share permalink as #3 but
+            //      delivered as an HTTPS URL because the rich-preview
+            //      bubble in Messages requires HTTPS). iOS sometimes
+            //      delivers Universal Links here AND sometimes via
+            //      `.onContinueUserActivity` below — handling both
+            //      keeps the import flow reliable across cold-launch
+            //      vs warm-foreground deliveries on iOS 18.
             //
             // Order: cook first (most frequent), then the three share
             // forms, then file open, then the two share-extension
-            // handoffs. All disjoint by scheme/host/file-extension so
-            // order is strict only within each predicate match.
+            // handoffs, then the HTTPS Universal Link. All disjoint
+            // by scheme/host/file-extension so order is strict only
+            // within each predicate match.
 
             if let recipeID = parseCookDeepLink(url) {
                 routeCookDeepLink(recipeID)
@@ -129,17 +135,27 @@ struct RootView: View {
                 routeShareExtensionURL(url)
             } else if url.scheme == "llamascookbook", url.host == "share-incoming" {
                 routeShareExtensionFile(url)
+            } else if url.scheme == "https",
+                      url.host == CloudKitService.shareLinkHost {
+                routeUniversalLink(url)
             }
         }
         // Universal Links — `https://llamascookbook.pages.dev/r/<recordName>`
         // arriving from a tap on the rich-preview bubble in Messages /
         // Mail / etc. iOS validates the AASA file on first launch; once
-        // validated, the OS routes matching URLs through this callback
-        // (NOT `onOpenURL`, which is custom-scheme only). Both the
-        // legacy `llamascookbook://share/` route and this Universal
-        // Link route fan into the same `fetchCloudShareRecord` flow,
-        // so the import-preview UX is identical regardless of how the
-        // recipient arrived.
+        // validated, the OS routes matching URLs into the app.
+        //
+        // **Why both handlers exist**: iOS 18 SwiftUI delivers Universal
+        // Links *either* through `.onOpenURL` (with the full https URL,
+        // typical for cold-launch + scene reactivation) *or* through
+        // `.onContinueUserActivity(NSUserActivityTypeBrowsingWeb)`
+        // (typical for warm-foreground deliveries via NSUserActivity).
+        // Apple's docs imply only the latter is canonical, but in
+        // practice both fire depending on launch state. Routing through
+        // both into the same `routeUniversalLink` keeps the import flow
+        // reliable regardless of how iOS chose to deliver the URL —
+        // duplicate calls would no-op since `pendingShareImport`
+        // becomes the same UUID either way.
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             guard let url = activity.webpageURL else { return }
             routeUniversalLink(url)
