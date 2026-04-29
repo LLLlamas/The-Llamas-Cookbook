@@ -439,7 +439,17 @@ struct RecipeDetailView: View {
         // SwiftUI ShareLink.
         .sheet(isPresented: shareSheetVisible) {
             if let item = pendingShareItem {
-                ShareSheet(items: [item.activityItem]) { _ in
+                // Wrap the payload in a `RecipeShareActivityItem` so
+                // the share-sheet preview header (and the rich
+                // previews in Messages / Mail / AirDrop) carry the
+                // recipe title + llama app icon instead of the
+                // generic "Untitled" iOS shows for custom-scheme URLs.
+                ShareSheet(items: [
+                    RecipeShareActivityItem(
+                        payload: item.activityItem,
+                        recipeTitle: recipe.title
+                    )
+                ]) { _ in
                     cleanupTempFile(for: item)
                     pendingShareItem = nil
                 }
