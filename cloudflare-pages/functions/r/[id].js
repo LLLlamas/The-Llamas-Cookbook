@@ -58,7 +58,7 @@ export async function onRequest(context) {
 
   const html = renderHTML({
     title,
-    description: "A recipe from The Llama's Cookbook",
+    description: "A recipe from Llamas Cookbook",
     ogImage: ogImageURL,
     pageURL: requestURL.toString(),
     appURL: `llamascookbook://share/${recordName}`,
@@ -87,7 +87,7 @@ function renderHTML({ title, description, ogImage, pageURL, appURL }) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${safeTitle} — The Llama's Cookbook</title>
+  <title>${safeTitle} — Llamas Cookbook</title>
   <meta name="description" content="${safeDesc}">
 
   <!-- Open Graph (Messages, Slack, Discord, Facebook, etc.) -->
@@ -98,7 +98,7 @@ function renderHTML({ title, description, ogImage, pageURL, appURL }) {
   <meta property="og:image:height" content="1200">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${safePageURL}">
-  <meta property="og:site_name" content="The Llama's Cookbook">
+  <meta property="og:site_name" content="Llamas Cookbook">
 
   <!-- Twitter Card (iMessage rich preview also reads these as fallback) -->
   <meta name="twitter:card" content="summary_large_image">
@@ -207,12 +207,12 @@ function renderHTML({ title, description, ogImage, pageURL, appURL }) {
   <main class="card">
     <img class="hero" src="${safeOgImage}" alt="${safeTitle}" loading="eager">
     <h1>${safeTitle}</h1>
-    <p class="subtitle">A recipe from The Llama's Cookbook</p>
+    <p class="subtitle">A recipe from Llamas Cookbook</p>
     <a class="cta" href="${safeAppURL}">
       Open in app
     </a>
     <p class="footer">
-      Don't have the app? Get The Llama's Cookbook on the App&nbsp;Store.
+      Don't have the app? Get Llamas Cookbook on the App&nbsp;Store.
     </p>
   </main>
 </body>

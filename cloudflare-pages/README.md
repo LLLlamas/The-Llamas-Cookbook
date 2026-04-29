@@ -13,7 +13,7 @@ URL; this Pages project handles everything else.
 | `/` | `index.html` | Marketing landing page (anyone navigating to the bare host). |
 | `/r/<recordName>` | `functions/r/[id].js` | OG-tagged HTML for link-preview scrapers + fallback web view for non-iOS users. Fetches the recipe from CloudKit. |
 | `/img/<recordName>` | `functions/img/[id].js` | Image proxy for `og:image`. Resolves the recipe's first photo from CloudKit and streams it back; falls through to `/llama-icon.png` on any failure. |
-| `/.well-known/apple-app-site-association` | static file | Universal Links AASA — tells iOS that `/r/*` URLs belong to the Llama's Cookbook app. |
+| `/.well-known/apple-app-site-association` | static file | Universal Links AASA — tells iOS that `/r/*` URLs belong to the Llamas Cookbook app. |
 | `/llama-icon.png` | static file | Brand icon used as the OG image fallback. |
 
 The shared CloudKit client lives at `lib/cloudkit.js` (outside `functions/`) so the Pages bundler picks it up via the relative `import` in each route handler without auto-routing it as `/cloudkit`.
