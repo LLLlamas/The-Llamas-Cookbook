@@ -52,7 +52,7 @@ struct LibraryView: View {
         // .scrollContentBackground(.hidden) so the mascot watermark can
         // peek through — never falls through to the system background.
         .background(AppColor.background)
-        .navigationTitle("Llamas Cookbook")
+        .navigationTitle(cookbookTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -69,12 +69,17 @@ struct LibraryView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Customize accent color")
-                    Text("Llamas Cookbook")
+                    // Aggressive minimumScaleFactor so long display names
+                    // like "Maximilian's Cookbook" still fit on a single
+                    // line alongside the 52pt logo and the trailing
+                    // profile glyph on the narrowest iPhone widths.
+                    Text(cookbookTitle)
                         .font(.system(size: 22, weight: .heavy, design: .serif))
                         .foregroundStyle(appearance.accentColor)
                         .tracking(0.2)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.85)
+                        .minimumScaleFactor(0.6)
+                        .truncationMode(.tail)
                 }
                 // Trailing breathing room before the profile icon —
                 // without this, "Cookbook" runs flush against the
@@ -498,6 +503,24 @@ struct LibraryView: View {
     }
 
     // MARK: Derived
+
+    /// Personalised cookbook title — "Lorenzo's Cookbook" when signed in
+    /// with a real display name, "Llamas Cookbook" otherwise. Falls back
+    /// to the brand name for the signed-out state and for the "Cook"
+    /// placeholder that `UserAccount.resolveDisplayName` lands on when
+    /// Apple didn't supply a name and OwnerProfile was empty — showing
+    /// "Cook's Cookbook" would feel impersonal in a way the bare brand
+    /// title doesn't.
+    private var cookbookTitle: String {
+        guard let raw = userAccount.status.identity?.displayName else {
+            return "Llamas Cookbook"
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "Cook" else {
+            return "Llamas Cookbook"
+        }
+        return "\(trimmed)'s Cookbook"
+    }
 
     private var allTags: [String] {
         var set = Set<String>()

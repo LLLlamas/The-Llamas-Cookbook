@@ -85,13 +85,15 @@ struct RecipeDetailView: View {
                         .foregroundStyle(appearance.accentColor)
                         .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
-                    // Provenance line for recipes imported from another
-                    // user. Sticky through local edits on purpose —
-                    // see Recipe-Sharing.md §8.3 ("a cookbook-from-Mom
-                    // is a cookbook-from-Mom even after you tweak the
-                    // salt amount").
-                    if let provenance = provenanceLine {
-                        Text(provenance)
+                    // One eyebrow line under the title. Provenance wins
+                    // when the recipe came from someone else — see
+                    // Recipe-Sharing.md §8.3 ("a cookbook-from-Mom is a
+                    // cookbook-from-Mom even after you tweak the salt
+                    // amount") — otherwise we surface the local
+                    // "Added MM/DD/YYYY" stamp here so it has a home
+                    // since the bottom signature row was removed.
+                    if let topLine = topMetadataLine {
+                        Text(topLine)
                             .font(AppFont.eyebrow)
                             .foregroundStyle(AppColor.textTertiary)
                             .lineLimit(1)
@@ -178,8 +180,6 @@ struct RecipeDetailView: View {
                             sourceLink(url: url)
                         }
                     }
-
-                    signatureRow
 
                     Button(role: .destructive) {
                         showingDeleteAlert = true
@@ -806,17 +806,6 @@ struct RecipeDetailView: View {
         recipe.updatedAt = .now
     }
 
-    private var signatureRow: some View {
-        HStack(spacing: AppSpacing.md) {
-            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
-            Text(metaFooter)
-                .font(AppFont.caption)
-                .foregroundStyle(AppColor.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.top, AppSpacing.xl)
-    }
-
     private var startCookingBar: some View {
         Button {
             Haptics.impact(.light)
@@ -873,16 +862,19 @@ struct RecipeDetailView: View {
         return parts
     }
 
-    private var metaFooter: String {
-        var parts: [String] = []
-        parts.append("Added \(recipe.createdAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits).year()))")
-        if let last = recipe.lastCookedAt {
-            parts.append("Last cooked on \(last.formatted(.dateTime.month(.twoDigits).day(.twoDigits).year()))")
+    /// Eyebrow line shown under the title. Provenance ("Originally
+    /// shared by …") takes precedence so credit on imported recipes
+    /// reads first; locally-authored recipes fall through to the
+    /// "Added MM/DD/YYYY" stamp that used to live in the now-removed
+    /// signature row at the bottom of the view.
+    private var topMetadataLine: String? {
+        if let provenance = provenanceLine {
+            return provenance
         }
-        if recipe.cookCount > 0 {
-            parts.append("Cooked \(recipe.cookCount) time\(recipe.cookCount == 1 ? "" : "s")")
-        }
-        return parts.joined(separator: " · ")
+        let dateString = recipe.createdAt.formatted(
+            .dateTime.month(.twoDigits).day(.twoDigits).year()
+        )
+        return "Added \(dateString)"
     }
 
     /// Tail-append starter / water / flour ingredients computed from the
