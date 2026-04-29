@@ -14,7 +14,10 @@ struct RecipeEditorView: View {
     /// Optional override for the post-save dismissal. When the editor is pushed
     /// inside another sheet (e.g. the Import flow), the parent sets this to
     /// dismiss the *whole* sheet on Save instead of just popping the editor.
-    let onSaved: (() -> Void)?
+    /// The saved `Recipe` is passed back so callers that need to navigate
+    /// after save (e.g. the photo-import "Edit then Save" hand-off pushing
+    /// Detail via libraryPath.append) can do so without a second lookup.
+    let onSaved: ((Recipe) -> Void)?
 
     @State private var draft: DraftRecipe
     @State private var showDiscardAlert = false
@@ -24,7 +27,7 @@ struct RecipeEditorView: View {
     @State private var showingPhotoCarousel = false
     @FocusState private var isNumericFocused: Bool
 
-    init(recipe: Recipe?, initialDraft: DraftRecipe? = nil, onSaved: (() -> Void)? = nil) {
+    init(recipe: Recipe?, initialDraft: DraftRecipe? = nil, onSaved: ((Recipe) -> Void)? = nil) {
         self.recipe = recipe
         self.onSaved = onSaved
         _draft = State(initialValue: initialDraft ?? recipe?.toDraft() ?? DraftRecipe())
@@ -544,11 +547,14 @@ struct RecipeEditorView: View {
     private func save() {
         guard draft.canSave else { return }
         Haptics.success()
+        let savedRecipe: Recipe
         if let existing = recipe {
             existing.apply(draft)
+            savedRecipe = existing
         } else {
             let newRecipe = Recipe.new(from: draft)
             modelContext.insert(newRecipe)
+            savedRecipe = newRecipe
         }
         // Force-flush to disk before dismissing the sheet. SwiftData's
         // auto-save is best-effort and runs asynchronously around app
@@ -560,7 +566,7 @@ struct RecipeEditorView: View {
         // appear in the @Query briefly then vanish on relaunch.
         try? modelContext.save()
         if let onSaved {
-            onSaved()
+            onSaved(savedRecipe)
         } else {
             dismiss()
         }

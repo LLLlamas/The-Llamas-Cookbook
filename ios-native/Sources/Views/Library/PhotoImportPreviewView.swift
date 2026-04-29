@@ -20,6 +20,14 @@ import SwiftData
 struct PhotoImportPreviewView: View {
     let draft: DraftRecipe
     var onSaved: (Recipe) -> Void = { _ in }
+    /// Called when the user taps **Edit** instead of Save. Hands the
+    /// parsed draft back to the parent so it can dismiss both this
+    /// preview and the photo-import sheet, then open the regular
+    /// `RecipeEditorView` with the draft pre-filled. The user fixes
+    /// any OCR typos in the editor and saves there. Defaults to a
+    /// no-op for previews / future call sites that want a read-only
+    /// preview without the inline-edit shortcut.
+    var onEdit: (DraftRecipe) -> Void = { _ in }
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -69,7 +77,19 @@ struct PhotoImportPreviewView: View {
                         .font(AppFont.eyebrow)
                         .foregroundStyle(AppColor.textTertiary)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                // Two trailing buttons: Edit hands off to the regular
+                // editor with the parsed draft pre-filled (one-tap fix
+                // for OCR typos like "1 1/2" misread as "14 1/2");
+                // Save commits the parse as-is. Group-form keeps
+                // declared order (Edit left, Save right) on iOS.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button("Edit") {
+                        Haptics.selection()
+                        onEdit(draft)
+                    }
+                    .foregroundStyle(appearance.accentColor)
+                    .disabled(isSaving)
+
                     Button {
                         saveToLibrary()
                     } label: {

@@ -225,11 +225,16 @@ struct RootView: View {
             EditorSheetHost(
                 sheet: sheet,
                 onClose: { editor.end() },
-                onPhotoImportSaved: { savedRecipe in
+                onSaved: { savedRecipe in
                     // Same pattern as the share-recipient hand-off:
                     // close the editor sheet, then push Detail after
                     // the dismiss animation has had time to clear so
                     // SwiftUI doesn't drop the push mid-animation.
+                    // Used by every save path that creates a new
+                    // recipe — Write Down Your Recipe, all three
+                    // import flows, and the photo "Edit then Save"
+                    // hand-off — so users always land on the recipe
+                    // they just made.
                     editor.end()
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(350))
@@ -494,26 +499,44 @@ struct RootView: View {
 private struct EditorSheetHost: View {
     let sheet: EditorCoordinator.ActiveSheet
     let onClose: () -> Void
-    /// Called by the photo-import flow with the saved Recipe so
-    /// RootView can dismiss the editor sheet and push Detail. Other
-    /// sheet cases ignore it.
-    let onPhotoImportSaved: (Recipe) -> Void
+    /// Called with the freshly persisted Recipe whenever the editor
+    /// finishes via Save — covers every save path: "Write Down Your
+    /// Recipe", text/link/photo imports, and the photo "Edit then
+    /// Save" hand-off. RootView dismisses the editor sheet and pushes
+    /// Detail so users always land on their newly saved recipe rather
+    /// than back on the Library list. The `.edit(Recipe)` case still
+    /// uses `onClose` — those users are already viewing the recipe
+    /// they edited, so a redundant Detail push would just stack a
+    /// duplicate page on the navigation stack.
+    let onSaved: (Recipe) -> Void
 
     @State private var detent: PresentationDetent = .large
 
     var body: some View {
         NavigationStack {
             switch sheet {
-            case .new:
-                RecipeEditorView(recipe: nil, onSaved: onClose)
+            case .new(let seed):
+                // Every new-recipe save (with or without an import
+                // seed) routes through `onSaved` so the user lands on
+                // Detail. The seed parameter still matters as the
+                // editor's pre-fill (photo-import "Edit then Save"
+                // hand-off), just no longer affects the post-save
+                // navigation decision.
+                RecipeEditorView(recipe: nil, initialDraft: seed) { savedRecipe in
+                    onSaved(savedRecipe)
+                }
             case .edit(let recipe):
-                RecipeEditorView(recipe: recipe, onSaved: onClose)
+                // Editing an existing recipe — user is typically
+                // already viewing it on Detail. Close-only (no extra
+                // navigation) avoids stacking a duplicate Detail on
+                // the navigation path.
+                RecipeEditorView(recipe: recipe) { _ in onClose() }
             case .importFromText(let seedText):
-                ImportFromTextView(seedText: seedText)
+                ImportFromTextView(seedText: seedText, onSaved: onSaved)
             case .importFromLink(let prefilledURL):
-                ImportFromLinkView(prefilledURL: prefilledURL)
+                ImportFromLinkView(prefilledURL: prefilledURL, onSaved: onSaved)
             case .importFromPhoto:
-                ImportFromPhotoView(onSaved: onPhotoImportSaved)
+                ImportFromPhotoView(onSaved: onSaved)
             }
         }
         .presentationDetents([.large, .height(80)], selection: $detent)

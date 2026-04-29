@@ -27,7 +27,14 @@ final class EditorCoordinator {
     var hasUnsavedChanges: Bool = false
 
     enum ActiveSheet: Identifiable, Hashable {
-        case new
+        /// New / blank recipe editor. Optional `seed` carries a
+        /// pre-filled `DraftRecipe` for the photo-import "Edit"
+        /// hand-off — user taps Edit on the OCR preview, gets the
+        /// regular editor opened with every parsed field already in
+        /// place. Identity / equality ignores the seed so a switch
+        /// from FAB-no-seed to photo-handoff-with-seed doesn't trip
+        /// the dirty-state discard alert.
+        case new(seed: DraftRecipe? = nil)
         case edit(Recipe)
         /// Plain text-paste import. The optional `seedText` carries
         /// OCR'd text from the partial-OCR fallback in the photo
@@ -71,7 +78,9 @@ final class EditorCoordinator {
         }
     }
 
-    func startNew() { attemptSwitch(to: .new) }
+    func startNew(seed: DraftRecipe? = nil) {
+        attemptSwitch(to: .new(seed: seed))
+    }
     func startEdit(_ recipe: Recipe) { attemptSwitch(to: .edit(recipe)) }
     func startImportFromText(seedText: String? = nil) {
         attemptSwitch(to: .importFromText(seedText: seedText))

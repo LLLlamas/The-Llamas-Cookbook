@@ -81,14 +81,34 @@ struct ImportFromPhotoView: View {
             Task { await runOCRFromPicker(items) }
         }
         .sheet(item: $preview) { payload in
-            PhotoImportPreviewView(draft: payload.draft) { savedRecipe in
-                // Photo preview saved & dismissed — hand the recipe
-                // up to RootView (which dismisses the editor sheet
-                // then pushes Detail via libraryPath.append after
-                // the animation), and collapse this sheet too.
-                onSaved(savedRecipe)
-                dismiss()
-            }
+            PhotoImportPreviewView(
+                draft: payload.draft,
+                onSaved: { savedRecipe in
+                    // Photo preview saved & dismissed — hand the recipe
+                    // up to RootView (which dismisses the editor sheet
+                    // then pushes Detail via libraryPath.append after
+                    // the animation), and collapse this sheet too.
+                    onSaved(savedRecipe)
+                    dismiss()
+                },
+                onEdit: { editableDraft in
+                    // User wants to clean up OCR typos before saving.
+                    // Dismiss the photo preview AND this import sheet,
+                    // then open the regular new-recipe editor with the
+                    // draft pre-filled. The 350ms delay lets both
+                    // sheet dismissals complete before the editor
+                    // sheet re-presents — same race-avoidance pattern
+                    // the share-recipient flow uses for the post-save
+                    // Detail push.
+                    Haptics.impact(.light)
+                    preview = nil
+                    dismiss()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        editor.startNew(seed: editableDraft)
+                    }
+                }
+            )
             .environment(appearance)
         }
         .overlay {

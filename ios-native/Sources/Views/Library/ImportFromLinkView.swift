@@ -22,8 +22,17 @@ struct ImportFromLinkView: View {
     /// plain "Import From Link" entry from the Library FAB.
     let prefilledURL: String?
 
-    init(prefilledURL: String? = nil) {
+    /// Called by the inner `RecipeEditorView` after a successful
+    /// Save with the freshly-persisted `Recipe`. RootView wires this
+    /// to dismiss the editor sheet and push Detail via
+    /// `libraryPath.append` after a 350ms delay (so the dismiss
+    /// animation doesn't race the navigation push). Defaults to a
+    /// no-op for previews / standalone usage.
+    var onSaved: (Recipe) -> Void = { _ in }
+
+    init(prefilledURL: String? = nil, onSaved: @escaping (Recipe) -> Void = { _ in }) {
         self.prefilledURL = prefilledURL
+        self.onSaved = onSaved
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -91,8 +100,12 @@ struct ImportFromLinkView: View {
         }
         .navigationDestination(isPresented: $showEditor) {
             if let draft = parsedDraft {
-                RecipeEditorView(recipe: nil, initialDraft: draft) {
-                    dismiss()
+                RecipeEditorView(recipe: nil, initialDraft: draft) { savedRecipe in
+                    // Hand the new recipe up to RootView so it can
+                    // close the editor sheet AND push Detail. No
+                    // local dismiss() call — the import sheet closes
+                    // via `editor.end()` triggered by RootView.
+                    onSaved(savedRecipe)
                 }
             }
         }
