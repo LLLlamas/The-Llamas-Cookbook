@@ -43,6 +43,17 @@ struct RecipeImportPreviewView: View {
     @State private var galleryPhotos: [Data] = []
     @State private var isSaving = false
 
+    /// Drives the "you already have this recipe" alert — when Save is
+    /// tapped against an envelope whose title exactly matches an
+    /// existing library entry, we pause the materialize, ask the user
+    /// to confirm, and let them edit the auto-numbered suffix
+    /// ("Banana Bread (1)") before the recipe lands. Existing silent
+    /// suffix-resolution still runs as the fallback safety net inside
+    /// `RecipeShare.materialize` for any path that doesn't go through
+    /// this prompt.
+    @State private var showingDuplicateAlert = false
+    @State private var duplicateRenameText = ""
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -103,6 +114,27 @@ struct RecipeImportPreviewView: View {
         }
         .interactiveDismissDisabled(isSaving)
         .onAppear { decodeGalleryPhotos() }
+        // SwiftUI .alert with a TextField is the iOS-standard rename
+        // prompt (Photos folder rename, Files duplicate handling).
+        // The TextField pre-populates with the auto-resolved
+        // "{title} (N)" suffix so the user can either accept the
+        // placeholder verbatim or edit it before confirming.
+        .alert(
+            "Recipe already saved",
+            isPresented: $showingDuplicateAlert
+        ) {
+            TextField("Recipe name", text: $duplicateRenameText)
+                .textInputAutocapitalization(.words)
+            Button("Save") {
+                let trimmed = duplicateRenameText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                performSave(withOverrideTitle: trimmed)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You already have a recipe titled \"\(envelope.recipe.title)\". Save this one with a different name?")
+        }
     }
 
     // MARK: subsections
@@ -323,9 +355,36 @@ struct RecipeImportPreviewView: View {
 
     private func saveToLibrary() {
         guard !isSaving else { return }
+        let baseTitle = envelope.recipe.title
+        // Branch on exact-title duplicate detection. Match the
+        // case-sensitive, no-trim semantics of
+        // `RecipeShare.resolveImportTitle` so we surface the prompt
+        // for the same titles the silent path would have suffixed.
+        if RecipeShare.libraryContainsRecipe(withTitle: baseTitle, in: modelContext) {
+            duplicateRenameText = RecipeShare.resolveImportTitle(
+                base: baseTitle,
+                in: modelContext
+            )
+            Haptics.warning()
+            showingDuplicateAlert = true
+            return
+        }
+        performSave(withOverrideTitle: nil)
+    }
+
+    /// Shared save tail used by both the no-collision path
+    /// (`overrideTitle: nil` lets `materialize` run its silent
+    /// suffix-resolver) and the duplicate-confirmation path
+    /// (`overrideTitle` carries the user's edited name).
+    private func performSave(withOverrideTitle overrideTitle: String?) {
+        guard !isSaving else { return }
         isSaving = true
         Task { @MainActor in
-            let recipe = await RecipeShare.materialize(envelope, into: modelContext)
+            let recipe = await RecipeShare.materialize(
+                envelope,
+                into: modelContext,
+                overrideTitle: overrideTitle
+            )
             isSaving = false
             Haptics.success()
             // Hand the new recipe back to the parent BEFORE dismiss —

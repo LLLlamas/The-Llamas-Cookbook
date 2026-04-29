@@ -645,15 +645,31 @@ enum RecipeShare {
     /// budget regardless of what the sender's build emitted. The
     /// bytes-guard inside `ImageProcessing` keeps already-tight bytes
     /// from double-degrading.
+    ///
+    /// `overrideTitle` is the explicit title chosen at the import
+    /// preview's duplicate-confirmation prompt — when the user keeps a
+    /// custom name (or accepts the auto-suggested "(N)" placeholder)
+    /// for a duplicate-title import. When nil, the original silent
+    /// `resolveImportTitle` collision-resolution still applies, so
+    /// existing call sites and the no-collision happy path are
+    /// unchanged.
     @MainActor
     static func materialize(
         _ envelope: LCRecipeShareV1,
-        into context: ModelContext
+        into context: ModelContext,
+        overrideTitle: String? = nil
     ) async -> Recipe {
-        let resolvedTitle = resolveImportTitle(
-            base: envelope.recipe.title,
-            in: context
-        )
+        let resolvedTitle: String
+        if let override = overrideTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            resolvedTitle = override
+        } else {
+            resolvedTitle = resolveImportTitle(
+                base: envelope.recipe.title,
+                in: context
+            )
+        }
 
         let recipe = Recipe(
             title: resolvedTitle,
@@ -734,6 +750,19 @@ enum RecipeShare {
         var n = 1
         while titles.contains("\(base) (\(n))") { n += 1 }
         return "\(base) (\(n))"
+    }
+
+    /// Exact-title duplicate probe used by the import preview's
+    /// duplicate-confirmation prompt. Same fetch + Set membership as
+    /// `resolveImportTitle` (case-sensitive, no trimming) so the
+    /// "already have this recipe" detection lines up byte-for-byte
+    /// with the suffix-resolution that runs on the silent path.
+    static func libraryContainsRecipe(
+        withTitle title: String,
+        in context: ModelContext
+    ) -> Bool {
+        let allRecipes = (try? context.fetch(FetchDescriptor<Recipe>())) ?? []
+        return allRecipes.contains { $0.title == title }
     }
 
     // MARK: - Helpers

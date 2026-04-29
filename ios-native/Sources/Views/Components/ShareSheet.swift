@@ -85,11 +85,19 @@ final class RecipeShareActivityItem: NSObject, UIActivityItemSource {
             metadata.originalURL = url
             metadata.url = url
         }
-        if let icon = UIImage(named: "LlamaLogo") {
+        // Uses `LlamaShareIcon` (a tightly-cropped variant matching the
+        // 1024×1024 AppIcon) rather than `LlamaLogo`, which has
+        // substantial transparent padding intended for in-app surfaces
+        // where the logo sits inside a larger view. In the share-sheet
+        // preview header iOS renders the icon into a fixed thumbnail
+        // square, so the padded logo appeared visually small; the
+        // app-icon-cropped version fills the thumbnail the way the
+        // home-screen app icon does.
+        if let icon = UIImage(named: "LlamaShareIcon") {
             // `iconProvider` drives the small thumbnail in the
             // share-sheet header; `imageProvider` drives the larger
             // preview image in the recipient's Messages bubble.
-            // Same llama logo serves both surfaces.
+            // Same llama icon serves both surfaces.
             metadata.iconProvider = NSItemProvider(object: icon)
             metadata.imageProvider = NSItemProvider(object: icon)
         }
