@@ -232,6 +232,7 @@ enum RecipeOCRImporter {
         s = stripPageNumbers(s)
         s = isolateSectionHeaders(s)
         s = repairMeasurementOCR(s)
+        s = repairHandwritingMisreads(s)
         s = collapseWhitespace(s)
         s = deHyphenate(s)
         return s
@@ -391,6 +392,40 @@ enum RecipeOCRImporter {
         out = out.replacingOccurrences(
             of: "(\\d)\\s*%\\s*([\u{00BC}-\u{215E}])\\s*(\(unitClass))\\b",
             with: "$1 & $2 $3",
+            options: .regularExpression
+        )
+        // "14 1/2 cup" / "13 1/2 cup" / "19 1/2 cup" → "1 1/2 cup".
+        // When a handwritten "1" gets a small upward stroke, Vision
+        // routinely reads it as "14" (or some other 1X digit pair).
+        // Real recipes essentially never call for 10-19 cups of a
+        // single ingredient — that would be 2-5 liters, far past the
+        // single-cup-tier quantities that "1/2 cup" sits next to.
+        // Scoped to a `1` tens-digit + `\d` ones-digit + ` 1/2 ` +
+        // `cup`/`cups` to limit the corruption blast radius. Won't
+        // fire on legitimate "5 1/2 cup" or "1 1/2 cup".
+        out = out.replacingOccurrences(
+            of: "(?<!\\d)1\\d\\s+1/2\\s+(cups?)\\b",
+            with: "1 1/2 $1",
+            options: .regularExpression
+        )
+        return out
+    }
+
+    /// Targeted repairs for OCR misreads of handwritten *words* that
+    /// `customWords` biasing alone hasn't been enough to prevent.
+    /// Listed only when observed in real test runs and when the
+    /// misread token has no plausible recipe-context meaning of its
+    /// own — that's what makes unconditional replacement safe.
+    private static func repairHandwritingMisreads(_ s: String) -> String {
+        var out = s
+        // "Mix in a bow!" → "Mix in a bowl". Lowercase `l` in
+        // handwriting is a vertical stroke that Vision regularly
+        // mis-classifies as `!`. "bow!" as an exclamation in cooking
+        // text would be unusual; "bowl" is the only plausible
+        // intended word, so unconditional replacement is safe.
+        out = out.replacingOccurrences(
+            of: "\\bbow!",
+            with: "bowl",
             options: .regularExpression
         )
         return out
