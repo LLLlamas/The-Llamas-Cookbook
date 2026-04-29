@@ -61,7 +61,12 @@ struct AccentColorPicker: View {
 
     private var preview: some View {
         VStack(spacing: AppSpacing.sm) {
-            LlamaLogo(size: 86, shadowColor: settings.accentColor)
+            // Sized to feel "almost as big as the LibraryView watermark
+            // behind the sheet" — the watermark is ~min(screen) × 0.9
+            // (~320pt on iPhone) at 6% opacity; the preview llama is at
+            // full opacity, so 220pt reads as a confident hero of the
+            // preview card without crowding the title/icon row below.
+            LlamaLogo(size: 220, shadowColor: settings.accentColor)
 
             Text("Sample Recipe Title")
                 .font(AppFont.recipeTitle)
