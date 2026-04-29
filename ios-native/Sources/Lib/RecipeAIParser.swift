@@ -110,9 +110,22 @@ enum RecipeAIParser {
     ///    wins. A healthy cooking step is typically 50-100 chars; the
     ///    threshold is well above that to avoid false positives on
     ///    legitimately wordy single-action steps.
-    /// 3. If the regex pulled out 5+ steps and the AI got fewer than
+    /// 3. If the AI extracted noticeably more ingredients than regex
+    ///    (≥ 3 ingredients AND > 2x regex's count), trust AI — it's
+    ///    reading the structure correctly while regex is dumping
+    ///    ingredient lines into the step list. Common failure mode
+    ///    on OCR'd handwritten cards where typos like "I cup of flar"
+    ///    or "1og chocolate chips" fall through `looksLikeIngredient`
+    ///    and end up as steps. This short-circuits the step-count
+    ///    tie-breaker below, which would otherwise reward regex's
+    ///    bloated step list.
+    /// 4. If the regex pulled out 5+ steps and the AI got fewer than
     ///    70% of that count, the AI under-split — regex wins.
-    /// 4. Otherwise the AI wins. It generally beats regex on title
+    /// 5. If the regex pulled out 3+ ingredients and the AI got fewer
+    ///    than half of that count, the AI mis-classified ingredient
+    ///    lines as steps — regex wins. Mirror of the step under-split
+    ///    guard above.
+    /// 6. Otherwise the AI wins. It generally beats regex on title
     ///    cleanup, ingredient quantity/unit splitting, and lifting
     ///    "while X" reminders into special notes.
     private static func pickBetterDraft(ai: DraftRecipe?, regex: DraftRecipe?) -> DraftRecipe? {
@@ -122,9 +135,26 @@ enum RecipeAIParser {
         let aiLongest = ai.steps.map(\.text.count).max() ?? 0
         if aiLongest > 200 { return regex }
 
+        let aiIngredients = ai.ingredients.count
+        let regexIngredients = regex.ingredients.count
+
+        // AI is reading ingredients much better than regex → trust
+        // AI's overall structure even if its step count looks small
+        // by comparison. Without this short-circuit, noisy OCR input
+        // where regex parses ingredients-shaped lines as steps
+        // (inflating its step count) would beat AI's correct
+        // interpretation.
+        if aiIngredients >= 3, regexIngredients * 2 < aiIngredients {
+            return ai
+        }
+
         let aiSteps = ai.steps.count
         let regexSteps = regex.steps.count
         if regexSteps >= 5, aiSteps * 10 < regexSteps * 7 {
+            return regex
+        }
+
+        if regexIngredients >= 3, aiIngredients * 2 < regexIngredients {
             return regex
         }
 
@@ -159,14 +189,21 @@ enum RecipeAIParser {
        and "RECIPE:" / "Recipe -" / "Recipe👇" prefixes.
     2. Summary: short blurb if the caption has one. Empty otherwise.
     3. Servings: numeric prefix when stated ("Serves 4" -> "4", \
-       "Yield: 1 loaf" -> "1", "Makes 12 cookies" -> "12"). Empty \
-       when not stated.
+       "Yield: 1 loaf" -> "1", "Makes 12 cookies" -> "12", \
+       "8 servings" -> "8", "12 portions" -> "12"). Reverse-form \
+       ("8 servings", "4 portions") is common on handwritten cards \
+       and cookbook pages — match it, do NOT classify it as a step. \
+       Empty when not stated.
     4. cookTimeMinutes: total cook/bake minutes when stated ("Cook \
-       45 min", "Bake: 60 min", "Total: 1 hour" -> "60"). Empty \
+       45 min", "Bake: 60 min", "Total: 1 hour" -> "60", \
+       "10 min bake time" -> "10", "45 minutes cook" -> "45"). Empty \
        when not stated.
     5. prepTimeMinutes: prep minutes when stated separately from \
-       cook time ("Prep: 15 min" -> "15"). Empty when not stated or \
-       when the source only gives a single total.
+       cook time ("Prep: 15 min" -> "15", "20 min prep time" -> "20", \
+       "30 minutes prep" -> "30"). Reverse-form is common on \
+       handwritten cards — pull it into the field, do NOT leave it \
+       in the step list. Empty when not stated or when the source \
+       only gives a single total.
     6. Ingredients: split each into quantity / unit / name. \
        "2 cups flour" -> quantity "2", unit "cup", name "flour". \
        "salt to taste" -> quantity "", unit "", name "salt to taste". \
@@ -283,6 +320,45 @@ enum RecipeAIParser {
     from each step. The parenthetical-equivalent "Grease a 4x8-inch \
     loaf pan" stayed grouped with the preheat step as a specialNote \
     since it's a setup hint, not a separate cooking action.
+
+    Worked example #3 (handwritten card, OCR'd, reverse-form metadata):
+
+    INPUT:
+    Muffins
+    8 servings
+    20 min prep time
+
+    1 cup of flour
+    1 & 1/2 cup water
+    2 tsp sugar
+    10g chocolate chips
+
+    Mix in bowl
+    Shape into muffins
+    Bake at 425 degrees, 10 mins
+
+    OUTPUT:
+    title: "Muffins"
+    summary: ""
+    servings: "8"
+    cookTimeMinutes: ""
+    prepTimeMinutes: "20"
+    ingredients:
+      - quantity "1",     unit "cup", name "flour"
+      - quantity "1 1/2", unit "cup", name "water"
+      - quantity "2",     unit "tsp", name "sugar"
+      - quantity "10",    unit "g",   name "chocolate chips"
+    steps:
+      - text "Mix in bowl", needsTimer false, specialNote ""
+      - text "Shape into muffins", needsTimer false, specialNote ""
+      - text "Bake at 425 degrees, 10 mins", needsTimer true, specialNote ""
+
+    Critical: "8 servings" became servings "8" — NOT a step. \
+    "20 min prep time" became prepTimeMinutes "20" — NOT a step. \
+    Reverse-form metadata is a recurring shape on handwritten cards \
+    and cookbook pages; lifting it into the right field is what keeps \
+    the step list clean. "of" in "1 cup of flour" is a connector and \
+    is dropped from the name.
     """
 }
 

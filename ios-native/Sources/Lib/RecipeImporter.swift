@@ -258,12 +258,55 @@ enum RecipeImporter {
     /// ingredients from steps.
     private static func parseBlocks(_ text: String) -> DraftRecipe {
         var draft = DraftRecipe()
-        let blocks = splitIntoBlocks(text)
+        let rawBlocks = splitIntoBlocks(text)
+        guard !rawBlocks.isEmpty else { return draft }
+
+        // Pass 1 — lift header-shaped metadata out of every block
+        // before classification. Cookbook + handwritten layouts often
+        // put metadata in its own block ("8 servings\n20 min prep time"
+        // sandwiched between title and ingredients). Without this pass,
+        // a metadata-only block 2 would hijack the ingredients slot and
+        // push real ingredients into steps.
+        //
+        // The title line — firstLine of the first block — is exempt:
+        // an unfortunate "Source: My Cookbook" or "Yields: Brownies" as
+        // a literal recipe name would otherwise be eaten by the header
+        // matcher and leave us with no title.
+        var blocks: [[String]] = []
+        for (blockIdx, block) in rawBlocks.enumerated() {
+            var remaining: [String] = []
+            for (lineIdx, line) in block.enumerated() {
+                if blockIdx == 0 && lineIdx == 0 {
+                    remaining.append(line)
+                    continue
+                }
+                let lower = line.lowercased()
+                if applyHeaderField(line, lower: lower, into: &draft) { continue }
+                remaining.append(line)
+            }
+            if !remaining.isEmpty {
+                blocks.append(remaining)
+            }
+        }
         guard !blocks.isEmpty else { return draft }
 
+        // Caption-style fallback — single big block (or a runaway pair)
+        // from TikTok / OCR with no blank-line separators. Hand off to
+        // the per-line classifier that uses measurement markers to tell
+        // ingredients from steps.
         let totalLines = blocks.reduce(0) { $0 + $1.count }
         if blocks.count <= 2, totalLines >= 6 {
-            return parseUnstructuredLines(blocks.flatMap { $0 })
+            // Fold what we already extracted (title-less so far) into a
+            // partial draft, then merge the unstructured-pass result on
+            // top so metadata captured above doesn't get clobbered.
+            var unstructured = parseUnstructuredLines(blocks.flatMap { $0 })
+            if draft.servings.isEmpty { draft.servings = unstructured.servings }
+            if draft.cookTimeMinutes.isEmpty { draft.cookTimeMinutes = unstructured.cookTimeMinutes }
+            if draft.prepTimeMinutes.isEmpty { draft.prepTimeMinutes = unstructured.prepTimeMinutes }
+            unstructured.servings = draft.servings
+            unstructured.cookTimeMinutes = draft.cookTimeMinutes
+            unstructured.prepTimeMinutes = draft.prepTimeMinutes
+            return unstructured
         }
 
         // --- Block 1: title (+ summary)
@@ -272,12 +315,7 @@ enum RecipeImporter {
             draft.title = stripTitleLabel(firstLine)
         }
         if titleBlock.count > 1 {
-            var summaryLines: [String] = []
-            for line in titleBlock.dropFirst() {
-                let lower = line.lowercased()
-                if applyHeaderField(line, lower: lower, into: &draft) { continue }
-                summaryLines.append(line)
-            }
+            let summaryLines = Array(titleBlock.dropFirst())
             if !summaryLines.isEmpty {
                 draft.summary = summaryLines.joined(separator: " ")
             }
@@ -335,12 +373,25 @@ enum RecipeImporter {
     /// line so a step like "Bake 30 minutes" doesn't false-positive
     /// from its leading number; ingredient lines almost always begin
     /// with the quantity.
+    ///
+    /// The mixed-fraction part accepts both the space form ("1 1/2")
+    /// and the ampersand form ("1&1/2", "1 & 1/2") — the latter is
+    /// this app's canonical mixed-fraction display so users hand-write
+    /// recipes that round-trip through OCR using `&`.
     private static func looksLikeIngredient(_ line: String) -> Bool {
         let stripped = stripLeadingBullet(line).trimmingCharacters(in: .whitespaces)
         // Quantity: integer, decimal, vulgar fraction, or simple
-        // mixed/improper fraction (e.g. "1 1/2", "1/4").
-        // Then optional whitespace, then a known unit keyword.
-        let pattern = #/(?i)^\d+(?:[.\u{00BC}-\u{215E}]\d*)?(?:\s+\d+/\d+)?(?:/\d+)?\s*(cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|teaspoons|oz|ounce|ounces|lb|lbs|pound|pounds|g|gram|grams|kg|kilogram|kilograms|mg|ml|milliliter|milliliters|l|liter|liters|litre|litres|pint|pints|quart|quarts|gallon|gallons|clove|cloves|pinch|pinches|dash|dashes|slice|slices|piece|pieces|can|cans|stick|sticks|sprig|sprigs|head|heads|bunch|bunches|handful|handfuls)\b/#
+        // mixed/improper fraction. Forms recognized:
+        //   "1 cup", "1.5 cup", "1½ cup",
+        //   "1 1/2 cup", "1&1/2 cup", "1 & 1/2 cup",
+        //   "1 & ½ cup"  (the OCR-repaired form for "1⅙½ cup"),
+        //   "1/4 cup".
+        // Then optional whitespace, then a known unit keyword. The
+        // mixed-fraction inner alternation accepts EITHER a `\d+/\d+`
+        // fraction OR a single Unicode vulgar fraction so handwritten
+        // input ("1 & ½ cup") classifies as ingredient instead of
+        // falling through to the step list.
+        let pattern = #/(?i)^\d+(?:[.\u{00BC}-\u{215E}]\d*)?(?:(?:\s+|\s*&\s*)(?:\d+/\d+|[\u{00BC}-\u{215E}]))?(?:/\d+)?\s*(cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|teaspoons|oz|ounce|ounces|lb|lbs|pound|pounds|g|gram|grams|kg|kilogram|kilograms|mg|ml|milliliter|milliliters|l|liter|liters|litre|litres|pint|pints|quart|quarts|gallon|gallons|clove|cloves|pinch|pinches|dash|dashes|slice|slices|piece|pieces|can|cans|stick|sticks|sprig|sprigs|head|heads|bunch|bunches|handful|handfuls)\b/#
         return (try? pattern.firstMatch(in: stripped)) != nil
     }
 
@@ -410,6 +461,12 @@ enum RecipeImporter {
     /// summary / block flow. Cookbook synonyms folded in alongside the
     /// caption-style headers so the same parser works on OCR'd printed
     /// pages.
+    ///
+    /// Two shapes are recognized: forward-form ("Serves: 8", "Prep: 20
+    /// min") common in shared captions, and reverse-form ("8 servings",
+    /// "20 min prep time") common on handwritten cards and cookbook
+    /// pages. Without the reverse-form match these lines fall through
+    /// into steps and pollute the instruction list.
     private static func applyHeaderField(_ line: String, lower: String, into draft: inout DraftRecipe) -> Bool {
         if let s = extractNumber(after: #"(?i)^serves?\s*:?\s*"#, in: line) {
             draft.servings = s
@@ -421,29 +478,54 @@ enum RecipeImporter {
             draft.servings = s
             return true
         }
-        if let s = extractNumber(after: #"(?i)^makes\s*:?\s*"#, in: line) {
+        // "Makes:" — colon required so a step like "Makes a great
+        // brunch" doesn't trip and zero-out servings.
+        if let s = extractNumber(after: #"(?i)^makes\s*:\s*"#, in: line) {
             draft.servings = s
             return true
         }
+        // Reverse-form servings: "8 servings", "12 portions". The label
+        // word makes this unambiguous; we deliberately don't match bare
+        // dish nouns ("12 muffins") here since those collide with
+        // ingredient lines that lead with a count.
+        if let match = try? #/(?i)^(\d+)\s+(?:servings?|portions?|helpings?)\b/#.firstMatch(in: line) {
+            draft.servings = String(match.output.1)
+            return true
+        }
         // Prep: / Prep time: — separate from cook time when stated.
-        if let s = extractNumber(after: #"(?i)^prep(?:\s+time)?\s*:?\s*"#, in: line) {
+        // Colon REQUIRED — "Prep the onions" is a valid step, and a
+        // bare `^prep` match with optional colon would eat the step's
+        // first number into prepTimeMinutes. Same caution applies to
+        // Cook / Bake / Total / Makes below.
+        if let s = extractNumber(after: #"(?i)^prep(?:\s+time)?\s*:\s*"#, in: line) {
             draft.prepTimeMinutes = s
             return true
         }
-        if let s = extractNumber(after: #"(?i)^cook(?:\s+time)?\s*:?\s*"#, in: line) {
+        // Reverse-form prep: "20 min prep time", "30 minutes prep".
+        if let match = try? #/(?i)^(\d+)\s+min(?:ute)?s?\s+prep(?:\s+time)?\b/#.firstMatch(in: line) {
+            draft.prepTimeMinutes = String(match.output.1)
+            return true
+        }
+        if let s = extractNumber(after: #"(?i)^cook(?:\s+time)?\s*:\s*"#, in: line) {
             draft.cookTimeMinutes = s
             return true
         }
         // Bake / Bake time / Total / Total time — all map to the same
-        // cook-time slot. Most cookbook pages use one or the other and
-        // the user just wants "how long does it take" surfaced in the
-        // metadata strip.
-        if let s = extractNumber(after: #"(?i)^bake(?:\s+time)?\s*:?\s*"#, in: line) {
+        // cook-time slot. Colon required because "Bake at 425 degrees,
+        // 10 mins" is a step — without the colon guard the regex
+        // matched and pulled 425 (the oven temperature) into
+        // cookTimeMinutes, eating the entire step in the process.
+        if let s = extractNumber(after: #"(?i)^bake(?:\s+time)?\s*:\s*"#, in: line) {
             draft.cookTimeMinutes = s
             return true
         }
-        if let s = extractNumber(after: #"(?i)^total(?:\s+time)?\s*:?\s*"#, in: line) {
+        if let s = extractNumber(after: #"(?i)^total(?:\s+time)?\s*:\s*"#, in: line) {
             draft.cookTimeMinutes = s
+            return true
+        }
+        // Reverse-form cook/bake: "10 min bake time", "45 minutes cook".
+        if let match = try? #/(?i)^(\d+)\s+min(?:ute)?s?\s+(?:cook|bake|baking|total)(?:\s+time)?\b/#.firstMatch(in: line) {
+            draft.cookTimeMinutes = String(match.output.1)
             return true
         }
         if lower.hasPrefix("source:") {

@@ -44,6 +44,16 @@ enum RecipeOCRImporter {
     /// Run a single page through `VNRecognizeTextRequest`. Returns the
     /// recognized strings in approximate top-to-bottom reading order
     /// (Vision's bounding-box Y is bottom-up, so we sort descending).
+    ///
+    /// **Blank-line preservation**: Vision returns no observations for
+    /// empty space between paragraphs, but the parser depends on blank
+    /// lines as block separators (title vs ingredients vs steps). When
+    /// the vertical gap between two consecutive observations exceeds
+    /// 1.5x the median line height, we insert an empty string into the
+    /// returned list — that materializes as a `\n\n` after the join in
+    /// `recognize`, which `splitIntoBlocks` reads as a section break.
+    /// Without this, every photo collapses to a single block and the
+    /// caption-style fallback runs even on cleanly-laid-out cards.
     private static func recognizePage(_ data: Data) async -> [String] {
         await Task.detached(priority: .userInitiated) {
             guard let cgImage = makeCGImage(from: data) else { return [] }
@@ -62,7 +72,34 @@ enum RecipeOCRImporter {
             let sorted = observations.sorted {
                 $0.boundingBox.origin.y > $1.boundingBox.origin.y
             }
-            return sorted.compactMap { $0.topCandidates(1).first?.string }
+            guard !sorted.isEmpty else { return [] }
+
+            // Median observation height — robust against the occasional
+            // tall-letter or low-confidence outlier. `<=` avoids the
+            // off-by-one when count is even; we don't need a true median.
+            let heights = sorted.map { $0.boundingBox.height }.sorted()
+            let medianHeight = heights[heights.count / 2]
+            let gapThreshold = medianHeight * 1.5
+
+            var lines: [String] = []
+            var prevBox: CGRect? = nil
+            for obs in sorted {
+                let bbox = obs.boundingBox
+                if let prev = prevBox {
+                    // Vision Y is bottom-up: prev (above) has higher
+                    // origin.y. Vertical gap = prev.bottom - curr.top
+                    // = prev.origin.y - (curr.origin.y + curr.height).
+                    let gap = prev.origin.y - (bbox.origin.y + bbox.height)
+                    if gap > gapThreshold {
+                        lines.append("")
+                    }
+                }
+                if let text = obs.topCandidates(1).first?.string {
+                    lines.append(text)
+                }
+                prevBox = bbox
+            }
+            return lines
         }.value
     }
 
@@ -124,13 +161,25 @@ enum RecipeOCRImporter {
             "stick","sticks","sprig","sprigs","head","heads",
             "bunch","bunches","handful","handfuls",
         ]
-        // Time phrases
+        // Time phrases + temperature
         words += [
             "minutes", "minute", "hours", "hour", "seconds", "second",
             "min", "mins", "hrs", "hr",
-            "Fahrenheit", "Celsius",
+            "Fahrenheit", "Celsius", "degrees", "degree",
         ]
-        // Common cookbook nouns / verbs
+        // Yield / serving vocabulary — without these, Vision misreads
+        // handwritten "servings" as "serugs" / "serungs" and the
+        // metadata extractor never fires. Same for "prep" → "piep".
+        words += [
+            "servings", "serving", "serves",
+            "portions", "portion",
+            "helpings", "helping",
+            "yield", "yields", "makes",
+            "prep", "preparation",
+        ]
+        // Common cookbook nouns / verbs (incl. equipment + actions
+        // that recur in step text — "bowl" was missing and Vision
+        // came back with "boul" as a result).
         words += [
             "flour","sugar","butter","salt","pepper","egg","eggs",
             "yeast","starter","sourdough","baking","powder","soda",
@@ -138,7 +187,26 @@ enum RecipeOCRImporter {
             "olive","oil","milk","cream","yogurt","cheese","stock",
             "broth","water","oven","skillet","saucepan","parchment",
             "paprika","cumin","turmeric","ginger","nutmeg","cilantro",
-            "parsley","cardamom",
+            "parsley","cardamom","chocolate","chips",
+            "bowl","bowls","pan","pans","sheet","tray","whisk",
+            "spatula","mixer","blender","preheat","preheated",
+        ]
+        // Dish names — cookbooks and handwritten cards put the dish at
+        // the top of the page, and small / curly type lets Vision drop
+        // the trailing `n` ("Muffins" → "Muffies"). Biasing the
+        // recognizer toward these whole words is cheaper than a
+        // post-OCR repair for every variant misread.
+        words += [
+            "Muffin","Muffins","Pancake","Pancakes","Waffle","Waffles",
+            "Cookie","Cookies","Brownie","Brownies","Biscuit","Biscuits",
+            "Scone","Scones","Cupcake","Cupcakes","Cake","Cakes",
+            "Bread","Loaf","Loaves","Roll","Rolls","Bun","Buns",
+            "Pie","Pies","Tart","Tarts","Donut","Donuts","Doughnut",
+            "Doughnuts","Bagel","Bagels","Pretzel","Pretzels",
+            "Croissant","Croissants","Pastry","Pastries","Crepe","Crepes",
+            "Pizza","Pasta","Risotto","Soup","Stew","Salad","Sandwich",
+            "Burger","Taco","Tacos","Burrito","Burritos","Quesadilla",
+            "Enchilada","Enchiladas","Casserole","Curry","Stir-fry",
         ]
         words += [
             "Preheat","Combine","Knead","Refrigerate","Bake","Roast",
@@ -243,14 +311,16 @@ enum RecipeOCRImporter {
         return out
     }
 
-    /// OCR commonly mis-reads `1` as `I` or `l` in tight kerning.
-    /// Naive global swap would corrupt names ("Italian" → "1talian").
-    /// Constrain to *measurement contexts only* — character `[Il]`
-    /// followed by `/<digit>` followed by space + known unit.
-    /// Conservative on purpose; risk-of-corruption outweighs benefit
-    /// outside tight unit contexts.
+    /// OCR commonly mis-reads `1` as `I` or `l` in tight kerning, `&`
+    /// as `%` (or as a stray vulgar-fraction glyph) when handwritten,
+    /// and `0` as `o` when the digit is drawn open at the top. Naive
+    /// global swap would corrupt names ("Italian" → "1talian", a step
+    /// like "5% milk", "log of cinnamon"). Constrain each repair to
+    /// *measurement contexts only* — leading digit + the misread glyph
+    /// + a fraction or unit suffix. Conservative on purpose; risk-of-
+    /// corruption outweighs benefit outside tight unit contexts.
     private static func repairMeasurementOCR(_ s: String) -> String {
-        let unitClass = "(?:cup|cups|tbsp|tsp|oz|lb|g|kg|ml|tablespoon|teaspoon|pound|ounce)"
+        let unitClass = "(?:cup|cups|tbsp|tsp|oz|lb|g|kg|ml|tablespoon|teaspoon|pound|ounce|gram|grams)"
         var out = s
         // "I/2 cup" / "l/2 cup" → "1/2 cup"
         out = out.replacingOccurrences(
@@ -262,6 +332,52 @@ enum RecipeOCRImporter {
         out = out.replacingOccurrences(
             of: "\\b(\\d)/[Il]\\s+(\(unitClass))\\b",
             with: "$1/1 $2",
+            options: .regularExpression
+        )
+        // "I cup of flour" / "l cup of flour" → "1 cup of flour".
+        // Bare-letter mis-reads where the kerning ate the `1`'s serif.
+        // Scoped via lookahead to a known unit so step text like
+        // "Lay flat" or "Italian seasoning" stays untouched.
+        out = out.replacingOccurrences(
+            of: "\\b[Il](?=\\s+\(unitClass)\\b)",
+            with: "1",
+            options: .regularExpression
+        )
+        // "1og chocolate chips" → "10g chocolate chips". Open-top `0`
+        // mis-read as `o` when handwritten — only ever ambiguous when
+        // wedged between a digit and a unit letter, so the pattern
+        // anchors with a digit lookbehind and a whitespace/end
+        // lookahead. Without this fix, every "10g" / "20g" / "100g"
+        // handwritten ingredient line falls out of the ingredient
+        // classifier. Lookbehind-only replacement avoids the `$10`
+        // capture-group ambiguity NSRegularExpression replacements
+        // would otherwise hit.
+        out = out.replacingOccurrences(
+            of: "(?<=\\d)og(?=\\s|$)",
+            with: "0g",
+            options: .regularExpression
+        )
+        // "1%1/2 cup" → "1 & 1/2 cup". Handwritten `&` regularly comes
+        // back from Vision as `%` because the lobes line up. Scoped to
+        // <digit>%<digit>/<digit> followed (with any spacing) by a
+        // known unit so legitimate uses of `%` (a step calling for 5%
+        // milk) survive untouched.
+        out = out.replacingOccurrences(
+            of: "(\\d)\\s*%\\s*(\\d)/(\\d)\\s+(\(unitClass))\\b",
+            with: "$1 & $2/$3 $4",
+            options: .regularExpression
+        )
+        // "1⅙½ cup" / "1⅙¼ cup" → "1 & 1/2 cup". Handwritten `&` next
+        // to a vulgar fraction (e.g. "1 & ½") frequently misreads as
+        // "⅙" (U+2159, one-sixth). Real recipes virtually never use
+        // sixths, so a ⅙ wedged between a digit and another vulgar
+        // fraction is almost certainly a misread `&`. Drop the bogus
+        // ⅙ and insert the explicit `& ` separator the parser
+        // expects. Scoped to a unit suffix to avoid corrupting any
+        // legitimate step text that mentions the glyph.
+        out = out.replacingOccurrences(
+            of: "(\\d)\u{2159}([\u{00BC}-\u{215E}])(\\s*)(\(unitClass))\\b",
+            with: "$1 & $2$3$4",
             options: .regularExpression
         )
         return out
