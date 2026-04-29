@@ -468,6 +468,18 @@ private struct CookingPillsBar: View {
         return session.canAddCook
     }
 
+    /// Total tiles competing for horizontal space — pills plus the
+    /// optional Add button. At 3+ the pill drops its timer-countdown
+    /// line + chevron and tightens padding so 4 tiles still fit
+    /// without pinching titles to unreadable widths on narrow phones.
+    /// 4 is the hard cap (`maxConcurrentCooks`); when at cap the Add
+    /// button is hidden so we never go past 4 tiles.
+    private var slotCount: Int {
+        session.activeCooks.count + (canShowAdd ? 1 : 0)
+    }
+
+    private var compactPills: Bool { slotCount >= 3 }
+
     var body: some View {
         HStack(spacing: AppSpacing.sm) {
             if canShowAdd, let recipe = detailRecipe {
@@ -475,17 +487,17 @@ private struct CookingPillsBar: View {
                     Haptics.impact(.light)
                     session.addParallel(recipe)
                 }
-                // Roughly 1/4 of a typical phone width; works without a
-                // GeometryReader and degrades gracefully on small
-                // devices since the pill side uses maxWidth: .infinity.
-                .frame(maxWidth: 92)
+                // Shrinks at 3-slot density so the trailing pills get
+                // back the width the Add button would otherwise hog.
+                .frame(maxWidth: compactPills ? 56 : 92)
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
             ForEach(session.activeCooks) { cook in
                 CookPill(
                     cook: cook,
                     accent: accent,
-                    duplicateIndex: session.duplicateIndex(for: cook.id)
+                    duplicateIndex: session.duplicateIndex(for: cook.id),
+                    compact: compactPills
                 ) {
                     Haptics.selection()
                     session.foreground(cookID: cook.id)
@@ -515,6 +527,12 @@ private struct CookPill: View {
     /// is only running once. When non-nil, renders as " (N)" after the
     /// title so the user can tell two pills of the same recipe apart.
     let duplicateIndex: Int?
+    /// True when 3+ tiles share the bottom row. Drops the timer
+    /// countdown line + chevron and tightens padding so titles still
+    /// have width to render on narrow phones at the 4-cook cap. The
+    /// per-cook timer is still visible via the lock-screen Live
+    /// Activity / Dynamic Island and inside the cook's own view.
+    let compact: Bool
     let onTap: () -> Void
 
     private var displayTitle: String {
@@ -525,37 +543,46 @@ private struct CookPill: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: AppSpacing.sm) {
+            HStack(spacing: compact ? AppSpacing.xs : AppSpacing.sm) {
                 Image(systemName: "fork.knife")
-                    .font(.system(size: 15, weight: .bold))
-                VStack(alignment: .leading, spacing: 0) {
+                    .font(.system(size: compact ? 13 : 15, weight: .bold))
+                if compact {
                     Text(displayTitle)
-                        .font(.system(size: 13, weight: .semibold, design: .serif))
+                        .font(.system(size: 12, weight: .semibold, design: .serif))
                         .lineLimit(1)
-                    // Always reserve space for the timer line so
-                    // pills stay the same height whether or not a
-                    // timer is running. The "0:00" placeholder
-                    // matches the live countdown's metrics so a pill
-                    // with a timer and a pill without sit on the
-                    // same baseline when side-by-side.
-                    Group {
-                        if let endsAt = cook.timerEndsAt, endsAt > Date() {
-                            Text(timerInterval: Date()...endsAt, countsDown: true)
-                                .opacity(0.92)
-                        } else {
-                            Text("0:00")
-                                .opacity(0)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(displayTitle)
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        // Always reserve space for the timer line so
+                        // pills stay the same height whether or not a
+                        // timer is running. The "0:00" placeholder
+                        // matches the live countdown's metrics so a pill
+                        // with a timer and a pill without sit on the
+                        // same baseline when side-by-side.
+                        Group {
+                            if let endsAt = cook.timerEndsAt, endsAt > Date() {
+                                Text(timerInterval: Date()...endsAt, countsDown: true)
+                                    .opacity(0.92)
+                            } else {
+                                Text("0:00")
+                                    .opacity(0)
+                            }
                         }
+                        .font(.system(size: 11, weight: .bold, design: .serif))
+                        .monospacedDigit()
                     }
-                    .font(.system(size: 11, weight: .bold, design: .serif))
-                    .monospacedDigit()
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 11, weight: .bold))
                 }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 11, weight: .bold))
             }
             .foregroundStyle(AppColor.onAccent)
-            .padding(.horizontal, AppSpacing.md)
+            .padding(.horizontal, compact ? AppSpacing.sm : AppSpacing.md)
             .padding(.vertical, AppSpacing.sm + 2)
             .background(accent)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
