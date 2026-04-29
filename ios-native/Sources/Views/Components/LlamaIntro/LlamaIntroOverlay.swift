@@ -143,7 +143,7 @@ struct LlamaIntroOverlay: View {
 
                 LlamaSpeechBubble(
                     headline: currentStep.headline,
-                    body: currentStep.body,
+                    message: currentStep.body,
                     tailEdge: layout.tailEdge,
                     tailLeading: layout.tailLeading,
                     maxWidth: bubbleMaxWidth
@@ -170,7 +170,7 @@ struct LlamaIntroOverlay: View {
                 )
                 LlamaSpeechBubble(
                     headline: currentStep.headline,
-                    body: currentStep.body,
+                    message: currentStep.body,
                     tailEdge: .top,
                     tailLeading: 0.5,
                     maxWidth: bubbleMaxWidth

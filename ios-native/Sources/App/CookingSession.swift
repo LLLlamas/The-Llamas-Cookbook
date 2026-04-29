@@ -274,7 +274,7 @@ final class CookingSession {
     /// from CookModeView's close button was `session.end()` which
     /// wipes every cook regardless of how many are active.
     func remove(cookID: UUID) {
-        guard let removed = activeCooks.first(where: { $0.id == cookID }) else { return }
+        guard activeCooks.contains(where: { $0.id == cookID }) else { return }
         activeCooks.removeAll { $0.id == cookID }
 
         // Per-cook cleanup. Lifted out of CookModeView.onDisappear so

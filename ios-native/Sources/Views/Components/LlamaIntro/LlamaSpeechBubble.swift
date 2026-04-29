@@ -8,7 +8,11 @@ struct LlamaSpeechBubble: View {
     enum TailEdge { case top, bottom }
 
     let headline: String
-    let body: String
+    /// Body copy under the headline. Named `message` rather than the
+    /// natural `body` to avoid colliding with SwiftUI's `View.body`
+    /// requirement — Swift treats a stored property and the protocol
+    /// requirement with the same name as a redeclaration.
+    let message: String
     let tailEdge: TailEdge
     /// Horizontal position of the tail along the bubble's edge,
     /// measured 0…1 from the leading edge. The overlay computes this
@@ -26,7 +30,7 @@ struct LlamaSpeechBubble: View {
                 .font(AppFont.sectionHeading)
                 .foregroundStyle(appearance.accentColor)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(body)
+            Text(message)
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textPrimary)
                 .lineLimit(8)
