@@ -3,10 +3,12 @@ import PhotosUI
 import UIKit
 
 /// Capture chooser for the photo-import path. Two entry points:
-/// live document scan via `VNDocumentCameraViewController`, or one
-/// or more pictures from the photo library via `PhotosPicker`.
+/// manual single-shot capture via `CameraCaptureView` (a wrapper
+/// around `UIImagePickerController` with the system shutter +
+/// confirm-or-retake screen), or one or more pictures from the
+/// photo library via `PhotosPicker`.
 ///
-/// On capture, the pages run through `RecipeOCRImporter.recognize`
+/// On capture, the image runs through `RecipeOCRImporter.recognize`
 /// (Vision text recognition + cleanup pipeline) and then through
 /// `RecipeAIParser.parseBestOf` (LLM + regex best-of). On success
 /// the parsed `DraftRecipe` surfaces in the read-only
@@ -67,7 +69,7 @@ struct ImportFromPhotoView: View {
             }
         }
         .fullScreenCover(isPresented: $showingScanner) {
-            DocumentScannerView(
+            CameraCaptureView(
                 onComplete: { images in
                     showingScanner = false
                     Task { await runOCR(on: images) }
@@ -242,7 +244,7 @@ struct ImportFromPhotoView: View {
                 tip("Lay the page flat — no curl in the middle.")
                 tip("Fill the frame with the recipe; trim chapter art.")
                 tip("Avoid glossy-paper glare — angle the page slightly.")
-                tip("Multi-page recipes scan top to bottom in one go.")
+                tip("Tap the shutter when the page is in focus — you can retake before saving.")
             }
         }
         .padding(AppSpacing.md)

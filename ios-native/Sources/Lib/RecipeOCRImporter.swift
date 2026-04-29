@@ -408,6 +408,45 @@ enum RecipeOCRImporter {
             with: "1 1/2 $1",
             options: .regularExpression
         )
+        // "1' 1/2 cup" → "1 1/2 cup". Handwritten "1½" frequently
+        // arrives from Vision as "1'" + "1/2" — the small ½ glyph
+        // gets decomposed into an apostrophe-shaped misread (the
+        // narrow vertical of `½`'s `1` reads as `'`) and a `1/2`.
+        // Without this fix, `hoistInlineMeasurement` correctly grabs
+        // `1/2 cup` as the measurement but leaves the `1'` stranded
+        // in the ingredient name ("1' water"). Scoped via lookahead
+        // to a fraction-then-unit shape to avoid corrupting
+        // legitimate dimensional uses ("1' diameter pan"), which are
+        // rare in recipe text but worth not breaking.
+        out = out.replacingOccurrences(
+            of: "(\\d)'(?=\\s+(?:\\d/\\d|[\u{00BC}-\u{215E}])\\s+\(unitClass)\\b)",
+            with: "$1",
+            options: .regularExpression
+        )
+        // "4a5 degrees" / "1l0 mins" / "2o0 g" — digit-letter-digit
+        // shapes where the middle character is a Vision misread of a
+        // digit. Specifically: handwritten `2` with an open-top loop
+        // reads as `a`; `0` reads as `o`/`O`; `1` reads as `l`/`I`.
+        // Constrained to letter-wedged-between-digits via lookbehind
+        // and lookahead so step text mentioning real letters stays
+        // untouched ("preheat to 350" has digits before/after but no
+        // letter between them). Order matters: the more aggressive
+        // `a` → `2` runs last so the safer corrections land first.
+        out = out.replacingOccurrences(
+            of: "(?<=\\d)[oO](?=\\d)",
+            with: "0",
+            options: .regularExpression
+        )
+        out = out.replacingOccurrences(
+            of: "(?<=\\d)[lI](?=\\d)",
+            with: "1",
+            options: .regularExpression
+        )
+        out = out.replacingOccurrences(
+            of: "(?<=\\d)a(?=\\d)",
+            with: "2",
+            options: .regularExpression
+        )
         return out
     }
 
