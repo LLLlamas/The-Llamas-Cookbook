@@ -1,9 +1,10 @@
 import SwiftUI
 import UIKit
 
-/// Coach-mark overlay. Dims the host view, punches a soft cutout
-/// around the current step's tagged field, parks the llama and a
-/// speech bubble adjacent to it, and exposes Skip / Next controls.
+/// Coach-mark overlay. Dims the host view, draws a steady accent
+/// glow around the current step's tagged field (same drop-shadow
+/// silhouette as `LlamaLogo`'s halo), and parks a llama + bubble +
+/// controls cluster directly below or above the field.
 ///
 /// The host owns the preference read — anchor preferences from
 /// `.tourTarget` modifiers in toolbar items don't reliably propagate
@@ -26,7 +27,6 @@ struct LlamaIntroOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var currentIndex = 0
-    @State private var haloPulse: CGFloat = 1.0
 
     private var currentStep: LlamaIntroStep {
         steps[max(0, min(currentIndex, steps.count - 1))]
@@ -34,6 +34,10 @@ struct LlamaIntroOverlay: View {
 
     private var isLastStep: Bool {
         currentIndex >= steps.count - 1
+    }
+
+    private var isFirstStep: Bool {
+        currentIndex <= 0
     }
 
     var body: some View {
@@ -48,15 +52,10 @@ struct LlamaIntroOverlay: View {
                     .ignoresSafeArea()
 
                 if let frame {
-                    haloRing(around: frame)
+                    haloGlow(around: frame)
                 }
 
-                placement(frame: frame, safeArea: safeArea)
-
-                controlsBar
-                    .padding(.horizontal, AppSpacing.lg)
-                    .padding(.bottom, AppSpacing.xl)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                cluster(frame: frame, safeArea: safeArea)
             }
         }
         .ignoresSafeArea()
@@ -68,7 +67,6 @@ struct LlamaIntroOverlay: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(60))
                 handleStepChange(initial: true)
-                if !reduceMotion { startHaloPulse() }
             }
         }
         .onChange(of: currentIndex) { _, _ in
@@ -100,231 +98,326 @@ struct LlamaIntroOverlay: View {
         .onTapGesture { /* swallow taps so the host doesn't react beneath the dim */ }
     }
 
+    /// Steady accent halo around the cutout, shaped like
+    /// `LlamaLogo`'s drop shadow — soft, no pulse. The faint accent
+    /// fill anchors the shadow; without a fill of any kind, SwiftUI's
+    /// drop shadow can render as nothing on a stroked-only shape.
     @ViewBuilder
-    private func haloRing(around frame: CGRect) -> some View {
+    private func haloGlow(around frame: CGRect) -> some View {
         let inflated = frame.insetBy(dx: -8, dy: -8)
         RoundedRectangle(cornerRadius: AppRadius.md)
-            .stroke(appearance.accentColor.opacity(0.85), lineWidth: 2)
+            .fill(appearance.accentColor.opacity(0.06))
             .frame(width: inflated.width, height: inflated.height)
-            .scaleEffect(haloPulse)
+            .shadow(color: appearance.accentColor.opacity(0.55), radius: 14, x: 0, y: 5)
+            .shadow(color: appearance.accentColor.opacity(0.35), radius: 22, x: 0, y: 0)
             .position(x: inflated.midX, y: inflated.midY)
             .allowsHitTesting(false)
     }
 
-    private func startHaloPulse() {
-        withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
-            haloPulse = 1.04
-        }
-    }
-
-    // MARK: - Bubble + llama placement
+    // MARK: - Cluster (llama + bubble + controls)
 
     @ViewBuilder
-    private func placement(frame: CGRect?, safeArea: CGRect) -> some View {
+    private func cluster(frame: CGRect?, safeArea: CGRect) -> some View {
         let llamaSize: CGFloat = 84
-        let bubbleMaxWidth: CGFloat = min(280, safeArea.width - 32)
+        // Cluster is bubble + llama side-by-side. Bubble has to leave
+        // room for the llama AND respect a small horizontal margin
+        // off both edges so the cluster doesn't kiss the screen edge.
+        let bubbleMaxWidth: CGFloat = max(
+            160,
+            min(240, safeArea.width - 32 - llamaSize - AppSpacing.md)
+        )
 
         if let frame {
-            let layout = bubbleLayout(
+            let layout = clusterLayout(
                 target: frame,
                 safeArea: safeArea,
                 llamaSize: llamaSize,
                 bubbleMaxWidth: bubbleMaxWidth
             )
-
-            ZStack(alignment: .topLeading) {
-                LlamaCharacter(
-                    size: llamaSize,
-                    facing: layout.llamaFacing,
-                    isWaving: currentStep.waveOnEnter && currentIndex == 0,
-                    stepID: currentIndex
-                )
-                .position(x: layout.llamaCenter.x, y: layout.llamaCenter.y)
-
-                LlamaSpeechBubble(
-                    headline: currentStep.headline,
-                    message: currentStep.body,
-                    tailEdge: layout.tailEdge,
-                    tailLeading: layout.tailLeading,
-                    maxWidth: bubbleMaxWidth
-                )
-                .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
-                .position(x: layout.bubbleCenter.x, y: layout.bubbleCenter.y)
-                .id(currentIndex)
-                .transition(reduceMotion
-                    ? .opacity
-                    : .opacity.combined(with: .scale(scale: 0.96))
-                )
-            }
-            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.85), value: currentIndex)
+            clusterBody(
+                layout: layout,
+                llamaSize: llamaSize,
+                bubbleMaxWidth: bubbleMaxWidth
+            )
         } else {
-            // Target not yet resolved — fall back to a centered
-            // bubble + llama so the user sees something instead of
-            // a black void on the first frame.
-            VStack(spacing: AppSpacing.md) {
-                LlamaCharacter(
-                    size: llamaSize,
-                    facing: .right,
-                    isWaving: currentStep.waveOnEnter && currentIndex == 0,
-                    stepID: currentIndex
-                )
-                LlamaSpeechBubble(
-                    headline: currentStep.headline,
-                    message: currentStep.body,
-                    tailEdge: .top,
-                    tailLeading: 0.5,
-                    maxWidth: bubbleMaxWidth
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Target not yet resolved on the first frame — fall back
+            // to a centered cluster so the user sees the llama and
+            // copy instead of a black void.
+            let fallback = ClusterLayout(
+                bubbleSide: .right,
+                center: CGPoint(x: safeArea.midX, y: safeArea.midY),
+                tailEdge: .top,
+                tailLeading: 0.5,
+                showTail: false
+            )
+            clusterBody(
+                layout: fallback,
+                llamaSize: llamaSize,
+                bubbleMaxWidth: bubbleMaxWidth
+            )
         }
     }
 
-    /// Result of the placement algorithm: where to draw the llama,
-    /// where to draw the bubble, which side the bubble's tail sits
-    /// on, and how far along that edge the tail anchors.
-    private struct BubbleLayout {
-        var llamaCenter: CGPoint
-        var bubbleCenter: CGPoint
-        var llamaFacing: LlamaCharacter.Facing
-        var tailEdge: LlamaSpeechBubble.TailEdge
-        var tailLeading: CGFloat
+    @ViewBuilder
+    private func clusterBody(
+        layout: ClusterLayout,
+        llamaSize: CGFloat,
+        bubbleMaxWidth: CGFloat
+    ) -> some View {
+        let bubbleAndControls = VStack(alignment: layout.bubbleSide == .left ? .leading : .trailing, spacing: AppSpacing.sm) {
+            LlamaSpeechBubble(
+                headline: currentStep.headline,
+                message: currentStep.body,
+                tailEdge: layout.tailEdge,
+                tailLeading: layout.tailLeading,
+                showTail: layout.showTail,
+                maxWidth: bubbleMaxWidth
+            )
+            controlsBar
+                .frame(maxWidth: bubbleMaxWidth)
+        }
+
+        let llamaCharacter = LlamaCharacter(
+            size: llamaSize,
+            facing: layout.bubbleSide == .left ? .left : .right,
+            isWaving: currentStep.waveOnEnter && currentIndex == 0,
+            stepID: currentIndex
+        )
+
+        HStack(alignment: .center, spacing: AppSpacing.md) {
+            // Bubble side `.left` means the bubble sits on the left
+            // of the llama (target was on the left half of the
+            // screen); `.right` flips it so the bubble lives on the
+            // right of the llama (target on the right half — the
+            // Save button is the canonical case).
+            if layout.bubbleSide == .left {
+                bubbleAndControls
+                llamaCharacter
+            } else {
+                llamaCharacter
+                bubbleAndControls
+            }
+        }
+        .position(x: layout.center.x, y: layout.center.y)
+        .id(currentIndex)
+        .transition(reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .scale(scale: 0.96))
+        )
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.85), value: currentIndex)
     }
 
-    /// Pick a quadrant for the llama + bubble pair given the target's
-    /// frame. Below the target if it sits in the top half of the
-    /// safe area, above if bottom; left of center → llama leads on
-    /// the left, right of center → llama trails on the right.
-    /// Long fields (>60% of safe-area height) pin to the bottom inset.
-    private func bubbleLayout(
+    /// Result of the placement algorithm. `bubbleSide` indicates
+    /// which side of the llama the bubble sits on; the bubble is
+    /// always on the SAME side as the target (so its tail can point
+    /// at the target without overshooting the bubble's edges) and
+    /// the llama stands on the opposite side.
+    private struct ClusterLayout {
+        enum Side { case left, right }
+        var bubbleSide: Side
+        var center: CGPoint
+        var tailEdge: LlamaSpeechBubble.TailEdge
+        var tailLeading: CGFloat
+        /// False when the cluster falls back to a centered placement
+        /// (target frame not yet resolved). The bubble drops its
+        /// tail in that case so the orphan triangle doesn't dangle
+        /// into empty space.
+        var showTail: Bool
+    }
+
+    /// Compute cluster center + tail orientation. Cluster sits
+    /// below the target when the target is in the top half of the
+    /// safe area (tail points up at it), above when the target is
+    /// in the bottom half (tail points down). Bubble side mirrors
+    /// the target's horizontal half so the tail can anchor at the
+    /// target's midX without exceeding the bubble's clamped 0…1
+    /// range.
+    private func clusterLayout(
         target: CGRect,
         safeArea: CGRect,
         llamaSize: CGFloat,
         bubbleMaxWidth: CGFloat
-    ) -> BubbleLayout {
+    ) -> ClusterLayout {
         let inflated = target.insetBy(dx: -8, dy: -8)
-        let bubbleHeight: CGFloat = 130
-        let pairSpacing: CGFloat = AppSpacing.md
         let edgeMargin: CGFloat = AppSpacing.lg
+        let pairSpacing: CGFloat = AppSpacing.md
+        // Bubble height + controls + spacing — rough estimate just
+        // for vertical clamping; the actual cluster sizes itself.
+        let bubbleHeightEstimate: CGFloat = 160
+        let controlsHeight: CGFloat = 44 + AppSpacing.sm
+        let clusterHeight = bubbleHeightEstimate + controlsHeight
 
-        let oversized = inflated.height > safeArea.height * 0.6
+        let oversized = inflated.height > safeArea.height * 0.5
         let belowTarget: Bool
-
         if oversized {
-            // Pin to bottom inset — bubble sits between the target's
-            // bottom edge and the controls bar.
-            belowTarget = false
+            // Tall fields can't fit a cluster + cluster height in
+            // the available margin. Push to whichever side has
+            // more room.
+            let aboveSpace = inflated.minY - safeArea.minY
+            let belowSpace = safeArea.maxY - inflated.maxY
+            belowTarget = belowSpace >= aboveSpace
         } else {
             belowTarget = target.midY < safeArea.midY
         }
 
-        let bubbleCenterY: CGFloat
+        let centerY: CGFloat
         if belowTarget {
-            bubbleCenterY = inflated.maxY + pairSpacing + bubbleHeight / 2
+            centerY = inflated.maxY + pairSpacing + clusterHeight / 2
         } else {
-            bubbleCenterY = inflated.minY - pairSpacing - bubbleHeight / 2
+            centerY = inflated.minY - pairSpacing - clusterHeight / 2
         }
-
-        // Clamp bubble vertically inside the safe area. The controls
-        // bar reserves the bottom ~80pt; halo lives above the cutout.
         let clampedY = max(
-            safeArea.minY + bubbleHeight / 2 + edgeMargin,
-            min(safeArea.maxY - bubbleHeight / 2 - 88, bubbleCenterY)
+            safeArea.minY + clusterHeight / 2 + edgeMargin,
+            min(safeArea.maxY - clusterHeight / 2 - edgeMargin, centerY)
         )
 
-        // Llama sits adjacent to the bubble on the side closer to
-        // the screen edge — face the bubble so the bubble reads as
-        // "delivered" by the llama.
+        // Horizontal: bubble on the same horizontal half as the
+        // target. Target on the LEFT → bubble on the LEFT side of
+        // the cluster (tail anchored to bubble's left half). Target
+        // on the RIGHT (Save is the canonical case) → bubble on the
+        // RIGHT so the tail points up at the toolbar Save pill
+        // without overshooting the bubble's clamped tail range.
         let leftHalf = target.midX < safeArea.midX
-        let llamaCenterX: CGFloat
-        let bubbleCenterX: CGFloat
-        let facing: LlamaCharacter.Facing
+        let bubbleSide: ClusterLayout.Side = leftHalf ? .left : .right
+
         let bubbleHalfWidth = bubbleMaxWidth / 2
+        let clusterHalfWidth = (llamaSize + pairSpacing + bubbleMaxWidth) / 2
 
-        if leftHalf {
-            llamaCenterX = max(safeArea.minX + llamaSize / 2 + edgeMargin,
-                               target.midX - llamaSize / 2 - bubbleHalfWidth)
-            bubbleCenterX = min(safeArea.maxX - bubbleHalfWidth - edgeMargin,
-                                llamaCenterX + llamaSize / 2 + pairSpacing + bubbleHalfWidth)
-            facing = .right
-        } else {
-            llamaCenterX = min(safeArea.maxX - llamaSize / 2 - edgeMargin,
-                               target.midX + llamaSize / 2 + bubbleHalfWidth)
-            bubbleCenterX = max(safeArea.minX + bubbleHalfWidth + edgeMargin,
-                                llamaCenterX - llamaSize / 2 - pairSpacing - bubbleHalfWidth)
-            facing = .left
+        // For target.midX to land at the bubble's center:
+        // - bubbleSide == .left: bubble.midX = clusterCenterX -
+        //   clusterHalfWidth + bubbleHalfWidth → solve for
+        //   clusterCenterX.
+        // - bubbleSide == .right: bubble.midX = clusterCenterX +
+        //   clusterHalfWidth - bubbleHalfWidth → solve.
+        let desiredCenterX: CGFloat
+        switch bubbleSide {
+        case .left:
+            desiredCenterX = target.midX + (clusterHalfWidth - bubbleHalfWidth)
+        case .right:
+            desiredCenterX = target.midX - (clusterHalfWidth - bubbleHalfWidth)
         }
+        let clampedX = max(
+            safeArea.minX + clusterHalfWidth + edgeMargin,
+            min(safeArea.maxX - clusterHalfWidth - edgeMargin, desiredCenterX)
+        )
 
-        // Tail leading is the target midX projected into the
-        // bubble's local 0…1 coordinate space.
+        // Tail leading is target.midX projected back into the
+        // bubble's local 0…1 coords given the clamped cluster X.
+        let bubbleCenterX: CGFloat
+        switch bubbleSide {
+        case .left:
+            bubbleCenterX = clampedX - clusterHalfWidth + bubbleHalfWidth
+        case .right:
+            bubbleCenterX = clampedX + clusterHalfWidth - bubbleHalfWidth
+        }
         let bubbleMinX = bubbleCenterX - bubbleHalfWidth
         let raw = (target.midX - bubbleMinX) / bubbleMaxWidth
         let tailLeading = max(0.05, min(0.95, raw))
 
-        return BubbleLayout(
-            llamaCenter: CGPoint(x: llamaCenterX, y: clampedY),
-            bubbleCenter: CGPoint(x: bubbleCenterX, y: clampedY),
-            llamaFacing: facing,
+        return ClusterLayout(
+            bubbleSide: bubbleSide,
+            center: CGPoint(x: clampedX, y: clampedY),
             tailEdge: belowTarget ? .top : .bottom,
-            tailLeading: tailLeading
+            tailLeading: tailLeading,
+            showTail: true
         )
     }
 
     // MARK: - Controls
 
+    /// Skip · Back · indicator · Next, sitting directly below the
+    /// bubble (inside the cluster) so the controls travel with the
+    /// instructional text. Back is invisible-but-laid-out on the
+    /// first step; the dot rail collapses to "X / N" text when the
+    /// tour has more than 7 steps so the row stays readable.
     private var controlsBar: some View {
-        HStack(alignment: .center, spacing: AppSpacing.md) {
+        HStack(spacing: AppSpacing.xs) {
             Button {
                 Haptics.selection()
                 finish()
             } label: {
                 Text("Skip")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(AppColor.textSecondary)
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.sm)
-                    .frame(minHeight: 44)
+                    .padding(.horizontal, AppSpacing.sm)
+                    .padding(.vertical, AppSpacing.xs)
+                    .frame(minHeight: 36)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Skip walkthrough")
 
-            Spacer()
+            backButton
 
-            stepDots
+            Spacer(minLength: AppSpacing.xs)
 
-            Spacer()
+            stepIndicator
+
+            Spacer(minLength: AppSpacing.xs)
 
             Button {
                 Haptics.selection()
                 advance()
             } label: {
-                HStack(spacing: AppSpacing.xs) {
+                HStack(spacing: 4) {
                     Text(isLastStep ? "Got it!" : "Next")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                     if !isLastStep {
                         Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(size: 11, weight: .bold))
                     }
                 }
                 .foregroundStyle(AppColor.onAccent)
-                .padding(.horizontal, AppSpacing.lg)
-                .padding(.vertical, AppSpacing.sm + 2)
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, AppSpacing.xs + 2)
                 .background(appearance.accentColor)
                 .clipShape(Capsule())
-                .frame(minHeight: 44)
+                .frame(minHeight: 36)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isLastStep ? "Finish walkthrough" : "Next step")
         }
     }
 
-    private var stepDots: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<steps.count, id: \.self) { idx in
-                Circle()
-                    .fill(idx <= currentIndex ? appearance.accentColor : AppColor.divider)
-                    .frame(width: 6, height: 6)
+    @ViewBuilder
+    private var backButton: some View {
+        Button {
+            Haptics.selection()
+            stepBack()
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.left")
+                    .font(.system(size: 11, weight: .bold))
+                Text("Back")
+                    .font(.system(size: 14, weight: .medium))
             }
+            .foregroundStyle(appearance.accentColor)
+            .padding(.horizontal, AppSpacing.sm)
+            .padding(.vertical, AppSpacing.xs)
+            .frame(minHeight: 36)
+        }
+        .buttonStyle(.plain)
+        .opacity(isFirstStep ? 0 : 1)
+        .disabled(isFirstStep)
+        .accessibilityLabel("Previous step")
+        .accessibilityHidden(isFirstStep)
+    }
+
+    @ViewBuilder
+    private var stepIndicator: some View {
+        if steps.count <= 7 {
+            HStack(spacing: 5) {
+                ForEach(0..<steps.count, id: \.self) { idx in
+                    Circle()
+                        .fill(idx <= currentIndex ? appearance.accentColor : AppColor.divider)
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .accessibilityHidden(true)
+        } else {
+            Text("\(currentIndex + 1) / \(steps.count)")
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(AppColor.textSecondary)
+                .accessibilityLabel("Step \(currentIndex + 1) of \(steps.count)")
         }
     }
 
@@ -363,6 +456,11 @@ struct LlamaIntroOverlay: View {
         } else {
             currentIndex += 1
         }
+    }
+
+    private func stepBack() {
+        guard !isFirstStep else { return }
+        currentIndex -= 1
     }
 
     private func finish() {

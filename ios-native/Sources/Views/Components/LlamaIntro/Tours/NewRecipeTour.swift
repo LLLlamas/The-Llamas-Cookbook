@@ -12,21 +12,21 @@ enum NewRecipeTour {
         LlamaIntroStep(
             id: 1,
             target: .editorHero,
-            headline: "Let's build a recipe",
+            headline: "Let's Build a Recipe",
             body: "I'll walk you through the fields. Only one is required — the rest are up to you.",
             waveOnEnter: true
         ),
         LlamaIntroStep(
             id: 2,
             target: .titleField,
-            headline: "Recipe name",
+            headline: "Recipe Name",
             body: "This is the only required field. Type whatever you'll recognize it by — I'll title-case it for you.",
             waveOnEnter: false
         ),
         LlamaIntroStep(
             id: 3,
             target: .summaryField,
-            headline: "Short description",
+            headline: "Short Description",
             body: "A line or two that shows up under the title in your library. Skip if you don't have one.",
             waveOnEnter: false
         ),
@@ -40,35 +40,35 @@ enum NewRecipeTour {
         LlamaIntroStep(
             id: 5,
             target: .prepTimeField,
-            headline: "Prep time",
+            headline: "Prep Time",
             body: "Minutes of work before cooking starts. Surfaces alongside cook time when you open the recipe.",
             waveOnEnter: false
         ),
         LlamaIntroStep(
             id: 6,
             target: .photosButton,
-            headline: "Add photos",
-            body: "Tap to open the gallery. Pick up to a dozen, reorder them, add captions. Each step can also have its own photos (up to 3).",
+            headline: "Add Photos",
+            body: "Tap to open the gallery. Pick up to a dozen, reorder them, add captions.",
             waveOnEnter: false
         ),
         LlamaIntroStep(
             id: 7,
             target: .categoriesHeader,
-            headline: "Tag it",
-            body: "Tags drive your library filters. Add 'Sourdough' to unlock the calculator chip in Detail.",
+            headline: "Tag It",
+            body: "Tags drive your library filters. Add 'Sourdough' as a category to unlock the starter calculator!",
             waveOnEnter: false
         ),
         LlamaIntroStep(
             id: 8,
             target: .ingredientQuickAdd,
-            headline: "Add ingredients",
-            body: "Quantity, unit, name. Tap chips for common values, hit + to add. Only the name is required — leave qty/unit blank if there isn't one.",
+            headline: "Add Ingredients",
+            body: "Quantity, unit, name. Tap chips for common values, hit + to add.",
             waveOnEnter: false
         ),
         LlamaIntroStep(
             id: 9,
             target: .stepQuickAdd,
-            headline: "Add steps",
+            headline: "Add Steps",
             body: "One step at a time. Tap the clock if the step needs a timer in Cook Mode. Long-press a step later to drag and reorder.",
             waveOnEnter: false
         ),
@@ -76,13 +76,13 @@ enum NewRecipeTour {
             id: 10,
             target: .specialNotesEditor,
             headline: "Notes",
-            body: "Recipe-level intro, sign-off, or general note — plus per-step notes if a step needs context.",
+            body: "Here you can add special notes to certain steps or in general.",
             waveOnEnter: false
         ),
         LlamaIntroStep(
             id: 11,
             target: .saveButton,
-            headline: "Hit Save when ready",
+            headline: "Hit Save When Ready",
             body: "You can come back and edit anytime. Photos, tags, steps — nothing's locked in.",
             waveOnEnter: false
         )

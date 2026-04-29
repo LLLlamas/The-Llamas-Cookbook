@@ -31,6 +31,7 @@ struct LibraryView: View {
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
+    @Environment(NavigationContext.self) private var navContext
     @Environment(UserAccount.self) private var userAccount
     @Environment(OwnerProfile.self) private var ownerProfile
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
@@ -229,7 +230,8 @@ struct LibraryView: View {
                     LetterIndex(
                         letters: Self.allLetters,
                         populated: populatedLetters,
-                        accent: appearance.accentColor
+                        accent: appearance.accentColor,
+                        externalHighlightLetter: highlightLetter
                     ) { letter in
                         guard let target = firstRecipe(atOrAfter: letter) else { return }
                         Haptics.selection()
@@ -240,7 +242,33 @@ struct LibraryView: View {
                     .padding(.trailing, 2)
                 }
             }
+            // Post-save highlight: RootView sets `pendingHighlightRecipeID`
+            // after a save (any import flow or scratch entry) so the user
+            // briefly sees the library scroll to their new recipe — and,
+            // under A–Z sort, the magnify badge flash on its letter — in
+            // the moment between sheet dismiss and Detail push. The
+            // scroll target is the recipe row itself; the magnify badge
+            // is driven by `highlightLetter` passed into LetterIndex.
+            .onChange(of: navContext.pendingHighlightRecipeID) { _, newID in
+                guard let newID,
+                      let target = recipes.first(where: { $0.id == newID })
+                else { return }
+                Haptics.selection()
+                withAnimation(.easeInOut(duration: 0.45)) {
+                    proxy.scrollTo(target.id, anchor: .top)
+                }
+            }
         }
+    }
+
+    /// Letter the magnify badge should flash on during a post-save
+    /// highlight. `nil` at all other times so the badge stays the
+    /// scrub-gesture-only affordance it was before.
+    private var highlightLetter: String? {
+        guard let id = navContext.pendingHighlightRecipeID,
+              let recipe = recipes.first(where: { $0.id == id })
+        else { return nil }
+        return Self.sectionLetter(for: recipe)
     }
 
     /// Full A–Z (plus `#` for non-letter starts) — always rendered so the
@@ -549,6 +577,11 @@ private struct LetterIndex: View {
     let letters: [String]
     let populated: Set<String>
     let accent: Color
+    /// Letter to flash the magnify badge on when no scrub gesture is
+    /// active — driven by RootView's post-save highlight so the user
+    /// sees the badge land on their new recipe's letter as the library
+    /// scrolls beneath. `nil` at all other times.
+    let externalHighlightLetter: String?
     let onSelect: (String) -> Void
 
     @State private var activeIndex: Int? = nil
@@ -557,6 +590,18 @@ private struct LetterIndex: View {
     private let stripWidth: CGFloat = 14
     private let verticalPadding: CGFloat = 4
     private let badgeSize: CGFloat = 56
+
+    /// Index that should currently render as "active" — gesture-driven
+    /// scrub wins (so post-save highlight never fights the user), with
+    /// the external highlight as the fallback signal.
+    private var displayedActiveIndex: Int? {
+        if let activeIndex { return activeIndex }
+        if let externalHighlightLetter,
+           let idx = letters.firstIndex(of: externalHighlightLetter) {
+            return idx
+        }
+        return nil
+    }
 
     var body: some View {
         VStack {
@@ -571,7 +616,7 @@ private struct LetterIndex: View {
             ForEach(Array(letters.enumerated()), id: \.element) { index, letter in
                 Text(letter)
                     .font(.system(size: 9, weight: .bold, design: .serif))
-                    .foregroundStyle(letterColor(for: letter, isActive: index == activeIndex))
+                    .foregroundStyle(letterColor(for: letter, isActive: index == displayedActiveIndex))
                     .frame(maxWidth: .infinity)
                     .frame(height: rowHeight)
             }
@@ -580,11 +625,11 @@ private struct LetterIndex: View {
         .padding(.vertical, verticalPadding)
         .background(Capsule().fill(AppColor.surface.opacity(0.35)))
         .overlay(alignment: .topTrailing) {
-            if let activeIndex, letters.indices.contains(activeIndex) {
-                magnifiedBadge(letter: letters[activeIndex])
+            if let displayedActiveIndex, letters.indices.contains(displayedActiveIndex) {
+                magnifiedBadge(letter: letters[displayedActiveIndex])
                     .offset(
                         x: -stripWidth - 12,
-                        y: badgeYOffset(for: activeIndex)
+                        y: badgeYOffset(for: displayedActiveIndex)
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.7)))
                     .allowsHitTesting(false)
@@ -603,7 +648,7 @@ private struct LetterIndex: View {
                 }
                 .onEnded { _ in activeIndex = nil }
         )
-        .animation(.easeOut(duration: 0.12), value: activeIndex)
+        .animation(.easeOut(duration: 0.25), value: displayedActiveIndex)
     }
 
     private func letterColor(for letter: String, isActive: Bool) -> Color {

@@ -165,14 +165,12 @@ struct RootView: View {
                 // Defer the nav push until the sheet has had time to
                 // dismiss; pushing immediately leaves the user staring
                 // at a half-dismissed sheet and SwiftUI sometimes drops
-                // the push entirely if it lands mid-animation. ~350ms
-                // is the same iOS 18 modal-stacking workaround used by
-                // the cloud-share diagnostic-alert → share-sheet path
-                // in `RecipeDetailView`.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    libraryPath.append(savedRecipe)
-                }
+                // the push entirely if it lands mid-animation. The
+                // intermediate beat also gives `runPostSaveHighlight`
+                // a window to scroll the library + flash the magnify
+                // badge on the new recipe's letter before Detail
+                // pulls focus.
+                runPostSaveHighlight(for: savedRecipe)
             }
             // @Observable values can drop out across sheet
             // boundaries — re-injecting is cheap insurance, same
@@ -234,12 +232,11 @@ struct RootView: View {
                     // recipe — Write Down Your Recipe, all three
                     // import flows, and the photo "Edit then Save"
                     // hand-off — so users always land on the recipe
-                    // they just made.
+                    // they just made. The interstitial beat also
+                    // doubles as the post-save highlight window
+                    // (library scrolls + A–Z magnify flashes).
                     editor.end()
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        libraryPath.append(savedRecipe)
-                    }
+                    runPostSaveHighlight(for: savedRecipe)
                 }
             )
             .environment(appearance)
@@ -298,6 +295,42 @@ struct RootView: View {
             get: { shareImportError != nil },
             set: { if !$0 { shareImportError = nil } }
         )
+    }
+
+    // MARK: post-save highlight
+
+    /// Brief library highlight choreography that runs between sheet
+    /// dismiss and Detail push for every new-recipe save path
+    /// (scratch entry, all three import flows, share-recipient
+    /// import). Sequence:
+    ///
+    ///   1. Wait ~150ms — sheet dismiss is in flight; library is
+    ///      uncovering. Setting the highlight now means LibraryView's
+    ///      onChange has the signal by the time the user can see the
+    ///      list, so the scroll + badge land smoothly instead of
+    ///      flickering on after a beat of empty stillness.
+    ///   2. Set `pendingHighlightRecipeID`. LibraryView reacts:
+    ///      ScrollViewReader scrolls to the row, LetterIndex flashes
+    ///      the magnify badge on the recipe's letter (under A–Z
+    ///      sort).
+    ///   3. Linger ~750ms so the scroll + badge are clearly visible
+    ///      before Detail pulls focus.
+    ///   4. Push Detail.
+    ///   5. Wait ~400ms for the push transition to complete, then
+    ///      clear the highlight so the badge disappears off-screen
+    ///      and not mid-animation.
+    ///
+    /// Total visible window: ~900ms — short enough to feel like a
+    /// transition, long enough for the eye to follow.
+    private func runPostSaveHighlight(for savedRecipe: Recipe) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            navContext.pendingHighlightRecipeID = savedRecipe.id
+            try? await Task.sleep(for: .milliseconds(750))
+            libraryPath.append(savedRecipe)
+            try? await Task.sleep(for: .milliseconds(400))
+            navContext.pendingHighlightRecipeID = nil
+        }
     }
 
     // MARK: deep-link routing

@@ -27,6 +27,11 @@ struct RecipeEditorView: View {
     @State private var showingPhotoCarousel = false
     @State private var showTour = false
     @FocusState private var isNumericFocused: Bool
+    /// Drives the summary field's expand-on-focus behavior. When true
+    /// the field grows to fit multi-line content (`axis: .vertical` +
+    /// generous `lineLimit`); when false it collapses back to a single
+    /// truncated line so the form stays compact at rest.
+    @FocusState private var isSummaryFocused: Bool
 
     /// Tracks whether this editor instance was opened from a from-
     /// scratch entry vs. seeded from an import (text/link/photo) or
@@ -370,6 +375,7 @@ struct RecipeEditorView: View {
             TextField("", text: $draft.title)
                 .textInputAutocapitalization(.words)
                 .submitLabel(.done)
+                .lineLimit(1)
                 .padding(AppSpacing.md)
                 .background(AppColor.surface)
                 .overlay(
@@ -377,26 +383,64 @@ struct RecipeEditorView: View {
                         .stroke(appearance.accentColor, lineWidth: 2)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                .font(AppFont.recipeTitle)
+                // Step the title font down as the title gets longer so
+                // the whole name stays inside the input — scrolling /
+                // ellipsizing while typing your own recipe name reads
+                // as a UI bug, not a feature. SwiftUI TextField ignores
+                // `minimumScaleFactor` for entered text, so the choice
+                // has to be driven off character count.
+                .font(Self.titleFont(forLength: draft.title.count))
+                .animation(.easeInOut(duration: 0.15), value: draft.title.count)
                 .foregroundStyle(appearance.accentColor)
                 .tint(appearance.accentColor)
         }
     }
 
+    /// Serif title font that shrinks with length so a 50-character
+    /// recipe name still fits the box on iPhone widths. Caps at 14pt
+    /// because below that the title becomes hard to read; titles
+    /// longer than ~60 chars will still get scaled by SwiftUI's text
+    /// scrolling but at that point the user has bigger problems.
+    private static func titleFont(forLength length: Int) -> Font {
+        let size: CGFloat
+        switch length {
+        case ..<20:  size = 28
+        case ..<28:  size = 24
+        case ..<36:  size = 20
+        case ..<46:  size = 17
+        default:     size = 14
+        }
+        return .system(size: size, weight: .bold, design: .serif)
+    }
+
     private var summaryField: some View {
-        TextField("Short description (optional)", text: $draft.summary)
-            .submitLabel(.done)
+        // `axis: .vertical` lets the field wrap to multiple lines while
+        // editing; the lineLimit toggle off `isSummaryFocused` keeps it
+        // a single truncated row at rest, so the form stays compact
+        // until the user puts the cursor in the description and needs
+        // to see what they're typing.
+        TextField(
+            "Short description (optional)",
+            text: $draft.summary,
+            axis: .vertical
+        )
+            .focused($isSummaryFocused)
+            .lineLimit(isSummaryFocused ? 10 : 1, reservesSpace: false)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm)
             .frame(minHeight: 40, alignment: .topLeading)
             .background(AppColor.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(AppColor.divider, lineWidth: 1)
+                    .stroke(
+                        isSummaryFocused ? appearance.accentColor : AppColor.divider,
+                        lineWidth: isSummaryFocused ? 2 : 1
+                    )
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .font(AppFont.body)
             .foregroundStyle(AppColor.textPrimary)
+            .animation(.easeInOut(duration: 0.2), value: isSummaryFocused)
     }
 
     /// Compact servings input that lives right under the summary so the

@@ -20,6 +20,11 @@ struct LlamaSpeechBubble: View {
     /// the tail stays anchored to the field even when the bubble is
     /// pinned to a side.
     let tailLeading: CGFloat
+    /// When false, the bubble draws as a plain rounded-rect with no
+    /// tail — used by the centered-fallback path on the first frame
+    /// when no target rect has been resolved yet, so a triangular
+    /// tail doesn't dangle into empty space.
+    var showTail: Bool = true
     let maxWidth: CGFloat
 
     @Environment(AppearanceSettings.self) private var appearance
@@ -37,14 +42,18 @@ struct LlamaSpeechBubble: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.md)
+        .padding(.top, AppSpacing.md)
+        // Extra bottom breathing room — the body copy needs space to
+        // settle above the tail or the cluster's controls without
+        // feeling cramped against either.
+        .padding(.bottom, AppSpacing.lg + AppSpacing.xs)
         .frame(maxWidth: maxWidth, alignment: .leading)
         .background(
-            BubbleShape(tailEdge: tailEdge, tailLeading: tailLeading)
+            BubbleShape(tailEdge: tailEdge, tailLeading: tailLeading, showTail: showTail)
                 .fill(AppColor.surface)
         )
         .overlay(
-            BubbleShape(tailEdge: tailEdge, tailLeading: tailLeading)
+            BubbleShape(tailEdge: tailEdge, tailLeading: tailLeading, showTail: showTail)
                 .stroke(appearance.accentColor, lineWidth: 1.5)
         )
         .shadow(color: AppColor.shadow, radius: 16, y: 6)
@@ -59,6 +68,7 @@ struct LlamaSpeechBubble: View {
 private struct BubbleShape: Shape {
     let tailEdge: LlamaSpeechBubble.TailEdge
     let tailLeading: CGFloat
+    let showTail: Bool
 
     private let cornerRadius: CGFloat = AppRadius.lg
     private let tailHeight: CGFloat = 10
@@ -67,28 +77,37 @@ private struct BubbleShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
 
+        // When the tail is suppressed the bubble's full rect is the
+        // body rect — no inset for tail height. Keeps the rounded
+        // corners matched to the bubble's own bounds.
         let bodyRect: CGRect
-        switch tailEdge {
-        case .top:
-            bodyRect = CGRect(
-                x: rect.minX,
-                y: rect.minY + tailHeight,
-                width: rect.width,
-                height: rect.height - tailHeight
-            )
-        case .bottom:
-            bodyRect = CGRect(
-                x: rect.minX,
-                y: rect.minY,
-                width: rect.width,
-                height: rect.height - tailHeight
-            )
+        if !showTail {
+            bodyRect = rect
+        } else {
+            switch tailEdge {
+            case .top:
+                bodyRect = CGRect(
+                    x: rect.minX,
+                    y: rect.minY + tailHeight,
+                    width: rect.width,
+                    height: rect.height - tailHeight
+                )
+            case .bottom:
+                bodyRect = CGRect(
+                    x: rect.minX,
+                    y: rect.minY,
+                    width: rect.width,
+                    height: rect.height - tailHeight
+                )
+            }
         }
 
         path.addRoundedRect(
             in: bodyRect,
             cornerSize: CGSize(width: cornerRadius, height: cornerRadius)
         )
+
+        guard showTail else { return path }
 
         // Clamp tail X to keep its base inside the rounded-corner safe
         // zone — otherwise the triangle base sticks out past the curve.

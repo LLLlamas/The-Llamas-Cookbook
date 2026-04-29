@@ -10,14 +10,14 @@ enum LinkImportTour {
         LlamaIntroStep(
             id: 1,
             target: .linkImportHero,
-            headline: "Hi, I'm here to help!",
+            headline: "Hi, I'm Here to Help!",
             body: "Paste a recipe link and I'll fetch what I can. Let me show you the flow.",
             waveOnEnter: true
         ),
         LlamaIntroStep(
             id: 2,
             target: .urlField,
-            headline: "Paste a recipe link",
+            headline: "Paste a Recipe Link",
             body: "Blog URLs, Pinterest pins, TikTok captions — I'll pull what I can. IG and FB block previews; for those, paste the caption on the From Text screen instead.",
             waveOnEnter: false
         ),
@@ -31,7 +31,7 @@ enum LinkImportTour {
         LlamaIntroStep(
             id: 4,
             target: .linkImportHelpIcon,
-            headline: "Need a refresher?",
+            headline: "Need a Refresher?",
             body: "Tap the question mark anytime to see this walkthrough again.",
             waveOnEnter: false
         )

@@ -20,4 +20,12 @@ import Foundation
 @Observable
 final class NavigationContext {
     var detailedRecipeID: UUID?
+
+    /// Recipe ID that the Library should briefly highlight before the
+    /// Detail push lands — RootView sets this after a save flow
+    /// (editor sheet, share import) so the user sees the library scroll
+    /// to that recipe's row and the A–Z magnify badge flash on the
+    /// recipe's letter, then gets pushed through to Detail. Cleared
+    /// once the Detail push completes. nil at all other times.
+    var pendingHighlightRecipeID: UUID?
 }

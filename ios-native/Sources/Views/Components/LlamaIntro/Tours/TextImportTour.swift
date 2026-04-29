@@ -11,21 +11,21 @@ enum TextImportTour {
         LlamaIntroStep(
             id: 1,
             target: .textImportHero,
-            headline: "Hi, I'm here to help!",
+            headline: "Hi, I'm Here to Help!",
             body: "Paste a recipe in plain text and I'll fill it in for you. Let me show you how.",
             waveOnEnter: true
         ),
         LlamaIntroStep(
             id: 2,
             target: .formatHint,
-            headline: "Watch the checklist",
+            headline: "Watch the Checklist",
             body: "Title, first ingredient, first step — they light up here when I find them. If something's off, tweak the text below.",
             waveOnEnter: false
         ),
         LlamaIntroStep(
             id: 3,
             target: .pasteEditor,
-            headline: "Paste plain text",
+            headline: "Paste Plain Text",
             body: "Three blocks separated by blank lines: title, ingredients, steps. Bullets and fractions parse automatically.",
             waveOnEnter: false
         ),
@@ -39,7 +39,7 @@ enum TextImportTour {
         LlamaIntroStep(
             id: 5,
             target: .textImportHelpIcon,
-            headline: "Need a refresher?",
+            headline: "Need a Refresher?",
             body: "Tap the question mark anytime to see this walkthrough again.",
             waveOnEnter: false
         )
