@@ -96,10 +96,11 @@ struct ImportRecipeView: View {
         .navigationTitle("Import recipe")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(true)
+        .tint(appearance.accentColor)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
-                    .foregroundStyle(AppColor.textPrimary)
+                    .foregroundStyle(appearance.accentColor)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {

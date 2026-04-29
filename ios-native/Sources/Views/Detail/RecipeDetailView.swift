@@ -31,22 +31,11 @@ struct RecipeDetailView: View {
     // MARK: - Share state
     //
     // Three transports surfaced in the share Menu (file, link, text);
-    // see Recipe-Sharing.md §7. The flow:
-    //   1. Tap menu item → `triggerShare(_:)`.
-    //   2. If the action is `.text` OR the user has already responded
-    //      to the first-share name prompt, jump straight to the share
-    //      sheet via `executeShare(_:)`.
-    //   3. Otherwise stash the action in `pendingShareAction` and flip
-    //      `showingNamePrompt`. After Continue / Skip, defer the share
-    //      sheet by ~350ms so the alert dismiss doesn't race with the
-    //      sheet present (same iOS 18 modal-stacking workaround the
-    //      photo carousel uses on its picker dismiss path).
-
-    /// What the user selected from the menu while the name prompt is
-    /// in flight. Cleared on Cancel; consumed on Continue / Skip.
-    @State private var pendingShareAction: ShareAction?
-    @State private var showingNamePrompt = false
-    @State private var pendingNameInput: String = ""
+    // see Recipe-Sharing.md §7. Tap a menu item → `triggerShare(_:)`
+    // → straight to the share sheet via `executeShare(_:)`. The sender
+    // display name is read from `OwnerProfile.userName` at envelope-
+    // build time; an empty value ships `sharedBy: nil` and the
+    // recipient's Detail hides the provenance line entirely.
 
     /// Ready-to-share payload. Wrapped in a sum type so the cleanup
     /// path (`onComplete` of `ShareSheet`) can distinguish the file
@@ -293,8 +282,9 @@ struct RecipeDetailView: View {
                             Label("Share recipe", systemImage: "square.and.arrow.up")
                         }
                         // Text form — existing plain-text export. Bridge for
-                        // recipients without the app. Skips the name prompt
-                        // because plain text doesn't carry provenance.
+                        // recipients without the app. Plain text carries no
+                        // provenance, so the envelope's `sharedBy` field is
+                        // irrelevant for this transport.
                         Button {
                             triggerShare(.text)
                         } label: {
@@ -407,35 +397,8 @@ struct RecipeDetailView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        // First-share name prompt. Fires the very first time the user
-        // taps "Share recipe" or "Share as link" — both forms include
-        // `sharedBy` in the envelope, so we capture it once before the
-        // first outbound share. "Share as text" skips this entirely
-        // (plain text has no provenance). After Continue / Skip, the
-        // pending action is deferred ~350ms before triggering the
-        // share sheet to avoid an alert→sheet present race.
-        .alert("Who's sharing?", isPresented: $showingNamePrompt) {
-            TextField("Your name (optional)", text: $pendingNameInput)
-                .textInputAutocapitalization(.words)
-            Button("Continue") {
-                ownerProfile.userName = RecipeShare.cappedDisplayName(pendingNameInput) ?? ""
-                ownerProfile.hasPromptedForName = true
-                deferredExecutePendingShare()
-            }
-            Button("Skip", role: .destructive) {
-                ownerProfile.userName = ""
-                ownerProfile.hasPromptedForName = true
-                deferredExecutePendingShare()
-            }
-            Button("Cancel", role: .cancel) {
-                pendingShareAction = nil
-            }
-        } message: {
-            Text("Lets the recipient see who sent the recipe. You can leave it blank.")
-        }
-        // System share sheet — wraps UIActivityViewController so the
-        // first-share prompt can finish before this presents. See
-        // Views/Components/ShareSheet.swift for why this can't be a
+        // System share sheet — wraps UIActivityViewController.
+        // See Views/Components/ShareSheet.swift for why this can't be a
         // SwiftUI ShareLink.
         .sheet(isPresented: shareSheetVisible) {
             if let item = pendingShareItem {
@@ -459,8 +422,8 @@ struct RecipeDetailView: View {
         // remove once the cloud transport is confirmed working.
         // Tapping "Use long URL" defers ~350ms before invoking the
         // local URL fallback so the alert dismiss doesn't race with
-        // the share sheet present (same iOS 18 modal-stacking
-        // workaround the photo carousel + name prompt use).
+        // the share sheet present (iOS 18 modal-stacking workaround,
+        // same shape as the photo carousel's picker dismiss path).
         .alert("Cloud share diagnostic", isPresented: cloudShareErrorBinding) {
             Button("Use long URL") {
                 cloudShareError = nil
@@ -684,10 +647,10 @@ struct RecipeDetailView: View {
         } label: {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "arrow.up.right.square")
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                 Text(url)
                     .font(AppFont.body)
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
@@ -970,20 +933,12 @@ struct RecipeDetailView: View {
 
     // MARK: - Share flow
 
-    /// Menu-tap entry point. Routes through the first-share name
-    /// prompt for file/url forms; text form skips the prompt because
-    /// plain text doesn't carry provenance.
+    /// Menu-tap entry point. The sender display name comes from
+    /// `OwnerProfile.userName` directly — when empty, the envelope
+    /// ships `sharedBy: nil` and the recipient's Detail hides the
+    /// provenance line entirely.
     private func triggerShare(_ action: ShareAction) {
-        if action == .text || ownerProfile.hasPromptedForName {
-            executeShare(action)
-        } else {
-            pendingShareAction = action
-            // Pre-fill the field with whatever name the user has
-            // stored — handles the "user reset their name from a
-            // future Settings screen" case gracefully.
-            pendingNameInput = ownerProfile.userName
-            showingNamePrompt = true
-        }
+        executeShare(action)
     }
 
     /// Routes the user-picked transport to the right builder. The
@@ -1151,23 +1106,6 @@ struct RecipeDetailView: View {
         }
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.18), value: isPreparingCloudShare)
-    }
-
-    /// Defers the actual share sheet present by ~350ms after the
-    /// alert resolves. Without this, the sheet sometimes fails to
-    /// appear because UIKit is mid-transition dismissing the alert.
-    /// Same workaround the photo carousel uses on its picker dismiss
-    /// path (CLAUDE.md "Source layout" note re: the iOS 18 sheet-in-
-    /// sheet alert race).
-    private func deferredExecutePendingShare() {
-        let action = pendingShareAction
-        pendingShareAction = nil
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(350))
-            if let action {
-                executeShare(action)
-            }
-        }
     }
 
     private var shareSheetVisible: Binding<Bool> {

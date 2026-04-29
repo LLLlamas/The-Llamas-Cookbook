@@ -6,12 +6,13 @@ import LinkPresentation
 /// only presents in response to a tap on its own button — there's no
 /// `.shareSheet(isPresented:)` modifier or programmatic-trigger API
 /// as of iOS 18. The Recipe Detail share flow needs state-driven
-/// presentation so the first-share name prompt (Recipe-Sharing.md
-/// §7.4) can complete BEFORE the share sheet opens, so we wrap
+/// presentation so async work (e.g. the cloud-permalink upload) can
+/// complete BEFORE the share sheet opens, so we wrap
 /// `UIActivityViewController` here.
 ///
-/// **Third deliberate UIKit exception** alongside the keyboard-tint
-/// (`UIView.appearance().tintColor`) and PageControl dot-color
+/// **Third deliberate UIKit exception** alongside the global tint
+/// (`UIView.appearance().tintColor`, kept in sync with the user's
+/// accent by `AppearanceSettings`) and PageControl dot-color
 /// (`UIPageControl.appearance()`) proxies. Single-purpose, isolated
 /// to this wrapper — every caller sees only a SwiftUI
 /// `.sheet(isPresented:)` containing this view.

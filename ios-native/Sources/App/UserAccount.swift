@@ -78,9 +78,8 @@ final class UserAccount {
     ///
     /// `ownerProfile` is an in/out parameter — on first sign-in we
     /// snap its `userName` into our display name (one-way migration
-    /// per plan §3) and flip its `hasPromptedForName` flag so the
-    /// existing share flow stops nagging for a name that's now
-    /// authoritative here.
+    /// per plan §3) so the share flow keeps emitting our resolved
+    /// name as `sharedBy` in outbound envelopes.
     func completeSignIn(
         with credential: SignInWithAppleService.Credential,
         ownerProfile: OwnerProfile
@@ -108,7 +107,6 @@ final class UserAccount {
         if ownerProfile.userName.isEmpty {
             ownerProfile.userName = resolvedName
         }
-        ownerProfile.hasPromptedForName = true
 
         status = .signedIn(identity)
     }

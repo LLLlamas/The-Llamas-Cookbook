@@ -56,6 +56,7 @@ struct PhotoCarouselView: View {
     var maxImages: Int? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppearanceSettings.self) private var appearance
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var selectedPage: Int
     @State private var pendingDeleteIndex: Int?
@@ -153,6 +154,7 @@ struct PhotoCarouselView: View {
             }
             .background(carouselBackground.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
+            .tint(appearance.accentColor)
             .toolbar { toolbarContent }
             // Custom keyboard accessory. SwiftUI's `placement: .keyboard`
             // toolbar — both at this NavigationStack level and on the
@@ -249,7 +251,7 @@ struct PhotoCarouselView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button("Done") { dismiss() }
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
         }
         // Title moved out of the principal slot — it now renders as a
         // hero header above the photo (see `heroTitle`). Lorenzo wanted
@@ -302,7 +304,7 @@ struct PhotoCarouselView: View {
             Image(systemName: "rectangle.on.rectangle.angled")
                 .font(.system(size: 17, weight: .semibold))
         }
-        .foregroundStyle(AppColor.accent)
+        .foregroundStyle(appearance.accentColor)
         .accessibilityLabel("Rearrange photos")
     }
 
@@ -342,7 +344,7 @@ struct PhotoCarouselView: View {
                 } label: {
                     Text("Done")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(AppColor.accent)
+                        .foregroundStyle(appearance.accentColor)
                         .padding(.horizontal, AppSpacing.lg)
                         .padding(.vertical, AppSpacing.sm + 2)
                         .contentShape(Rectangle())
@@ -372,7 +374,7 @@ struct PhotoCarouselView: View {
         if let title, !title.isEmpty {
             Text(StringCase.titleCase(title))
                 .font(AppFont.recipeTitle)
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
@@ -407,7 +409,7 @@ struct PhotoCarouselView: View {
             }
         }
         .disabled(isProcessing || pickLimit == 0)
-        .foregroundStyle(AppColor.accent)
+        .foregroundStyle(appearance.accentColor)
     }
 
     // MARK: - Body content
@@ -516,13 +518,13 @@ struct PhotoCarouselView: View {
             Text("\(selectedPage + 1) of \(photoData.count)")
                 .font(.system(size: 12, weight: .semibold))
                 .tracking(0.4)
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, 5)
                 .background(AppColor.accentSoft)
                 .clipShape(Capsule())
                 .overlay(
-                    Capsule().stroke(AppColor.accent.opacity(0.25), lineWidth: 0.8)
+                    Capsule().stroke(appearance.accentColor.opacity(0.25), lineWidth: 0.8)
                 )
         }
     }
@@ -542,14 +544,16 @@ struct PhotoCarouselView: View {
         )
     }
 
-    /// Tint the UIPageControl dots with the accent. Has to go through
-    /// UIKit appearance because `.indexViewStyle(.page)` uses
+    /// Tint the UIPageControl dots with the user's accent. Has to go
+    /// through UIKit appearance because `.indexViewStyle(.page)` uses
     /// `UIPageControl` internally and SwiftUI offers no public knob for
-    /// the dot color in iOS 18.
+    /// the dot color in iOS 18. Captured fresh on every `onAppear` so a
+    /// picker change between visits is reflected the next time the
+    /// carousel opens.
     private func stylePageControl() {
-        let appearance = UIPageControl.appearance()
-        appearance.currentPageIndicatorTintColor = UIColor(AppColor.accent)
-        appearance.pageIndicatorTintColor = UIColor(AppColor.accent.opacity(0.28))
+        let proxy = UIPageControl.appearance()
+        proxy.currentPageIndicatorTintColor = UIColor(appearance.accentColor)
+        proxy.pageIndicatorTintColor = UIColor(appearance.accentColor.opacity(0.28))
     }
 
     private var emptyState: some View {
@@ -568,7 +572,7 @@ struct PhotoCarouselView: View {
                         .font(AppFont.body.weight(.semibold))
                         .padding(.horizontal, AppSpacing.xl)
                         .padding(.vertical, AppSpacing.md)
-                        .background(AppColor.accent)
+                        .background(appearance.accentColor)
                         .foregroundStyle(AppColor.onAccent)
                         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 }

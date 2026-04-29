@@ -187,10 +187,11 @@ struct RecipeEditorView: View {
         .navigationTitle(headerTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .tint(appearance.accentColor)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { attemptCancel() }
-                    .foregroundStyle(AppColor.textPrimary)
+                    .foregroundStyle(appearance.accentColor)
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button {

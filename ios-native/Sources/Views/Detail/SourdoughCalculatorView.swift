@@ -56,11 +56,12 @@ struct SourdoughCalculatorView: View {
             .background(AppColor.background)
             .navigationTitle("Sourdough")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(appearance.accentColor)
             .safeAreaInset(edge: .bottom) { addBar }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
-                        .foregroundStyle(AppColor.textPrimary)
+                        .foregroundStyle(appearance.accentColor)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     if totalFocused {

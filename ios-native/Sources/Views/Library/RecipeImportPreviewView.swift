@@ -86,9 +86,11 @@ struct RecipeImportPreviewView: View {
             }
             .background(AppColor.background)
             .navigationBarTitleDisplayMode(.inline)
+            .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(appearance.accentColor)
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .principal) {

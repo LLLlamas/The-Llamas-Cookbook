@@ -49,6 +49,7 @@ struct AccentColorPicker: View {
             .background(AppColor.background)
             .navigationTitle("Customize")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(settings.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

@@ -375,7 +375,7 @@ struct LibraryView: View {
             .padding(.horizontal, AppSpacing.lg)
             .padding(.vertical, AppSpacing.sm)
             .background(AppColor.surface)
-            .foregroundStyle(AppColor.accent)
+            .foregroundStyle(appearance.accentColor)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
                     .stroke(AppColor.divider, lineWidth: 1)

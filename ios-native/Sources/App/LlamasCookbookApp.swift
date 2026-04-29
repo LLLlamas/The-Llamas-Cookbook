@@ -6,10 +6,10 @@ import UserNotifications
 @main
 struct LlamasCookbookApp: App {
     @State private var appearance = AppearanceSettings()
-    /// Sender display name + first-share-prompt state for app-to-app
-    /// recipe sharing. Sibling to `appearance` — both are persisted-
-    /// preferences Observables, kept separate per the
-    /// one-Observable-per-concern pattern. See Recipe-Sharing.md §7.4.
+    /// Sender display name for app-to-app recipe sharing. Sibling to
+    /// `appearance` — both are persisted-preferences Observables, kept
+    /// separate per the one-Observable-per-concern pattern. See
+    /// Recipe-Sharing.md §7.4.
     @State private var ownerProfile = OwnerProfile()
     /// Sign-in-with-Apple identity + (PR 2+) cloud user binding.
     /// Sibling to `ownerProfile`; `OwnerProfile` continues to power
@@ -23,12 +23,12 @@ struct LlamasCookbookApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
-        // Propagate accent to UIKit surfaces (keyboard Return key, text cursors,
-        // selection handles) that read UIView.tintColor before SwiftUI's .tint()
-        // reaches them. Stays at the default terracotta — keyboard tint follows
-        // the design baseline rather than the user's pick to avoid an extra
-        // UIKit refresh dance on every color change.
-        UIView.appearance().tintColor = UIColor(AppColor.accent)
+        // UIKit tint (keyboard Return key, text cursors, selection handles,
+        // navigation back chevron when SwiftUI delegates to UIKit chrome)
+        // is owned by `AppearanceSettings` — its init+didSet push the
+        // current accent into `UIView.appearance().tintColor` so the
+        // user's pick propagates to UIKit surfaces alongside SwiftUI's
+        // own `.tint()` modifier.
 
         // Ask for notification permission up front so the first cooking
         // timer can schedule its background alert without an extra round-trip.

@@ -166,9 +166,9 @@ struct RootView: View {
                 // dismiss; pushing immediately leaves the user staring
                 // at a half-dismissed sheet and SwiftUI sometimes drops
                 // the push entirely if it lands mid-animation. ~350ms
-                // is the same modal-stacking workaround the share
-                // prompt → share sheet path uses, see
-                // RecipeDetailView.deferredExecutePendingShare.
+                // is the same iOS 18 modal-stacking workaround used by
+                // the cloud-share diagnostic-alert → share-sheet path
+                // in `RecipeDetailView`.
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(350))
                     libraryPath.append(savedRecipe)

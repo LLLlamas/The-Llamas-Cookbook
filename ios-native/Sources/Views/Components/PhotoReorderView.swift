@@ -24,6 +24,7 @@ struct PhotoReorderView: View {
     let onMove: (IndexSet, Int) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppearanceSettings.self) private var appearance
 
     /// Stable identity for each tile. Generated once on init so a tile
     /// keeps the same UUID across reorders — required for
@@ -69,6 +70,7 @@ struct PhotoReorderView: View {
             .background(AppColor.background)
             .navigationTitle(headerTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Text("\(photos.count) photo\(photos.count == 1 ? "" : "s")")
@@ -82,7 +84,7 @@ struct PhotoReorderView: View {
                     } label: {
                         Text("Done")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(AppColor.accent)
+                            .foregroundStyle(appearance.accentColor)
                     }
                 }
             }
@@ -107,7 +109,7 @@ struct PhotoReorderView: View {
         HStack(spacing: AppSpacing.sm) {
             Image(systemName: "hand.draw")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppColor.accent)
+                .foregroundStyle(appearance.accentColor)
             Text("Drag a photo onto another to swap their order.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(AppColor.textSecondary)

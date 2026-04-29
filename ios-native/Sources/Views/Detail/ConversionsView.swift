@@ -23,17 +23,18 @@ struct ConversionsView: View {
             .background(AppColor.background)
             .navigationTitle("Conversions")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
-                        .foregroundStyle(AppColor.accent)
+                        .foregroundStyle(appearance.accentColor)
                         .font(.system(size: 16, weight: .semibold))
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     if calcFocused {
                         Spacer()
                         Button("Done") { calcFocused = false }
-                            .foregroundStyle(AppColor.accent)
+                            .foregroundStyle(appearance.accentColor)
                             .font(.system(size: 16, weight: .semibold))
                     }
                 }
@@ -100,11 +101,11 @@ struct ConversionsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "arrow.right")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(AppColor.accent.opacity(0.7))
+                .foregroundStyle(appearance.accentColor.opacity(0.7))
             VStack(alignment: .trailing, spacing: 2) {
                 Text(row.rhs)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                     .monospacedDigit()
                 if let note = row.note {
                     Text(note)
@@ -127,6 +128,7 @@ struct ConversionsView: View {
 private struct ConversionCalculator: View {
     var focused: FocusState<Bool>.Binding
 
+    @Environment(AppearanceSettings.self) private var appearance
     @State private var inputText: String = "1"
     @State private var fromUnit: ConvertibleUnit = .cup
     @State private var toUnit: ConvertibleUnit = .ml
@@ -156,7 +158,7 @@ private struct ConversionCalculator: View {
                 inputCard
                 Image(systemName: "arrow.right")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(AppColor.accent)
+                    .foregroundStyle(appearance.accentColor)
                 outputCard
             }
 
@@ -237,7 +239,7 @@ private struct ConversionCalculator: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
             }
-            .foregroundStyle(AppColor.accent)
+            .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, 4)
             .background(AppColor.accentSoft.opacity(0.6))

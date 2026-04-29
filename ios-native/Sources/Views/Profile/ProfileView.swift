@@ -64,6 +64,7 @@ struct ProfileView: View {
             .background(AppColor.background)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
