@@ -3,8 +3,13 @@ import UIKit
 
 /// Coach-mark overlay. Dims the host view, draws a steady accent
 /// glow around the current step's tagged field (same drop-shadow
-/// silhouette as `LlamaLogo`'s halo), and parks a llama + bubble +
-/// controls cluster directly below or above the field.
+/// silhouette as `LlamaLogo`'s halo), parks a llama + bubble above
+/// the field with the bubble's tail pointing down at it, and floats
+/// the Skip · Back · indicator · Next controls directly below the
+/// field. When the target is too close to the top to fit the bubble
+/// above (e.g. step 1 hero, step 11 toolbar Save button), the
+/// bubble drops below the target and the controls roll into the
+/// cluster's VStack so the whole walkthrough still fits.
 ///
 /// The host owns the preference read — anchor preferences from
 /// `.tourTarget` modifiers in toolbar items don't reliably propagate
@@ -128,58 +133,67 @@ struct LlamaIntroOverlay: View {
         )
 
         if let frame {
-            let layout = clusterLayout(
+            let plan = computePlan(
                 target: frame,
                 safeArea: safeArea,
                 llamaSize: llamaSize,
                 bubbleMaxWidth: bubbleMaxWidth
             )
-            clusterBody(
-                layout: layout,
-                llamaSize: llamaSize,
-                bubbleMaxWidth: bubbleMaxWidth
-            )
+            ZStack {
+                bubbleCluster(plan: plan, llamaSize: llamaSize, bubbleMaxWidth: bubbleMaxWidth)
+                if let controlsCenter = plan.separateControlsCenter {
+                    controlsBar
+                        .frame(maxWidth: bubbleMaxWidth)
+                        .position(x: controlsCenter.x, y: controlsCenter.y)
+                        .id("controls-\(currentIndex)")
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.2), value: currentIndex)
+                }
+            }
         } else {
             // Target not yet resolved on the first frame — fall back
             // to a centered cluster so the user sees the llama and
             // copy instead of a black void.
-            let fallback = ClusterLayout(
+            let fallback = LayoutPlan(
                 bubbleSide: .right,
-                center: CGPoint(x: safeArea.midX, y: safeArea.midY),
+                bubbleClusterCenter: CGPoint(x: safeArea.midX, y: safeArea.midY),
                 tailEdge: .top,
                 tailLeading: 0.5,
-                showTail: false
+                showTail: false,
+                separateControlsCenter: nil
             )
-            clusterBody(
-                layout: fallback,
-                llamaSize: llamaSize,
-                bubbleMaxWidth: bubbleMaxWidth
-            )
+            bubbleCluster(plan: fallback, llamaSize: llamaSize, bubbleMaxWidth: bubbleMaxWidth)
         }
     }
 
+    /// HStack of [llama, bubble (+ controls if not separate)] —
+    /// position dictated by the layout plan.
     @ViewBuilder
-    private func clusterBody(
-        layout: ClusterLayout,
-        llamaSize: CGFloat,
-        bubbleMaxWidth: CGFloat
-    ) -> some View {
-        let bubbleAndControls = VStack(alignment: layout.bubbleSide == .left ? .leading : .trailing, spacing: AppSpacing.sm) {
-            LlamaSpeechBubble(
-                headline: currentStep.headline,
-                message: currentStep.body,
-                tailEdge: layout.tailEdge,
-                tailLeading: layout.tailLeading,
-                showTail: layout.showTail,
-                maxWidth: bubbleMaxWidth
-            )
-            controlsBar
-                .frame(maxWidth: bubbleMaxWidth)
-        }
+    private func bubbleCluster(plan: LayoutPlan, llamaSize: CGFloat, bubbleMaxWidth: CGFloat) -> some View {
+        let bubble = LlamaSpeechBubble(
+            headline: currentStep.headline,
+            message: currentStep.body,
+            tailEdge: plan.tailEdge,
+            tailLeading: plan.tailLeading,
+            showTail: plan.showTail,
+            maxWidth: bubbleMaxWidth
+        )
+
+        // When controls live inside the cluster (no room to split
+        // them out below the target), order them so the bubble is
+        // closest to the target — bubble on top of VStack for tail
+        // UP, bubble on bottom for tail DOWN. Without this flip the
+        // controls end up between the bubble and the target and
+        // visually disconnect the tail from the field.
+        let bubbleColumn = bubbleColumnContent(
+            bubble: bubble,
+            plan: plan,
+            bubbleMaxWidth: bubbleMaxWidth
+        )
 
         let llamaCharacter = LlamaCharacter(
             size: llamaSize,
-            facing: layout.bubbleSide == .left ? .left : .right,
+            facing: plan.bubbleSide == .left ? .left : .right,
             isWaving: currentStep.waveOnEnter && currentIndex == 0,
             stepID: currentIndex
         )
@@ -190,15 +204,15 @@ struct LlamaIntroOverlay: View {
             // screen); `.right` flips it so the bubble lives on the
             // right of the llama (target on the right half — the
             // Save button is the canonical case).
-            if layout.bubbleSide == .left {
-                bubbleAndControls
+            if plan.bubbleSide == .left {
+                bubbleColumn
                 llamaCharacter
             } else {
                 llamaCharacter
-                bubbleAndControls
+                bubbleColumn
             }
         }
-        .position(x: layout.center.x, y: layout.center.y)
+        .position(x: plan.bubbleClusterCenter.x, y: plan.bubbleClusterCenter.y)
         .id(currentIndex)
         .transition(reduceMotion
             ? .opacity
@@ -207,15 +221,46 @@ struct LlamaIntroOverlay: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.85), value: currentIndex)
     }
 
-    /// Result of the placement algorithm. `bubbleSide` indicates
-    /// which side of the llama the bubble sits on; the bubble is
-    /// always on the SAME side as the target (so its tail can point
-    /// at the target without overshooting the bubble's edges) and
-    /// the llama stands on the opposite side.
-    private struct ClusterLayout {
+    @ViewBuilder
+    private func bubbleColumnContent(
+        bubble: LlamaSpeechBubble,
+        plan: LayoutPlan,
+        bubbleMaxWidth: CGFloat
+    ) -> some View {
+        if plan.separateControlsCenter == nil {
+            VStack(alignment: plan.bubbleSide == .left ? .leading : .trailing, spacing: AppSpacing.sm) {
+                if plan.tailEdge == .top {
+                    bubble
+                    controlsBar.frame(maxWidth: bubbleMaxWidth)
+                } else {
+                    controlsBar.frame(maxWidth: bubbleMaxWidth)
+                    bubble
+                }
+            }
+        } else {
+            bubble
+        }
+    }
+
+    // MARK: - Layout plan
+
+    /// Result of the placement algorithm.
+    /// - `bubbleSide`: which side of the llama the bubble lives on
+    ///   (always the same horizontal half as the target so the tail
+    ///   can anchor at the target's midX).
+    /// - `bubbleClusterCenter`: position of the bubble + llama HStack.
+    /// - `tailEdge`: `.bottom` when the bubble sits above the target
+    ///   (tail points down), `.top` when below (tail up).
+    /// - `separateControlsCenter`: when non-nil, controls render in
+    ///   a standalone position below the target halo — used for the
+    ///   common case where the bubble fits above the target so the
+    ///   reading order is bubble → field → controls. When nil, the
+    ///   controls fold into the bubble's VStack instead (top-of-
+    ///   screen targets where the bubble has to live below).
+    private struct LayoutPlan {
         enum Side { case left, right }
         var bubbleSide: Side
-        var center: CGPoint
+        var bubbleClusterCenter: CGPoint
         var tailEdge: LlamaSpeechBubble.TailEdge
         var tailLeading: CGFloat
         /// False when the cluster falls back to a centered placement
@@ -223,72 +268,79 @@ struct LlamaIntroOverlay: View {
         /// tail in that case so the orphan triangle doesn't dangle
         /// into empty space.
         var showTail: Bool
+        var separateControlsCenter: CGPoint?
     }
 
-    /// Compute cluster center + tail orientation. Cluster sits
-    /// below the target when the target is in the top half of the
-    /// safe area (tail points up at it), above when the target is
-    /// in the bottom half (tail points down). Bubble side mirrors
-    /// the target's horizontal half so the tail can anchor at the
-    /// target's midX without exceeding the bubble's clamped 0…1
-    /// range.
-    private func clusterLayout(
+    /// Decide whether the bubble goes above or below the target,
+    /// where the controls land, and where everything sits
+    /// horizontally.
+    private func computePlan(
         target: CGRect,
         safeArea: CGRect,
         llamaSize: CGFloat,
         bubbleMaxWidth: CGFloat
-    ) -> ClusterLayout {
+    ) -> LayoutPlan {
         let inflated = target.insetBy(dx: -8, dy: -8)
         let edgeMargin: CGFloat = AppSpacing.lg
-        let pairSpacing: CGFloat = AppSpacing.md
-        // Bubble height + controls + spacing — rough estimate just
-        // for vertical clamping; the actual cluster sizes itself.
-        let bubbleHeightEstimate: CGFloat = 160
-        let controlsHeight: CGFloat = 44 + AppSpacing.sm
-        let clusterHeight = bubbleHeightEstimate + controlsHeight
+        // Tight gap between the bubble's tail tip (or controls top
+        // edge) and the halo so the tail reads as "right at" the
+        // target rather than floating above it. The halo itself
+        // already inflates by 8pt, so 4pt here lands the tail tip
+        // 12pt off the target's true edge — close enough to feel
+        // attached without literally overlapping the glow.
+        let pairSpacing: CGFloat = AppSpacing.xs
+        let bubbleHeightEstimate: CGFloat = 170
+        let controlsHeight: CGFloat = 44
+        let clusterHeightWithControls = bubbleHeightEstimate + controlsHeight + AppSpacing.sm
 
-        let oversized = inflated.height > safeArea.height * 0.5
-        let belowTarget: Bool
-        if oversized {
-            // Tall fields can't fit a cluster + cluster height in
-            // the available margin. Push to whichever side has
-            // more room.
-            let aboveSpace = inflated.minY - safeArea.minY
-            let belowSpace = safeArea.maxY - inflated.maxY
-            belowTarget = belowSpace >= aboveSpace
+        let roomAbove = inflated.minY - safeArea.minY
+        let roomBelow = safeArea.maxY - inflated.maxY
+
+        // Preferred: bubble sits ABOVE the target (tail pointing down
+        // at the field) and the controls float below the target —
+        // reads top-to-bottom as bubble → field → controls. Falls
+        // back to "everything below target" only when the field is
+        // too close to the top of the safe area to host the bubble
+        // above (step 1 editorHero, step 11 toolbar Save button).
+        let canSplit =
+            roomAbove >= bubbleHeightEstimate + pairSpacing + edgeMargin
+            && roomBelow >= controlsHeight + pairSpacing + edgeMargin
+
+        let bubbleAbove: Bool
+        let controlsAreSeparate: Bool
+        if canSplit {
+            bubbleAbove = true
+            controlsAreSeparate = true
         } else {
-            belowTarget = target.midY < safeArea.midY
+            bubbleAbove = false
+            controlsAreSeparate = false
         }
 
-        let centerY: CGFloat
-        if belowTarget {
-            centerY = inflated.maxY + pairSpacing + clusterHeight / 2
+        // Vertical position of bubble cluster.
+        let bubbleClusterY: CGFloat
+        if bubbleAbove {
+            bubbleClusterY = inflated.minY - pairSpacing - bubbleHeightEstimate / 2
         } else {
-            centerY = inflated.minY - pairSpacing - clusterHeight / 2
+            let clusterHeight = controlsAreSeparate ? bubbleHeightEstimate : clusterHeightWithControls
+            bubbleClusterY = inflated.maxY + pairSpacing + clusterHeight / 2
         }
+        let halfClusterHeightForClamp = controlsAreSeparate
+            ? bubbleHeightEstimate / 2
+            : clusterHeightWithControls / 2
         let clampedY = max(
-            safeArea.minY + clusterHeight / 2 + edgeMargin,
-            min(safeArea.maxY - clusterHeight / 2 - edgeMargin, centerY)
+            safeArea.minY + halfClusterHeightForClamp + edgeMargin,
+            min(safeArea.maxY - halfClusterHeightForClamp - edgeMargin, bubbleClusterY)
         )
 
         // Horizontal: bubble on the same horizontal half as the
-        // target. Target on the LEFT → bubble on the LEFT side of
-        // the cluster (tail anchored to bubble's left half). Target
-        // on the RIGHT (Save is the canonical case) → bubble on the
-        // RIGHT so the tail points up at the toolbar Save pill
-        // without overshooting the bubble's clamped tail range.
+        // target so the tail can anchor at target.midX without
+        // overshooting the bubble's clamped 0…1 range.
         let leftHalf = target.midX < safeArea.midX
-        let bubbleSide: ClusterLayout.Side = leftHalf ? .left : .right
+        let bubbleSide: LayoutPlan.Side = leftHalf ? .left : .right
 
         let bubbleHalfWidth = bubbleMaxWidth / 2
         let clusterHalfWidth = (llamaSize + pairSpacing + bubbleMaxWidth) / 2
 
-        // For target.midX to land at the bubble's center:
-        // - bubbleSide == .left: bubble.midX = clusterCenterX -
-        //   clusterHalfWidth + bubbleHalfWidth → solve for
-        //   clusterCenterX.
-        // - bubbleSide == .right: bubble.midX = clusterCenterX +
-        //   clusterHalfWidth - bubbleHalfWidth → solve.
         let desiredCenterX: CGFloat
         switch bubbleSide {
         case .left:
@@ -301,8 +353,6 @@ struct LlamaIntroOverlay: View {
             min(safeArea.maxX - clusterHalfWidth - edgeMargin, desiredCenterX)
         )
 
-        // Tail leading is target.midX projected back into the
-        // bubble's local 0…1 coords given the clamped cluster X.
         let bubbleCenterX: CGFloat
         switch bubbleSide {
         case .left:
@@ -314,24 +364,45 @@ struct LlamaIntroOverlay: View {
         let raw = (target.midX - bubbleMinX) / bubbleMaxWidth
         let tailLeading = max(0.05, min(0.95, raw))
 
-        return ClusterLayout(
+        // Separate controls — center horizontally near target.midX,
+        // clamped so the row doesn't kiss the screen edges.
+        let separateControlsCenter: CGPoint?
+        if controlsAreSeparate {
+            let controlsY = inflated.maxY + pairSpacing + controlsHeight / 2
+            let clampedControlsY = min(
+                safeArea.maxY - controlsHeight / 2 - edgeMargin,
+                controlsY
+            )
+            let controlsHalfWidth = bubbleMaxWidth / 2
+            let controlsCenterX = max(
+                safeArea.minX + controlsHalfWidth + edgeMargin,
+                min(safeArea.maxX - controlsHalfWidth - edgeMargin, target.midX)
+            )
+            separateControlsCenter = CGPoint(x: controlsCenterX, y: clampedControlsY)
+        } else {
+            separateControlsCenter = nil
+        }
+
+        return LayoutPlan(
             bubbleSide: bubbleSide,
-            center: CGPoint(x: clampedX, y: clampedY),
-            tailEdge: belowTarget ? .top : .bottom,
+            bubbleClusterCenter: CGPoint(x: clampedX, y: clampedY),
+            tailEdge: bubbleAbove ? .bottom : .top,
             tailLeading: tailLeading,
-            showTail: true
+            showTail: true,
+            separateControlsCenter: separateControlsCenter
         )
     }
 
     // MARK: - Controls
 
-    /// Skip · Back · indicator · Next, sitting directly below the
-    /// bubble (inside the cluster) so the controls travel with the
-    /// instructional text. Back is invisible-but-laid-out on the
-    /// first step; the dot rail collapses to "X / N" text when the
-    /// tour has more than 7 steps so the row stays readable.
+    /// Skip · Back · indicator · Next. Skip stays a low-emphasis
+    /// text link on the left so the row's primary visual weight
+    /// sits on the navigation cluster (back arrow, dots, next
+    /// arrow). Back and Next are both filled accent circles with
+    /// just an arrow glyph; the last step swaps Next for a "Got
+    /// it!" pill so the user reads "I'm done" rather than "next."
     private var controlsBar: some View {
-        HStack(spacing: AppSpacing.xs) {
+        HStack(spacing: AppSpacing.sm) {
             Button {
                 Haptics.selection()
                 finish()
@@ -346,35 +417,14 @@ struct LlamaIntroOverlay: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Skip walkthrough")
 
+            Spacer(minLength: AppSpacing.xs)
+
             backButton
 
-            Spacer(minLength: AppSpacing.xs)
-
             stepIndicator
+                .padding(.horizontal, AppSpacing.xs)
 
-            Spacer(minLength: AppSpacing.xs)
-
-            Button {
-                Haptics.selection()
-                advance()
-            } label: {
-                HStack(spacing: 4) {
-                    Text(isLastStep ? "Got it!" : "Next")
-                        .font(.system(size: 14, weight: .semibold))
-                    if !isLastStep {
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                }
-                .foregroundStyle(AppColor.onAccent)
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.xs + 2)
-                .background(appearance.accentColor)
-                .clipShape(Capsule())
-                .frame(minHeight: 36)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(isLastStep ? "Finish walkthrough" : "Next step")
+            nextButton
         }
     }
 
@@ -384,22 +434,46 @@ struct LlamaIntroOverlay: View {
             Haptics.selection()
             stepBack()
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.left")
-                    .font(.system(size: 11, weight: .bold))
-                Text("Back")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .foregroundStyle(appearance.accentColor)
-            .padding(.horizontal, AppSpacing.sm)
-            .padding(.vertical, AppSpacing.xs)
-            .frame(minHeight: 36)
+            Image(systemName: "arrow.left")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(AppColor.onAccent)
+                .frame(width: 36, height: 36)
+                .background(appearance.accentColor)
+                .clipShape(Circle())
         }
         .buttonStyle(.plain)
         .opacity(isFirstStep ? 0 : 1)
         .disabled(isFirstStep)
         .accessibilityLabel("Previous step")
         .accessibilityHidden(isFirstStep)
+    }
+
+    @ViewBuilder
+    private var nextButton: some View {
+        Button {
+            Haptics.selection()
+            advance()
+        } label: {
+            if isLastStep {
+                Text("Got it!")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppColor.onAccent)
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.xs + 2)
+                    .background(appearance.accentColor)
+                    .clipShape(Capsule())
+                    .frame(minHeight: 36)
+            } else {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(AppColor.onAccent)
+                    .frame(width: 36, height: 36)
+                    .background(appearance.accentColor)
+                    .clipShape(Circle())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isLastStep ? "Finish walkthrough" : "Next step")
     }
 
     @ViewBuilder

@@ -191,8 +191,15 @@ struct RecipeEditorView: View {
 
                 photosButton.tourTarget(.photosButton)
 
-                categoriesHeader.tourTarget(.categoriesHeader)
-                TagInputView(tags: $draft.tags)
+                // Tour highlight wraps the header AND the tag input
+                // so the "Tag It" walkthrough cutout extends down to
+                // the custom-category text box rather than just the
+                // section title above it.
+                VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                    categoriesHeader
+                    TagInputView(tags: $draft.tags)
+                }
+                .tourTarget(.categoriesHeader)
 
                 sectionHeader("Ingredients")
                 sectionHint("Only the ingredient name is required. Leave quantity and unit blank if they don't have any in particular.")

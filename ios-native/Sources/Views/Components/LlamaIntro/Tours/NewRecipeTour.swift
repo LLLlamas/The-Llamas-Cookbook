@@ -62,7 +62,7 @@ enum NewRecipeTour {
             id: 8,
             target: .ingredientQuickAdd,
             headline: "Add Ingredients",
-            body: "Quantity, unit, name. Tap chips for common values, hit + to add.",
+            body: "Here, let us know the ingredient, and if you have it - Quantity & Unit !",
             waveOnEnter: false
         ),
         LlamaIntroStep(

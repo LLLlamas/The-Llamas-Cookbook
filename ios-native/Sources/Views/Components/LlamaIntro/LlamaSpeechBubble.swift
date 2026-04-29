@@ -42,11 +42,11 @@ struct LlamaSpeechBubble: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, AppSpacing.md)
-        .padding(.top, AppSpacing.md)
-        // Extra bottom breathing room — the body copy needs space to
-        // settle above the tail or the cluster's controls without
-        // feeling cramped against either.
-        .padding(.bottom, AppSpacing.lg + AppSpacing.xs)
+        // A touch more padding on top so the headline isn't kissing
+        // the bubble's edge; bottom shaves a notch off the previous
+        // 20pt to balance the bump and tighten the bubble overall.
+        .padding(.top, AppSpacing.md + AppSpacing.xs)
+        .padding(.bottom, AppSpacing.md + AppSpacing.xs)
         .frame(maxWidth: maxWidth, alignment: .leading)
         .background(
             BubbleShape(tailEdge: tailEdge, tailLeading: tailLeading, showTail: showTail)
