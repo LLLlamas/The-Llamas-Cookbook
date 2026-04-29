@@ -60,6 +60,42 @@ final class RecipeShareActivityItem: NSObject, UIActivityItemSource {
         super.init()
     }
 
+    /// Rich preview metadata used for both the sender's share-sheet
+    /// header AND as the per-activity item for rich-preview-aware
+    /// activities (Messages, Mail, AirDrop) when the payload is a
+    /// URL. Built lazily so we only construct it once per share.
+    ///
+    /// **Why this is the only lever for branding the recipient bubble
+    /// for custom URL schemes:** Messages on the recipient's side
+    /// normally fetches `LPLinkMetadata` from the URL host (Open Graph
+    /// scrape) to render the rich-link bubble. For HTTP URLs that
+    /// works automatically; for custom-scheme URLs like
+    /// `llamascookbook://share/USUL9G` there's nothing to fetch, so
+    /// Messages falls back to plain URL text. Returning this metadata
+    /// inline as the activity item embeds it directly in the iMessage
+    /// payload, which Messages on the recipient *can* render — though
+    /// with caveats around Apple's anti-spoofing rules for
+    /// non-Universal-Link URLs (some Messages versions still strip it).
+    /// The guaranteed fix for recipient-side rich previews is
+    /// Universal Links (HTTPS URLs that open into the app).
+    private lazy var richMetadata: LPLinkMetadata = {
+        let metadata = LPLinkMetadata()
+        metadata.title = recipeTitle
+        if let url = payload as? URL {
+            metadata.originalURL = url
+            metadata.url = url
+        }
+        if let icon = UIImage(named: "LlamaLogo") {
+            // `iconProvider` drives the small thumbnail in the
+            // share-sheet header; `imageProvider` drives the larger
+            // preview image in the recipient's Messages bubble.
+            // Same llama logo serves both surfaces.
+            metadata.iconProvider = NSItemProvider(object: icon)
+            metadata.imageProvider = NSItemProvider(object: icon)
+        }
+        return metadata
+    }()
+
     func activityViewControllerPlaceholderItem(
         _ activityViewController: UIActivityViewController
     ) -> Any {
@@ -74,7 +110,20 @@ final class RecipeShareActivityItem: NSObject, UIActivityItemSource {
         _ activityViewController: UIActivityViewController,
         itemForActivityType activityType: UIActivity.ActivityType?
     ) -> Any? {
-        payload
+        // For URL payloads going to activities that render rich link
+        // previews (Messages, Mail, AirDrop), hand over the
+        // `LPLinkMetadata` itself instead of the bare URL — the
+        // recipient sees a branded bubble (title + llama icon)
+        // rather than plain URL text. For everything else (Copy
+        // Link, Notes, third-party text apps) return the raw payload
+        // so the URL/file/string semantics are preserved.
+        guard payload is URL,
+              let activityType,
+              isRichPreviewActivity(activityType)
+        else {
+            return payload
+        }
+        return richMetadata
     }
 
     func activityViewController(
@@ -89,15 +138,19 @@ final class RecipeShareActivityItem: NSObject, UIActivityItemSource {
     func activityViewControllerLinkMetadata(
         _ activityViewController: UIActivityViewController
     ) -> LPLinkMetadata? {
-        let metadata = LPLinkMetadata()
-        metadata.title = recipeTitle
-        if let url = payload as? URL {
-            metadata.originalURL = url
-            metadata.url = url
+        richMetadata
+    }
+
+    /// Activities whose UI shows a rich link preview where the
+    /// inline `LPLinkMetadata` actually pays off — Messages bubble,
+    /// Mail body, AirDrop receipt card. Other activities (Copy Link,
+    /// Notes, generic text targets) want the bare URL string.
+    private func isRichPreviewActivity(_ type: UIActivity.ActivityType) -> Bool {
+        switch type {
+        case .message, .mail, .airDrop:
+            return true
+        default:
+            return false
         }
-        if let icon = UIImage(named: "LlamaLogo") {
-            metadata.iconProvider = NSItemProvider(object: icon)
-        }
-        return metadata
     }
 }

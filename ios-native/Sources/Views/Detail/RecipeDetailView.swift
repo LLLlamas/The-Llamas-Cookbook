@@ -1077,7 +1077,17 @@ struct RecipeDetailView: View {
                 envelope,
                 senderDisplayName: trimmedName.isEmpty ? nil : trimmedName
             )
-            guard let url = URL(string: "llamascookbook://share/\(recordName)") else {
+            // HTTPS Universal Link — the matching AASA file at the
+            // `applinks:` host opens the URL directly in the app on
+            // devices where it's installed, and falls through to a
+            // friendly Cloudflare-Pages-rendered page otherwise.
+            // Critically, the HTTPS URL also unlocks the rich
+            // Messages preview bubble (recipe photo + title) on the
+            // recipient side — Messages won't render previews for
+            // custom URL schemes, so the old `llamascookbook://share/`
+            // form would surface as bare URL text in the bubble.
+            let urlString = "https://\(CloudKitService.shareLinkHost)/\(CloudKitService.shareLinkPathPrefix)/\(recordName)"
+            guard let url = URL(string: urlString) else {
                 // Vanishingly unlikely (recordName uses an
                 // alphanumeric-only alphabet) — clean up the
                 // orphaned record best-effort and fall through.

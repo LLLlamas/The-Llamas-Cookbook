@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Llama's Cookbook</title>
+  <meta name="description" content="A recipe app for keeping your favorites organized, sharing them with friends, and cooking them step-by-step.">
+  <meta property="og:title" content="The Llama's Cookbook">
+  <meta property="og:description" content="A recipe app for keeping your favorites organized.">
+  <meta property="og:image" content="/llama-icon.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="/llama-icon.png">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #faf7f2;
+      --bg-alt: #f3eee5;
+      --text: #3a2d1e;
+      --text-soft: #6b5d4a;
+      --accent: #c2755d;
+      --shadow: rgba(58, 45, 30, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1f1a14;
+        --bg-alt: #29221b;
+        --text: #f3eee5;
+        --text-soft: #b8a892;
+        --accent: #e89379;
+        --shadow: rgba(0, 0, 0, 0.5);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+      text-align: center;
+    }
+    img { width: 160px; height: 160px; border-radius: 32px; margin-bottom: 24px; box-shadow: 0 16px 50px var(--shadow); }
+    h1 {
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 32px;
+      margin: 0 0 12px;
+      color: var(--accent);
+    }
+    p { color: var(--text-soft); max-width: 420px; line-height: 1.6; margin: 0 0 24px; }
+  </style>
+</head>
+<body>
+  <img src="/llama-icon.png" alt="The Llama's Cookbook">
+  <h1>The Llama's Cookbook</h1>
+  <p>A recipe app for keeping your favorites organized, sharing them with friends, and cooking them step-by-step.</p>
+</body>
+</html>

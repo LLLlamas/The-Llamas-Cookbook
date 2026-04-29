@@ -1,0 +1,15 @@
+# Cloudflare Pages: per-path response headers.
+# Format: path on its own line, headers indented with 2 spaces.
+
+# Apple requires the AASA file served as application/json (some
+# scrapers tolerate octet-stream, but iOS is strict). The file
+# itself has no extension on disk, so without this header
+# Cloudflare Pages defaults it to text/plain, which Apple rejects
+# silently — Universal Links would just open Safari.
+/.well-known/apple-app-site-association
+  Content-Type: application/json
+  Cache-Control: public, max-age=3600
+
+# Cache the llama icon aggressively — it's content-immutable.
+/llama-icon.png
+  Cache-Control: public, max-age=2592000, immutable

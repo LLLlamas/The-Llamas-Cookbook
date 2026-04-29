@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["GYFN949Q5E.com.llamascookbook.app"],
+        "components": [
+          {
+            "/": "/r/*",
+            "comment": "Recipe-share Universal Links — open in app when installed."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -38,6 +38,25 @@ enum CloudKitService {
     /// capability. Three places, one string, no drift.
     static let containerID = "iCloud.com.llamascookbook.app"
 
+    /// Universal-Link host for the share-preview flow. Cloudflare
+    /// Pages serves the `/r/<recordName>` route as an OG-tagged
+    /// HTML page so Messages renders a rich preview bubble (recipe
+    /// title + photo) on the recipient's side — custom URL schemes
+    /// can't carry a rich preview through Messages, so we use a
+    /// real HTTPS Universal Link instead. MUST match the
+    /// `applinks:` value in `LlamasCookbook.entitlements` and the
+    /// `webcredentials` / `applinks` host in
+    /// `cloudflare-pages/.well-known/apple-app-site-association`.
+    /// Three places, one string, no drift.
+    static let shareLinkHost = "llamascookbook.pages.dev"
+
+    /// Path prefix for share Universal Links. Mints to
+    /// `https://<shareLinkHost>/<shareLinkPathPrefix>/<recordName>`.
+    /// Kept distinct from "share" so the path doesn't collide with
+    /// any future site sections (`/share` could become a marketing
+    /// page).
+    static let shareLinkPathPrefix = "r"
+
     /// Record type for the share-permalink hosting. Single record type
     /// in the schema for now.
     static let recipeShareRecordType = "RecipeShare"

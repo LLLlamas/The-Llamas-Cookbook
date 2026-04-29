@@ -96,7 +96,10 @@ struct RootView: View {
             //      hosting; also the iCloud-unavailable fallback path)
             //   3. llamascookbook://share/<recordName>       ← cloud-permalink
             //      share — recipient tapped a `share/<6char-id>` link, we
-            //      fetch the RecipeShare record from CloudKit public DB
+            //      fetch the RecipeShare record from CloudKit public DB.
+            //      Legacy form, kept for back-compat with any test links
+            //      sitting in chat history pre-2026-04-29; new links go
+            //      through the HTTPS Universal Link form below.
             //   4. file://...something.llamarecipe           ← document open
             //      (AirDrop accept, Files / Mail attachment tap)
             //   5. llamascookbook://share-url/<base64url>    ← Share Extension
@@ -105,6 +108,9 @@ struct RootView: View {
             //   6. llamascookbook://share-incoming/<uuid>    ← Share Extension
             //      handoff for a `.llamarecipe` file the user shared
             //      from Files / Mail; bytes wait in the App Group inbox
+            //
+            // Universal Links (https://<host>/r/<recordName>) arrive via
+            // `.onContinueUserActivity` below, NOT here.
             //
             // Order: cook first (most frequent), then the three share
             // forms, then file open, then the two share-extension
@@ -124,6 +130,19 @@ struct RootView: View {
             } else if url.scheme == "llamascookbook", url.host == "share-incoming" {
                 routeShareExtensionFile(url)
             }
+        }
+        // Universal Links — `https://llamascookbook.pages.dev/r/<recordName>`
+        // arriving from a tap on the rich-preview bubble in Messages /
+        // Mail / etc. iOS validates the AASA file on first launch; once
+        // validated, the OS routes matching URLs through this callback
+        // (NOT `onOpenURL`, which is custom-scheme only). Both the
+        // legacy `llamascookbook://share/` route and this Universal
+        // Link route fan into the same `fetchCloudShareRecord` flow,
+        // so the import-preview UX is identical regardless of how the
+        // recipient arrived.
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL else { return }
+            routeUniversalLink(url)
         }
         .sheet(item: $pendingShareImport) { envelope in
             RecipeImportPreviewView(envelope: envelope) { savedRecipe in
@@ -302,6 +321,41 @@ struct RootView: View {
             shareImportError = "Malformed share link."
             return
         }
+        fetchCloudShareRecord(recordName: recordName)
+    }
+
+    /// `https://<shareLinkHost>/<shareLinkPathPrefix>/<recordName>` —
+    /// recipient tapped the rich-preview bubble in Messages / Mail
+    /// / etc. iOS hands us the URL via `NSUserActivityTypeBrowsingWeb`
+    /// after validating the AASA file. We extract the record name
+    /// from the path (defensive about path shape, since iOS guarantees
+    /// host match but the path could in theory carry trailing
+    /// segments) and route through the same CloudKit fetch as the
+    /// legacy custom-scheme share path. Anything that doesn't match
+    /// the expected `/r/<name>` shape no-ops — we don't surface an
+    /// error alert because Universal Links can be handed to us for
+    /// any matching host (e.g. a future marketing page at
+    /// `/about` would land here too if iOS ever delivered it
+    /// erroneously).
+    private func routeUniversalLink(_ url: URL) {
+        guard url.scheme == "https",
+              url.host == CloudKitService.shareLinkHost
+        else { return }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.count >= 2,
+              parts[0] == CloudKitService.shareLinkPathPrefix,
+              !parts[1].isEmpty
+        else { return }
+        let recordName = parts[1]
+        fetchCloudShareRecord(recordName: recordName)
+    }
+
+    /// Shared CloudKit fetch path for the two share routes (legacy
+    /// `llamascookbook://share/<id>` custom-scheme + new
+    /// `https://...pages.dev/r/<id>` Universal Link). Both call this
+    /// with the extracted record name; both surface errors through
+    /// the same `shareImportError` alert.
+    private func fetchCloudShareRecord(recordName: String) {
         Task { @MainActor in
             do {
                 let envelope = try await CloudKitService.fetchShare(recordName: recordName)

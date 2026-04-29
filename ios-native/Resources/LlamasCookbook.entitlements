@@ -63,5 +63,29 @@
     <array>
         <string>CloudKit</string>
     </array>
+    <!--
+      Associated Domains — Universal Links for the recipe-share
+      flow. Sender mints `https://llamascookbook.pages.dev/r/<id>`,
+      Messages on the recipient renders the rich link preview by
+      scraping our Cloudflare Pages function, and tapping the
+      bubble opens directly into the app via this entitlement.
+
+      Same portal+profile dance as iCloud / Sign in with Apple:
+      capability enabled on the App ID in Apple Developer Portal,
+      domains added to the capability config, and the main app's
+      provisioning profile regenerated after — the entitlement is
+      baked into the profile at issue time, so a stale profile
+      silently strips the entitlement at sign and Universal Links
+      open Safari instead of the app.
+
+      The receiving side (Cloudflare Pages) hosts the matching
+      `apple-app-site-association` JSON at
+      `https://llamascookbook.pages.dev/.well-known/apple-app-site-association`,
+      declaring our team+bundle ID against the `/r/*` path.
+    -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:llamascookbook.pages.dev</string>
+    </array>
 </dict>
 </plist>
