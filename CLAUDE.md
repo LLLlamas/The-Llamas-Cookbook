@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Source of truth. Code > this doc (update when stale). Last refreshed 2026-04-29.
+Source of truth. Code > this doc (update when stale). Last refreshed 2026-04-29 (PM).
 
 ## Doc map
 
@@ -8,21 +8,25 @@ Source of truth. Code > this doc (update when stale). Last refreshed 2026-04-29.
 - **PROJECT.md** — stack rationale, signing, dev workflow.
 - **llamas-cookbook-plan.md** — original spec; vision/UX authoritative.
 - **ROADMAP.md** — deferred work + portal checklist.
+- **implement-social.md** — friends-feature build spec (next big PR).
+- **llama-intro.md**, **picture-import-implementation.md**, **Implementing-User-Sign-In.md**, **Recipe-Sharing.md**, **Share-Extension-Plan.md**, **Multi-Recipe-Cook-Mode.md**, **Photo-Capability.md**, **SDK-Update-Plan.md** — feature specs (mostly historical now that the work shipped).
 - **STATE.md** — archived 2026-04-27.
 
 Plan docs decay; grep code before quoting.
 
 ## Status
 
-Core CRUD complete. Multi-cook (1–4), photos, Universal-Link sharing via Cloudflare Pages all landed.
+Shipped: core CRUD; multi-cook (1–4) with keep-awake; photos; Sign-in-with-Apple (PR 1); Universal-Link sharing via Cloudflare Pages; four-way FAB import (Write / Text / Link / Photo) with manual-shutter `CameraCaptureView` on the photo path; LlamaIntro coach-mark tours for new-recipe / text-import / link-import; user-customizable accent via `AccentColorPicker`; per-step prep time.
 
-Active queue: sharing PR 3+4, sign-in PR 1 / slices 1–3 (CI + portal), per-cook `TimerLiveActivityRegistry`, aesthetic pass. **Diagnostic alert in `RecipeDetailView.cloudShareError` is temporary** — revert to silent fall-through once Universal Link verified.
+Active queue: friends feature (per `implement-social.md`); per-cook `TimerLiveActivityRegistry`; Universal-Link end-to-end verification → revert diagnostic alert; aesthetic / typography pass; Liquid Glass adoption. **Diagnostic alert in `RecipeDetailView.cloudShareError` is still temporary** — revert to silent fall-through once Universal Link confirmed working on real devices.
 
 ## Capability map
 
 | Capability | Where | Notes |
 |---|---|---|
-| Profile | `Views/Profile/ProfileView.swift` | SIWA toggle. Identity in `App/UserAccount.swift`; Keychain via `Lib/KeychainStore.swift`. |
+| Profile | `Views/Profile/ProfileView.swift` | Signed-in/out states + SIWA + Sign Out + Delete Account. Identity in `App/UserAccount.swift` (`UserIdentity` Codable, status enum); display name in `App/OwnerProfile.swift` (UserDefaults); Keychain via `Lib/KeychainStore.swift`. SIWA flow in `Lib/SignInWithAppleService.swift`. |
+| Accent picker | `Views/Components/AccentColorPicker.swift` | Reached from Profile + Library. Hex-persisted via `App/AppearanceSettings.swift`. |
+| Onboarding tours | `Views/Components/LlamaIntro/` | Coach-mark overlay (`LlamaIntroOverlay`) + character/bubble + `tourTarget(_)` modifier (`LlamaTourTarget` enum). Three tours: `NewRecipeTour`, `TextImportTour`, `LinkImportTour`. AppStorage flags: `hasSeenNewRecipeTour`, `hasSeenTextImportTour`, `hasSeenLinkImportTour`, `hasSeenImportHelp`. Host attaches `.overlayPreferenceValue(LlamaTourTargetKey.self)` at the outermost level (preference anchors don't propagate from toolbar items into a child overlay). |
 | Library | `Views/Library/LibraryView.swift` | All / Favorites / tag chips. Long-press Delete. A–Z scrub. |
 | FAB | `LibraryView` | 4 entries: Write / Import Text / Import Link / Import Photo. |
 | Recipe Detail | `Views/Detail/RecipeDetailView.swift` | Sections, gallery, share menu, sourdough chip. |
@@ -35,7 +39,7 @@ Active queue: sharing PR 3+4, sign-in PR 1 / slices 1–3 (CI + portal), per-coo
 | Editor | `Views/Editor/RecipeEditorView.swift` | Quick-add, drag-reorder, tags, special notes, photos. |
 | Import (text) | `Views/Library/ImportFromTextView.swift` + `Lib/RecipeImporter.swift` | Verification panel asks first-ingredient/first-step. Accepts `seedText` from photo fallback. |
 | Import (URL) | `Views/Library/ImportFromLinkView.swift` + `Lib/RecipeURLImporter.swift` + `Lib/RecipeSchemaParser.swift` | JSON-LD → OG fallback, TikTok oEmbed, Pinterest HTML. IG/FB blocked. |
-| Import (photo) | `Views/Library/ImportFromPhotoView.swift` + `PhotoImportPreviewView.swift` + `Lib/RecipeOCRImporter.swift` + `Views/Components/DocumentScannerView.swift` | VisionKit scan or `PhotosPicker` → Vision OCR + cleanup → `parseBestOf`. On-device only. Stricter quality gate; partial fallback hands off seed to text editor. |
+| Import (photo) | `Views/Library/ImportFromPhotoView.swift` + `PhotoImportPreviewView.swift` + `Lib/RecipeOCRImporter.swift` + `Views/Components/CameraCaptureView.swift` | Manual-shutter camera (`UIImagePickerController` wrapper) or `PhotosPicker` → Vision OCR + cleanup → `parseBestOf`. On-device only. Stricter quality gate; partial fallback hands off seed to text editor. **Replaced `VNDocumentCameraViewController`** — auto-capture fired too eagerly on handwritten cards. |
 | AI parser | `Lib/RecipeAIParser.swift` | iOS 26+ `FoundationModels`. `parseBestOf` runs LLM + regex parallel. Silent fallback to regex when unavailable. |
 | Cook Mode | `Views/Cook/CookModeView.swift` | Two-phase, scaler, check-off, floating timer, ready overlay. |
 | Multi-cook pills | `CookModeView` family | 1–4. |
@@ -43,13 +47,12 @@ Active queue: sharing PR 3+4, sign-in PR 1 / slices 1–3 (CI + portal), per-coo
 | Timer + Live Activity | `Lib/TimerLiveActivityController.swift` + `WidgetExtension/TimerLiveActivity.swift` | Per-cook ID `cooking-timer-<cookID>`. |
 | Cook persistence | `App/CookingSessionStore.swift` | UserDefaults `cooking-session-states.v2`; v1→v2 migration. |
 | Editor coordinator | `App/EditorCoordinator.swift` | Sheet open/dirty gating + discard alert. |
-| Accent | `App/AppearanceSettings.swift` | Hex-persisted. |
 
 ## Tech stack
 
-Swift 5.10, SwiftUI, iOS 18+. SwiftData `@Model` + UserDefaults + Keychain. `NavigationStack` + `.sheet` + `.fullScreenCover` (Cook Mode + Editor hoisted to `RootView`). `UNUserNotificationCenter`, `ActivityKit`, `FoundationModels` (iOS 26+), `Vision` + `VisionKit` (on-device OCR), `AVAudioPlayer` for `timer-alarm.caf`. XcodeGen `ios-native/project.yml`. CI `macos-26` → `xcodebuild archive` → TestFlight via `xcrun altool`. **Build SDK iOS 26.x** (ITMS-90725). iPhone-only, portrait.
+Swift 5.10, SwiftUI, iOS 18+. SwiftData `@Model` + UserDefaults + Keychain. `NavigationStack` + `.sheet` + `.fullScreenCover` (Cook Mode + Editor hoisted to `RootView`). `AuthenticationServices` (SIWA), `CloudKit` (public DB share envelopes), `UNUserNotificationCenter`, `ActivityKit`, `FoundationModels` (iOS 26+), `Vision` (on-device OCR), `UIImagePickerController` (manual camera), `AVAudioPlayer` for `timer-alarm.caf`. XcodeGen `ios-native/project.yml`. CI `macos-26` → `xcodebuild archive` → TestFlight via `xcrun altool`. **Build SDK iOS 26.x** (ITMS-90725). iPhone-only, portrait.
 
-**Don't use:** UIKit beyond two `appearance()` proxies + `ShareSheet`; no Combine; no SPM/CocoaPods; no Core Data.
+**Don't use:** UIKit beyond `appearance()` proxies + `ShareSheet` + `CameraCaptureView`; no Combine; no SPM/CocoaPods; no Core Data.
 
 ## Data model
 
@@ -104,7 +107,7 @@ iOS in `ios-native/`. Repo root = docs + `outdated/rn-expo/` (archived; **do not
   - UI: `Haptics`, `KeyboardDismiss.focusedNumeric`, `Shake`.
 - **`Shared/`** — Foundation only, cross-target. `TimerAttributes`, `SharedContainer` (App Group `group.com.llamascookbook.app`), `Base64URL`.
 - **`Theme/`** — `AppColor`, `AppFont` (system serif), `AppSpacing` (4/8/12/16/24/32/48), `AppRadius` (8/12/16/24), `ColorHex`.
-- **`Views/`** — `Components/` (`LlamaLogo`, `RecipeImageView` NSCache-backed, `PhotoCarouselView`, `PhotoReorderView`, `ShareSheet`, `DocumentScannerView`); `Library/`, `Detail/`, `Editor/`, `Cook/`, `Profile/`.
+- **`Views/`** — `Components/` (`LlamaLogo`, `LlamaProgressIndicator`, `RecipeImageView` NSCache-backed, `PhotoCarouselView`, `PhotoReorderView`, `ShareSheet`, `CameraCaptureView`, `AccentColorPicker`, `LlamaIntro/` coach-mark overlay + tours); `Library/`, `Detail/`, `Editor/`, `Cook/`, `Profile/`.
 
 **Reach-for helpers (don't reinvent):**
 - Sort: `Recipe.sortedIngredients` / `.sortedSteps` / `.sortedPhotos`, `RecipeStep.sortedStepPhotos`. Never `.sorted { $0.order < $1.order }` inline.
@@ -140,7 +143,7 @@ iOS in `ios-native/`. Repo root = docs + `outdated/rn-expo/` (archived; **do not
 
 **`placement: .keyboard` unreliable inside `TabView(.page)` in a sheet** — use `safeAreaInset(edge: .bottom)`. See `PhotoCarouselView.captionKeyboardAccessory`.
 
-**SF Symbols + SwiftUI primitives only.** Three deliberate UIKit reaches: global tint via `UIView.appearance().tintColor` (synced by `AppearanceSettings.applyToUIKit()`), `UIPageControl.appearance()`, `ShareSheet` wraps `UIActivityViewController` (must trigger after async upload).
+**SF Symbols + SwiftUI primitives only.** Four deliberate UIKit reaches: global tint via `UIView.appearance().tintColor` (synced by `AppearanceSettings.applyToUIKit()`), `UIPageControl.appearance()`, `ShareSheet` wraps `UIActivityViewController` (must trigger after async upload), `CameraCaptureView` wraps `UIImagePickerController` for manual-shutter photo capture.
 
 **Universal Links are HTTPS, not custom-scheme.** Sender mints `https://llamascookbook.pages.dev/r/<recordName>`. iMessage refuses rich previews for `customscheme://`. Cloudflare Pages serves OG tags. Receiver handles BOTH `.onOpenURL` AND `.onContinueUserActivity(NSUserActivityTypeBrowsingWeb)` — duplicate calls no-op via `pendingShareImport`. Sender preview header: `RecipeShareActivityItem` returns `LPLinkMetadata` from `activityViewControllerLinkMetadata`; `itemForActivityType` always returns raw URL (else Messages compose empty).
 
@@ -170,7 +173,7 @@ iOS in `ios-native/`. Repo root = docs + `outdated/rn-expo/` (archived; **do not
 
 - **Bundle ids:** `com.llamascookbook.app`, `.widget`, `.shareext`. **Team:** `GYFN949Q5E`. **ASC app id:** `6762527184`.
 - **`Resources/PrivacyInfo.xcprivacy`** required. Declares `NSPrivacyAccessedAPICategoryUserDefaults` (CA92.1) + `NSPrivacyAccessedAPICategoryFileTimestamp` (C617.1). `NSPrivacyTracking = false`.
-- **`NSCameraUsageDescription`** in `Resources/AppInfo.plist`. Required for `VNDocumentCameraViewController`. String doubles as user-facing prompt copy. Vision OCR is NOT on Required Reason API list.
+- **`NSCameraUsageDescription`** in `Resources/AppInfo.plist`. Required for `UIImagePickerController` camera mode (and historically `VNDocumentCameraViewController`). String doubles as user-facing prompt copy. Vision OCR is NOT on Required Reason API list.
 - **GitHub Secrets:** `IOS_DIST_CERT_P12_BASE64`/`_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `IOS_WIDGET_PROVISIONING_PROFILE_BASE64`, `IOS_SHARE_EXT_PROVISIONING_PROFILE_BASE64`, `APPSTORE_API_KEY_P8_BASE64`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_ISSUER_ID`.
 
 Intentional in `ios-native-ci.yml`:
@@ -195,8 +198,7 @@ Watch: `Print toolchain` step's `iphoneos --show-sdk-version` is the canary — 
 ## Known limitations / deferred
 
 - Multi-cook timer registry (see "Multi-cook timer hole").
-- Settings screen — stub (only accent wired).
-- Keep-awake during Cook Mode — `isIdleTimerDisabled` not wired.
+- Settings screen — stub (only accent wired, via `AccentColorPicker`).
 - iPad — iPhone only.
 - Live Activity App Intents (in-island +1/−1/cancel) deferred.
 - Custom type — Fraunces / Inter not bundled; system serif placeholder.
@@ -208,12 +210,11 @@ Watch: `Print toolchain` step's `iphoneos --show-sdk-version` is the canary — 
 
 ## What's next
 
-1. Sharing PR 3+4 land (CI).
-2. Sign-in PR 1 + slices 1–3 land (CI + portal).
-3. Verify Universal Link end-to-end on real devices, revert diagnostic alert.
-4. Per-cook `TimerLiveActivityRegistry`.
-5. Aesthetic / typography pass.
-6. Liquid Glass adoption.
+1. Verify Universal Link end-to-end on real devices, revert diagnostic alert in `RecipeDetailView.cloudShareError`.
+2. Friends feature per `implement-social.md` (search-by-display-name + invite-link, read-only friend cookbooks, deep-copy import via `RecipeShare.materialize`, audit list).
+3. Per-cook `TimerLiveActivityRegistry`.
+4. Aesthetic / typography pass.
+5. Liquid Glass adoption.
 
 Queued: dark mode, Settings, iPad, App Intents on Live Activity.
 
