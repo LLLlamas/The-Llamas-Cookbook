@@ -34,6 +34,7 @@ struct FriendRecipeDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(NavigationContext.self) private var navContext
+    @Environment(UserAccount.self) private var userAccount
 
     /// Fetched payload — envelope + chain-attribution metadata.
     /// Stored together so the import handler has both in scope
@@ -554,11 +555,52 @@ struct FriendRecipeDetailView: View {
         // Hide the overlay before the signal fires so the sheet-
         // dismiss animation doesn't fight the overlay's fade-out.
         withAnimation { isImporting = false }
+
+        // Slice 6 audit write — fire-and-forget so a network blip
+        // doesn't delay the post-import navigation. The chip on
+        // the original creator's detail view depends on this row
+        // landing, but a missed write only under-counts by one
+        // (acceptable for a delight surface). Captured locals
+        // make the detached task `Sendable`-safe — `newRecipe`
+        // and the `friend` snapshot are both reference / value
+        // types we can copy out cheaply.
+        writeImportAuditRow(for: newRecipe)
+
         // Trigger the cross-sheet navigation. LibraryView's
         // `.onChange(pendingImportedRecipeID)` dismisses the
         // Profile sheet; RootView's same observer runs the
         // existing post-save highlight + Detail-push sequence.
         navContext.pendingImportedRecipeID = newRecipe.id
+    }
+
+    /// Emit the `RecipeImport` CK record for this import event.
+    /// Pulls the chain-root identifiers from the freshly-stamped
+    /// local Recipe (set inside `materializeFromPublished` —
+    /// `originalCreatorUserRecordName` always resolves, falling
+    /// back to the friend's id when the friend is the chain
+    /// root, so this row's `originalCreatorID` is never empty).
+    /// Importer fields come from `UserAccount` for identity and
+    /// `UserProfileMirror` for the iCloud user record name —
+    /// the same pair that powers the `Friendship` and
+    /// `PublishedRecipe` writes elsewhere in the app, so a
+    /// missing iCloud account silently skips the write the same
+    /// way those flows do.
+    private func writeImportAuditRow(for newRecipe: Recipe) {
+        guard let importerID = UserProfileMirror.cachedRecordID() else { return }
+        guard let originalCreatorID = newRecipe.originalCreatorUserRecordName,
+              let originalRecipeID = newRecipe.originalRecipeID
+        else { return }
+        let importerDisplayName = userAccount.status.identity?.displayName ?? "Cook"
+        let sourceUserID = friend.userRecordName
+        Task.detached {
+            try? await CloudKitService.writeRecipeImport(
+                originalCreatorID: originalCreatorID,
+                originalRecipeID: originalRecipeID,
+                importerID: importerID,
+                importerDisplayName: importerDisplayName,
+                sourceUserID: sourceUserID
+            )
+        }
     }
 
     private func decodeGallery(_ envelope: LCRecipeShareV1) -> [Data] {

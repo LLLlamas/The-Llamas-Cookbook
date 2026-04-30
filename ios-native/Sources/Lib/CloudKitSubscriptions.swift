@@ -1,0 +1,245 @@
+import Foundation
+import CloudKit
+
+/// Coordinator for the slice 6 CKQuerySubscription registrations
+/// that turn the social slice's foreground-poll model into a
+/// near-real-time push model.
+///
+/// **Two subscriptions, both on the public DB:**
+///
+/// 1. `friendship-events-<me>` — fires on creation/update of any
+///    `Friendship` record where I'm `userA` or `userB`. Covers
+///    both inbound flows (someone sent me a request → record
+///    created with me as participant) and the requester's
+///    accepted-callback (my own pending record flips to
+///    `accepted` → record updated with me as participant).
+///
+/// 2. `recipe-import-events-<me>` — fires on creation of any
+///    `RecipeImport` record where I'm the chain-root creator.
+///    Covers "Y imported your recipe" — bumps the importer count
+///    on my own recipe detail and lets a foregrounded
+///    `RecipeDetailView` re-fetch the importers list without
+///    waiting for the user to leave + re-open the screen.
+///
+/// **Push payload shape.** Both subscriptions use silent pushes
+/// (`shouldSendContentAvailable = true`, no `alertBody`). iOS
+/// delivers the payload to
+/// `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`
+/// while the app is foregrounded or background-suspended; force-
+/// killed apps don't get pushes (the user picks up changes via
+/// the existing foreground-refresh path on next launch). Visible
+/// notifications were considered for slice 6 but deferred —
+/// rendering "X accepted your friend request" requires a
+/// `requesterDisplayName` denormalization on the Friendship
+/// record schema, and the silent-push path satisfies the spec's
+/// "real-time presence beyond the foreground refresh" goal
+/// without that schema change.
+///
+/// **Idempotency.** `save(subscription)` upserts by
+/// `subscriptionID`, so calling `registerIfNeeded` on every
+/// cold launch is safe — the second call replaces the first
+/// with identical content. A local UserDefaults flag
+/// short-circuits the registration after the first success per
+/// `userRecordName` so we don't burn a CK round-trip on every
+/// launch when nothing's changed; the flag is keyed by record
+/// ID so a sign-in on a different Apple ID re-registers.
+///
+/// **Cleanup.** `unregisterAll(userRecordName:)` is called from
+/// `UserAccount.signOut()` and `UserAccount.deleteAccount()` to
+/// stop pushes against this device's APNs token after the user
+/// goes away. Best-effort — orphaned subscriptions cost nothing
+/// server-side and CloudKit eventually GCs them.
+///
+/// **Notification delivery.** When a push lands, the AppDelegate
+/// hands the payload to `dispatchRemoteNotification(...)`, which
+/// posts a `Notification.Name.cloudKitSubscriptionFired` to
+/// `NotificationCenter.default` carrying the subscription ID.
+/// `FriendsStore` and `RecipeDetailView` observe and refresh
+/// their respective state — no direct coupling between
+/// subscriptions and any specific consumer.
+enum CloudKitSubscriptions {
+    /// Last `userRecordName` we successfully registered
+    /// subscriptions for. Stops re-registration on every cold
+    /// launch when nothing's changed; flips through whenever
+    /// the user signs into a different Apple ID.
+    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v1"
+
+    // MARK: - Subscription identifiers
+
+    /// Stable per-user subscription identifier for the friendship
+    /// stream. Includes the user record name so multi-tenant
+    /// devices (signed-in as A, then B) carry distinct
+    /// subscriptions on the cloud side; CloudKit's upsert
+    /// semantics on `save(subscription)` then mean A's sign-out
+    /// cleanup doesn't accidentally tear down B's stream.
+    static func friendshipSubscriptionID(for me: String) -> String {
+        "friendship-events-\(me)"
+    }
+
+    /// Stable per-user subscription identifier for the
+    /// recipe-import stream. Same per-user scoping rationale as
+    /// the friendship subscription above.
+    static func recipeImportSubscriptionID(for me: String) -> String {
+        "recipe-import-events-\(me)"
+    }
+
+    // MARK: - Register
+
+    /// Idempotent register. Called from `RootView.task` (cold
+    /// launch with persisted sign-in state) and from
+    /// `UserAccount.completeSignIn` (immediately after SIWA).
+    /// Skips silently when iCloud isn't bound (cached recordID
+    /// is nil — same degradation as `LibraryMirrorService`).
+    /// Skips fast when already registered for the current
+    /// recordID. Re-registers when the recordID changed (e.g.
+    /// signed in to a different Apple ID).
+    ///
+    /// **Best-effort semantics.** Network blip / schema not
+    /// deployed yet → silent no-op. Next launch retries.
+    /// Failure mode is "real-time pushes don't fire" — the
+    /// foreground-refresh path still works, so the social
+    /// features degrade rather than break.
+    static func registerIfNeeded() async {
+        guard let me = UserProfileMirror.cachedRecordID() else { return }
+        let already = UserDefaults.standard.string(forKey: registeredForKey)
+        if already == me { return }
+
+        do {
+            try await registerFriendshipSubscription(for: me)
+            try await registerRecipeImportSubscription(for: me)
+            UserDefaults.standard.set(me, forKey: registeredForKey)
+        } catch {
+            // Silent — schema not deployed (RecipeImport land in
+            // slice 6's deploy ritual), CK throttling, network
+            // outage, etc. Next launch hits this path again.
+        }
+    }
+
+    private static func registerFriendshipSubscription(for me: String) async throws {
+        let predicate = NSPredicate(format: "userA == %@ OR userB == %@", me, me)
+        let subscription = CKQuerySubscription(
+            recordType: CloudKitService.friendshipRecordType,
+            predicate: predicate,
+            subscriptionID: friendshipSubscriptionID(for: me),
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+        )
+        // Silent push: wake the app, no banner. The app handler
+        // refreshes `FriendsStore`, which the user sees on next
+        // Profile open. shouldBadge is off because friend
+        // activity isn't urgent enough to bump the home-screen
+        // badge — keeping the badge for cooking timers only
+        // preserves its signal value.
+        let info = CKSubscription.NotificationInfo()
+        info.shouldSendContentAvailable = true
+        info.shouldBadge = false
+        subscription.notificationInfo = info
+        _ = try await CloudKitService.publicDB.save(subscription)
+    }
+
+    private static func registerRecipeImportSubscription(for me: String) async throws {
+        let predicate = NSPredicate(format: "originalCreatorID == %@", me)
+        let subscription = CKQuerySubscription(
+            recordType: CloudKitService.recipeImportRecordType,
+            predicate: predicate,
+            subscriptionID: recipeImportSubscriptionID(for: me),
+            // Creation-only — RecipeImport rows don't get
+            // updated post-write (audit log is append-only),
+            // so listening for updates would just burn cloud
+            // quota.
+            options: [.firesOnRecordCreation]
+        )
+        let info = CKSubscription.NotificationInfo()
+        info.shouldSendContentAvailable = true
+        info.shouldBadge = false
+        subscription.notificationInfo = info
+        _ = try await CloudKitService.publicDB.save(subscription)
+    }
+
+    // MARK: - Unregister
+
+    /// Cleanup on sign-out / account-deletion. Drops both
+    /// subscriptions server-side so pushes stop firing against
+    /// this device's APNs token after the user leaves. Local
+    /// UserDefaults flag clears regardless of network success
+    /// so a re-sign-in re-registers cleanly — the cloud-side
+    /// orphan (if the network call failed) just consumes a
+    /// little quota until CloudKit GCs it.
+    static func unregisterAll(userRecordName me: String) async {
+        let ids = [
+            friendshipSubscriptionID(for: me),
+            recipeImportSubscriptionID(for: me),
+        ]
+        for id in ids {
+            _ = try? await CloudKitService.publicDB.deleteSubscription(withID: id)
+        }
+        UserDefaults.standard.removeObject(forKey: registeredForKey)
+    }
+
+    // MARK: - Push handler dispatch
+
+    /// Notification fired on `NotificationCenter.default` when
+    /// a CloudKit subscription push arrives. Observers
+    /// (`FriendsStore.observeRemotePushes`, `RecipeDetailView`'s
+    /// `.onReceive`) read the subscription kind from
+    /// `userInfo["kind"]` and refresh their respective state.
+    ///
+    /// Why NotificationCenter and not direct method calls:
+    /// AppDelegate sees the push first but doesn't have a
+    /// direct reference to the SwiftUI environment Observables
+    /// (FriendsStore lives at `LlamasCookbookApp` scope).
+    /// Notification fan-out keeps AppDelegate decoupled from
+    /// the SwiftUI graph — observers self-register where they
+    /// already have the relevant state in scope.
+    static let didFireNotification = Notification.Name("cloudKitSubscriptionFired")
+
+    /// Subscription-kind tags broadcast on the
+    /// `didFireNotification` userInfo dictionary under the
+    /// `kind` key. Observers filter by kind so only the
+    /// relevant component re-fetches.
+    enum FiredKind: String {
+        case friendship
+        case recipeImport
+    }
+
+    /// AppDelegate calls this from
+    /// `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`.
+    /// Inspects the CloudKit notification payload to determine
+    /// which subscription fired, then posts the corresponding
+    /// `didFireNotification` to NotificationCenter for in-app
+    /// observers to react. Returns the matched kind (or nil
+    /// when the payload isn't a CK push or the subscription
+    /// ID doesn't match either of ours).
+    @discardableResult
+    static func dispatchRemoteNotification(
+        userInfo: [AnyHashable: Any]
+    ) -> FiredKind? {
+        // CKNotification's initializer takes [String: NSObject];
+        // bridge-cast the AnyHashable dict, defensively dropping
+        // anything that doesn't conform.
+        var stringKeyed: [String: NSObject] = [:]
+        for (k, v) in userInfo {
+            if let key = k as? String, let value = v as? NSObject {
+                stringKeyed[key] = value
+            }
+        }
+        guard let notification = CKNotification(fromRemoteNotificationDictionary: stringKeyed) else {
+            return nil
+        }
+        guard let subscriptionID = notification.subscriptionID else { return nil }
+        let kind: FiredKind?
+        if subscriptionID.hasPrefix("friendship-events-") {
+            kind = .friendship
+        } else if subscriptionID.hasPrefix("recipe-import-events-") {
+            kind = .recipeImport
+        } else {
+            kind = nil
+        }
+        guard let kind else { return nil }
+        NotificationCenter.default.post(
+            name: didFireNotification,
+            object: nil,
+            userInfo: ["kind": kind.rawValue]
+        )
+        return kind
+    }
+}

@@ -37,6 +37,28 @@
     <string>UIStatusBarStyleDefault</string>
     <key>NSSupportsLiveActivities</key>
     <true/>
+    <!--
+      Silent-push wake-up for slice 6's CloudKit subscriptions.
+      Without `remote-notification` in UIBackgroundModes, iOS
+      delivers silent pushes (`content-available: 1`) only when
+      the app is foregrounded; suspended-in-background apps
+      never get the wake-up call, defeating the "real-time
+      presence beyond the foreground refresh" goal in
+      implement-social.md slice 6.
+
+      Enabling this background mode is a static-declaration-
+      only step (no code path beyond the existing
+      `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`
+      handler in AppDelegate). Apple App Review checks that
+      apps declaring `remote-notification` actually use it for
+      content updates; we do (FriendsStore refresh + recipe
+      import-count refresh on push receipt), so the declaration
+      is honest.
+    -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>remote-notification</string>
+    </array>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>UIDesignRequiresCompatibility</key>

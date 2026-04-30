@@ -4,6 +4,7 @@ import SwiftData
 struct RootView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(UserAccount.self) private var userAccount
+    @Environment(FriendsStore.self) private var friendsStore
     @Environment(\.modelContext) private var modelContext
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
@@ -86,6 +87,24 @@ struct RootView: View {
             // blip — `CloudKitService.drainPendingDeletes` keeps
             // retrying until the cloud confirms gone.
             await CloudKitService.retryPendingDeletes()
+            // Slice 6 — register CKQuerySubscriptions for friend
+            // events + recipe-import events. Idempotent + locally
+            // gated by a UserDefaults flag so this is a fast
+            // no-op when nothing's changed; re-runs when the user
+            // signs into a different Apple ID. Skips silently
+            // when iCloud isn't bound (signed-out state); that
+            // path lights up after `UserAccount.completeSignIn`
+            // runs the same call.
+            await CloudKitSubscriptions.registerIfNeeded()
+            // Slice 6 — bind the FriendsStore to friendship-event
+            // pushes so the friends list / requests section
+            // refresh as soon as a push lands rather than waiting
+            // for the next ProfileView open. Idempotent on
+            // re-call (NotificationCenter dedupes by
+            // observer-block identity, but `task` only fires once
+            // per scene lifetime so re-call doesn't happen in
+            // practice).
+            friendsStore.observeRemotePushes()
         }
         .onOpenURL { url in
             // Six URL shapes land here:

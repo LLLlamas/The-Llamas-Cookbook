@@ -286,9 +286,11 @@ Tap the chip → sheet listing each `RecipeImport` row: importer display name + 
 | 3 | Library mirror | `PublishedRecipe` upsert on Save, delete on delete, batch-publish on first friend, debounced via `LibraryMirrorService`. | Yes |
 | 4 | Friends UI | `FriendLibraryView` + `FriendRecipeDetailView`, pulling from CK. Read-only renderers. | No |
 | 5 | Import flow | New `materializeFromPublished`, toolbar button + animation, llama progress for photo-heavy, attribution fields on local Recipe, "Originally shared by" header. | No |
-| 6 | Import audit + counter | `RecipeImport` writes on import, counter chip on own recipe detail, importer-list sheet, CKSubscription pushes for new imports + new friend requests. | Yes |
+| 6 | Import audit + counter ✅ | `RecipeImport` writes on import, counter chip on own recipe detail, importer-list sheet, CKSubscription pushes for new imports + new friend requests. | Yes (RecipeImport + Push capability portal step) |
 
 Slices 1–3 are infrastructure. Slice 4 is when it becomes visibly a feature. Slice 5 is the magic moment. Slice 6 is the delight pass.
+
+**All six slices shipped.** The friends feature is complete end-to-end: identity mirror, name search + request flow, library mirror, friend-side browsing, import + chain attribution, and the slice 6 audit + counter + push delivery.
 
 ## Schema deployment ritual (don't forget)
 
@@ -297,7 +299,19 @@ Per CLAUDE.md, every CloudKit schema change needs Dev → Prod deploy AND the ma
 - Slice 1: deploy `UserProfile` Dev → Prod.
 - Slice 2: deploy `Friendship` Dev → Prod. Index `userA`, `userB`, `status` queryable.
 - Slice 3: deploy `PublishedRecipe` Dev → Prod. **Manually add `photo0`–`photo19` Asset fields in the dashboard** — auto-discovery won't catch them on first publish, same trap that hit `RecipeShare`.
-- Slice 6: deploy `RecipeImport` Dev → Prod. Index `originalRecipeID` queryable.
+- Slice 6: deploy `RecipeImport` Dev → Prod. Index `originalRecipeID` queryable; also `importerID` and `originalCreatorID` queryable so the account-deletion cascade can find rows by either.
+
+### Slice 6 — Push Notifications portal step
+
+Slice 6 also adds the `aps-environment` entitlement for CloudKit's silent CKQuerySubscription pushes. Three places, one capability:
+
+1. **Apple Developer Portal** — App ID `com.llamascookbook.app` → enable **Push Notifications** capability. (No `.p8` auth key needed; CloudKit-mediated pushes pass through the iCloud trust without a separate APNs auth key.)
+2. **Provisioning profile** — regenerate the main-app profile after enabling the capability so the entitlement is baked in. Update `IOS_PROVISIONING_PROFILE_BASE64` in GitHub Secrets.
+3. **Entitlements file** — `Resources/LlamasCookbook.entitlements` declares `aps-environment = development` (Apple substitutes `production` at distribution sign time).
+
+Without all three, CKSubscription registration succeeds server-side but pushes never reach the device — the app silently degrades to the foreground-refresh model from slices 1–5.
+
+`UIBackgroundModes = remote-notification` in `Resources/AppInfo.plist` is the matching declaration on the runtime side; without it, silent pushes only deliver while the app is foregrounded.
 
 ## Account deletion cascade
 

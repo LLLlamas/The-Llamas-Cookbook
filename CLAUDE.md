@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Source of truth. Code > this doc (update when stale). Last refreshed 2026-04-29 (PM).
+Source of truth. Code > this doc (update when stale). Last refreshed 2026-04-30 (slice 6).
 
 ## Doc map
 
@@ -16,9 +16,11 @@ Plan docs decay; grep code before quoting.
 
 ## Status
 
-Shipped: core CRUD; multi-cook (1–4) with keep-awake; photos; Sign-in-with-Apple (PR 1); Universal-Link sharing via Cloudflare Pages; four-way FAB import (Write / Text / Link / Photo) with manual-shutter `CameraCaptureView` on the photo path; LlamaIntro coach-mark tours for new-recipe / text-import / link-import; user-customizable accent via `AccentColorPicker`; per-step prep time.
+Shipped: core CRUD; multi-cook (1–4) with keep-awake; photos; Sign-in-with-Apple (PR 1); Universal-Link sharing via Cloudflare Pages; four-way FAB import (Write / Text / Link / Photo) with manual-shutter `CameraCaptureView` on the photo path; LlamaIntro coach-mark tours for new-recipe / text-import / link-import; user-customizable accent via `AccentColorPicker`; per-step prep time; **Friends feature end-to-end** (slices 1–6 of `implement-social.md`): identity mirror, name search + request flow, library mirror, friend-side browsing, friend recipe import with chain attribution, import audit + counter chip + attribution sheet + CKSubscription pushes.
 
-Active queue: friends feature (per `implement-social.md`); per-cook `TimerLiveActivityRegistry`; Universal-Link end-to-end verification → revert diagnostic alert; aesthetic / typography pass; Liquid Glass adoption. **Diagnostic alert in `RecipeDetailView.cloudShareError` is still temporary** — revert to silent fall-through once Universal Link confirmed working on real devices.
+Active queue: per-cook `TimerLiveActivityRegistry`; Universal-Link end-to-end verification → revert diagnostic alert; aesthetic / typography pass; Liquid Glass adoption. **Diagnostic alert in `RecipeDetailView.cloudShareError` is still temporary** — revert to silent fall-through once Universal Link confirmed working on real devices.
+
+Slice 6 portal step pending: enable **Push Notifications** capability on the App ID + regenerate the main-app provisioning profile + update `IOS_PROVISIONING_PROFILE_BASE64` in GitHub Secrets, else CKQuerySubscription pushes silently fail to deliver. Schema deploy pending: `RecipeImport` Dev → Prod (queryable indexes on `originalRecipeID`, `importerID`, `originalCreatorID`).
 
 ## Capability map
 
@@ -29,7 +31,7 @@ Active queue: friends feature (per `implement-social.md`); per-cook `TimerLiveAc
 | Onboarding tours | `Views/Components/LlamaIntro/` | Coach-mark overlay (`LlamaIntroOverlay`) + character/bubble + `tourTarget(_)` modifier (`LlamaTourTarget` enum). Three tours: `NewRecipeTour`, `TextImportTour`, `LinkImportTour`. AppStorage flags: `hasSeenNewRecipeTour`, `hasSeenTextImportTour`, `hasSeenLinkImportTour`, `hasSeenImportHelp`. Host attaches `.overlayPreferenceValue(LlamaTourTargetKey.self)` at the outermost level (preference anchors don't propagate from toolbar items into a child overlay). |
 | Library | `Views/Library/LibraryView.swift` | All / Favorites / tag chips. Long-press Delete. A–Z scrub. |
 | FAB | `LibraryView` | 4 entries: Write / Import Text / Import Link / Import Photo. |
-| Recipe Detail | `Views/Detail/RecipeDetailView.swift` | Sections, gallery, share menu, sourdough chip. |
+| Recipe Detail | `Views/Detail/RecipeDetailView.swift` | Sections, gallery, share menu, sourdough chip. **Slice 6:** "Imported by N" chip on own recipes (taps → `Views/Detail/ImportersListSheet.swift`); "Originally shared by [name]" eyebrow on imported recipes is tappable (taps → `Views/Detail/AttributionSheet.swift`). Stale-while-revalidate refresh on `.task(id: recipe.id)`; live re-fetch on `CloudKitSubscriptions.didFireNotification` of kind `.recipeImport`. |
 | Export | `Lib/RecipeExport.swift` | Plain-text bridge. |
 | Recipe sharing | `Lib/CloudKitService.swift` + `Lib/RecipeShare.swift` + `Views/Components/ShareSheet.swift` | Cloud Universal Link first, local URL fallback. Public DB `RecipeShare`; photos as separate `CKAsset` `photo0`–`photo19`. Link `https://llamascookbook.pages.dev/r/<6char>`. Fallback `llamascookbook://recipe/v2/<base64url>` (lzma, no photos). Outbox `cloudShareOutbox.v1` for Delete-Account cascade. |
 | Recipe import | `Views/Library/RecipeImportPreviewView.swift` + `RootView.onOpenURL` + `onContinueUserActivity` | Handles `.llamarecipe`, `recipe/v<N>/`, legacy `share/<id>`, HTTPS Universal Links. Save → `RecipeShare.materialize` (rewrites UUIDs). |
@@ -47,6 +49,8 @@ Active queue: friends feature (per `implement-social.md`); per-cook `TimerLiveAc
 | Timer + Live Activity | `Lib/TimerLiveActivityController.swift` + `WidgetExtension/TimerLiveActivity.swift` | Per-cook ID `cooking-timer-<cookID>`. |
 | Cook persistence | `App/CookingSessionStore.swift` | UserDefaults `cooking-session-states.v2`; v1→v2 migration. |
 | Editor coordinator | `App/EditorCoordinator.swift` | Sheet open/dirty gating + discard alert. |
+| Friends feature | `App/FriendsStore.swift` + `Lib/CloudKitFriendship.swift` + `Lib/CloudKitUserProfile.swift` + `Lib/CloudKitPublishedRecipe.swift` + `Lib/UserProfileMirror.swift` + `Lib/LibraryMirrorService.swift` + `Views/Profile/AddFriendSheet.swift` + `Views/Friends/` | Slices 1–5 of `implement-social.md`. UserProfile mirror, name search, request/accept/deny, PublishedRecipe library mirror, FriendLibraryView + FriendRecipeDetailView with friend-accent tinting, `RecipeShare.materializeFromPublished` for chain-attributed deep-copy import. |
+| Friends — slice 6 | `Lib/CloudKitRecipeImport.swift` + `Lib/CloudKitSubscriptions.swift` + `Views/Detail/ImportersListSheet.swift` + `Views/Detail/AttributionSheet.swift` | Append-only `RecipeImport` audit row written on each friend-import event (fire-and-forget from `FriendRecipeDetailView.performImport`). "Imported by N" chip on own RecipeDetail (cap render hidden at 0; capped display "99+"). Tap-attribution sheet on imported recipes (chain root + import date + optional "Passed through [Sharer]" hop). Two CKQuerySubscriptions on the public DB (`friendship-events-<me>`, `recipe-import-events-<me>`); silent pushes wake the app and post `CloudKitSubscriptions.didFireNotification` to NotificationCenter — `FriendsStore.observeRemotePushes()` and `RecipeDetailView.onReceive` consume their respective kind. |
 
 ## Tech stack
 
@@ -188,7 +192,8 @@ Intentional in `ios-native-ci.yml`:
 - **Share Extension App Group** (`group.com.llamascookbook.app`) on BOTH profiles. Three literals must agree: `SharedContainer.appGroupID`, entitlements files, Portal.
 - **`LSSupportsOpeningDocumentsInPlace = false`** required because we declare `CFBundleDocumentTypes` (else ITMS-90737).
 - **SIWA entitlement:** `com.apple.developer.applesignin = ["Default"]`.
-- **iCloud / CloudKit:** `com.apple.developer.icloud-container-identifiers = ["iCloud.com.llamascookbook.app"]` + `icloud-services = ["CloudKit"]`. `RecipeShare` fields: `envelope` (Asset), `senderDisplayName`, `recipeTitle`, `createdAt` (queryable+sortable), `photo0`–`photo19` (Asset, optional). Indexes: `createdAt` queryable+sortable; `createdUserRecordName` queryable for cascade. **Schema must be deployed Dev→Prod before TestFlight.** **`photo0`–`photo19` must be added MANUALLY in dev — auto-discovery only catches indexes carried by sample records, else uploads throw "cannot create or modify field photoN".**
+- **iCloud / CloudKit:** `com.apple.developer.icloud-container-identifiers = ["iCloud.com.llamascookbook.app"]` + `icloud-services = ["CloudKit"]`. `RecipeShare` fields: `envelope` (Asset), `senderDisplayName`, `recipeTitle`, `createdAt` (queryable+sortable), `photo0`–`photo19` (Asset, optional). Indexes: `createdAt` queryable+sortable; `createdUserRecordName` queryable for cascade. **Schema must be deployed Dev→Prod before TestFlight.** **`photo0`–`photo19` must be added MANUALLY in dev — auto-discovery only catches indexes carried by sample records, else uploads throw "cannot create or modify field photoN".** Friends feature adds four record types — `UserProfile`, `Friendship`, `PublishedRecipe`, `RecipeImport` (`PublishedRecipe` also needs the manual `photo0`–`photo19` field-add). `RecipeImport` indexes: `originalRecipeID` queryable (counter query); `importerID` + `originalCreatorID` queryable (account-deletion cascade).
+- **Push Notifications (slice 6):** `aps-environment = development` in `Resources/LlamasCookbook.entitlements` (Apple substitutes `production` at distribution sign time) + `UIBackgroundModes = ["remote-notification"]` in `Resources/AppInfo.plist`. **Push Notifications capability** must be enabled on the App ID in Apple Developer Portal AND the main-app provisioning profile regenerated, else CKQuerySubscription pushes register server-side but never deliver to the device. No `.p8` APNs key needed — CloudKit-mediated pushes pass through the iCloud trust without a separate auth key. Two subscription IDs registered per user: `friendship-events-<userRecordName>` (creation + update on `Friendship` where me is participant) and `recipe-import-events-<userRecordName>` (creation only on `RecipeImport` where I'm the chain root). Silent pushes (`shouldSendContentAvailable = true`, no alertBody) fan-out via `NotificationCenter.didFireNotification` to in-app observers.
 - **Associated Domains:** `com.apple.developer.associated-domains = ["applinks:llamascookbook.pages.dev"]`. Without all four (capability + profile + secret + entitlement), iOS strips entitlement → links open in Safari. Domain must match `CloudKitService.shareLinkHost` and `applinks:` host in `cloudflare-pages/.well-known/apple-app-site-association`.
 - **Cloudflare Pages:** `cloudflare-pages/` auto-builds on push to main. Required env (Production AND Preview): `CLOUDKIT_CONTAINER_ID`, `CLOUDKIT_KEY_ID`, `CLOUDKIT_PRIVATE_KEY` (Secret, ECDSA P-256 PEM from Server-to-Server), `CLOUDKIT_ENVIRONMENT=production`. Worker reads `recipeTitle` + `photo0`, renders OG-tagged HTML at `/r/<id>`, proxies photo at `/img/<id>`. `_headers` forces `Content-Type: application/json` on AASA.
 - **SwiftData `cloudKitDatabase: .none` opt-out** in `LlamasCookbookApp.makeModelContainer()`. Default `.automatic` detects iCloud entitlement → tries CloudKit-backed sync → fails on our schema (`.cascade` + non-optional). **Failure mode silent** — recipes save then vanish on relaunch. **Don't switch to `.modelContainer(for:)` modifier** — doesn't expose `cloudKitDatabase`.
@@ -211,12 +216,12 @@ Watch: `Print toolchain` step's `iphoneos --show-sdk-version` is the canary — 
 ## What's next
 
 1. Verify Universal Link end-to-end on real devices, revert diagnostic alert in `RecipeDetailView.cloudShareError`.
-2. Friends feature per `implement-social.md` (search-by-display-name + invite-link, read-only friend cookbooks, deep-copy import via `RecipeShare.materialize`, audit list).
+2. Friends feature portal/schema: enable Push Notifications capability + regenerate `IOS_PROVISIONING_PROFILE_BASE64`; deploy `RecipeImport` Dev → Prod with `originalRecipeID` / `importerID` / `originalCreatorID` queryable.
 3. Per-cook `TimerLiveActivityRegistry`.
 4. Aesthetic / typography pass.
 5. Liquid Glass adoption.
 
-Queued: dark mode, Settings, iPad, App Intents on Live Activity.
+Queued: dark mode, Settings, iPad, App Intents on Live Activity, visible-alert push copy (slice 6 ships silent only).
 
 ## Working with this doc
 

@@ -114,7 +114,60 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // Slice 6 — kick off the APNs registration handshake so
+        // CloudKit's silent CKQuerySubscription pushes can reach
+        // the app. iOS calls back through one of the two
+        // `didRegister…` / `didFailToRegister…` methods below;
+        // CloudKit auto-routes pushes via the device token, so
+        // we don't have to do anything with the token ourselves.
+        // Idempotent — calling on every launch is the documented
+        // pattern (the token can rotate between launches and
+        // CloudKit needs the current one).
+        application.registerForRemoteNotifications()
         return true
+    }
+
+    /// APNs registration succeeded. CloudKit reads the device
+    /// token internally for subscription delivery routing — we
+    /// don't need to forward it anywhere ourselves. No-op
+    /// implementation required because UIKit logs an error
+    /// without it.
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        // Intentionally empty — CloudKit handles the token.
+    }
+
+    /// APNs registration failed (no entitlement, simulator without
+    /// push support, network denied push registration, etc.).
+    /// Silent — slice 6's pushes degrade to "user picks up
+    /// changes on next foreground refresh," which is the slice
+    /// 1-5 baseline behavior. The console log is enough for
+    /// post-mortem if a real device fails to register.
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        print("[CloudKitSubscriptions] APNs registration failed: \(error.localizedDescription)")
+    }
+
+    /// Silent CKQuerySubscription push receipt. The payload's
+    /// shape is fully determined by CloudKit (we don't custom-
+    /// craft anything in the push); `CloudKitSubscriptions`
+    /// inspects the subscriptionID to figure out which of our
+    /// two streams fired and posts a NotificationCenter event
+    /// for in-app observers (FriendsStore, RecipeDetailView).
+    /// Returning `.newData` so iOS knows we acted on the push
+    /// (better future-proofing if Apple ever throttles apps
+    /// that report `.noData` repeatedly).
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        let kind = CloudKitSubscriptions.dispatchRemoteNotification(userInfo: userInfo)
+        completionHandler(kind == nil ? .noData : .newData)
     }
 
     func userNotificationCenter(

@@ -267,4 +267,45 @@ final class FriendsStore {
         incomingRequests = []
         outgoingRequests = [:]
     }
+
+    // MARK: - Push observation
+
+    /// Begin observing CloudKit subscription pushes. Called once
+    /// from `RootView.task` so the store's lifetime tracks the
+    /// app's. The observer runs forever (no explicit removal) —
+    /// `NotificationCenter` weakly holds the closure-captured
+    /// store, and the store is owned by `LlamasCookbookApp`'s
+    /// `@State`, so neither side leaks.
+    ///
+    /// On each push that matches the friendship subscription we
+    /// fire a `refresh()`. The fetch is deduplicated server-side
+    /// against in-flight refreshes (the `isRefreshing` guard) so
+    /// rapid-fire pushes don't stampede CloudKit. The signed-out
+    /// case is a free no-op since `refresh()` early-returns when
+    /// the mirror cache is empty.
+    func observeRemotePushes() {
+        // The `MainActor` jump is required — NotificationCenter
+        // delivers on the queue that posted, which AppDelegate's
+        // remote-notification path reaches via the URL session
+        // queue. The `Task { @MainActor in ... }` re-anchors us
+        // before touching `@Observable` state.
+        NotificationCenter.default.addObserver(
+            forName: CloudKitSubscriptions.didFireNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] note in
+            guard let self else { return }
+            guard let kindRaw = note.userInfo?["kind"] as? String,
+                  let kind = CloudKitSubscriptions.FiredKind(rawValue: kindRaw)
+            else { return }
+            // We only care about friendship pushes here; the
+            // recipe-import pushes get handled in
+            // `RecipeDetailView`'s onReceive — observer per
+            // consumer, no spurious cross-component refreshes.
+            guard kind == .friendship else { return }
+            Task { @MainActor in
+                await self.refresh()
+            }
+        }
+    }
 }

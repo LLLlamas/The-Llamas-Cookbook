@@ -194,6 +194,92 @@ because signing errors can't be reproduced locally.
 
 ---
 
-## 2. Future items (placeholder)
+## 2. Push Notifications — Apple Developer portal setup (⚠️ action required, slice 6)
+
+The Friends feature's slice 6 (`implement-social.md`) registers two
+`CKQuerySubscription`s for near-real-time delivery of friend-request and
+recipe-import events. Server-side registration succeeds without any portal
+changes, but **silent pushes will never reach the device until the Push
+Notifications capability is enabled and the provisioning profile is
+regenerated**. Until then the friends feature still works — it just falls
+back to the slice 1–5 foreground-refresh model.
+
+One-time setup — takes ~5 minutes.
+
+### Step 1 — Enable Push Notifications on the App ID
+
+1. Go to https://developer.apple.com/account/resources/identifiers/list
+2. Click on the App ID `com.llamascookbook.app`.
+3. Scroll down to **Capabilities** → check **Push Notifications**. (Configure step is optional — we don't need a `.p8` auth key because CloudKit-mediated pushes pass through the iCloud trust without one.)
+4. Click **Save** at the top right. Apple shows a "Modify App Capabilities" warning — confirm.
+
+### Step 2 — Regenerate the main-app provisioning profile
+
+The capability is baked into the profile at issue time, so the existing
+profile **silently strips the entitlement at sign**. Symptoms:
+CKQuerySubscription registration succeeds, but pushes never arrive on
+device. Console shows no APNs registration error because APNs registration
+itself succeeds — only the push delivery is gated.
+
+1. Go to https://developer.apple.com/account/resources/profiles/list
+2. Find the App Store profile for `com.llamascookbook.app`.
+3. Click → **Edit** → **Save**. Apple regenerates with the new entitlement.
+4. **Download** the new `.mobileprovision`.
+
+### Step 3 — Update the GitHub Secret
+
+On Windows (PowerShell) — from wherever you saved the `.mobileprovision`:
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("Llamas_Cookbook_App_Store.mobileprovision")) | Set-Clipboard
+```
+
+Then go to repo Settings → Secrets and variables → Actions → click on
+`IOS_PROVISIONING_PROFILE_BASE64` → **Update secret** → paste from
+clipboard.
+
+### Step 4 — Trigger the workflow
+
+Push any commit (or run `ios-native-ci.yml` via workflow_dispatch). The
+new profile installs at archive time; the entitlement flows into the
+signed `.ipa`; the next TestFlight build delivers pushes to real
+devices.
+
+### What's already in place (no action needed)
+
+- ✅ `aps-environment = development` declared in `Resources/LlamasCookbook.entitlements` (Apple substitutes `production` at distribution sign).
+- ✅ `UIBackgroundModes = ["remote-notification"]` in `Resources/AppInfo.plist` so silent pushes wake the app from background-suspended state.
+- ✅ `application.registerForRemoteNotifications()` called in AppDelegate `didFinishLaunching`.
+- ✅ `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)` dispatches to `CloudKitSubscriptions.dispatchRemoteNotification`.
+- ✅ Two CKQuerySubscriptions registered idempotently from `RootView.task` and `UserAccount.completeSignIn`.
+- ✅ FriendsStore + RecipeDetailView observe `NotificationCenter.didFireNotification` to refresh on push receipt.
+
+### What slice 6 deliberately deferred
+
+- **Visible alert copy** — slice 6 uses silent pushes only. Adding
+  user-visible "X accepted your friend request" / "Y imported your recipe"
+  alerts requires denormalizing the requester / importer display name into
+  the CK record alertBody template, which is a schema change. Future work.
+
+---
+
+## 3. Friends feature CK schema deploy (⚠️ action required, slice 6)
+
+Schema deploy ritual from `implement-social.md`'s "Schema deployment ritual"
+section. Specifically, slice 6 needs:
+
+- Deploy `RecipeImport` record type Dev → Prod.
+- Index `originalRecipeID` queryable (powers the "Imported by N" counter chip query).
+- Index `importerID` queryable (powers the account-deletion cascade where the user is the importer).
+- Index `originalCreatorID` queryable (powers the account-deletion cascade where the user is the chain-root creator, AND the `recipe-import-events-<me>` CKQuerySubscription predicate).
+
+Until deployed, every `writeRecipeImport` call throws a schema error
+(silently swallowed by the fire-and-forget Task), and every
+`fetchRecipeImports` call throws and the chip stays at its cached
+value forever. The local app continues to function; the friends-feature
+delight surface (the chip + audit list + push) is what's gated.
+
+---
+
+## 4. Future items (placeholder)
 
 Additional deferred work goes here when we identify it.

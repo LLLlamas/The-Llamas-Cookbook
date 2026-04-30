@@ -87,5 +87,42 @@
     <array>
         <string>applinks:llamascookbook.pages.dev</string>
     </array>
+    <!--
+      APS (Apple Push Service) environment — required for
+      CloudKit's CKQuerySubscription pushes to deliver to this
+      app. Slice 6 of implement-social.md registers two
+      subscriptions (friendship-events, recipe-import-events) so
+      friend-request and import-audit events surface in near-
+      real-time without waiting for a foreground refresh.
+
+      `development` is the right value for non-production builds;
+      Apple Developer Portal automatically substitutes
+      `production` at provisioning time when the app is signed
+      with a distribution profile. The string is literal-only
+      here — we don't conditionalize per-build.
+
+      Same portal+profile dance as the other capabilities in this
+      file: Push Notifications capability enabled on the App ID
+      in Apple Developer Portal AND the main app's provisioning
+      profile regenerated after — the entitlement is baked into
+      the profile at issue time, so a stale profile silently
+      strips the entitlement at sign and CloudKit pushes never
+      reach the device.
+
+      No new GitHub Secret is needed for delivery — CloudKit
+      handles APNs routing internally via the iCloud container
+      that's already configured. (Pure APNs apps would need a
+      `.p8` auth key uploaded to the portal, but CloudKit-mediated
+      pushes pass through the iCloud trust without the key.)
+
+      User-visible alert permissions are unrelated — those
+      live behind `UNUserNotificationCenter.requestAuthorization`,
+      which the cooking-timer feature already requests on first
+      launch. Slice 6 uses silent pushes only
+      (`shouldSendContentAvailable = true`, no alertBody), so
+      the existing permission grant suffices.
+    -->
+    <key>aps-environment</key>
+    <string>development</string>
 </dict>
 </plist>

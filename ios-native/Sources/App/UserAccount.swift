@@ -126,6 +126,16 @@ final class UserAccount {
                 displayName: mirroredName,
                 accentHex: mirroredAccent
             )
+            // Slice 6 — register friend / import subscriptions
+            // immediately after the mirror cache lands. Sequenced
+            // (not parallel) because subscription registration
+            // depends on `UserProfileMirror.cachedRecordID`
+            // being populated, and `bindAfterSignIn` is the call
+            // that populates it. Idempotent — also fired by
+            // `RootView.task`, so a `bindAfterSignIn` failure
+            // here just defers registration to the next cold
+            // launch.
+            await CloudKitSubscriptions.registerIfNeeded()
         }
     }
 
@@ -157,6 +167,10 @@ final class UserAccount {
     /// The user can sign back in immediately and (in PR 2+) re-bind to
     /// the same CloudKit `User` record via the `appleSub` lookup.
     func signOut() {
+        // Capture before the mirror cache is cleared so the slice 6
+        // subscription cleanup below has the user record name to
+        // unsubscribe by. Read first, then wipe.
+        let cascadeUserID = UserProfileMirror.cachedRecordID()
         wipeLocalState()
         status = .signedOut
         // Drop the UserProfile mirror cache so subsequent mirror calls
@@ -169,6 +183,17 @@ final class UserAccount {
         // different Apple ID (or a fresh re-sign-in) gets a fresh
         // bulk-publish opportunity for that user's library.
         LibraryMirrorService.resetBulkPublishMarker()
+        // Slice 6 — best-effort unsubscribe so the previous user's
+        // pushes don't keep firing against this device's APNs token
+        // after sign-out. Cloud-side cleanup is silent on failure
+        // (orphaned subscriptions are cheap; CloudKit eventually
+        // GCs them), and the local subscription registration marker
+        // is cleared regardless so a re-sign-in re-registers.
+        if let me = cascadeUserID {
+            Task.detached {
+                await CloudKitSubscriptions.unregisterAll(userRecordName: me)
+            }
+        }
     }
 
     /// Wipes local identity AND fires a CloudKit cascade to delete
@@ -200,10 +225,11 @@ final class UserAccount {
             let cascadeUserID = UserProfileMirror.cachedRecordID()
             await CloudKitService.deleteAuthoredShares()
             // Delete the UserProfile mirror record + drop the local
-            // cache. RecipeImport cascade lands in slice 6;
-            // account-deletion compliance requires every cloud-side
-            // trace get cleaned up, so each slice extends this
-            // cascade as it adds a new record type.
+            // cache. Slice 6 extends this cascade with the
+            // RecipeImport audit rows below — account-deletion
+            // compliance requires every cloud-side trace get
+            // cleaned up, so each slice extends this cascade as
+            // it adds a new record type.
             await UserProfileMirror.deleteOnAccountDeletion()
             if let me = cascadeUserID {
                 // Slice 2 cascade: every Friendship record this user
@@ -216,6 +242,19 @@ final class UserAccount {
                 // would otherwise see stale records pointing at a
                 // now-orphaned ownerID until the records expired.
                 await CloudKitService.deleteAllPublishedRecipes(ownerID: me)
+                // Slice 6 cascade: every RecipeImport audit row
+                // this user appears on (either as importer or as
+                // chain-root creator). Hard-delete — see the
+                // doc comment on `deleteAllRecipeImports` for the
+                // hard-delete-vs-anonymize tradeoff.
+                await CloudKitService.deleteAllRecipeImports(for: me)
+                // Slice 6 cascade: best-effort unsubscribe of the
+                // CKQuerySubscriptions registered at sign-in.
+                // Silent on failure — orphaned subscriptions are
+                // cheap server-side state that CloudKit will
+                // eventually GC, and the local APNs token rotates
+                // on reinstall regardless.
+                await CloudKitSubscriptions.unregisterAll(userRecordName: me)
             }
         }
     }

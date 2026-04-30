@@ -11,6 +11,7 @@ struct RecipeDetailView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(NavigationContext.self) private var navContext
     @Environment(OwnerProfile.self) private var ownerProfile
+    @Environment(FriendsStore.self) private var friendsStore
 
     let recipe: Recipe
 
@@ -19,6 +20,19 @@ struct RecipeDetailView: View {
     @State private var showingAppearance = false
     @State private var showingSourdough = false
     @State private var showingPhotoCarousel = false
+    /// Slice 6 — "Imported by N" tap target. Sheet lists every
+    /// `RecipeImport` audit row for this recipe (sorted newest
+    /// first) so the user can see exactly which friends added
+    /// it to their cookbook + when. Only ever rendered for
+    /// own-authored recipes (`originalCreator*` nil); imported
+    /// recipes show the attribution sheet below instead.
+    @State private var showingImporters = false
+    /// Slice 6 — tap target for the "Originally shared by"
+    /// caption on imported recipes. Sheet shows the chain root,
+    /// import date, and (when chain length > 1) the
+    /// intermediate sharer. Only ever non-nil for imported
+    /// recipes.
+    @State private var showingAttribution = false
     /// Page to land on when the carousel opens. Set by photo-row taps
     /// before flipping `showingPhotoCarousel`, so tapping the third
     /// thumb opens the carousel directly on that page.
@@ -92,11 +106,22 @@ struct RecipeDetailView: View {
                     // amount") — otherwise we surface the local
                     // "Added MM/DD/YYYY" stamp here so it has a home
                     // since the bottom signature row was removed.
-                    if let topLine = topMetadataLine {
-                        Text(topLine)
-                            .font(AppFont.eyebrow)
-                            .foregroundStyle(AppColor.textTertiary)
-                            .lineLimit(1)
+                    //
+                    // Slice 6 — when the line is provenance (recipe
+                    // was imported), wrap it in a button that opens
+                    // the attribution sheet (chain root, import date,
+                    // optional "via [Sharer]" hop). Local "Added
+                    // MM/DD/YYYY" stays static text — there's nothing
+                    // to drill into.
+                    topMetadataLineView
+
+                    // Slice 6 — "Imported by N" chip. Own-authored
+                    // recipes only (the attribution path is mutually
+                    // exclusive). Tap opens the importers list.
+                    // Refreshed via stale-while-revalidate on appear
+                    // and on each recipe-import push.
+                    if showsImportCounterChip {
+                        importCounterChip
                     }
 
                     if let summary = recipe.summary, !summary.isEmpty {
@@ -319,6 +344,30 @@ struct RecipeDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingImporters) {
+            // Slice 6 — chain-root recipe id is `recipe.id` for
+            // own-authored recipes. The chip never renders for
+            // imported recipes, so this fork is the only one we
+            // need.
+            ImportersListSheet(
+                originalRecipeID: recipe.id.uuidString,
+                recipeTitle: recipe.title
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .environment(appearance)
+        }
+        .sheet(isPresented: $showingAttribution) {
+            // Slice 6 — only ever presented for imported recipes
+            // (`originalCreator*` non-nil). Reads the chain via
+            // the local Recipe's denormalized fields so the sheet
+            // works offline.
+            AttributionSheet(recipe: recipe)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .environment(appearance)
+                .environment(friendsStore)
+        }
         .sheet(isPresented: $showingSourdough) {
             SourdoughCalculatorView { row in
                 addSourdoughIngredients(from: row)
@@ -336,6 +385,34 @@ struct RecipeDetailView: View {
             // the "Add to Cook Mode" green button next to the resume
             // pill when a session is already minimized.
             navContext.detailedRecipeID = recipe.id
+        }
+        .task(id: recipe.id) {
+            // Slice 6 stale-while-revalidate refresh of the
+            // "Imported by N" chip. Triggers once on first
+            // appear, and again whenever the user navigates to
+            // a different recipe (the `id:` parameter restarts
+            // the task on identity change). The cache (set on
+            // Recipe.importCountCache) keeps the chip
+            // populated immediately while the live fetch fans
+            // in — a fresh fetch only swaps the rendered count
+            // when the value differs, so the chip doesn't
+            // double-flicker on identical data.
+            await refreshImportCountIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: CloudKitSubscriptions.didFireNotification
+        )) { note in
+            // Slice 6 — re-fetch the import count when a push
+            // arrives signaling a new RecipeImport row. Don't
+            // gate by recipe match (the push payload doesn't
+            // include record fields) — re-fetch unconditionally
+            // and let the cache-vs-fresh comparison decide
+            // whether to re-render. Cheap (one network call,
+            // dedup'd on identical values).
+            guard let kindRaw = note.userInfo?["kind"] as? String,
+                  CloudKitSubscriptions.FiredKind(rawValue: kindRaw) == .recipeImport
+            else { return }
+            Task { await refreshImportCountIfNeeded(forceFetch: true) }
         }
         .onDisappear {
             // Clear only if we're still the foregrounded recipe — guards
@@ -483,6 +560,158 @@ struct RecipeDetailView: View {
             }
             .padding(.top, AppSpacing.lg)
             content()
+        }
+    }
+
+    // MARK: - Slice 6 chip + provenance tap
+
+    /// True for recipes the local user authored — drives the
+    /// "Imported by N" chip + the importers-list sheet path. The
+    /// canonical signal is "this Recipe wasn't materialized from
+    /// a friend's PublishedRecipe," which we read from the slice
+    /// 5 attribution fields:
+    ///
+    /// - `originalCreatorUserRecordName == nil` → never imported,
+    ///   user authored from scratch (Write / Text / Link / Photo).
+    /// - `originalCreatorUserRecordName == self` → user imported
+    ///   their own recipe back (rare, but covered for completeness
+    ///   — could happen if user signs in on a second device and
+    ///   imports from their own friend mirror).
+    ///
+    /// We DON'T treat the older file/link share path's `sharedBy`
+    /// stamp as an "imported" signal — those recipes predate the
+    /// chain-attribution model and don't have a matching
+    /// `RecipeImport` audit row, so the chip would always read 0.
+    private var showsImportCounterChip: Bool {
+        // No iCloud / signed-out → conservatively treat as own
+        // (the chip is a cloud-side delight surface and should
+        // be hidden when the cloud isn't reachable anyway).
+        let me = UserProfileMirror.cachedRecordID()
+        if let creator = recipe.originalCreatorUserRecordName {
+            return creator == me
+        }
+        return true
+    }
+
+    /// "Imported by N" pill below the title. Cap at "99+" so the
+    /// chip width stays bounded for viral recipes (vanishingly
+    /// unlikely on a friends-of-friends graph, but cheap to
+    /// guard). 0-count case is hidden — no chip until at least
+    /// one friend has imported, otherwise the surface reads as
+    /// pre-emptive bragging.
+    @ViewBuilder
+    private var importCounterChip: some View {
+        if recipe.importCountCache > 0 {
+            Button {
+                Haptics.selection()
+                showingImporters = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(importCounterLabel)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(appearance.accentColor)
+                .padding(.horizontal, AppSpacing.sm + 2)
+                .padding(.vertical, AppSpacing.xs + 1)
+                .background(appearance.accentColor.opacity(0.10))
+                .overlay(Capsule().stroke(appearance.accentColor.opacity(0.35), lineWidth: 1))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("View who imported this recipe")
+        }
+    }
+
+    private var importCounterLabel: String {
+        let n = recipe.importCountCache
+        let display = n > 99 ? "99+" : "\(n)"
+        return "Imported by \(display)"
+    }
+
+    /// Eyebrow line under the title. For imported recipes, wraps
+    /// the provenance string in a button that opens the
+    /// attribution sheet (chain root, import date, optional
+    /// "via Sharer" hop). For locally-authored recipes, renders
+    /// the static "Added MM/DD/YYYY" stamp — there's nothing to
+    /// drill into.
+    @ViewBuilder
+    private var topMetadataLineView: some View {
+        if let provenance = provenanceLine {
+            Button {
+                Haptics.selection()
+                showingAttribution = true
+            } label: {
+                HStack(spacing: 4) {
+                    Text(provenance)
+                        .font(AppFont.eyebrow)
+                        .foregroundStyle(appearance.accentColor)
+                        .lineLimit(1)
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(appearance.accentColor.opacity(0.6))
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(provenance)
+            .accessibilityHint("Tap for attribution details")
+        } else {
+            Text(addedDateLine)
+                .font(AppFont.eyebrow)
+                .foregroundStyle(AppColor.textTertiary)
+                .lineLimit(1)
+        }
+    }
+
+    /// Just the local "Added MM/DD/YYYY" half of the eyebrow —
+    /// `topMetadataLineView` reaches for this when `provenanceLine`
+    /// is nil (recipe is locally authored).
+    private var addedDateLine: String {
+        let dateString = recipe.createdAt.formatted(
+            .dateTime.month(.twoDigits).day(.twoDigits).year()
+        )
+        return "Added \(dateString)"
+    }
+
+    /// Stale-while-revalidate fetch of the import count.
+    /// Renders the cache immediately (set in
+    /// `Recipe.importCountCache`); fires a live CK query in the
+    /// background; updates the local `Recipe` if the value
+    /// changed. Skipped when:
+    ///
+    /// - The chip wouldn't render anyway (imported recipe).
+    /// - iCloud isn't bound (cached recordID missing).
+    /// - The cache is fresh (< 60s old) AND `forceFetch` is
+    ///   false. Forces fetch on push receipt — that's the
+    ///   "real-time presence beyond the foreground refresh"
+    ///   hook from the spec.
+    @MainActor
+    private func refreshImportCountIfNeeded(forceFetch: Bool = false) async {
+        guard showsImportCounterChip else { return }
+        guard UserProfileMirror.cachedRecordID() != nil else { return }
+        if !forceFetch,
+           let last = recipe.importCountCheckedAt,
+           Date().timeIntervalSince(last) < 60 {
+            return
+        }
+        let originalRecipeID = recipe.id.uuidString
+        do {
+            let count = try await CloudKitService.countRecipeImports(
+                forOriginalRecipeID: originalRecipeID
+            )
+            // Only mutate when the count actually changed — avoids
+            // a SwiftData write (which propagates Updated.now down
+            // the change-stream and can cause friend-side
+            // LibraryMirrorService re-publishes for no good reason).
+            if recipe.importCountCache != count {
+                recipe.importCountCache = count
+            }
+            recipe.importCountCheckedAt = Date()
+        } catch {
+            // Silent — the cache stays at its last value, the chip
+            // keeps rendering whatever it was. Next foreground fires
+            // this again.
         }
     }
 
@@ -863,21 +1092,6 @@ struct RecipeDetailView: View {
             parts.append("Cook \(cook)m")
         }
         return parts
-    }
-
-    /// Eyebrow line shown under the title. Provenance ("Originally
-    /// shared by …") takes precedence so credit on imported recipes
-    /// reads first; locally-authored recipes fall through to the
-    /// "Added MM/DD/YYYY" stamp that used to live in the now-removed
-    /// signature row at the bottom of the view.
-    private var topMetadataLine: String? {
-        if let provenance = provenanceLine {
-            return provenance
-        }
-        let dateString = recipe.createdAt.formatted(
-            .dateTime.month(.twoDigits).day(.twoDigits).year()
-        )
-        return "Added \(dateString)"
     }
 
     /// Tail-append starter / water / flour ingredients computed from the
