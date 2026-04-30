@@ -155,7 +155,10 @@ struct AddFriendSheet: View {
     /// pause in their typing.
     private func scheduleSearch(prefix: String) {
         searchTask?.cancel()
+        // CloudKit BEGINSWITH is case-sensitive; capitalize so "lo" finds "Lorenzo"
+        // even if the user didn't have autocapitalization on.
         let trimmed = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(1).uppercased() + prefix.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst()
         guard trimmed.count >= Self.minPrefixLength else {
             isSearching = false
             searchResults = []

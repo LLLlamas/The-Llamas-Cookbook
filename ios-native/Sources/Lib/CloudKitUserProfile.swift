@@ -132,7 +132,7 @@ extension CloudKitService {
     static func searchUserProfiles(prefix: String) async throws -> [UserProfileSnapshot] {
         let trimmed = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { return [] }
-        let predicate = NSPredicate(format: "displayName BEGINSWITH[c] %@", trimmed)
+        let predicate = NSPredicate(format: "displayName BEGINSWITH %@", trimmed)
         let query = CKQuery(recordType: userProfileRecordType, predicate: predicate)
         query.sortDescriptors = [NSSortDescriptor(key: "displayName", ascending: true)]
         let (matchResults, _) = try await publicDB.records(
