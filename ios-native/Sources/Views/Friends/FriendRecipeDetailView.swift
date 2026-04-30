@@ -1,11 +1,12 @@
 import SwiftUI
+import SwiftData
 
 /// Read-only view of a single friend's recipe — pushed from
 /// `FriendLibraryView` when the user taps a card. Fetches the full
-/// `LCRecipeShareV1` envelope (envelope JSON + photo CKAssets) on
-/// `.task`, then renders the same sectioned layout as the existing
-/// `RecipeImportPreviewView` (titleBlock → meta → photos →
-/// ingredients → steps → notes).
+/// `PublishedRecipeDetail` (envelope JSON + photo CKAssets + chain
+/// attribution metadata) on `.task`, then renders the same
+/// sectioned layout as the existing `RecipeImportPreviewView`
+/// (titleBlock → meta → photos → ingredients → steps → notes).
 ///
 /// **Why mirror RecipeImportPreviewView's structure.** That view
 /// already renders an envelope from scratch; the friend-detail
@@ -15,26 +16,59 @@ import SwiftUI
 /// recipe shared by Marco reads the same way whether the user
 /// got it via AirDrop or by browsing his cookbook.
 ///
-/// **Slice 4 scope.** Read-only render. The `square.and.arrow.down`
-/// import button lands in slice 5 along with the
-/// `materializeFromPublished` deep-copy entry point — for now
-/// the toolbar exposes only the back chevron from the navigation
-/// stack.
+/// **Slice 5 scope.** Read-only render plus the
+/// `square.and.arrow.down` import button in the trailing toolbar
+/// slot. Tap → `RecipeShare.materializeFromPublished` deep-copies
+/// the recipe into the user's local library with chain
+/// attribution stamped (`originalCreator*` + `originalSharer*` +
+/// `originalRecipeID` + `importedAt`), then signals via
+/// `NavigationContext.pendingImportedRecipeID` so RootView pushes
+/// the new recipe's Detail and LibraryView dismisses the Profile
+/// sheet that hosts this view. A llama progress overlay shows
+/// during photo-bearing imports; photoless imports are instant
+/// (no overlay needed — sheet dismiss + Detail push is the visible
+/// confirmation).
 struct FriendRecipeDetailView: View {
     let friend: UserProfileSnapshot
     let summary: PublishedRecipeSummary
 
-    @State private var envelope: LCRecipeShareV1?
+    @Environment(\.modelContext) private var modelContext
+    @Environment(NavigationContext.self) private var navContext
+
+    /// Fetched payload — envelope + chain-attribution metadata.
+    /// Stored together so the import handler has both in scope
+    /// without re-fetching. `envelope` below reads through this.
+    @State private var publishedDetail: PublishedRecipeDetail?
     @State private var galleryPhotos: [Data] = []
     @State private var isLoading: Bool = false
     @State private var loadError: String? = nil
     @State private var hasLoadedOnce: Bool = false
+    @State private var isImporting: Bool = false
+    @State private var importError: String? = nil
+
+    /// Sugared accessor for the envelope half of `publishedDetail`,
+    /// so the rendering code below reads `envelope` symmetrically
+    /// to its slice 4 form.
+    private var envelope: LCRecipeShareV1? {
+        publishedDetail?.envelope
+    }
 
     private var friendAccent: Color {
         if let hex = friend.accentHex, let color = Color(hex: hex) {
             return color
         }
         return AppColor.accent
+    }
+
+    /// Whether the "Add to my book" action should be enabled.
+    /// Disabled during in-flight load (no envelope yet) and during
+    /// the import itself (no double-fire). The materialize is
+    /// purely local — iCloud availability isn't a precondition for
+    /// the import to succeed; the cloud-side mirror upload of the
+    /// resulting local recipe is best-effort and silent-no-ops on
+    /// its own when iCloud is unreachable.
+    private var canImport: Bool {
+        publishedDetail != nil && !isImporting
     }
 
     var body: some View {
@@ -50,14 +84,73 @@ struct FriendRecipeDetailView: View {
         .navigationTitle(StringCase.titleCase(summary.recipeTitle))
         .navigationBarTitleDisplayMode(.inline)
         .tint(friendAccent)
+        .toolbar {
+            // "Add to my book" — primary action, trailing position
+            // (iOS HIG convention for an action-on-this-screen).
+            // Spec sketch said "left of the llama," but `Friend`
+            // surfaces don't carry a llama in the toolbar (the
+            // llama lives in `RecipeDetailView` for own recipes
+            // and isn't transplanted into this read-only view);
+            // trailing keeps the affordance discoverable in the
+            // place users look first.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task { await performImport() }
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(canImport ? friendAccent : AppColor.textTertiary)
+                }
+                .disabled(!canImport)
+                .accessibilityLabel("Add to my book")
+            }
+        }
+        .overlay {
+            if isImporting {
+                importOverlay
+            }
+        }
+        .alert(
+            "Couldn't import recipe",
+            isPresented: importErrorPresented,
+            presenting: importError
+        ) { _ in
+            Button("OK") { importError = nil }
+        } message: { message in
+            Text(message)
+        }
         .task {
             if !hasLoadedOnce {
-                await loadEnvelope()
+                await loadDetail()
             }
         }
         .refreshable {
-            await loadEnvelope()
+            await loadDetail()
         }
+    }
+
+    private var importErrorPresented: Binding<Bool> {
+        Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil } }
+        )
+    }
+
+    /// Full-screen translucent overlay during a photo-bearing
+    /// import. Ignores hit testing on the underlying view so the
+    /// user can't double-tap import or pop back mid-write.
+    private var importOverlay: some View {
+        ZStack {
+            AppColor.background.opacity(0.85)
+                .ignoresSafeArea()
+            VStack(spacing: AppSpacing.md) {
+                LlamaProgressIndicator(size: 80, accent: friendAccent)
+                Text("Adding to your book…")
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textSecondary)
+            }
+        }
+        .transition(.opacity.animation(.easeInOut(duration: 0.2)))
     }
 
     // MARK: - Content router
@@ -388,28 +481,84 @@ struct FriendRecipeDetailView: View {
 
     // MARK: - Fetch
 
-    private func loadEnvelope() async {
+    private func loadDetail() async {
         isLoading = true
         defer {
             isLoading = false
             hasLoadedOnce = true
         }
         do {
-            let fetched = try await CloudKitService.fetchPublishedRecipeEnvelope(
+            let fetched = try await CloudKitService.fetchPublishedRecipe(
                 recordName: summary.recordName
             )
-            envelope = fetched
-            galleryPhotos = decodeGallery(fetched)
+            publishedDetail = fetched
+            galleryPhotos = decodeGallery(fetched.envelope)
             loadError = nil
         } catch {
-            // Don't blank a previously-loaded envelope on a transient
+            // Don't blank a previously-loaded detail on a transient
             // refetch error — keep showing the cached version while
             // the user decides whether to retry. Only surface the
             // error UI when there's nothing to fall back to.
-            if envelope == nil {
+            if publishedDetail == nil {
                 loadError = errorMessage(for: error)
             }
         }
+    }
+
+    // MARK: - Import
+
+    /// Deep-copy the friend's recipe into the local library with
+    /// chain attribution stamped, then signal RootView (via
+    /// `NavigationContext`) to dismiss the Profile sheet and push
+    /// the new recipe's Detail. Best-effort: a SwiftData save
+    /// failure surfaces an alert; everything else degrades to the
+    /// existing CloudKit-unavailable handling.
+    ///
+    /// Photo-bearing imports show the llama progress overlay (the
+    /// `ImageProcessing.prepare` re-encode of N photos can take
+    /// 200ms-2s); photoless imports skip it (the work is
+    /// instantaneous and the sheet-dismiss + Detail-push transition
+    /// is its own visible confirmation).
+    @MainActor
+    private func performImport() async {
+        guard !isImporting else { return }
+        guard let detail = publishedDetail else { return }
+
+        let hasPhotos = !detail.envelope.recipe.photos.isEmpty
+            || detail.envelope.recipe.steps.contains { !$0.photos.isEmpty }
+
+        Haptics.impact(.light)
+        if hasPhotos {
+            withAnimation { isImporting = true }
+        }
+
+        let newRecipe = await RecipeShare.materializeFromPublished(
+            detail,
+            into: modelContext,
+            friend: friend
+        )
+
+        do {
+            try modelContext.save()
+        } catch {
+            // The rare case where SwiftData refuses the insert —
+            // we surface this rather than swallow because the user
+            // tapped a deliberate action and would otherwise wonder
+            // why nothing happened.
+            withAnimation { isImporting = false }
+            importError = "Couldn't save the imported recipe."
+            return
+        }
+
+        Haptics.success()
+        // Hide the overlay before the signal fires so the sheet-
+        // dismiss animation doesn't fight the overlay's fade-out.
+        withAnimation { isImporting = false }
+        // Trigger the cross-sheet navigation. LibraryView's
+        // `.onChange(pendingImportedRecipeID)` dismisses the
+        // Profile sheet; RootView's same observer runs the
+        // existing post-save highlight + Detail-push sequence.
+        navContext.pendingImportedRecipeID = newRecipe.id
     }
 
     private func decodeGallery(_ envelope: LCRecipeShareV1) -> [Data] {

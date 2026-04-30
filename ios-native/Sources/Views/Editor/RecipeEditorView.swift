@@ -689,8 +689,12 @@ struct RecipeEditorView: View {
         // Mirror to CloudKit's PublishedRecipe so friends see the
         // updated version. Debounced 5s inside the service — a Save
         // burst (typo correction → re-save) collapses to one upload.
-        // Best-effort: silently no-ops when iCloud is unavailable.
-        LibraryMirrorService.shared.enqueueUpsert(savedRecipe, sharedBy: nil)
+        // Chain attribution (sharedBy / originalCreatorID /
+        // originalRecipeID for the published record) is derived
+        // from the recipe's `originalCreator*` fields inside the
+        // service. Best-effort: silently no-ops when iCloud is
+        // unavailable.
+        LibraryMirrorService.shared.enqueueUpsert(savedRecipe)
         if let onSaved {
             onSaved(savedRecipe)
         } else {

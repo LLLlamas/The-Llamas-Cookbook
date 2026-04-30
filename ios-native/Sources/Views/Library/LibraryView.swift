@@ -127,6 +127,16 @@ struct LibraryView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .onChange(of: navContext.pendingImportedRecipeID) { _, newID in
+            // Slice 5 — when a friend's recipe is imported (signal
+            // set by `FriendRecipeDetailView.performImport`),
+            // dismiss the Profile sheet so the friend's nav stack
+            // tears down. RootView's mirror observer handles the
+            // Detail-push side of the same signal.
+            if newID != nil {
+                showingProfile = false
+            }
+        }
         .toolbarBackground(AppColor.background, for: .navigationBar)
         .navigationDestination(for: Recipe.self) { recipe in
             RecipeDetailView(recipe: recipe)

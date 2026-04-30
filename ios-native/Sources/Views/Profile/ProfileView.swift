@@ -198,8 +198,7 @@ struct ProfileView: View {
                     let snapshot = allRecipes
                     Task {
                         await LibraryMirrorService.shared.bulkPublishIfNeeded(
-                            recipes: snapshot,
-                            sharedBy: nil
+                            recipes: snapshot
                         )
                     }
                 }

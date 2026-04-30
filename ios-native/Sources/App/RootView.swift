@@ -160,6 +160,33 @@ struct RootView: View {
             guard let url = activity.webpageURL else { return }
             routeUniversalLink(url)
         }
+        .onChange(of: navContext.pendingImportedRecipeID) { _, newID in
+            // Slice 5 — friend-import navigation. When
+            // `FriendRecipeDetailView.performImport` signals
+            // completion, look up the freshly-materialized recipe
+            // and run the same post-save choreography the file/
+            // link share path uses (sheet dismiss → library
+            // highlight → Detail push). LibraryView's mirror
+            // observer dismisses the Profile sheet that hosts the
+            // friend nav stack.
+            //
+            // The signal is consumed at the end of the highlight
+            // sequence (inside `runPostSaveHighlight`) so a
+            // subsequent import fires a fresh nil → id transition.
+            guard let newID,
+                  let recipe = lookupRecipe(newID)
+            else { return }
+            runPostSaveHighlight(for: recipe)
+            // Clear immediately — runPostSaveHighlight has already
+            // captured the recipe by reference and started its
+            // Task, so clearing the signal field doesn't interfere
+            // with the highlight sequence. Clearing now (rather
+            // than at the end of the sequence) ensures a rapid
+            // re-import of the same recipe (importing an updated
+            // copy after the chain root edited it) fires onChange
+            // again.
+            navContext.pendingImportedRecipeID = nil
+        }
         .sheet(item: $pendingShareImport) { envelope in
             RecipeImportPreviewView(envelope: envelope) { savedRecipe in
                 // Defer the nav push until the sheet has had time to

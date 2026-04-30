@@ -5,8 +5,8 @@ import CloudKit
 /// render `FriendLibraryView`'s recipe-card list without downloading
 /// the full envelope or photo CKAssets. Slice 4 consumes these to
 /// build the friend's read-only library; slice 5 follows up with
-/// `fetchPublishedRecipeEnvelope(recordName:)` once the user taps
-/// into a card.
+/// `fetchPublishedRecipe(recordName:)` once the user taps into a
+/// card.
 struct PublishedRecipeSummary: Identifiable, Hashable {
     /// CloudKit recordName (== `localRecipeID.uuidString`). Stable
     /// across re-publishes; used to fetch the full envelope on tap.
@@ -17,6 +17,29 @@ struct PublishedRecipeSummary: Identifiable, Hashable {
     let updatedAt: Date
 
     var id: String { recordName }
+}
+
+/// Full read-side payload for a single `PublishedRecipe` record —
+/// the rendered envelope plus the chain-attribution metadata that
+/// `RecipeShare.materializeFromPublished` needs to stamp the
+/// receiver's local Recipe with the correct `originalCreator*` /
+/// `originalRecipeID` values.
+///
+/// **Why not just the envelope.** `LCRecipeShareV1.share.sharedBy`
+/// carries the chain-root display *name*, but the receiver also
+/// needs the chain-root *user record name* (so a future "open the
+/// original creator's cookbook" tap, or the slice 6 import-counter
+/// query, has a stable identifier to pivot on). That's stored as a
+/// CKRecord field beside the envelope asset, not inside the
+/// envelope JSON, so we surface both together.
+struct PublishedRecipeDetail {
+    let envelope: LCRecipeShareV1
+    /// userRecordName of the chain-root creator. Nil for recipes
+    /// the publisher authored themselves (no chain).
+    let originalCreatorID: String?
+    /// Chain-root recipe id (the very first `Recipe.id` in the
+    /// import graph). Nil for own-authored recipes.
+    let originalRecipeID: String?
 }
 
 extension CloudKitService {
@@ -69,7 +92,9 @@ extension CloudKitService {
         ownerID: String,
         sharedBy: String?,
         appVersion: String,
-        recipe: Recipe
+        recipe: Recipe,
+        originalCreatorID: String?,
+        originalRecipeID: String?
     ) async throws {
         let envelope = RecipeShare.envelope(
             for: recipe,
@@ -126,6 +151,16 @@ extension CloudKitService {
         record["envelope"] = CKAsset(fileURL: envelopeURL)
         record["recipeTitle"] = recipeTitle as NSString
         record["updatedAt"] = Date() as NSDate
+
+        // Slice 5 chain attribution: when the publisher imported
+        // this recipe from someone else, carry the chain-root
+        // identifiers forward so a downstream importer can preserve
+        // the chain. nil for own-authored recipes; CKRecord with a
+        // nil value explicitly removes the field, which is the
+        // shape we want for the upsert path (recipe was previously
+        // imported, then locally re-authored, → field should clear).
+        record["originalCreatorID"] = originalCreatorID as NSString?
+        record["originalRecipeID"] = originalRecipeID as NSString?
 
         // Clear stale photo slots first — a recipe that lost a photo
         // since last publish would otherwise have the old asset
@@ -205,11 +240,14 @@ extension CloudKitService {
         return results
     }
 
-    /// Fetch the full envelope for a single PublishedRecipe.
-    /// Mirrors `fetchShare` — pulls the stripped envelope from the
-    /// Asset, then walks the `photo<N>` siblings to re-inject bytes.
-    /// Used by slice 5's `FriendRecipeDetailView` import path.
-    static func fetchPublishedRecipeEnvelope(recordName: String) async throws -> LCRecipeShareV1 {
+    /// Fetch the full envelope + chain-attribution metadata for a
+    /// single PublishedRecipe. Mirrors `fetchShare` — pulls the
+    /// stripped envelope from the Asset, then walks the `photo<N>`
+    /// siblings to re-inject bytes. The `originalCreatorID` /
+    /// `originalRecipeID` fields piggyback on the same fetch so
+    /// `FriendRecipeDetailView` and `materializeFromPublished` get
+    /// the chain root in one round-trip.
+    static func fetchPublishedRecipe(recordName: String) async throws -> PublishedRecipeDetail {
         let recordID = CKRecord.ID(recordName: recordName)
         let record = try await publicDB.record(for: recordID)
         guard let asset = record["envelope"] as? CKAsset,
@@ -232,7 +270,13 @@ extension CloudKitService {
             }
             photoBytes.append(bytes)
         }
-        return strippedEnvelope.injecting(photoBytes: photoBytes)
+        let envelope = strippedEnvelope.injecting(photoBytes: photoBytes)
+
+        return PublishedRecipeDetail(
+            envelope: envelope,
+            originalCreatorID: record["originalCreatorID"] as? String,
+            originalRecipeID: record["originalRecipeID"] as? String
+        )
     }
 
 }

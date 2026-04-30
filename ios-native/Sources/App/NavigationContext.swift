@@ -28,4 +28,20 @@ final class NavigationContext {
     /// recipe's letter, then gets pushed through to Detail. Cleared
     /// once the Detail push completes. nil at all other times.
     var pendingHighlightRecipeID: UUID?
+
+    /// Slice 5 signal — set by `FriendRecipeDetailView`'s import
+    /// handler after the imported recipe lands in SwiftData. Two
+    /// observers react to a non-nil value:
+    ///
+    /// 1. `LibraryView` dismisses the Profile sheet (which is the
+    ///    presentation root of the friend-browse flow), so the
+    ///    friend's nav stack tears down without manual back-tap.
+    /// 2. `RootView` runs its existing `runPostSaveHighlight`
+    ///    sequence — wait for sheet dismiss, scroll Library to the
+    ///    new recipe, then push its Detail. Reuses the same scroll
+    ///    + magnify-badge choreography as the share-import path.
+    ///
+    /// `RootView` clears the field at the end of the highlight
+    /// sequence so a subsequent import fires a fresh transition.
+    var pendingImportedRecipeID: UUID?
 }

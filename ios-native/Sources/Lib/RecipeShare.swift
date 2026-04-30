@@ -659,6 +659,89 @@ enum RecipeShare {
         into context: ModelContext,
         overrideTitle: String? = nil
     ) async -> Recipe {
+        let recipe = await createLocalRecipe(
+            from: envelope,
+            into: context,
+            overrideTitle: overrideTitle
+        )
+
+        // File/link share attribution. Stamped here (not in the
+        // shared helper) because the friend-import path uses a
+        // separate set of attribution fields and shouldn't touch
+        // these — see `materializeFromPublished` below.
+        recipe.sharedBy      = envelope.share.sharedBy
+        recipe.sharedAt      = .now
+        recipe.sourceShareID = envelope.share.sourceRecipeID
+
+        return recipe
+    }
+
+    /// Slice 5 entry point — creates a fresh local Recipe from a
+    /// friend's `PublishedRecipe` envelope and stamps the chain-
+    /// attribution fields. Distinct from `materialize` above so the
+    /// file/link share path's attribution (`sharedBy`/`sharedAt`/
+    /// `sourceShareID`) and the friend-import path's attribution
+    /// (`originalCreator*` / `originalSharer*` / `originalRecipeID`
+    /// / `importedAt`) coexist without overlap.
+    ///
+    /// **Chain logic:**
+    /// - `originalSharer*` always reflects the friend the user
+    ///   tapped to import — even if that friend is also the chain
+    ///   root, so a single source of truth for "who I imported
+    ///   from."
+    /// - `originalCreator*` falls back from the published record's
+    ///   `originalCreatorID` (chain root user record name; non-nil
+    ///   means the friend imported it from someone earlier) and
+    ///   the envelope's `sharedBy` (chain root display name) to the
+    ///   friend's own identity. So importing directly from the
+    ///   chain root sets `originalCreator == originalSharer`,
+    ///   which downstream `RecipeDetailView` collapses correctly.
+    /// - `originalRecipeID` falls back from the published record's
+    ///   field (chain root recipe id) to the envelope's recipe id
+    ///   so we always have *some* stable identifier to pivot on
+    ///   for the slice 6 import-counter query.
+    ///
+    /// Title collisions resolved silently via `resolveImportTitle`
+    /// (no user-rename prompt for slice 5 — the friend-import flow
+    /// is already a deliberate tap, doubling up with a rename
+    /// dialog would feel heavy. Future enhancement if real
+    /// collisions become common.)
+    @MainActor
+    static func materializeFromPublished(
+        _ detail: PublishedRecipeDetail,
+        into context: ModelContext,
+        friend: UserProfileSnapshot
+    ) async -> Recipe {
+        let envelope = detail.envelope
+        let recipe = await createLocalRecipe(
+            from: envelope,
+            into: context,
+            overrideTitle: nil
+        )
+
+        recipe.originalSharerUserRecordName = friend.userRecordName
+        recipe.originalSharerDisplayName    = friend.displayName
+        recipe.originalCreatorUserRecordName = detail.originalCreatorID ?? friend.userRecordName
+        recipe.originalCreatorDisplayName    = envelope.share.sharedBy ?? friend.displayName
+        recipe.originalRecipeID = detail.originalRecipeID ?? envelope.recipe.id.uuidString
+        recipe.importedAt       = .now
+
+        return recipe
+    }
+
+    /// Shared body for `materialize` and `materializeFromPublished`.
+    /// Resolves the title, creates the new Recipe with fresh UUIDs
+    /// throughout, inserts into the context, and walks the
+    /// envelope's ingredients / steps / photos to populate the
+    /// relationships. Caller is responsible for stamping
+    /// attribution — that's the only thing that differs between
+    /// the two materialize paths.
+    @MainActor
+    private static func createLocalRecipe(
+        from envelope: LCRecipeShareV1,
+        into context: ModelContext,
+        overrideTitle: String?
+    ) async -> Recipe {
         let resolvedTitle: String
         if let override = overrideTitle?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -684,10 +767,6 @@ enum RecipeShare {
         recipe.prefaceNote   = envelope.recipe.prefaceNote
         recipe.epilogueNote  = envelope.recipe.epilogueNote
         recipe.generalNote   = envelope.recipe.generalNote
-
-        recipe.sharedBy      = envelope.share.sharedBy
-        recipe.sharedAt      = .now
-        recipe.sourceShareID = envelope.share.sourceRecipeID
 
         context.insert(recipe)
 

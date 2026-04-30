@@ -72,10 +72,18 @@ final class LibraryMirrorService {
     /// canceled and replaced with this one — net effect: one upload
     /// `uploadDebounce` after the user stops mashing Save.
     ///
+    /// Slice 5 chain attribution: the published envelope's
+    /// `sharedBy` and the parent record's `originalCreatorID` /
+    /// `originalRecipeID` fields are all derived from the local
+    /// recipe's `originalCreator*` / `originalRecipeID` fields. For
+    /// own-authored recipes those are nil; for recipes the user
+    /// imported from a friend they carry the chain root's identity
+    /// forward so a downstream importer preserves the chain.
+    ///
     /// Bytes are extracted on the main actor synchronously (to
     /// satisfy `Recipe`'s `@Model`-bound access) and then handed off
     /// to a Task that does the network round-trip off-main.
-    func enqueueUpsert(_ recipe: Recipe, sharedBy: String?) {
+    func enqueueUpsert(_ recipe: Recipe) {
         guard let ownerID = UserProfileMirror.cachedRecordID() else {
             // No iCloud / not signed in — skip silently.
             return
@@ -100,9 +108,11 @@ final class LibraryMirrorService {
             // already-deleted record.
             try? await CloudKitService.upsertPublishedRecipe(
                 ownerID: ownerID,
-                sharedBy: sharedBy,
+                sharedBy: recipe.originalCreatorDisplayName,
                 appVersion: appVersion,
-                recipe: recipe
+                recipe: recipe,
+                originalCreatorID: recipe.originalCreatorUserRecordName,
+                originalRecipeID: recipe.originalRecipeID
             )
             self?.pendingUploads.removeValue(forKey: recipeID)
         }
@@ -130,7 +140,7 @@ final class LibraryMirrorService {
     ///
     /// Called from `ProfileView`'s `.onChange(of: friendsStore.friends.count)`
     /// where `@Query` already has the recipes in scope.
-    func bulkPublishIfNeeded(recipes: [Recipe], sharedBy: String?) async {
+    func bulkPublishIfNeeded(recipes: [Recipe]) async {
         let alreadyDone = UserDefaults.standard.bool(forKey: Self.bulkPublishedKey)
         guard !alreadyDone else { return }
         guard let ownerID = UserProfileMirror.cachedRecordID() else { return }
@@ -148,12 +158,20 @@ final class LibraryMirrorService {
         // trips; serializing keeps the device polite. Failures
         // don't abort the loop — best-effort, the per-save path
         // catches future updates anyway.
+        //
+        // Chain attribution per recipe — recipes the user imported
+        // from a friend keep their chain root identifiers in the
+        // published record, so a downstream importer preserves
+        // attribution. Own-authored recipes pass nil, which the
+        // upsert clears on the cloud record.
         for recipe in recipes {
             try? await CloudKitService.upsertPublishedRecipe(
                 ownerID: ownerID,
-                sharedBy: sharedBy,
+                sharedBy: recipe.originalCreatorDisplayName,
                 appVersion: appVersion,
-                recipe: recipe
+                recipe: recipe,
+                originalCreatorID: recipe.originalCreatorUserRecordName,
+                originalRecipeID: recipe.originalRecipeID
             )
         }
         UserDefaults.standard.set(true, forKey: Self.bulkPublishedKey)

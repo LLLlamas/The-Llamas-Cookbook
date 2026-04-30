@@ -45,6 +45,60 @@ final class Recipe {
     var sharedAt: Date?
     var sourceShareID: UUID?
 
+    /// Friends-feature attribution (slice 5). Stamped at materialize
+    /// time by `RecipeShare.materializeFromPublished(...)` when the
+    /// user imports a recipe from a friend's cookbook. Distinct from
+    /// the `sharedBy`/`sharedAt`/`sourceShareID` triple above —
+    /// those drive the file/link share path's display chrome and
+    /// stay untouched by friend imports so the two flows can
+    /// coexist without semantic overload.
+    ///
+    /// **Two layers of attribution.**
+    /// - `originalSharer*` — the friend you tapped to import. May
+    ///   equal the original creator (you imported directly from
+    ///   them) or differ (the friend had themselves imported it
+    ///   from someone earlier in the chain).
+    /// - `originalCreator*` — the chain root. The person whose
+    ///   library this recipe was first published from. This is the
+    ///   value the "Originally shared by [name]" header surfaces in
+    ///   `RecipeDetailView`, since users care about the creator
+    ///   regardless of how many hops it took to reach them.
+    ///
+    /// Display names are denormalized so the attribution line
+    /// renders correctly offline — the original creator's
+    /// `UserProfile` may not be fetchable when the user opens
+    /// detail without iCloud.
+    ///
+    /// `originalRecipeID` is a String (not UUID) because the
+    /// chain root might be a recipe authored on a future schema
+    /// where ids aren't UUIDs. Treating it opaquely is forward-
+    /// compatible.
+    ///
+    /// **`Recipe.apply(_:)` must never touch these** — same rule
+    /// as the share fields above. Edits to an imported recipe
+    /// preserve the chain.
+    var originalSharerUserRecordName: String?
+    var originalSharerDisplayName: String?
+    var originalCreatorUserRecordName: String?
+    var originalCreatorDisplayName: String?
+    var originalRecipeID: String?
+    var importedAt: Date?
+
+    /// Cached count of how many friends have imported this recipe
+    /// (transitive: any descendant in the chain whose
+    /// `originalRecipeID` traces back here). Refreshed
+    /// opportunistically when `RecipeDetailView` opens — see
+    /// slice 6's `RecipeImport` audit query for the source of
+    /// truth. `importCountCheckedAt` is the freshness anchor so
+    /// the chip can show stale-while-revalidate without
+    /// double-spinning.
+    ///
+    /// Default 0 + nil so existing recipes don't need migration —
+    /// SwiftData's lightweight migration will populate these
+    /// fields as the model loads.
+    var importCountCache: Int = 0
+    var importCountCheckedAt: Date?
+
     @Relationship(deleteRule: .cascade, inverse: \Ingredient.recipe)
     var ingredients: [Ingredient] = []
 

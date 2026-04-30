@@ -909,16 +909,40 @@ struct RecipeDetailView: View {
 
     /// "Originally shared by Lorenzo · Apr 27" when both name and date
     /// are present; "Originally shared by Lorenzo" alone when only the
-    /// name is set; nil when `sharedBy` is empty/nil. Locally-authored
-    /// recipes always return nil. Stamped at materialize time and
-    /// never cleared by `Recipe.apply(_:)` — the editor leaves it
-    /// alone so credit survives local edits.
+    /// name is set; nil for locally-authored recipes. Stamped at
+    /// materialize time and never cleared by `Recipe.apply(_:)` — the
+    /// editor leaves it alone so credit survives local edits.
     /// Display-name cap is enforced here as a render-side defense for
     /// envelopes from older app versions that predate the encode-side
     /// cap.
+    ///
+    /// **Two-source resolution.** Slice 5's friend-import path
+    /// stamps `originalCreatorDisplayName` + `importedAt`; the
+    /// older file/link share path stamps `sharedBy` + `sharedAt`.
+    /// We prefer the friend-import fields (they're the canonical
+    /// chain-root attribution that travels through downstream
+    /// imports) and fall back to the share fields, so both flows
+    /// surface the same caption shape and existing share-imports
+    /// stay visible after the model migration.
     private var provenanceLine: String? {
-        guard let by = RecipeShare.cappedDisplayName(recipe.sharedBy) else { return nil }
-        guard let at = recipe.sharedAt else {
+        if let line = formatProvenance(
+            name: recipe.originalCreatorDisplayName,
+            date: recipe.importedAt
+        ) {
+            return line
+        }
+        return formatProvenance(
+            name: recipe.sharedBy,
+            date: recipe.sharedAt
+        )
+    }
+
+    /// Shared formatter used by both attribution sources. Returns
+    /// nil when the name is empty/nil so the caller can collapse
+    /// the line entirely.
+    private func formatProvenance(name: String?, date: Date?) -> String? {
+        guard let by = RecipeShare.cappedDisplayName(name) else { return nil }
+        guard let at = date else {
             return "Originally shared by \(by)"
         }
         let formatter = DateFormatter()
