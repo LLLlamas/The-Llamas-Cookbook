@@ -133,6 +133,35 @@ enum StringCase {
         return first.uppercased() + s.dropFirst()
     }
 
+    /// Possessive cookbook title — "Lorenzo's Cookbook" for typical
+    /// names, "Sas' Cookbook" for names ending in "s"/"S" (per the
+    /// English style of dropping the trailing s after the apostrophe
+    /// for sibilant-final nouns). Falls back to "Llamas Cookbook"
+    /// when:
+    /// - displayName is nil (signed-out)
+    /// - displayName trims to empty
+    /// - displayName equals the "Cook" placeholder
+    ///   `UserAccount.resolveDisplayName` lands on when SIWA didn't
+    ///   supply a name and OwnerProfile was empty (showing
+    ///   "Cook's Cookbook" reads weird).
+    ///
+    /// Single source of truth — both `LibraryView`'s toolbar and
+    /// `ProfileView`'s header read through here so the title in the
+    /// nav bar matches the title on the Profile sheet exactly.
+    static func cookbookTitle(displayName: String?) -> String {
+        let fallback = "Llamas Cookbook"
+        guard let raw = displayName else { return fallback }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "Cook" else { return fallback }
+        let suffix: String
+        if let last = trimmed.last, last.lowercased() == "s" {
+            suffix = "'"
+        } else {
+            suffix = "'s"
+        }
+        return "\(trimmed)\(suffix) Cookbook"
+    }
+
     /// Proper title case — uppercase the first letter of each word,
     /// leave the rest of each word untouched. Apostrophes do **not**
     /// start a new word (so "grandma's" → "Grandma's", not the

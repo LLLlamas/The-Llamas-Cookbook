@@ -56,7 +56,7 @@ struct ImportFromPhotoView: View {
             }
             .padding(AppSpacing.lg)
         }
-        .background(AppColor.background)
+        .llamaBackground()
         .navigationTitle("Import From Photo")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(ocrInProgress)

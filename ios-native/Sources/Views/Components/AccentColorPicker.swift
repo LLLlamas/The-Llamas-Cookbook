@@ -46,7 +46,7 @@ struct AccentColorPicker: View {
                 Spacer(minLength: 0)
             }
             .padding(AppSpacing.lg)
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle("Customize")
             .navigationBarTitleDisplayMode(.inline)
             .tint(settings.accentColor)

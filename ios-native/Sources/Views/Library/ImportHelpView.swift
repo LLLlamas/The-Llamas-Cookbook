@@ -72,7 +72,7 @@ struct ImportHelpView: View {
             .padding(.vertical, AppSpacing.md)
             .background(AppColor.background)
         }
-        .background(AppColor.background)
+        .llamaBackground()
     }
 
     private var mascotHeader: some View {

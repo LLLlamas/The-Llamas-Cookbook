@@ -178,7 +178,7 @@ struct ImportFromTextView: View {
                 }
             }
         }
-        .background(AppColor.background)
+        .llamaBackground()
         .navigationTitle("Import From Text")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(true)

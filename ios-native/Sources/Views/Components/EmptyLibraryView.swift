@@ -16,7 +16,6 @@ struct EmptyLibraryView: View {
         }
         .padding(AppSpacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppColor.background)
     }
 }
 

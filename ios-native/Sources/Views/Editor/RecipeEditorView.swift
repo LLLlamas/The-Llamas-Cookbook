@@ -172,7 +172,7 @@ struct RecipeEditorView: View {
                 }
         }
         .scrollDismissesKeyboard(.immediately)
-        .background(AppColor.background)
+        .llamaBackground()
         .navigationTitle(headerTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)

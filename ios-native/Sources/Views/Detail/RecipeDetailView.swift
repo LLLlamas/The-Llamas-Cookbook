@@ -230,7 +230,7 @@ struct RecipeDetailView: View {
                 // overlay and the user has to overscroll to reach it.
                 .padding(.bottom, AppSpacing.xl + bottomOverlayClearance)
             }
-            .background(AppColor.background)
+            .llamaBackground()
 
             // Hide the full-width Start Cooking bar whenever a cook
             // session is already active — otherwise it collides

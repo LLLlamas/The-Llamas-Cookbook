@@ -81,7 +81,7 @@ struct FriendRecipeDetailView: View {
             .padding(.top, AppSpacing.lg)
             .padding(.bottom, AppSpacing.xxl)
         }
-        .background(AppColor.background)
+        .llamaBackground()
         .navigationTitle(StringCase.titleCase(summary.recipeTitle))
         .navigationBarTitleDisplayMode(.inline)
         .tint(friendAccent)

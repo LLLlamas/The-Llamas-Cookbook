@@ -56,7 +56,7 @@ struct AttributionSheet: View {
                 .padding(.top, AppSpacing.md)
                 .padding(.bottom, AppSpacing.xxl)
             }
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle("Attribution")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

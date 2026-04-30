@@ -39,7 +39,7 @@ struct AddFriendSheet: View {
 
                 resultsList
             }
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle("Add a Friend")
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)

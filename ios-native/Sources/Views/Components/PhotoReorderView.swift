@@ -67,7 +67,7 @@ struct PhotoReorderView: View {
                 }
                 .padding(AppSpacing.lg)
             }
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle(headerTitle)
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)

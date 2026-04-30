@@ -49,14 +49,14 @@ struct LibraryView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            mascotWatermark
             content
             addButton
         }
-        // Explicit cream behind everything so the recipeList — which uses
-        // .scrollContentBackground(.hidden) so the mascot watermark can
-        // peek through — never falls through to the system background.
-        .background(AppColor.background)
+        // Cream + faint mascot watermark behind everything. The
+        // recipeList uses .scrollContentBackground(.hidden) so the
+        // watermark peeks through; without the explicit background
+        // the scroll area would fall through to the system colour.
+        .llamaBackground()
         .navigationTitle(cookbookTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -191,24 +191,6 @@ struct LibraryView: View {
                 }
             }
         }
-    }
-
-    /// Faint mascot watermark sitting behind everything. Sized to nearly
-    /// fill the smaller screen dimension and centered in the available
-    /// area so it reads as a page-wide emblem; opacity stays low enough
-    /// that cards remain legible on top.
-    private var mascotWatermark: some View {
-        GeometryReader { geo in
-            // 95% of the smaller dimension keeps the mascot inside the
-            // safe visible area on every iPhone width without clipping.
-            let dim = min(geo.size.width, geo.size.height) * 0.95
-            // Watermark at 6% opacity — drop the shadow entirely
-            // (a halo on a faint logo just muddies the page).
-            LlamaLogo(size: dim, shadowOpacity: 0)
-                .opacity(0.06)
-                .frame(width: geo.size.width, height: geo.size.height)
-        }
-        .allowsHitTesting(false)
     }
 
     private var recipeList: some View {
@@ -525,22 +507,8 @@ struct LibraryView: View {
 
     // MARK: Derived
 
-    /// Personalised cookbook title — "Lorenzo's Cookbook" when signed in
-    /// with a real display name, "Llamas Cookbook" otherwise. Falls back
-    /// to the brand name for the signed-out state and for the "Cook"
-    /// placeholder that `UserAccount.resolveDisplayName` lands on when
-    /// Apple didn't supply a name and OwnerProfile was empty — showing
-    /// "Cook's Cookbook" would feel impersonal in a way the bare brand
-    /// title doesn't.
     private var cookbookTitle: String {
-        guard let raw = userAccount.status.identity?.displayName else {
-            return "Llamas Cookbook"
-        }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "Cook" else {
-            return "Llamas Cookbook"
-        }
-        return "\(trimmed)'s Cookbook"
+        StringCase.cookbookTitle(displayName: userAccount.status.identity?.displayName)
     }
 
     private var allTags: [String] {

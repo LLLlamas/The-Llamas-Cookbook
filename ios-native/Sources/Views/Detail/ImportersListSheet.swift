@@ -53,7 +53,7 @@ struct ImportersListSheet: View {
                 .padding(.top, AppSpacing.md)
                 .padding(.bottom, AppSpacing.xxl)
             }
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle("Importers")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

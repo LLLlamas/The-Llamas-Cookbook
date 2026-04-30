@@ -50,8 +50,8 @@ struct FriendLibraryView: View {
             .padding(.top, AppSpacing.lg)
             .padding(.bottom, AppSpacing.xxl)
         }
-        .background(AppColor.background)
-        .navigationTitle("\(friend.displayName)'s Cookbook")
+        .llamaBackground()
+        .navigationTitle(StringCase.cookbookTitle(displayName: friend.displayName))
         .navigationBarTitleDisplayMode(.inline)
         .tint(friendAccent)
         .task {

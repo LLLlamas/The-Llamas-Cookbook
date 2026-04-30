@@ -159,7 +159,7 @@ struct ImportFromLinkView: View {
                 }
             }
         }
-        .background(AppColor.background)
+        .llamaBackground()
         .navigationTitle("Import From Link")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(true)

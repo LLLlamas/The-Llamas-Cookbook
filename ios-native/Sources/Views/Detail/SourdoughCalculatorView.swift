@@ -53,7 +53,7 @@ struct SourdoughCalculatorView: View {
                 .padding(.bottom, AppSpacing.xxl)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle("Sourdough")
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)

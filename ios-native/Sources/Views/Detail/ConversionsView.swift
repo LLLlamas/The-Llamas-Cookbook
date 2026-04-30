@@ -20,7 +20,7 @@ struct ConversionsView: View {
                 .padding(.bottom, AppSpacing.xl)
             }
             .scrollDismissesKeyboard(.immediately)
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle("Conversions")
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)

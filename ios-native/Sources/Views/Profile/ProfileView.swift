@@ -87,8 +87,8 @@ struct ProfileView: View {
                     }
                     .padding(AppSpacing.lg)
                 }
-                .background(AppColor.background)
                 .scrollContentBackground(.hidden)
+                .llamaBackground()
                 .overlay(alignment: .trailing) {
                     // Letter index for the friends list. Only meaningful
                     // when signed in AND the friends list has enough
@@ -234,13 +234,7 @@ struct ProfileView: View {
     }
 
     private var headerTitle: String {
-        if case .signedIn(let identity) = userAccount.status {
-            let trimmed = identity.displayName.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty {
-                return "\(trimmed) Cookbook"
-            }
-        }
-        return "Llamas Cookbook"
+        StringCase.cookbookTitle(displayName: userAccount.status.identity?.displayName)
     }
 
     // MARK: - Signed-out body (unchanged from slice 1)
@@ -616,7 +610,7 @@ struct ProfileView: View {
                 Spacer()
             }
             .padding(.horizontal, AppSpacing.lg)
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)

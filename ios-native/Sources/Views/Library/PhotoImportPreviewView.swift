@@ -63,7 +63,7 @@ struct PhotoImportPreviewView: View {
                 .padding(.horizontal, AppSpacing.lg)
                 .padding(.top, AppSpacing.lg)
             }
-            .background(AppColor.background)
+            .llamaBackground()
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)
             .toolbar {
