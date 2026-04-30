@@ -238,6 +238,18 @@ enum RecipeImporter {
             .map(enrichStep)
     }
 
+    /// Repairs OCR-collapsed mixed fractions in measurement contexts.
+    /// Example: handwritten "1 1/2 cup" can arrive as "142 cup" when
+    /// Vision eats the spaces and reads the slash as a 4. Scoped to
+    /// home-cooking units where 112/142 is implausible as a real amount.
+    static func repairCollapsedMixedFractionQuantities(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: "(?<!\\d)1(?:12|42)\\s*(\(collapsedMixedFractionUnitPattern))\\b",
+            with: "1 1/2 $1",
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
+
     // MARK: - Labeled format
 
     private static func parseLabeled(_ text: String) -> DraftRecipe {
@@ -717,6 +729,7 @@ enum RecipeImporter {
         s = normalizeUnicodeFractions(s)
         s = s.replacingOccurrences(of: "&", with: " & ")
         s = splitFusedNumberUnit(s)
+        s = repairCollapsedMixedFractionQuantities(s)
         // Repair broken fractions — "1 /3", "1/ 3", "1 / 3" all become "1/3".
         s = s.replacingOccurrences(of: #"(\d)\s*/\s*(\d)"#, with: "$1/$2", options: .regularExpression)
         s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
@@ -1204,6 +1217,13 @@ enum RecipeImporter {
             .joined(separator: "|")
         return "(\\d)(\(units))\\b"
     }()
+
+    private static let collapsedMixedFractionUnitPattern = [
+        "cup", "cups",
+        "tbsp", "tablespoon", "tablespoons",
+        "tsp", "teaspoon", "teaspoons",
+        "stick", "sticks",
+    ].joined(separator: "|")
 
     /// Lookbehind: any non-whitespace char (so the pattern fires after
     /// emoji, closing parens, degree signs, etc.). Lookahead: a number

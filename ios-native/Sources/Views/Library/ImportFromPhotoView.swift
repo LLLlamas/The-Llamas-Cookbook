@@ -337,14 +337,14 @@ struct ImportFromPhotoView: View {
         }
 
         // 1. Encode each UIImage to Data + run through ImageProcessing.
-        // Resize to the gallery target — Vision likes 1.5-3MP inputs;
-        // larger pixels-per-character improve recognition without
-        // ballooning memory.
+        // Resize to the OCR target. It keeps more pixels and less JPEG
+        // loss than saved gallery photos, which helps handwriting and
+        // tiny fractions without storing a larger image anywhere.
         var prepared: [Data] = []
         for (idx, img) in images.enumerated() {
             ocrPageStatus = "Preparing page \(idx + 1) of \(images.count)…"
             guard let raw = img.jpegData(compressionQuality: 0.95),
-                  let resized = await ImageProcessing.prepare(raw, for: .gallery)
+                  let resized = await ImageProcessing.prepare(raw, for: .ocr)
             else { continue }
             prepared.append(resized)
         }

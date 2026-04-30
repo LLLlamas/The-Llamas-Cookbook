@@ -270,14 +270,12 @@ struct PhotoImportPreviewView: View {
             .filter { !$0.isEmpty }
     }
 
-    /// Lightweight ingredient renderer. Same shape as
-    /// `RecipeImportPreviewView.formatIngredient` but operates on
-    /// `DraftIngredient` (plain Swift) instead of `ShareIngredient`
-    /// (Codable). After Save the persisted `Ingredient` rows go
-    /// through the canonical formatter as expected.
+    /// Lightweight ingredient renderer for draft rows. Reuses the same
+    /// quantity/plural helpers as persisted ingredients without needing
+    /// a temporary SwiftData object just to render the preview.
     private func formatIngredient(_ ing: DraftIngredient) -> String {
-        let q = ing.quantity.trimmed
-        let u = ing.unit.trimmed
+        let q = Quantity.displayFormat(ing.quantity.trimmed)
+        let u = Plural.unit(ing.unit.trimmed, for: ing.quantity.trimmed)
         var measureParts: [String] = []
         if !q.isEmpty { measureParts.append(q) }
         if !u.isEmpty { measureParts.append(u) }

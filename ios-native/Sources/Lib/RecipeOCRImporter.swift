@@ -447,6 +447,11 @@ enum RecipeOCRImporter {
             with: "2",
             options: .regularExpression
         )
+        // "142 cup water" / "112 tsp sugar" -> "1 1/2 cup water".
+        // Keep this shared with the text/schema parser so photo OCR,
+        // pasted OCR text, and future import paths normalize the same
+        // collapsed mixed-fraction shape.
+        out = RecipeImporter.repairCollapsedMixedFractionQuantities(out)
         return out
     }
 

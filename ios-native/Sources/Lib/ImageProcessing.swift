@@ -2,9 +2,10 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Resize + re-encode photo data for storage. Used by every photo entry
-/// point — gallery picks, step picks, Detail-quick-edit. One
-/// implementation, four callers; see [Photo-Capability.md §4](../../../Photo-Capability.md).
+/// Resize + re-encode photo data for storage or temporary OCR prep.
+/// Used by every photo entry point — gallery picks, step picks,
+/// Detail-quick-edit, and import-from-photo. One implementation,
+/// several callers; see [Photo-Capability.md §4](../../../Photo-Capability.md).
 ///
 /// **Why ImageIO and not UIImage round-trips:**
 ///
@@ -24,12 +25,13 @@ import UniformTypeIdentifiers
 /// makes sense (HEIC stays small) and fails over to JPEG when the
 /// source format isn't worth preserving for storage.
 enum ImageProcessing {
-    /// Two callers, two budgets. Gallery photos earn the higher long-edge
-    /// because they're viewed full-screen in the carousel; step images
-    /// only need to be legible at ~240pt full-width in Cook Mode.
+    /// Different callers get different pixel budgets: gallery photos
+    /// are viewed full-screen, step images render smaller in Cook Mode,
+    /// and OCR gets a sharper temporary image for text recognition.
     enum Target {
         case gallery
         case step
+        case ocr
 
         /// Long-edge ceiling in pixels. Source images smaller than this
         /// pass through without upscaling (the thumbnail API caps at the
@@ -38,6 +40,7 @@ enum ImageProcessing {
             switch self {
             case .gallery: return 1920
             case .step:    return 1280
+            case .ocr:     return 2560
             }
         }
 
@@ -47,6 +50,7 @@ enum ImageProcessing {
             switch self {
             case .gallery: return 0.85
             case .step:    return 0.82
+            case .ocr:     return 0.92
             }
         }
     }
