@@ -7,17 +7,17 @@ import AuthenticationServices
 /// pattern as `AccentColorPicker`) so dismiss is a swipe-down or the
 /// Done button.
 ///
-/// Slice 2 layout (per implement-social.md):
+/// Layout (signed-in):
 ///
 ///   ┌──────────────────────────────────────────┐
-///   │ [⚙]                                      │  ← settings cog (top-leading)
+///   │ [⚙]                              [Done]  │  ← cog (leading) + Done (trailing)
 ///   │              [llama logo]                │
-///   │             Cookbook Title               │
-///   │           [ Display Name ✎ ]             │  ← editable inline
+///   │            {Name} Cookbook               │  ← title; first word reflects display name
+///   │           [ Display Name ✎ ]             │  ← editable card below; commit updates title
 ///   │         Last cooked: <Title>             │  ← only when set
 ///   │                                          │
-///   │  Requests (N)                            │  ← only when count > 0
-///   │  [● Name           [Deny] [Approve]]     │
+///   │  Requests (N)                            │  ← always visible when signed-in;
+///   │  [● Name           [Deny] [Approve]]     │     empty-state placeholder when N=0
 ///   │                                          │
 ///   │  Friends                          [+]    │  ← + opens AddFriendSheet
 ///   │  [● Name              ]              A   │  ← A–Z scrub on right
@@ -25,8 +25,13 @@ import AuthenticationServices
 ///   │  ...                                  C  │
 ///   └──────────────────────────────────────────┘
 ///
-/// The cog icon owns Sign Out + Delete Account (moved out of inline
-/// Profile per the slice 2 spec).
+/// The cog icon owns Sign Out + Delete Account.
+///
+/// Title binding: the "Llamas" word in the header is bound to the
+/// signed-in user's display name — committing the DISPLAY NAME card's
+/// inline editor flows through `commitNameEdit` → identity update →
+/// header re-render with `{newName} Cookbook`. Signed-out state falls
+/// back to the literal "Llamas Cookbook" branding.
 struct ProfileView: View {
     @Environment(UserAccount.self) private var userAccount
     @Environment(OwnerProfile.self) private var ownerProfile
@@ -206,17 +211,36 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Header (unchanged from slice 1)
+    // MARK: - Header
 
+    /// Header is anchored by the llama logo; the title underneath
+    /// reads `{displayName} Cookbook` when signed-in, falling back
+    /// to the literal "Llamas Cookbook" branding for signed-out
+    /// state. The displayName flows from `identity.displayName`,
+    /// so committing the DISPLAY NAME card's inline editor
+    /// re-renders the title automatically.
     private var header: some View {
         VStack(spacing: AppSpacing.sm) {
             LlamaLogo(size: 96, shadowColor: appearance.accentColor)
-            Text("Llamas Cookbook")
+            Text(headerTitle)
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(appearance.accentColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .padding(.horizontal, AppSpacing.md)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, AppSpacing.md)
+    }
+
+    private var headerTitle: String {
+        if case .signedIn(let identity) = userAccount.status {
+            let trimmed = identity.displayName.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty {
+                return "\(trimmed) Cookbook"
+            }
+        }
+        return "Llamas Cookbook"
     }
 
     // MARK: - Signed-out body (unchanged from slice 1)
@@ -278,9 +302,7 @@ struct ProfileView: View {
                 lastCookedLine(recipe: lastCooked)
             }
 
-            if !friendsStore.incomingRequests.isEmpty {
-                requestsSection
-            }
+            requestsSection
 
             friendsSection
         }
@@ -288,6 +310,10 @@ struct ProfileView: View {
 
     // MARK: - Display name row
 
+    /// Editable display-name card. The committed value drives the
+    /// `{displayName} Cookbook` header above via `commitNameEdit` →
+    /// `userAccount.updateDisplayName` → `identity.displayName`
+    /// re-read in `headerTitle`.
     private func displayNameRow(identity: UserAccount.UserIdentity) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
             Text("DISPLAY NAME")
@@ -380,12 +406,35 @@ struct ProfileView: View {
             Text("REQUESTS (\(friendsStore.incomingRequests.count))")
                 .eyebrowStyle(AppColor.textTertiary)
 
-            VStack(spacing: AppSpacing.xs) {
-                ForEach(friendsStore.incomingRequests) { request in
-                    requestRow(request: request)
+            if friendsStore.incomingRequests.isEmpty {
+                emptyRequestsBody
+            } else {
+                VStack(spacing: AppSpacing.xs) {
+                    ForEach(friendsStore.incomingRequests) { request in
+                        requestRow(request: request)
+                    }
                 }
             }
         }
+    }
+
+    private var emptyRequestsBody: some View {
+        VStack(spacing: AppSpacing.xs) {
+            Text("No new requests.")
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textSecondary)
+            Text("Friend requests will appear here.")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textTertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, AppSpacing.lg)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     private func requestRow(request: FriendsStore.PendingRequest) -> some View {

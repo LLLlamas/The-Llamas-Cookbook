@@ -125,11 +125,11 @@ struct AddFriendSheet: View {
 
     private func instructional(_ text: String) -> some View {
         Text(text)
-            .font(AppFont.body)
+            .font(AppFont.caption)
             .foregroundStyle(AppColor.textTertiary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, AppSpacing.lg)
-            .padding(.top, AppSpacing.xl)
+            .padding(.top, AppSpacing.sm)
             .frame(maxWidth: .infinity)
     }
 
