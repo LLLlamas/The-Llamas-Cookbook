@@ -40,13 +40,23 @@ extension View {
     /// with the faint mascot floating behind. Apply at the root of any
     /// screen that wants the brand watermark; safe to layer beneath
     /// existing content because the watermark disables hit testing.
+    ///
+    /// Forces the modified view to expand to its container's bounds via
+    /// `frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`
+    /// before painting the background — without this, a short
+    /// content view (e.g. AddFriendSheet's VStack of search field +
+    /// hint, ~100pt tall) would only paint cream behind that strip
+    /// and the rest of the sheet would fall through to the system
+    /// background.
     func llamaBackground(opacity: Double = 0.06) -> some View {
-        self.background(
-            ZStack {
-                AppColor.background
-                LlamaWatermark(opacity: opacity)
-            }
-            .ignoresSafeArea()
-        )
+        self
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(
+                ZStack {
+                    AppColor.background
+                    LlamaWatermark(opacity: opacity)
+                }
+                .ignoresSafeArea()
+            )
     }
 }
