@@ -23,6 +23,7 @@ struct AddFriendSheet: View {
     @State private var searchText: String = ""
     @State private var searchResults: [UserProfileSnapshot] = []
     @State private var isSearching: Bool = false
+    @State private var searchError: String? = nil
     @State private var searchTask: Task<Void, Never>?
     @FocusState private var searchFieldFocused: Bool
 
@@ -108,6 +109,8 @@ struct AddFriendSheet: View {
             ProgressView()
                 .padding(.top, AppSpacing.xl)
                 .frame(maxWidth: .infinity)
+        } else if let error = searchError {
+            instructional("Search error: \(error)")
         } else if filteredResults.isEmpty {
             instructional("No one matches that name.")
         } else {
@@ -156,12 +159,14 @@ struct AddFriendSheet: View {
         guard trimmed.count >= Self.minPrefixLength else {
             isSearching = false
             searchResults = []
+            searchError = nil
             return
         }
         // Flip the spinner up synchronously so the resultsList
         // doesn't show a stale "No one matches" for the 300ms
         // debounce window while the user is still typing.
         isSearching = true
+        searchError = nil
         searchTask = Task { @MainActor in
             try? await Task.sleep(for: Self.debounce)
             if Task.isCancelled { return }
@@ -169,12 +174,11 @@ struct AddFriendSheet: View {
                 let results = try await CloudKitService.searchUserProfiles(prefix: trimmed)
                 if Task.isCancelled { return }
                 searchResults = results
+                searchError = nil
             } catch {
-                // Silent — surface as "No one matches" rather than an
-                // alert, since transient errors during type-ahead
-                // would feel jarring.
                 if !Task.isCancelled {
                     searchResults = []
+                    searchError = error.localizedDescription
                 }
             }
             isSearching = false

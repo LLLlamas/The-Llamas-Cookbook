@@ -77,6 +77,21 @@ struct RootView: View {
             // call drops them back to signed-out so the next Profile
             // open prompts a fresh sign-in. No-op when signed out.
             await userAccount.refreshCredentialState()
+            // Re-ensure the CloudKit UserProfile record exists for already-
+            // signed-in users. `completeSignIn` writes the record on first
+            // SIWA, but if that upsert failed (schema not deployed yet,
+            // network blip) the user is permanently unsearchable until this
+            // re-bind runs and succeeds. Idempotent — `upsertUserProfile`
+            // preserves the original `createdAt` so "Joined <date>" stays
+            // stable across relaunches. Fire-and-forget: never blocks launch
+            // and silently no-ops when iCloud is unavailable.
+            if let identity = userAccount.status.identity {
+                let name = identity.displayName
+                let hex = appearance.accentColor.toHex
+                Task.detached {
+                    await UserProfileMirror.bindAfterSignIn(displayName: name, accentHex: hex)
+                }
+            }
             // Drain any pending CloudKit deletions left over from a
             // previous Delete-Account whose cascade hit a network
             // failure. Idempotent + early-return when the queue is
