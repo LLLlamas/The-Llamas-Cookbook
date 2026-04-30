@@ -163,7 +163,12 @@ final class LibraryMirrorService {
     /// account-deletion paths so a sign-in on a different Apple ID
     /// (or a fresh re-sign-in after delete) gets a fresh bulk-publish
     /// opportunity. Safe to call when the marker is already unset.
-    static func resetBulkPublishMarker() {
+    /// `nonisolated` because the body only touches thread-safe
+    /// `UserDefaults` — the class-level `@MainActor` is to protect
+    /// the per-recipe debounce state, which this method doesn't touch.
+    /// Lets sign-out / delete-account paths call it without becoming
+    /// `@MainActor` themselves.
+    nonisolated static func resetBulkPublishMarker() {
         UserDefaults.standard.removeObject(forKey: bulkPublishedKey)
     }
 

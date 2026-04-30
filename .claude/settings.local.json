@@ -46,7 +46,10 @@
       "Bash(mv \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/content-research-writer\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/frontend-design\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/senior-frontend\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/senior-fullstack\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/ui-design-system\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/ui-ux-pro-max\" \"/c/Users/fines/.claude/skills/\")",
       "Read(//c/Users/fines/.claude/**)",
       "Bash(git checkout *)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(mkdir -p /tmp/build-logs)",
+      "Bash(unzip -o \"C:/Users/fines/Downloads/logs_66824155707.zip\" -d /tmp/build-logs/)",
+      "Bash(awk 'NR>=940 && NR<=970' \"/tmp/build-logs/Build + upload \\(Swift\\)/13_Archive.txt\")"
     ]
   }
 }

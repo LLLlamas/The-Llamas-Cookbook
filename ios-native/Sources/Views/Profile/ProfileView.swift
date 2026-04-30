@@ -499,29 +499,38 @@ struct ProfileView: View {
     }
 
     private func friendRow(friend: UserProfileSnapshot) -> some View {
-        HStack(spacing: AppSpacing.sm) {
-            AccentDot(
-                hex: friend.accentHex,
-                fallback: appearance.accentColor,
-                isGlowing: friend.isCookingNow
+        // NavigationLink pushes the friend's library inside the
+        // Profile sheet's NavigationStack. Tap navigates; long-
+        // press opens the contextMenu (Remove). `.buttonStyle(.plain)`
+        // keeps the row's visual treatment intact — without it, the
+        // link would tint the row's content text.
+        NavigationLink {
+            FriendLibraryView(friend: friend)
+        } label: {
+            HStack(spacing: AppSpacing.sm) {
+                AccentDot(
+                    hex: friend.accentHex,
+                    fallback: appearance.accentColor,
+                    isGlowing: friend.isCookingNow
+                )
+                Text(friend.displayName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AppColor.textPrimary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+            .padding(AppSpacing.sm + 2)
+            .background(AppColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.divider, lineWidth: 1)
             )
-            Text(friend.displayName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(AppColor.textPrimary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            // Slice 4 will turn this row into a NavigationLink that
-            // pushes FriendLibraryView. For slice 2, the row is
-            // visible-only — long-press surfaces Remove via the
-            // contextMenu below.
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         }
-        .padding(AppSpacing.sm + 2)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .buttonStyle(.plain)
         .contextMenu {
             Button(role: .destructive) {
                 pendingFriendRemoval = friend
