@@ -114,7 +114,7 @@ struct RootView: View {
             //      (recipient tapped a chat-app link from before cloud
             //      hosting; also the iCloud-unavailable fallback path)
             //   3. llamascookbook://share/<recordName>       ← cloud-permalink
-            //      share — recipient tapped a `share/<6char-id>` link, we
+            //      share — recipient tapped a `share/<recordName>` link, we
             //      fetch the RecipeShare record from CloudKit public DB.
             //      Legacy form, kept for back-compat with any test links
             //      sitting in chat history pre-2026-04-29; new links go

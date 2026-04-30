@@ -18,7 +18,7 @@
  * Returns the record JSON (or null on 404). Throws on auth / network
  * errors so callers can fall through to the generic preview.
  *
- * @param {string} recordName - The 6-char `RecipeShare` record ID.
+ * @param {string} recordName - The `RecipeShare` record ID.
  * @param {object} env - Cloudflare Pages env bindings.
  *   - CLOUDKIT_CONTAINER_ID: e.g. "iCloud.com.llamascookbook.app"
  *   - CLOUDKIT_KEY_ID: short alphanumeric from CloudKit Console

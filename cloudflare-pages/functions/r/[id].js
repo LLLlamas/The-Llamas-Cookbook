@@ -16,14 +16,16 @@
 
 import { fetchShareRecord, extractPreviewFields } from '../../lib/cloudkit.js';
 
+const SHARE_RECORD_NAME_RE = /^(?:[A-HJ-NP-Z2-9]{6}|[A-HJ-NP-Z2-9]{12})$/;
+
 export async function onRequest(context) {
   const { request, env, params } = context;
   const recordName = (params.id || '').trim();
 
-  // Defensive: record names are 6 chars from a fixed alphanumeric
-  // alphabet. Anything else is either a typo or an attacker probing
-  // — short-circuit to 404 before hitting CloudKit.
-  if (!recordName || !/^[A-Z0-9]{4,32}$/.test(recordName)) {
+  // Defensive: accept legacy 6-char links and current 12-char links
+  // from the app's non-ambiguous share alphabet. Anything else
+  // short-circuits to 404 before hitting CloudKit.
+  if (!recordName || !SHARE_RECORD_NAME_RE.test(recordName)) {
     return notFoundHTML();
   }
 
@@ -71,6 +73,7 @@ export async function onRequest(context) {
       // (we never update them), so the only invalidation event is
       // a delete-account cascade; a stale hour is harmless.
       'cache-control': 'public, max-age=3600',
+      ...securityHeaders(),
     },
   });
 }
@@ -222,8 +225,30 @@ function renderHTML({ title, description, ogImage, pageURL, appURL }) {
 function notFoundHTML() {
   return new Response(
     `<!DOCTYPE html><html><head><title>Recipe not found</title><meta charset="utf-8"></head><body style="font-family:-apple-system,sans-serif;text-align:center;padding:80px 20px;color:#3a2d1e;background:#faf7f2;"><h1>Recipe not found</h1><p>This share link doesn't point at a valid recipe.</p></body></html>`,
-    { status: 404, headers: { 'content-type': 'text/html;charset=UTF-8' } }
+    {
+      status: 404,
+      headers: {
+        'content-type': 'text/html;charset=UTF-8',
+        ...securityHeaders(),
+      },
+    }
   );
+}
+
+function securityHeaders() {
+  return {
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+    'content-security-policy': [
+      "default-src 'none'",
+      "img-src 'self' data:",
+      "style-src 'unsafe-inline'",
+      "base-uri 'none'",
+      "form-action 'none'",
+      "frame-ancestors 'none'",
+    ].join('; '),
+  };
 }
 
 function escapeHTML(s) {

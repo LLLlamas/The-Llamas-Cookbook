@@ -14,6 +14,9 @@
 
 import { fetchShareRecord, extractPreviewFields } from '../../lib/cloudkit.js';
 
+const SHARE_RECORD_NAME_RE = /^(?:[A-HJ-NP-Z2-9]{6}|[A-HJ-NP-Z2-9]{12})$/;
+const MAX_PROXY_IMAGE_BYTES = 10_000_000;
+
 export async function onRequest(context) {
   const { request, env, params } = context;
   const recordName = (params.id || '').trim();
@@ -21,7 +24,7 @@ export async function onRequest(context) {
   const requestURL = new URL(request.url);
   const fallbackURL = `${requestURL.origin}/llama-icon.png`;
 
-  if (!recordName || !/^[A-Z0-9]{4,32}$/.test(recordName)) {
+  if (!recordName || !SHARE_RECORD_NAME_RE.test(recordName)) {
     return Response.redirect(fallbackURL, 302);
   }
 
@@ -39,8 +42,10 @@ export async function onRequest(context) {
     return Response.redirect(fallbackURL, 302);
   }
 
-  // Fetch the bytes from CloudKit's CDN. Stream the response back
-  // so a large photo doesn't materialize fully in Worker memory.
+  // Fetch the bytes from CloudKit's CDN. We cap by Content-Length
+  // before reading, then sniff the first bytes instead of trusting
+  // CloudKit's content-type (CKAsset temp files may be served as
+  // application/octet-stream).
   let upstream;
   try {
     upstream = await fetch(photoURL);
@@ -54,17 +59,83 @@ export async function onRequest(context) {
     return Response.redirect(fallbackURL, 302);
   }
 
-  const contentType =
-    upstream.headers.get('content-type') || 'image/jpeg';
+  const contentLength = parseContentLength(upstream.headers.get('content-length'));
+  if (!contentLength || contentLength > MAX_PROXY_IMAGE_BYTES) {
+    console.error(`Photo fetch returned invalid content-length ${contentLength || 'missing'} for ${recordName}`);
+    return Response.redirect(fallbackURL, 302);
+  }
+
+  const imageBytes = await upstream.arrayBuffer();
+  if (imageBytes.byteLength > MAX_PROXY_IMAGE_BYTES) {
+    console.error(`Photo fetch exceeded byte cap for ${recordName}`);
+    return Response.redirect(fallbackURL, 302);
+  }
+
+  const contentType = detectImageContentType(imageBytes);
+  if (!contentType) {
+    console.error(`Photo fetch returned non-image bytes for ${recordName}`);
+    return Response.redirect(fallbackURL, 302);
+  }
 
   // Cache aggressively at the edge — RecipeShare records are
   // immutable. 1-day max-age + stale-while-revalidate covers the
   // delete-account window without re-hitting CloudKit on every
   // preview scrape.
-  return new Response(upstream.body, {
+  return new Response(imageBytes, {
     headers: {
       'content-type': contentType,
       'cache-control': 'public, max-age=86400, stale-while-revalidate=604800',
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'no-referrer',
     },
   });
+}
+
+function parseContentLength(value) {
+  if (!value) return null;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+function detectImageContentType(buffer) {
+  const bytes = new Uint8Array(buffer);
+
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  if (
+    bytes.length >= 8
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+    && bytes[4] === 0x0d
+    && bytes[5] === 0x0a
+    && bytes[6] === 0x1a
+    && bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+
+  if (
+    bytes.length >= 12
+    && ascii(bytes, 0, 4) === 'RIFF'
+    && ascii(bytes, 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+
+  if (bytes.length >= 12 && ascii(bytes, 4, 8) === 'ftyp') {
+    const brand = ascii(bytes, 8, 12);
+    if (['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(brand)) {
+      return 'image/heic';
+    }
+  }
+
+  return null;
+}
+
+function ascii(bytes, start, end) {
+  return String.fromCharCode(...bytes.slice(start, end));
 }

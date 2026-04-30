@@ -1,6 +1,10 @@
 # Cloudflare Pages: per-path response headers.
 # Format: path on its own line, headers indented with 2 spaces.
 
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
 # Apple requires the AASA file served as application/json (some
 # scrapers tolerate octet-stream, but iOS is strict). The file
 # itself has no extension on disk, so without this header

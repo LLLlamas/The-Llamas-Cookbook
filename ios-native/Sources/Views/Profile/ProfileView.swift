@@ -162,7 +162,7 @@ struct ProfileView: View {
                     Task { await friendsStore.removeFriend(toRemove) }
                 }
             } message: { friend in
-                Text("\(friend.displayName) will no longer see your cookbook, and you'll lose access to theirs.")
+                Text("\(friend.displayName) will be removed from your friends list. You won't see each other's cookbooks in Friends.")
             }
             .sheet(isPresented: $showingSettings) {
                 settingsSheet

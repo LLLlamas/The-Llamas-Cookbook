@@ -33,7 +33,8 @@ Slice 6 portal step pending: enable **Push Notifications** capability on the App
 | FAB | `LibraryView` | 4 entries: Write / Import Text / Import Link / Import Photo. |
 | Recipe Detail | `Views/Detail/RecipeDetailView.swift` | Sections, gallery, share menu, sourdough chip. **Slice 6:** "Imported by N" chip on own recipes (taps → `Views/Detail/ImportersListSheet.swift`); "Originally shared by [name]" eyebrow on imported recipes is tappable (taps → `Views/Detail/AttributionSheet.swift`). Stale-while-revalidate refresh on `.task(id: recipe.id)`; live re-fetch on `CloudKitSubscriptions.didFireNotification` of kind `.recipeImport`. |
 | Export | `Lib/RecipeExport.swift` | Plain-text bridge. |
-| Recipe sharing | `Lib/CloudKitService.swift` + `Lib/RecipeShare.swift` + `Views/Components/ShareSheet.swift` | Cloud Universal Link first, local URL fallback. Public DB `RecipeShare`; photos as separate `CKAsset` `photo0`–`photo19`. Link `https://llamascookbook.pages.dev/r/<6char>`. Fallback `llamascookbook://recipe/v2/<base64url>` (lzma, no photos). Outbox `cloudShareOutbox.v1` for Delete-Account cascade. |
+| Sharing privacy | `CloudKitService` + Cloudflare Pages | Social/friend cookbook and recipe-share records are **public/unlisted**, not friend-private. The app surfaces friend cookbooks through accepted-friend UI, but copy must not promise that only friends can possibly read shared records. New share links use 12-char non-ambiguous IDs; legacy 6-char links still route. |
+| Recipe sharing | `Lib/CloudKitService.swift` + `Lib/RecipeShare.swift` + `Views/Components/ShareSheet.swift` | Cloud Universal Link first, local URL fallback. Public DB `RecipeShare`; photos as separate `CKAsset` `photo0`–`photo19`. New links use 12-char non-ambiguous IDs at `https://llamascookbook.pages.dev/r/<id>`; legacy 6-char links still route. Fallback `llamascookbook://recipe/v2/<base64url>` (lzma, no photos). Outbox `cloudShareOutbox.v1` for Delete-Account cascade. |
 | Recipe import | `Views/Library/RecipeImportPreviewView.swift` + `RootView.onOpenURL` + `onContinueUserActivity` | Handles `.llamarecipe`, `recipe/v<N>/`, legacy `share/<id>`, HTTPS Universal Links. Save → `RecipeShare.materialize` (rewrites UUIDs). |
 | Share Extension | `ShareExtension/ShareViewController.swift` + `Sources/Shared/SharedContainer.swift` | Passthrough only. URLs → `share-url/<base64url>`. Files → App Group → `share-incoming/<uuid>`. |
 | Conversions | `Views/Detail/ConversionsView.swift` | Cards + live calculator. |
@@ -107,7 +108,7 @@ iOS in `ios-native/`. Repo root = docs + `outdated/rn-expo/` (archived; **do not
   - Timer: `AlarmPlayer`, `TimerNotifications`, `TimerLiveActivityController`.
   - Photos: `ImageProcessing` (`CGImageSource`/`Destination` resize, `Task.detached`).
   - Auth: `KeychainStore`, `SignInWithAppleService`.
-  - Cloud: `CloudKitService` (wraps `CKContainer("iCloud.com.llamascookbook.app").publicCloudDatabase`; record IDs = 6-char `[A-Z2-9]` minus I/O/0/1).
+  - Cloud: `CloudKitService` (wraps `CKContainer("iCloud.com.llamascookbook.app").publicCloudDatabase`; new record IDs = 12-char `[A-Z2-9]` minus I/O/0/1; legacy 6-char share links still route).
   - UI: `Haptics`, `KeyboardDismiss.focusedNumeric`, `Shake`.
 - **`Shared/`** — Foundation only, cross-target. `TimerAttributes`, `SharedContainer` (App Group `group.com.llamascookbook.app`), `Base64URL`.
 - **`Theme/`** — `AppColor`, `AppFont` (system serif), `AppSpacing` (4/8/12/16/24/32/48), `AppRadius` (8/12/16/24), `ColorHex`.
@@ -132,6 +133,8 @@ iOS in `ios-native/`. Repo root = docs + `outdated/rn-expo/` (archived; **do not
 **Per-cook persistence.** Every change → `persistSnapshot()` → `CookingSessionStore.save(...)`. Force-kill recoverable: expired timers surface ready overlay (no auto-restart of alarm).
 
 **Per-cook timer notification IDs.** `TimerNotifications.identifier(for: cookID:)` → `cooking-timer-<uuid>`. `cancelAll` also wipes legacy `"cooking-timer"`. `userInfo` carries `recipeID` + `cookID`.
+
+**Social privacy contract.** Friends/social cookbook sharing is public/unlisted by product decision (2026-04-30), not strictly friend-private. Accepted-friend UI controls discovery inside the app, while CloudKit public DB records and Cloudflare previews support non-friend recipe receipt via Messages/links. Do not add user-facing copy that promises "only friends can see this" unless the storage architecture changes.
 
 **Multi-cook timer hole (outstanding).** `TimerLiveActivityController` is per-`CookModeView`. Backgrounded cook's Live Activity unmanaged. Fix: `TimerLiveActivityRegistry` keyed by `cookID`.
 

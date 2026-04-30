@@ -68,7 +68,7 @@ extension CloudKitService {
     ///   importer imported FROM. May equal `originalCreatorID`.
     /// - `importedAt` — Date/Time, queryable + sortable.
     ///
-    /// Record name strategy: random 6-char `[A-Z2-9]` minus
+    /// Record name strategy: random token from `[A-Z2-9]` minus
     /// `I/O/0/1` (same alphabet as `RecipeShare`), so two
     /// audit rows can never collide on the same recordName.
     /// Idempotent re-import detection isn't a goal — a user
@@ -95,7 +95,7 @@ extension CloudKitService {
     ///
     /// Two-attempt retry on collision matches `uploadShare`'s
     /// pattern — at the (vanishingly small) chance of a
-    /// 6-char ID clash, retry once with a fresh ID before
+    /// record-name clash, retry once with a fresh ID before
     /// giving up.
     static func writeRecipeImport(
         originalCreatorID: String,
@@ -133,16 +133,13 @@ extension CloudKitService {
     /// nobody has imported yet — the call site checks `count`
     /// and renders the chip's "0" / hides the chip accordingly.
     ///
-    /// CKQuery's default page size is 100, which covers any
-    /// realistic per-recipe import count. If a single recipe
-    /// ever blows past that we'd paginate via the `cursor`
-    /// returned by `records(matching:)`; not worth implementing
-    /// pre-emptively.
+    /// Follows CloudKit cursors so large import counts do not
+    /// silently stop at the first query page.
     static func fetchRecipeImports(forOriginalRecipeID originalRecipeID: String) async throws -> [RecipeImportRecord] {
         let predicate = NSPredicate(format: "originalRecipeID == %@", originalRecipeID)
         let query = CKQuery(recordType: recipeImportRecordType, predicate: predicate)
         query.sortDescriptors = [NSSortDescriptor(key: "importedAt", ascending: false)]
-        let (matchResults, _) = try await publicDB.records(matching: query)
+        let matchResults = try await queryAllRecords(matching: query)
         var results: [RecipeImportRecord] = []
         results.reserveCapacity(matchResults.count)
         for (id, result) in matchResults {
@@ -212,7 +209,7 @@ extension CloudKitService {
             userRecordName, userRecordName
         )
         let query = CKQuery(recordType: recipeImportRecordType, predicate: predicate)
-        guard let (matchResults, _) = try? await publicDB.records(matching: query) else {
+        guard let matchResults = try? await queryAllRecords(matching: query) else {
             return
         }
         for (id, _) in matchResults {
@@ -222,7 +219,7 @@ extension CloudKitService {
 
     // MARK: - Helpers
 
-    /// 6-char alphanumeric record name from the same
+    /// Random alphanumeric record name from the same
     /// `[A-Z2-9]` minus `I/O/0/1` alphabet `RecipeShare` uses.
     /// Internal-not-private so future cascades (slice 7+ if
     /// any) can mint matching IDs without redefining the

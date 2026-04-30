@@ -84,9 +84,22 @@ extension CloudKitService {
     /// stamp `acceptedAt`. The record's recordName is whatever
     /// CloudKit assigned at send-time; the caller (recipient) reads
     /// it out of their incoming-requests list.
-    static func approveFriendRequest(recordName: String) async throws {
+    static func approveFriendRequest(
+        recordName: String,
+        currentUserID: String? = nil
+    ) async throws {
         let id = CKRecord.ID(recordName: recordName)
         let record = try await publicDB.record(for: id)
+        if let currentUserID {
+            guard let userA = record["userA"] as? String,
+                  let userB = record["userB"] as? String,
+                  let requesterID = record["requesterID"] as? String,
+                  (currentUserID == userA || currentUserID == userB),
+                  currentUserID != requesterID
+            else {
+                throw CloudKitServiceError.notAuthorized
+            }
+        }
         record["status"] = FriendshipRecord.Status.accepted.rawValue as NSString
         record["acceptedAt"] = Date() as NSDate
         _ = try await publicDB.save(record)
@@ -101,8 +114,25 @@ extension CloudKitService {
     /// Per the spec, deny is silent on the requester's end — they
     /// just see the request silently disappear from their pending
     /// state on next refresh. No notification.
-    static func deleteFriendship(recordName: String) async throws {
+    static func deleteFriendship(
+        recordName: String,
+        currentUserID: String? = nil
+    ) async throws {
         let id = CKRecord.ID(recordName: recordName)
+        if let currentUserID {
+            let record: CKRecord
+            do {
+                record = try await publicDB.record(for: id)
+            } catch let ckError as CKError where ckError.code == .unknownItem {
+                return
+            }
+            guard let userA = record["userA"] as? String,
+                  let userB = record["userB"] as? String,
+                  currentUserID == userA || currentUserID == userB
+            else {
+                throw CloudKitServiceError.notAuthorized
+            }
+        }
         do {
             _ = try await publicDB.deleteRecord(withID: id)
         } catch let ckError as CKError where ckError.code == .unknownItem {
@@ -115,18 +145,15 @@ extension CloudKitService {
     /// userB position. The single round-trip lets `FriendsStore`
     /// categorize once and avoid duplicate per-status queries.
     ///
-    /// Result limit is the CK default (currently 100, but Apple
-    /// reserves the right to change). At realistic friend counts
-    /// (single digits to low hundreds) one page is plenty; if we
-    /// ever blow that, paginate via the `cursor` returned by
-    /// `records(matching:)`.
+    /// Follows CloudKit cursors so large friend lists don't silently
+    /// stop at the first query page.
     static func fetchFriendships(for userRecordName: String) async throws -> [FriendshipRecord] {
         let predicate = NSPredicate(
             format: "userA == %@ OR userB == %@",
             userRecordName, userRecordName
         )
         let query = CKQuery(recordType: friendshipRecordType, predicate: predicate)
-        let (matchResults, _) = try await publicDB.records(matching: query)
+        let matchResults = try await queryAllRecords(matching: query)
         var results: [FriendshipRecord] = []
         results.reserveCapacity(matchResults.count)
         for (id, result) in matchResults {
@@ -162,7 +189,10 @@ extension CloudKitService {
             return
         }
         for friendship in records {
-            try? await deleteFriendship(recordName: friendship.recordName)
+            try? await deleteFriendship(
+                recordName: friendship.recordName,
+                currentUserID: userRecordName
+            )
         }
     }
 }

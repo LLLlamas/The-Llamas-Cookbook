@@ -115,7 +115,9 @@ Every recipe in your library auto-publishes as a `PublishedRecipe` once you have
 
 **Write amplification mitigation:** debounce mirror writes per recipe (e.g. 5s) and batch in a `LibraryMirrorService`. A single editor session that hits Save four times only writes to CloudKit once.
 
-**Privacy stance:** the public DB is technically world-readable, but records are only **discoverable** by knowing a friend's `userRecordName`. Recipes aren't sensitive data — this is the right tradeoff. We do not build per-recipe-private toggles in the MVP.
+**Privacy decision (2026-04-30):** friend cookbooks and recipe-share records use a **public/unlisted sharing** model. Accepted-friend UI controls discovery inside the app, and Messages/Universal Links intentionally allow non-friend recipients to open shared recipes. Do not describe this as strictly friend-private unless the storage architecture changes.
+
+**Historical MVP stance:** the public DB is technically world-readable and records are primarily unlisted/discoverable through app flows. Product decision above keeps that model; do not treat it as a strict privacy boundary.
 
 ## Friend request flow
 

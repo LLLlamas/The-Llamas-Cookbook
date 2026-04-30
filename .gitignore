@@ -33,6 +33,7 @@ testing/
 
 # Claude Code agent definitions and agent memory — local tooling, not shared.
 # Agents live at user scope (~/.claude/agents/) so the project doesn't need a copy.
+.claude/settings.local.json
 .claude/agents/
 .claude/agent-memory/
 

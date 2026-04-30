@@ -53,6 +53,12 @@ final class FriendsStore {
     /// header on first load.
     private(set) var isRefreshing: Bool = false
 
+    /// Token for the block-based push observer. NotificationCenter
+    /// retains block observers until removed, so setup is explicitly
+    /// idempotent.
+    @ObservationIgnored
+    private var remotePushObserver: NSObjectProtocol?
+
     /// Pending request with everything the UI needs to render:
     /// approve/deny target (`friendshipRecordName`) + requester
     /// avatar/name (`requester`).
@@ -180,6 +186,11 @@ final class FriendsStore {
         // problem — see implement-social.md.)
         if friends.contains(where: { $0.userRecordName == other.userRecordName }) { return }
         if outgoingRequests[other.userRecordName] != nil { return }
+        if let remoteFriendships = try? await CloudKitService.fetchFriendships(for: me),
+           remoteFriendships.contains(where: { $0.otherUserID(from: me) == other.userRecordName }) {
+            await refresh()
+            return
+        }
 
         // Optimistic placeholder — uses a sentinel record name so we
         // can detect an in-flight send and not double-issue. Real
@@ -203,20 +214,26 @@ final class FriendsStore {
     /// record, then removes the entry. Idempotent at the CK layer
     /// (deleteFriendship swallows `unknownItem`).
     func cancelRequest(to other: UserProfileSnapshot) async {
+        guard let me = UserProfileMirror.cachedRecordID() else { return }
         guard let recordName = outgoingRequests[other.userRecordName] else { return }
         outgoingRequests.removeValue(forKey: other.userRecordName)
         // Skip the network call when only an optimistic placeholder
         // ever landed (the send is in flight or failed).
         guard !recordName.hasPrefix("pending-") else { return }
-        try? await CloudKitService.deleteFriendship(recordName: recordName)
+        try? await CloudKitService.deleteFriendship(
+            recordName: recordName,
+            currentUserID: me
+        )
     }
 
     /// Approve an incoming friend request. Flips the CK record's
     /// status and re-fetches so the new friend appears in the
     /// `friends` list and disappears from `incomingRequests`.
     func acceptRequest(_ pending: PendingRequest) async {
+        guard let me = UserProfileMirror.cachedRecordID() else { return }
         try? await CloudKitService.approveFriendRequest(
-            recordName: pending.friendshipRecordName
+            recordName: pending.friendshipRecordName,
+            currentUserID: me
         )
         // Optimistic local update so the row vanishes immediately
         // (the refresh below will reconcile).
@@ -233,8 +250,10 @@ final class FriendsStore {
     /// vanish on next refresh. No notification fires (per spec —
     /// "saves face").
     func denyRequest(_ pending: PendingRequest) async {
+        guard let me = UserProfileMirror.cachedRecordID() else { return }
         try? await CloudKitService.deleteFriendship(
-            recordName: pending.friendshipRecordName
+            recordName: pending.friendshipRecordName,
+            currentUserID: me
         )
         incomingRequests.removeAll { $0.id == pending.id }
     }
@@ -252,7 +271,10 @@ final class FriendsStore {
             f.status == .accepted && f.otherUserID(from: me) == friend.userRecordName
         }
         guard let target else { return }
-        try? await CloudKitService.deleteFriendship(recordName: target.recordName)
+        try? await CloudKitService.deleteFriendship(
+            recordName: target.recordName,
+            currentUserID: me
+        )
         friends.removeAll { $0.userRecordName == friend.userRecordName }
     }
 
@@ -272,10 +294,8 @@ final class FriendsStore {
 
     /// Begin observing CloudKit subscription pushes. Called once
     /// from `RootView.task` so the store's lifetime tracks the
-    /// app's. The observer runs forever (no explicit removal) —
-    /// `NotificationCenter` weakly holds the closure-captured
-    /// store, and the store is owned by `LlamasCookbookApp`'s
-    /// `@State`, so neither side leaks.
+    /// app's. Setup is idempotent so repeated tasks don't register
+    /// duplicate block observers.
     ///
     /// On each push that matches the friendship subscription we
     /// fire a `refresh()`. The fetch is deduplicated server-side
@@ -284,12 +304,13 @@ final class FriendsStore {
     /// case is a free no-op since `refresh()` early-returns when
     /// the mirror cache is empty.
     func observeRemotePushes() {
+        guard remotePushObserver == nil else { return }
         // The `MainActor` jump is required — NotificationCenter
         // delivers on the queue that posted, which AppDelegate's
         // remote-notification path reaches via the URL session
         // queue. The `Task { @MainActor in ... }` re-anchors us
         // before touching `@Observable` state.
-        NotificationCenter.default.addObserver(
+        remotePushObserver = NotificationCenter.default.addObserver(
             forName: CloudKitSubscriptions.didFireNotification,
             object: nil,
             queue: nil
@@ -306,6 +327,12 @@ final class FriendsStore {
             Task { @MainActor in
                 await self.refresh()
             }
+        }
+    }
+
+    deinit {
+        if let remotePushObserver {
+            NotificationCenter.default.removeObserver(remotePushObserver)
         }
     }
 }

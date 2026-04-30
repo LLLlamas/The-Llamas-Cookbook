@@ -201,7 +201,7 @@ extension CloudKitService {
     static func deleteAllPublishedRecipes(ownerID: String) async {
         let predicate = NSPredicate(format: "ownerID == %@", ownerID)
         let query = CKQuery(recordType: publishedRecipeRecordType, predicate: predicate)
-        guard let (matchResults, _) = try? await publicDB.records(matching: query) else {
+        guard let matchResults = try? await queryAllRecords(matching: query) else {
             return
         }
         for (id, _) in matchResults {
@@ -219,7 +219,7 @@ extension CloudKitService {
         let predicate = NSPredicate(format: "ownerID == %@", ownerID)
         let query = CKQuery(recordType: publishedRecipeRecordType, predicate: predicate)
         query.sortDescriptors = [NSSortDescriptor(key: "recipeTitle", ascending: true)]
-        let (matchResults, _) = try await publicDB.records(matching: query)
+        let matchResults = try await queryAllRecords(matching: query)
         var results: [PublishedRecipeSummary] = []
         for (id, result) in matchResults {
             guard case .success(let record) = result else { continue }
@@ -261,6 +261,7 @@ extension CloudKitService {
         let probeCount = min(totalPhotos, maxCloudPhotoCount)
         var photoBytes: [Data] = []
         photoBytes.reserveCapacity(probeCount)
+        var totalPhotoBytes = 0
         for i in 0..<probeCount {
             guard let photoAsset = record["photo\(i)"] as? CKAsset,
                   let url = photoAsset.fileURL,
@@ -268,6 +269,11 @@ extension CloudKitService {
                 photoBytes.append(Data())
                 continue
             }
+            guard totalPhotoBytes + bytes.count <= maxCloudTotalPhotoBytes else {
+                photoBytes.append(Data())
+                continue
+            }
+            totalPhotoBytes += bytes.count
             photoBytes.append(bytes)
         }
         let envelope = strippedEnvelope.injecting(photoBytes: photoBytes)

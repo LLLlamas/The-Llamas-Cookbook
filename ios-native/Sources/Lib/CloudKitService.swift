@@ -4,7 +4,7 @@ import CloudKit
 /// Thin wrapper around `CKContainer.publicCloudDatabase` for the
 /// permalink-share flow. Sender uploads a `RecipeShare` record (envelope
 /// JSON as `CKAsset` so it carries inline photos cleanly); recipient
-/// fetches by random 6-char record ID to materialize the recipe
+/// fetches by random record ID to materialize the recipe
 /// locally. No friend codes, no inbox, no push — just "share a link"
 /// mechanics with photos hosted on Apple's CDN. See
 /// Implementing-User-Sign-In.md §0 (architecture pivot 2026-04-28).
@@ -62,10 +62,10 @@ enum CloudKitService {
     static let recipeShareRecordType = "RecipeShare"
 
     /// Length of the random share-record ID surfaced in the permalink
-    /// URL. 6 chars from a 32-char alphabet → ~1B namespace; collision
-    /// probability per generation at 1k active shares is ~1e-6.
-    /// Two-attempt retry on save covers the rare case.
-    static let recordIDLength = 6
+    /// URL. Twelve chars from the non-ambiguous 32-character alphabet
+    /// gives about 60 bits of entropy, which is a better fit for public,
+    /// unlisted links. Cloudflare still accepts legacy 6-char links.
+    static let recordIDLength = 12
 
     /// Maximum number of per-photo `CKAsset` fields (`photo0` …
     /// `photo<maxCloudPhotoCount-1>`) we attach to a single record.
@@ -96,6 +96,26 @@ enum CloudKitService {
         container.publicCloudDatabase
     }
 
+    typealias QueryMatchResult = (CKRecord.ID, Result<CKRecord, any Error>)
+
+    /// CloudKit's async query API returns one page plus an optional
+    /// cursor. Shared social paths use this helper so larger friend
+    /// lists, import audit logs, and account-deletion cascades don't
+    /// silently stop at the first page.
+    static func queryAllRecords(matching query: CKQuery) async throws -> [QueryMatchResult] {
+        let firstPage = try await publicDB.records(matching: query)
+        var allMatches = firstPage.matchResults
+        var cursor = firstPage.queryCursor
+
+        while let nextCursor = cursor {
+            let page = try await publicDB.records(continuingMatchFrom: nextCursor)
+            allMatches.append(contentsOf: page.matchResults)
+            cursor = page.queryCursor
+        }
+
+        return allMatches
+    }
+
     /// One-shot probe of the user's iCloud account state. Returns
     /// `.available` when the device is signed into iCloud and the app
     /// can read/write its records; anything else means the cloud-share
@@ -116,7 +136,7 @@ enum CloudKitService {
     // MARK: - Upload
 
     /// Uploads `envelope` to the public DB as a new `RecipeShare`
-    /// record and returns the random 6-char record name. Caller mints
+    /// record and returns the random record name. Caller mints
     /// `llamascookbook://share/<recordName>` from this.
     ///
     /// Encoding strategy (revised 2026-04-28 for upload speed):
@@ -233,13 +253,16 @@ enum CloudKitService {
     /// these to user-facing messages.
     /// Per-photo CKAsset size cap. CloudKit doesn't refuse oversized
     /// uploads on the public DB, so a malicious sender could attach a
-    /// 1 GB photo asset and starve the receiver's memory. 10 MB is
+    /// huge photo asset and starve the receiver's memory. 10 MB is
     /// well above what `ImageProcessing.prepare` would emit for a
     /// gallery photo (~250 KB-2 MB target) and leaves headroom for
-    /// HEIC originals; combined with `maxCloudPhotoCount = 20`, total
-    /// per-record photo bytes are bounded at 200 MB before
-    /// `injecting(photoBytes:)` even runs.
+    /// HEIC originals.
     static let maxCloudPhotoBytes = 10_000_000
+
+    /// Total receive-side cap for all photo CKAssets attached to one
+    /// recipe record. This keeps base64 reinjection from multiplying
+    /// a large public record into a much larger heap spike.
+    static let maxCloudTotalPhotoBytes = 40_000_000
 
     static func fetchShare(recordName: String) async throws -> LCRecipeShareV1 {
         let recordID = CKRecord.ID(recordName: recordName)
@@ -264,6 +287,7 @@ enum CloudKitService {
         let probeCount = min(totalPhotos, maxCloudPhotoCount)
         var photoBytes: [Data] = []
         photoBytes.reserveCapacity(probeCount)
+        var totalPhotoBytes = 0
         for i in 0..<probeCount {
             guard let photoAsset = record["photo\(i)"] as? CKAsset,
                   let url = photoAsset.fileURL,
@@ -275,6 +299,11 @@ enum CloudKitService {
                 photoBytes.append(Data())
                 continue
             }
+            guard totalPhotoBytes + bytes.count <= maxCloudTotalPhotoBytes else {
+                photoBytes.append(Data())
+                continue
+            }
+            totalPhotoBytes += bytes.count
             photoBytes.append(bytes)
         }
         return strippedEnvelope.injecting(photoBytes: photoBytes)
@@ -445,6 +474,7 @@ enum CloudKitService {
 enum CloudKitServiceError: LocalizedError {
     case envelopeMissing
     case exhaustedRetries
+    case notAuthorized
 
     var errorDescription: String? {
         switch self {
@@ -452,6 +482,8 @@ enum CloudKitServiceError: LocalizedError {
             return "This recipe share is missing data."
         case .exhaustedRetries:
             return "Couldn't generate a unique share ID. Try again."
+        case .notAuthorized:
+            return "You don't have permission to change that record."
         }
     }
 }
