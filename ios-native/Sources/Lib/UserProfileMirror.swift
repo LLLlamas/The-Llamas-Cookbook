@@ -80,18 +80,38 @@ enum UserProfileMirror {
         displayName: String,
         accentHex: String?
     ) async {
+        _ = await bindAndReturnError(displayName: displayName, accentHex: accentHex)
+    }
+
+    /// Diagnostic variant of `bindAfterSignIn` — returns a human-
+    /// readable error string when the bind fails, or nil on success.
+    /// Used by the "Re-sync profile" button in `ProfileView` so the
+    /// user can see exactly why their UserProfile record isn't
+    /// landing in the public DB (most common: iCloud not signed in,
+    /// CloudKit schema field missing, network error). The non-
+    /// diagnostic `bindAfterSignIn` discards the result and stays
+    /// silent for the cold-launch / sign-in paths.
+    static func bindAndReturnError(
+        displayName: String,
+        accentHex: String?
+    ) async -> String? {
         guard let recordID = await CloudKitService.fetchCurrentUserRecordID() else {
-            return
+            return "iCloud isn't signed in on this device. Open Settings → [Your Name] → iCloud and make sure iCloud Drive is on for Llamas Cookbook."
         }
         setCachedRecordID(recordID)
-        try? await CloudKitService.upsertUserProfile(userRecordName: recordID) { record in
-            record["displayName"] = displayName as NSString
-            if let hex = accentHex {
-                record["accentHex"] = hex as NSString
+        do {
+            try await CloudKitService.upsertUserProfile(userRecordName: recordID) { record in
+                record["displayName"] = displayName as NSString
+                if let hex = accentHex {
+                    record["accentHex"] = hex as NSString
+                }
+                // createdAt is set inside `upsertUserProfile` only on first
+                // creation — preserves the original "joined" date across
+                // sign-out/sign-back-in cycles on the same Apple ID.
             }
-            // createdAt is set inside `upsertUserProfile` only on first
-            // creation — preserves the original "joined" date across
-            // sign-out/sign-back-in cycles on the same Apple ID.
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 

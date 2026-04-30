@@ -57,6 +57,15 @@ struct ProfileView: View {
     @State private var letterScrollAnchor: String? = nil
     @FocusState private var nameFieldFocused: Bool
 
+    /// Diagnostic state for the "Re-sync profile" button — exposes
+    /// CloudKit upsert errors that would otherwise be silently
+    /// swallowed by the fire-and-forget bind path. Tracks in-flight
+    /// state so the button can show a spinner, and the most recent
+    /// result so the user can see whether their record landed.
+    @State private var isResyncingProfile: Bool = false
+    @State private var resyncResultMessage: String? = nil
+    @State private var resyncSucceeded: Bool = false
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
@@ -292,6 +301,8 @@ struct ProfileView: View {
         VStack(alignment: .leading, spacing: AppSpacing.lg) {
             displayNameRow(identity: identity)
 
+            cloudSyncRow(identity: identity)
+
             if let lastCooked = lastCookedRecipe {
                 lastCookedLine(recipe: lastCooked)
             }
@@ -299,6 +310,83 @@ struct ProfileView: View {
             requestsSection
 
             friendsSection
+        }
+    }
+
+    /// Diagnostic + manual-recovery row for the cloud `UserProfile`
+    /// bind. The fire-and-forget bind paths (cold launch, sign-in)
+    /// silently swallow CloudKit errors so the rest of the app never
+    /// blocks on iCloud being available; this row is the explicit
+    /// "tell me if my profile is actually in the cloud" affordance.
+    /// Tapping it runs the same upsert and surfaces the result inline
+    /// (success checkmark or the actual CKError message), so the
+    /// user can self-diagnose iCloud-not-signed-in, missing-schema-
+    /// field, or network failures without an Xcode console.
+    private func cloudSyncRow(identity: UserAccount.UserIdentity) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("CLOUD SYNC")
+                .eyebrowStyle(AppColor.textTertiary)
+            HStack(spacing: AppSpacing.sm) {
+                if let message = resyncResultMessage {
+                    Image(systemName: resyncSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(resyncSucceeded ? AppColor.success : AppColor.destructive)
+                    Text(message)
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(4)
+                        .multilineTextAlignment(.leading)
+                } else {
+                    Text("Push your profile to CloudKit so friends can find you in search.")
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(3)
+                }
+                Spacer(minLength: AppSpacing.sm)
+                Button {
+                    Task { await resyncProfile(identity: identity) }
+                } label: {
+                    if isResyncingProfile {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 32, height: 32)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                            .frame(width: 32, height: 32)
+                            .background(AppColor.surfaceSunken)
+                            .clipShape(Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isResyncingProfile)
+                .accessibilityLabel("Re-sync profile to cloud")
+            }
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private func resyncProfile(identity: UserAccount.UserIdentity) async {
+        isResyncingProfile = true
+        let error = await UserProfileMirror.bindAndReturnError(
+            displayName: identity.displayName,
+            accentHex: appearance.accentColor.toHex
+        )
+        isResyncingProfile = false
+        if let error {
+            resyncSucceeded = false
+            resyncResultMessage = error
+        } else {
+            resyncSucceeded = true
+            resyncResultMessage = "Profile synced. Friends searching \"\(identity.displayName)\" should find you within a minute."
         }
     }
 
