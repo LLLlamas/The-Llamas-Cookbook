@@ -1,17 +1,22 @@
 # Llamas Cookbook
 
-A personal, offline-first iOS recipe keeper. SwiftUI + SwiftData, iOS 18+.
+Personal, offline-first iOS recipe keeper built with SwiftUI + SwiftData.
 
-**Full project reference:** [PROJECT.md](./PROJECT.md)
+## Live App
 
-**Original product spec (vision / JTBD / UX — still authoritative):** [llamas-cookbook-plan.md](./llamas-cookbook-plan.md)
+- Code: `ios-native/`
+- Preview/share site: `cloudflare-pages/`
+- Archived RN prototype: `outdated/rn-expo/`
+- Current agent source of truth: `CLAUDE.md`
 
-## Layout
+## Build
 
-- [`ios-native/`](./ios-native) — the live Swift app and its XcodeGen config
-- [`outdated/rn-expo/`](./outdated/rn-expo) — archived first implementation (Expo + React Native), kept for reference during the Swift port
-- [`.github/workflows/ios-native-ci.yml`](./.github/workflows/ios-native-ci.yml) — Archive + TestFlight workflow (manual dispatch only)
+This Windows machine cannot build iOS locally. Use the manual GitHub Actions workflow:
 
-## Shipping a new TestFlight build
+`.github/workflows/ios-native-ci.yml`
 
-Run the **iOS Native (Swift) TestFlight** workflow in GitHub Actions on `main`. Lorenzo's Windows machine can't build locally — every build runs on GitHub's `macos-latest`. See [PROJECT.md §8](./PROJECT.md#8-ci--development-workflow) for the full dev loop.
+CI runs on `macos-26`, archives the native app, and can upload to TestFlight.
+
+## Product Shape
+
+Private local cookbook first. Sharing/social features are public/unlisted CloudKit surfaces used for recipe links and friend cookbook discovery; do not promise strict friend-only privacy.

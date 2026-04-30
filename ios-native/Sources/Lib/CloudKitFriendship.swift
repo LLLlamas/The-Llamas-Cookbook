@@ -86,19 +86,17 @@ extension CloudKitService {
     /// it out of their incoming-requests list.
     static func approveFriendRequest(
         recordName: String,
-        currentUserID: String? = nil
+        currentUserID: String
     ) async throws {
         let id = CKRecord.ID(recordName: recordName)
         let record = try await publicDB.record(for: id)
-        if let currentUserID {
-            guard let userA = record["userA"] as? String,
-                  let userB = record["userB"] as? String,
-                  let requesterID = record["requesterID"] as? String,
-                  (currentUserID == userA || currentUserID == userB),
-                  currentUserID != requesterID
-            else {
-                throw CloudKitServiceError.notAuthorized
-            }
+        guard let userA = record["userA"] as? String,
+              let userB = record["userB"] as? String,
+              let requesterID = record["requesterID"] as? String,
+              (currentUserID == userA || currentUserID == userB),
+              currentUserID != requesterID
+        else {
+            throw CloudKitServiceError.notAuthorized
         }
         record["status"] = FriendshipRecord.Status.accepted.rawValue as NSString
         record["acceptedAt"] = Date() as NSDate
@@ -116,22 +114,20 @@ extension CloudKitService {
     /// state on next refresh. No notification.
     static func deleteFriendship(
         recordName: String,
-        currentUserID: String? = nil
+        currentUserID: String
     ) async throws {
         let id = CKRecord.ID(recordName: recordName)
-        if let currentUserID {
-            let record: CKRecord
-            do {
-                record = try await publicDB.record(for: id)
-            } catch let ckError as CKError where ckError.code == .unknownItem {
-                return
-            }
-            guard let userA = record["userA"] as? String,
-                  let userB = record["userB"] as? String,
-                  currentUserID == userA || currentUserID == userB
-            else {
-                throw CloudKitServiceError.notAuthorized
-            }
+        let record: CKRecord
+        do {
+            record = try await publicDB.record(for: id)
+        } catch let ckError as CKError where ckError.code == .unknownItem {
+            return
+        }
+        guard let userA = record["userA"] as? String,
+              let userB = record["userB"] as? String,
+              currentUserID == userA || currentUserID == userB
+        else {
+            throw CloudKitServiceError.notAuthorized
         }
         do {
             _ = try await publicDB.deleteRecord(withID: id)

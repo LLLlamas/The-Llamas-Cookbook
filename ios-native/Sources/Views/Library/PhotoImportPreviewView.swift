@@ -20,14 +20,17 @@ import SwiftData
 struct PhotoImportPreviewView: View {
     let draft: DraftRecipe
     var onSaved: (Recipe) -> Void = { _ in }
-    /// Called when the user taps **Edit** instead of Save. Hands the
-    /// parsed draft back to the parent so it can dismiss both this
-    /// preview and the photo-import sheet, then open the regular
-    /// `RecipeEditorView` with the draft pre-filled. The user fixes
-    /// any OCR typos in the editor and saves there. Defaults to a
-    /// no-op for previews / future call sites that want a read-only
-    /// preview without the inline-edit shortcut.
-    var onEdit: (DraftRecipe) -> Void = { _ in }
+    /// Called when the user taps **Edit** — same persist path as Save,
+    /// but signals to the parent that the user wants to fix OCR typos
+    /// after the save. The parent runs the standard post-save
+    /// choreography (Library scroll + letter-magnify animation +
+    /// Detail push) and then opens `RecipeEditorView` on top of
+    /// Detail so the user lands directly in editing mode. Hands back
+    /// the freshly persisted `Recipe` (not the draft) so the parent
+    /// can route through `editor.startEdit`. Defaults to a no-op for
+    /// previews / future call sites that want a read-only preview
+    /// without the save-and-edit shortcut.
+    var onSavedForEdit: (Recipe) -> Void = { _ in }
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -36,6 +39,14 @@ struct PhotoImportPreviewView: View {
     @State private var isSaving = false
     @State private var showingDuplicateAlert = false
     @State private var duplicateRenameText = ""
+    /// Tracks which button initiated the save so the post-save callback
+    /// routes to the right side of the parent's flow — Save lands the
+    /// user on Detail, Edit lands them in the Editor on top of Detail.
+    /// Reset to `.save` after every completion so a subsequent action
+    /// starts cleanly.
+    @State private var pendingMode: SaveMode = .save
+
+    private enum SaveMode { case save, saveForEdit }
 
     var body: some View {
         NavigationStack {
@@ -77,21 +88,25 @@ struct PhotoImportPreviewView: View {
                         .font(AppFont.eyebrow)
                         .foregroundStyle(AppColor.textTertiary)
                 }
-                // Two trailing buttons: Edit hands off to the regular
-                // editor with the parsed draft pre-filled (one-tap fix
-                // for OCR typos like "1 1/2" misread as "14 1/2");
-                // Save commits the parse as-is. Group-form keeps
-                // declared order (Edit left, Save right) on iOS.
+                // Two trailing buttons share the same persist path —
+                // both run through `saveToLibrary` so the parent's
+                // post-save choreography (Library scroll + letter
+                // magnify + Detail push) plays for either tap. The
+                // only difference is `pendingMode`: Save lands the
+                // user on Detail (read-mode), Edit pushes Detail
+                // and then opens the Editor on top so the user can
+                // fix OCR typos directly. Group-form keeps declared
+                // order (Edit left, Save right) on iOS.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("Edit") {
                         Haptics.selection()
-                        onEdit(draft)
+                        saveToLibrary(mode: .saveForEdit)
                     }
                     .foregroundStyle(appearance.accentColor)
                     .disabled(isSaving)
 
                     Button {
-                        saveToLibrary()
+                        saveToLibrary(mode: .save)
                     } label: {
                         if isSaving {
                             ProgressView()
@@ -272,10 +287,11 @@ struct PhotoImportPreviewView: View {
 
     // MARK: save
 
-    private func saveToLibrary() {
+    private func saveToLibrary(mode: SaveMode) {
         guard !isSaving else { return }
         let baseTitle = draft.title.trimmed
         guard !baseTitle.isEmpty else { return }
+        pendingMode = mode
         // Reuse the share-side helpers — both are simple SwiftData
         // fetch-by-title probes, not share-specific.
         if RecipeShare.libraryContainsRecipe(withTitle: baseTitle, in: modelContext) {
@@ -293,7 +309,8 @@ struct PhotoImportPreviewView: View {
     /// Shared save tail used by both the no-collision path
     /// (`overrideTitle: nil` keeps the OCR'd title) and the
     /// duplicate-confirmation path (`overrideTitle` carries the
-    /// user's edited name).
+    /// user's edited name). Routes the saved recipe to the right
+    /// callback based on `pendingMode`.
     private func performSave(withOverrideTitle overrideTitle: String?) {
         guard !isSaving else { return }
         isSaving = true
@@ -309,9 +326,14 @@ struct PhotoImportPreviewView: View {
             modelContext.insert(recipe)
             try? modelContext.save()
 
+            let mode = pendingMode
             isSaving = false
+            pendingMode = .save
             Haptics.success()
-            onSaved(recipe)
+            switch mode {
+            case .save:        onSaved(recipe)
+            case .saveForEdit: onSavedForEdit(recipe)
+            }
             dismiss()
         }
     }

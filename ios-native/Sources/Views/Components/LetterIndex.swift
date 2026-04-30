@@ -26,7 +26,12 @@ struct LetterIndex: View {
     private let rowHeight: CGFloat = 11
     private let stripWidth: CGFloat = 14
     private let verticalPadding: CGFloat = 4
-    private let badgeSize: CGFloat = 56
+    /// Sized large on purpose — the post-save library-scroll choreography
+    /// only lingers ~750ms before Detail covers the screen, so the badge
+    /// has to read instantly. Big enough to register from a glance, still
+    /// well within the iPhone-narrowest screen width minus the strip and
+    /// edge padding.
+    private let badgeSize: CGFloat = 132
 
     /// Index that should currently render as "active" — gesture-driven
     /// scrub wins (so post-save highlight never fights the user), with
@@ -68,7 +73,14 @@ struct LetterIndex: View {
                         x: -stripWidth - 12,
                         y: badgeYOffset(for: displayedActiveIndex)
                     )
-                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
+                    // Pronounced grow-in (0.4 → 1.0) so the badge feels
+                    // like it leaps into view when the post-save
+                    // highlight signal lands. The drag-scrub path uses
+                    // the same transition; the spring-driven
+                    // `displayedActiveIndex` animation below makes
+                    // letter-to-letter scrubs feel snappy without
+                    // re-running the scale curve.
+                    .transition(.opacity.combined(with: .scale(scale: 0.4)))
                     .allowsHitTesting(false)
             }
         }
@@ -95,7 +107,7 @@ struct LetterIndex: View {
 
     private func magnifiedBadge(letter: String) -> some View {
         Text(letter)
-            .font(.system(size: 30, weight: .heavy, design: .serif))
+            .font(.system(size: 72, weight: .heavy, design: .serif))
             .foregroundStyle(AppColor.onAccent)
             .frame(width: badgeSize, height: badgeSize)
             .background(
@@ -110,7 +122,7 @@ struct LetterIndex: View {
                     )
                 )
             )
-            .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 3)
+            .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
     }
 
     /// Vertically aligns the badge's center on the active letter's

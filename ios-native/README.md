@@ -1,34 +1,25 @@
-# Llamas Cookbook — Native iOS (SwiftUI)
+# Native iOS App
 
-The ground-up SwiftUI port of Llamas Cookbook. Runs alongside the Expo/React Native app at the repo root during the port; replaces it once parity is reached.
+Live SwiftUI app.
 
-## Project layout
+## Layout
 
-```
-ios-native/
-├── project.yml              # XcodeGen config → generates the .xcodeproj
-├── Sources/
-│   ├── App/                 # @main entry point + root navigation
-│   ├── Models/              # SwiftData @Model types (Recipe, Ingredient, RecipeStep)
-│   ├── Theme/               # Colors, typography, spacing
-│   └── Views/               # One folder per feature area
-└── Resources/
-    └── Assets.xcassets/     # Asset catalog (app icon, etc.)
-```
+- `project.yml` XcodeGen config.
+- `Sources/App/` app entry, root navigation, coordinators.
+- `Sources/Models/` SwiftData models.
+- `Sources/Lib/` shared logic.
+- `Sources/Views/` feature UI.
+- `Sources/Theme/` colors, fonts, spacing.
+- `Sources/Shared/` cross-target Foundation-only helpers.
+- `Resources/` plist, entitlements, assets, privacy manifest.
+- `ShareExtension/` extension target.
+- `WidgetExtension/` Live Activity widget.
 
-The `.xcodeproj` is generated on demand by XcodeGen and is gitignored.
+## Build
 
-## Bundle identifier
+Do not build from Windows. CI archives through `.github/workflows/ios-native-ci.yml`.
 
-Both Swift and RN ship under `com.llamascookbook.app`. Same App Store Connect app record, same provisioning profile, same signing secrets.
-
-**Don't run both TestFlight workflows at once.** The most recent upload wins on TestFlight, so shipping Swift replaces RN on your phone until you ship RN again. During the port we mostly push Swift builds; only re-run the RN workflow if you need to compare something on the current RN version.
-
-Swift build numbers get an offset of 10000 on top of `github.run_number` so they never collide with RN's lower build numbers in the App Store Connect history.
-
-## Building locally (requires a Mac)
-
-Not supported from Windows. On a Mac:
+On a Mac only:
 
 ```sh
 brew install xcodegen
@@ -37,22 +28,8 @@ xcodegen generate
 open LlamasCookbookNative.xcodeproj
 ```
 
-## CI
+## Notes
 
-`.github/workflows/ios-native-ci.yml` archives the Swift app on GitHub's `macos-latest` runner and uploads it to TestFlight via the existing signing secrets. Only manually triggerable (`workflow_dispatch`) to prevent accidental Swift uploads overwriting the RN app while we're still mid-port.
-
-## Port status
-
-| Area             | Status                                                    |
-| ---------------- | --------------------------------------------------------- |
-| Xcode project    | Scaffolded (XcodeGen)                                     |
-| SwiftData models | Recipe, Ingredient, RecipeStep                            |
-| Theme            | Colors, typography, spacing constants                     |
-| Library screen   | Placeholder list + empty state + "add placeholder" button |
-| Recipe detail    | Not started                                               |
-| Recipe editor    | Not started                                               |
-| Cook mode        | Not started                                               |
-| Settings         | Not started                                               |
-| Llama mascot     | Not started (RN version uses inline SVG)                  |
-| Haptics / timers | Not started                                               |
-| App icon         | Placeholder                                               |
+- Do not commit generated `.xcodeproj`.
+- Do not hand-edit signing material into the repo.
+- Current behavior is documented in root `CLAUDE.md`.

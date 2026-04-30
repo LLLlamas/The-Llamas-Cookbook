@@ -93,21 +93,25 @@ struct ImportFromPhotoView: View {
                     onSaved(savedRecipe)
                     dismiss()
                 },
-                onEdit: { editableDraft in
-                    // User wants to clean up OCR typos before saving.
-                    // Dismiss the photo preview AND this import sheet,
-                    // then open the regular new-recipe editor with the
-                    // draft pre-filled. The 350ms delay lets both
-                    // sheet dismissals complete before the editor
-                    // sheet re-presents — same race-avoidance pattern
-                    // the share-recipient flow uses for the post-save
-                    // Detail push.
-                    Haptics.impact(.light)
-                    preview = nil
+                onSavedForEdit: { savedRecipe in
+                    // Edit-tap takes the same persist path as Save so
+                    // the user sees the standard post-save Library
+                    // scroll + letter-magnify animation (no flicker
+                    // of the photo-import camera/library buttons,
+                    // which the previous "open editor with seed"
+                    // path produced as a brief visible frame between
+                    // the inner-preview dismiss and the editor sheet
+                    // re-presenting). After the animation lands the
+                    // user on Detail, we open the editor on top so
+                    // they can fix OCR typos directly. The 1500ms
+                    // delay covers `runPostSaveHighlight`'s 150 +
+                    // 750 + 400 = 1300ms sequence plus a small
+                    // buffer for the Detail push to settle.
+                    onSaved(savedRecipe)
                     dismiss()
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        editor.startNew(seed: editableDraft)
+                        try? await Task.sleep(for: .milliseconds(1500))
+                        editor.startEdit(savedRecipe)
                     }
                 }
             )

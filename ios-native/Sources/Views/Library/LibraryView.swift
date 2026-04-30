@@ -108,6 +108,16 @@ struct LibraryView: View {
                         .foregroundStyle(appearance.accentColor)
                 }
                 .accessibilityLabel("Profile")
+                // The editor sheet is presented from RootView (parent
+                // hierarchy), and the Profile sheet is presented from
+                // LibraryView (child). iOS only allows one sheet per
+                // presentation context, so tapping Profile while the
+                // editor is minimized to its 80pt detent silently
+                // no-ops — the user sees nothing happen. Greying out
+                // the button when the editor is active gives honest
+                // feedback that Profile is gated until the editor is
+                // closed (Save / Cancel / discard).
+                .disabled(editor.active != nil)
             }
         }
         .sheet(isPresented: $showingAppearance) {

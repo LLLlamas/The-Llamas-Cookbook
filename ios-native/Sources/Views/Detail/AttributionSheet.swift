@@ -9,11 +9,9 @@ import SwiftData
 /// **Three slots, one shape:**
 ///
 /// 1. **Original creator** — name + (optional) tap target if
-///    they're a current friend. The tap closes this sheet
-///    and navigates to their friend library — one level back
-///    out to ProfileView via the `pendingFriendOpenID` signal
-///    on `NavigationContext`. (Friend-library navigation is
-///    a future enhancement; for now we just show the name.)
+///    they're a current friend. v2 tap-to-friend-library
+///    navigation is deferred; `NavigationContext.pendingFriendOpenID`
+///    was never added. For now we just show the name.
 ///
 /// 2. **Imported on** — `Recipe.importedAt`, formatted long-
 ///    style so the date reads as a record rather than a

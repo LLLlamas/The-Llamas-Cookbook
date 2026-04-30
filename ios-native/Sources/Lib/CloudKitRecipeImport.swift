@@ -1,5 +1,15 @@
 import Foundation
 import CloudKit
+import os
+
+/// Subsystem-scoped logger so audit-write failures surface in
+/// Console.app / `log stream` during dev without leaking to the
+/// release default subsystem. Mirrors the eventual home in
+/// `CloudKitSubscriptions` once that file grows its own logger.
+private let recipeImportLogger = Logger(
+    subsystem: "com.llamascookbook.app",
+    category: "CloudKitSubscriptions"
+)
 
 /// One row in the import audit log — corresponds to a single
 /// `RecipeImport` CK record. Returned by
@@ -122,6 +132,11 @@ extension CloudKitService {
                 continue
             }
         }
+        // Surface exhaustion to device logs — the calling site uses
+        // `try?` so without this the failure is invisible in dev.
+        recipeImportLogger.error(
+            "writeRecipeImport exhausted retries for original=\(originalRecipeID, privacy: .public) importer=\(importerID, privacy: .public)"
+        )
         throw CloudKitServiceError.exhaustedRetries
     }
 
@@ -204,16 +219,29 @@ extension CloudKitService {
     /// `deleteAllFriendships` / `deleteAllPublishedRecipes`
     /// cascade pattern.
     static func deleteAllRecipeImports(for userRecordName: String) async {
-        let predicate = NSPredicate(
-            format: "importerID == %@ OR originalCreatorID == %@",
-            userRecordName, userRecordName
+        // Two single-field queries instead of an OR compound predicate:
+        // CloudKit's public-DB OR requires every field carry a queryable
+        // index, and a missing index would throw `invalidArguments` and
+        // skip the entire cascade. Splitting also makes each leg fail
+        // independently — a transient failure on one query no longer
+        // strands rows that the other would have caught.
+        let importerQuery = CKQuery(
+            recordType: recipeImportRecordType,
+            predicate: NSPredicate(format: "importerID == %@", userRecordName)
         )
-        let query = CKQuery(recordType: recipeImportRecordType, predicate: predicate)
-        guard let matchResults = try? await queryAllRecords(matching: query) else {
-            return
+        if let matchResults = try? await queryAllRecords(matching: importerQuery) {
+            for (id, _) in matchResults {
+                _ = try? await publicDB.deleteRecord(withID: id)
+            }
         }
-        for (id, _) in matchResults {
-            _ = try? await publicDB.deleteRecord(withID: id)
+        let creatorQuery = CKQuery(
+            recordType: recipeImportRecordType,
+            predicate: NSPredicate(format: "originalCreatorID == %@", userRecordName)
+        )
+        if let matchResults = try? await queryAllRecords(matching: creatorQuery) {
+            for (id, _) in matchResults {
+                _ = try? await publicDB.deleteRecord(withID: id)
+            }
         }
     }
 

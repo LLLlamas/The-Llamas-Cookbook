@@ -45,6 +45,12 @@ struct FriendRecipeDetailView: View {
     @State private var loadError: String? = nil
     @State private var hasLoadedOnce: Bool = false
     @State private var isImporting: Bool = false
+    /// Whether to render the full-screen llama progress overlay.
+    /// Decoupled from `isImporting` because the overlay is a UI
+    /// concern — only photo-bearing imports take long enough to
+    /// warrant it — while `isImporting` exists strictly to gate
+    /// double-taps and is set unconditionally for that purpose.
+    @State private var showImportOverlay: Bool = false
     @State private var importError: String? = nil
 
     /// Sugared accessor for the envelope half of `publishedDetail`,
@@ -107,7 +113,7 @@ struct FriendRecipeDetailView: View {
             }
         }
         .overlay {
-            if isImporting {
+            if showImportOverlay {
                 importOverlay
             }
         }
@@ -522,15 +528,23 @@ struct FriendRecipeDetailView: View {
     /// is its own visible confirmation).
     @MainActor
     private func performImport() async {
+        // Set the in-flight flag before any other check so a rapid
+        // double-tap can't race past the `canImport` guard before the
+        // first call reaches its first await. The photo overlay is
+        // still gated on `hasPhotos` separately below.
         guard !isImporting else { return }
-        guard let detail = publishedDetail else { return }
+        isImporting = true
+        guard let detail = publishedDetail else {
+            isImporting = false
+            return
+        }
 
         let hasPhotos = !detail.envelope.recipe.photos.isEmpty
             || detail.envelope.recipe.steps.contains { !$0.photos.isEmpty }
 
         Haptics.impact(.light)
         if hasPhotos {
-            withAnimation { isImporting = true }
+            withAnimation { showImportOverlay = true }
         }
 
         let newRecipe = await RecipeShare.materializeFromPublished(
@@ -546,7 +560,10 @@ struct FriendRecipeDetailView: View {
             // we surface this rather than swallow because the user
             // tapped a deliberate action and would otherwise wonder
             // why nothing happened.
-            withAnimation { isImporting = false }
+            withAnimation {
+                isImporting = false
+                showImportOverlay = false
+            }
             importError = "Couldn't save the imported recipe."
             return
         }
@@ -554,7 +571,10 @@ struct FriendRecipeDetailView: View {
         Haptics.success()
         // Hide the overlay before the signal fires so the sheet-
         // dismiss animation doesn't fight the overlay's fade-out.
-        withAnimation { isImporting = false }
+        withAnimation {
+            isImporting = false
+            showImportOverlay = false
+        }
 
         // Slice 6 audit write — fire-and-forget so a network blip
         // doesn't delay the post-import navigation. The chip on
@@ -587,8 +607,16 @@ struct FriendRecipeDetailView: View {
     /// way those flows do.
     private func writeImportAuditRow(for newRecipe: Recipe) {
         guard let importerID = UserProfileMirror.cachedRecordID() else { return }
-        guard let originalCreatorID = newRecipe.originalCreatorUserRecordName,
-              let originalRecipeID = newRecipe.originalRecipeID
+        // Read the @Model fields into local `String?` values BEFORE
+        // crossing the `Task.detached` boundary. SwiftData @Model
+        // references are not Sendable, and a fast delete-then-import
+        // could tear down the model context before the detached task
+        // runs — capturing the strings makes the closure independent
+        // of the model's lifetime.
+        let creatorIDLocal: String? = newRecipe.originalCreatorUserRecordName
+        let recipeIDLocal: String? = newRecipe.originalRecipeID
+        guard let originalCreatorID = creatorIDLocal,
+              let originalRecipeID = recipeIDLocal
         else { return }
         let importerDisplayName = userAccount.status.identity?.displayName ?? "Cook"
         let sourceUserID = friend.userRecordName
