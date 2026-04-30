@@ -84,21 +84,6 @@ final class Recipe {
     var originalRecipeID: String?
     var importedAt: Date?
 
-    /// Cached count of how many friends have imported this recipe
-    /// (transitive: any descendant in the chain whose
-    /// `originalRecipeID` traces back here). Refreshed
-    /// opportunistically when `RecipeDetailView` opens — see
-    /// slice 6's `RecipeImport` audit query for the source of
-    /// truth. `importCountCheckedAt` is the freshness anchor so
-    /// the chip can show stale-while-revalidate without
-    /// double-spinning.
-    ///
-    /// Default 0 + nil so existing recipes don't need migration —
-    /// SwiftData's lightweight migration will populate these
-    /// fields as the model loads.
-    var importCountCache: Int = 0
-    var importCountCheckedAt: Date?
-
     @Relationship(deleteRule: .cascade, inverse: \Ingredient.recipe)
     var ingredients: [Ingredient] = []
 

@@ -170,6 +170,7 @@ struct LibraryView: View {
                 // before the local delete so the recipeID capture
                 // happens against a still-live @Model. Best-effort.
                 LibraryMirrorService.shared.deleteRecipe(recipeID: recipe.id)
+                ImportCountCache.clear(for: recipe.id)
                 modelContext.delete(recipe)
                 deletingRecipe = nil
             }

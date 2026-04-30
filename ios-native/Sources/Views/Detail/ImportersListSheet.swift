@@ -16,8 +16,8 @@ import SwiftUI
 /// they're a current friend, "thank" affordance, etc.) deferred.
 ///
 /// **Network etiquette.** The sheet does its own fetch on appear
-/// rather than relying on the cached `Recipe.importCountCache` —
-/// the cache holds just the count, not the per-row identities.
+/// rather than relying on `ImportCountCache` — that cache holds
+/// just the count, not the per-row identities.
 /// `LlamaProgressIndicator` covers the load, with a graceful
 /// empty-state for "nobody yet" and an error state for CK
 /// failures.

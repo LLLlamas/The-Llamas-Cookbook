@@ -33,6 +33,13 @@ struct RecipeDetailView: View {
     /// intermediate sharer. Only ever non-nil for imported
     /// recipes.
     @State private var showingAttribution = false
+    /// View-local mirror of `ImportCountCache` for this recipe.
+    /// Seeded from UserDefaults on first appear and after each
+    /// stale-while-revalidate refresh. SwiftUI re-renders the
+    /// chip when this changes — UserDefaults reads alone won't
+    /// trigger that since they're outside the SwiftData /
+    /// `@Observable` change streams.
+    @State private var cachedImportCount: Int = 0
     /// Page to land on when the carousel opens. Set by photo-row taps
     /// before flipping `showingPhotoCarousel`, so tapping the third
     /// thumb opens the carousel directly on that page.
@@ -391,12 +398,13 @@ struct RecipeDetailView: View {
             // "Imported by N" chip. Triggers once on first
             // appear, and again whenever the user navigates to
             // a different recipe (the `id:` parameter restarts
-            // the task on identity change). The cache (set on
-            // Recipe.importCountCache) keeps the chip
-            // populated immediately while the live fetch fans
-            // in — a fresh fetch only swaps the rendered count
-            // when the value differs, so the chip doesn't
+            // the task on identity change). Seed `cachedImportCount`
+            // from `ImportCountCache` first so the chip renders
+            // its last-known value instantly, then fan in the
+            // live fetch — a fresh fetch only swaps the rendered
+            // count when the value differs, so the chip doesn't
             // double-flicker on identical data.
+            cachedImportCount = ImportCountCache.count(for: recipe.id)
             await refreshImportCountIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(
@@ -432,6 +440,7 @@ struct RecipeDetailView: View {
                 // Tear down the cloud-side mirror for this recipe so
                 // friends stop seeing it in `FriendLibraryView`.
                 LibraryMirrorService.shared.deleteRecipe(recipeID: recipe.id)
+                ImportCountCache.clear(for: recipe.id)
                 modelContext.delete(recipe)
                 dismiss()
             }
@@ -601,7 +610,7 @@ struct RecipeDetailView: View {
     /// pre-emptive bragging.
     @ViewBuilder
     private var importCounterChip: some View {
-        if recipe.importCountCache > 0 {
+        if cachedImportCount > 0 {
             Button {
                 Haptics.selection()
                 showingImporters = true
@@ -625,7 +634,7 @@ struct RecipeDetailView: View {
     }
 
     private var importCounterLabel: String {
-        let n = recipe.importCountCache
+        let n = cachedImportCount
         let display = n > 99 ? "99+" : "\(n)"
         return "Imported by \(display)"
     }
@@ -675,10 +684,10 @@ struct RecipeDetailView: View {
     }
 
     /// Stale-while-revalidate fetch of the import count.
-    /// Renders the cache immediately (set in
-    /// `Recipe.importCountCache`); fires a live CK query in the
-    /// background; updates the local `Recipe` if the value
-    /// changed. Skipped when:
+    /// Renders the cached count immediately (read from
+    /// `ImportCountCache`); fires a live CK query in the
+    /// background; writes back to the cache + `cachedImportCount`
+    /// if the value changed. Skipped when:
     ///
     /// - The chip wouldn't render anyway (imported recipe).
     /// - iCloud isn't bound (cached recordID missing).
@@ -691,7 +700,7 @@ struct RecipeDetailView: View {
         guard showsImportCounterChip else { return }
         guard UserProfileMirror.cachedRecordID() != nil else { return }
         if !forceFetch,
-           let last = recipe.importCountCheckedAt,
+           let last = ImportCountCache.checkedAt(for: recipe.id),
            Date().timeIntervalSince(last) < 60 {
             return
         }
@@ -700,14 +709,10 @@ struct RecipeDetailView: View {
             let count = try await CloudKitService.countRecipeImports(
                 forOriginalRecipeID: originalRecipeID
             )
-            // Only mutate when the count actually changed — avoids
-            // a SwiftData write (which propagates Updated.now down
-            // the change-stream and can cause friend-side
-            // LibraryMirrorService re-publishes for no good reason).
-            if recipe.importCountCache != count {
-                recipe.importCountCache = count
+            ImportCountCache.set(count: count, checkedAt: Date(), for: recipe.id)
+            if cachedImportCount != count {
+                cachedImportCount = count
             }
-            recipe.importCountCheckedAt = Date()
         } catch {
             // Silent — the cache stays at its last value, the chip
             // keeps rendering whatever it was. Next foreground fires

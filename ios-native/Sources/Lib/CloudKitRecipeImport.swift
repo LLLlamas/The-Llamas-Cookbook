@@ -180,8 +180,8 @@ extension CloudKitService {
     }
 
     /// Convenience wrapper that returns just the count — used by
-    /// `RecipeDetailView` to refresh `Recipe.importCountCache`
-    /// without paying the cost of decoding every audit row when
+    /// `RecipeDetailView` to refresh `ImportCountCache` without
+    /// paying the cost of decoding every audit row when
     /// the chip only needs the integer. Same query under the hood;
     /// CK doesn't expose a server-side `count(*)` so we still
     /// page through results, but the lighter decode keeps the
