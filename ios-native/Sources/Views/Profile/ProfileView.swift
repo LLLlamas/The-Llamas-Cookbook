@@ -185,6 +185,25 @@ struct ProfileView: View {
                 // Delete handlers already call
                 // friendsStore.clearOnSignOut(), so no work here.
             }
+            .onChange(of: friendsStore.friends.count) { oldCount, newCount in
+                // First-friend transition (0 → 1+): backfill every
+                // existing recipe to CloudKit so the friend has
+                // something to look at on day one. The service's
+                // bulk-publish path is idempotent + UserDefaults-
+                // gated, so subsequent first-friend events on the
+                // same install no-op. ProfileView holds the @Query
+                // for recipes already (used by Last Cooked), so
+                // this is the natural firing site.
+                if oldCount == 0 && newCount > 0 {
+                    let snapshot = allRecipes
+                    Task {
+                        await LibraryMirrorService.shared.bulkPublishIfNeeded(
+                            recipes: snapshot,
+                            sharedBy: nil
+                        )
+                    }
+                }
+            }
         }
     }
 

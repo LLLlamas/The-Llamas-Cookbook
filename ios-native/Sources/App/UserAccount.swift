@@ -165,6 +165,10 @@ final class UserAccount {
         // Synchronous — no network involvement, just clears
         // UserDefaults.
         UserProfileMirror.clearAfterSignOut()
+        // Reset the slice 3 bulk-publish marker so a sign-in on a
+        // different Apple ID (or a fresh re-sign-in) gets a fresh
+        // bulk-publish opportunity for that user's library.
+        LibraryMirrorService.resetBulkPublishMarker()
     }
 
     /// Wipes local identity AND fires a CloudKit cascade to delete
@@ -186,18 +190,20 @@ final class UserAccount {
     func deleteAccount() {
         wipeLocalState()
         status = .signedOut
+        // Reset the slice 3 bulk-publish marker — see signOut().
+        LibraryMirrorService.resetBulkPublishMarker()
         Task.detached {
             // Capture the iCloud user record name *before* the
             // mirror's deletion path clears its cache — the
-            // friendship cascade below needs it to find every
-            // record this user was part of.
+            // friendship + published-recipe cascades below need it
+            // to find every record this user was part of.
             let cascadeUserID = UserProfileMirror.cachedRecordID()
             await CloudKitService.deleteAuthoredShares()
             // Delete the UserProfile mirror record + drop the local
-            // cache. PublishedRecipe / RecipeImport cascades land in
-            // slices 3 and 6 respectively; account-deletion
-            // compliance requires every cloud-side trace get
-            // cleaned up, so each slice extends this cascade.
+            // cache. RecipeImport cascade lands in slice 6;
+            // account-deletion compliance requires every cloud-side
+            // trace get cleaned up, so each slice extends this
+            // cascade as it adds a new record type.
             await UserProfileMirror.deleteOnAccountDeletion()
             if let me = cascadeUserID {
                 // Slice 2 cascade: every Friendship record this user
@@ -205,6 +211,11 @@ final class UserAccount {
                 // direction so the recipient / requester sees them
                 // vanish silently on their next refresh.
                 await CloudKitService.deleteAllFriendships(for: me)
+                // Slice 3 cascade: every PublishedRecipe record this
+                // user owns. Friends viewing this user's library
+                // would otherwise see stale records pointing at a
+                // now-orphaned ownerID until the records expired.
+                await CloudKitService.deleteAllPublishedRecipes(ownerID: me)
             }
         }
     }

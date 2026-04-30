@@ -139,6 +139,11 @@ struct LibraryView: View {
                 // delete fires so CookingSession doesn't end up
                 // holding a SwiftData fault to a deleted @Model.
                 session.cleanupCooks(forDeletedRecipeID: recipe.id)
+                // Tear down the cloud-side mirror for this recipe so
+                // friends stop seeing it in `FriendLibraryView`. Fired
+                // before the local delete so the recipeID capture
+                // happens against a still-live @Model. Best-effort.
+                LibraryMirrorService.shared.deleteRecipe(recipeID: recipe.id)
                 modelContext.delete(recipe)
                 deletingRecipe = nil
             }

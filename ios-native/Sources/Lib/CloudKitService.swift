@@ -288,7 +288,9 @@ enum CloudKitService {
     /// stat check uses `attributesOfItem` rather than reading the
     /// whole file and measuring, so a hostile 1 GB asset never hits
     /// the heap.
-    private static func readCappedAsset(at url: URL) -> Data? {
+    /// Internal-not-private so other CloudKitService extensions
+    /// (`CloudKitPublishedRecipe`) can reuse the same OOM-defense.
+    static func readCappedAsset(at url: URL) -> Data? {
         let attrs = (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
         if let size = attrs[.size] as? Int, size > maxCloudPhotoBytes {
             return nil

@@ -686,6 +686,11 @@ struct RecipeEditorView: View {
         // the next auto-save attempt. Without this, we saw recipes
         // appear in the @Query briefly then vanish on relaunch.
         try? modelContext.save()
+        // Mirror to CloudKit's PublishedRecipe so friends see the
+        // updated version. Debounced 5s inside the service — a Save
+        // burst (typo correction → re-save) collapses to one upload.
+        // Best-effort: silently no-ops when iCloud is unavailable.
+        LibraryMirrorService.shared.enqueueUpsert(savedRecipe, sharedBy: nil)
         if let onSaved {
             onSaved(savedRecipe)
         } else {
