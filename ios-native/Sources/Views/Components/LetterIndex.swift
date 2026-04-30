@@ -22,24 +22,46 @@ struct LetterIndex: View {
     let onSelect: (String) -> Void
 
     @State private var activeIndex: Int? = nil
+    /// Holds the letter during fade-out after `externalHighlightLetter`
+    /// clears, keeping the badge in the view tree while opacity → 0.
+    @State private var fadingHighlightLetter: String? = nil
+    @State private var highlightBadgeOpacity: Double = 1.0
 
     private let rowHeight: CGFloat = 11
     private let stripWidth: CGFloat = 14
     private let verticalPadding: CGFloat = 4
-    /// Sized large on purpose — the post-save library-scroll choreography
-    /// only lingers ~750ms before Detail covers the screen, so the badge
-    /// has to read instantly. Big enough to register from a glance, still
-    /// well within the iPhone-narrowest screen width minus the strip and
-    /// edge padding.
-    private let badgeSize: CGFloat = 132
+    /// Compact badge for regular drag-scrub — clearly readable without
+    /// dominating the screen.
+    private let defaultBadgeSize: CGFloat = 80
+    private let defaultBadgeFontSize: CGFloat = 44
+    /// Large badge reserved for the post-save library-scroll animation —
+    /// needs to register instantly in the ~750ms before Detail covers the
+    /// screen. Big enough to read from a glance, still within the narrowest
+    /// iPhone screen minus strip and edge padding.
+    private let highlightBadgeSize: CGFloat = 132
+    private let highlightBadgeFontSize: CGFloat = 72
+
+    /// True when the badge is showing due to the external post-save signal
+    /// (including while it is fading out).
+    private var isExternalHighlight: Bool {
+        activeIndex == nil && (externalHighlightLetter != nil || fadingHighlightLetter != nil)
+    }
+
+    private var currentBadgeSize: CGFloat {
+        isExternalHighlight ? highlightBadgeSize : defaultBadgeSize
+    }
+
+    private var currentBadgeFontSize: CGFloat {
+        isExternalHighlight ? highlightBadgeFontSize : defaultBadgeFontSize
+    }
 
     /// Index that should currently render as "active" — gesture-driven
     /// scrub wins (so post-save highlight never fights the user), with
-    /// the external highlight as the fallback signal.
+    /// the external highlight (or its fading echo) as the fallback.
     private var displayedActiveIndex: Int? {
         if let activeIndex { return activeIndex }
-        if let externalHighlightLetter,
-           let idx = letters.firstIndex(of: externalHighlightLetter) {
+        let letter = externalHighlightLetter ?? fadingHighlightLetter
+        if let letter, let idx = letters.firstIndex(of: letter) {
             return idx
         }
         return nil
@@ -68,20 +90,20 @@ struct LetterIndex: View {
         .background(Capsule().fill(AppColor.surface.opacity(0.35)))
         .overlay(alignment: .topTrailing) {
             if let displayedActiveIndex, letters.indices.contains(displayedActiveIndex) {
-                magnifiedBadge(letter: letters[displayedActiveIndex])
-                    .offset(
-                        x: -stripWidth - 12,
-                        y: badgeYOffset(for: displayedActiveIndex)
-                    )
-                    // Pronounced grow-in (0.4 → 1.0) so the badge feels
-                    // like it leaps into view when the post-save
-                    // highlight signal lands. The drag-scrub path uses
-                    // the same transition; the spring-driven
-                    // `displayedActiveIndex` animation below makes
-                    // letter-to-letter scrubs feel snappy without
-                    // re-running the scale curve.
-                    .transition(.opacity.combined(with: .scale(scale: 0.4)))
-                    .allowsHitTesting(false)
+                magnifiedBadge(
+                    letter: letters[displayedActiveIndex],
+                    size: currentBadgeSize,
+                    fontSize: currentBadgeFontSize
+                )
+                .opacity(isExternalHighlight ? highlightBadgeOpacity : 1.0)
+                .offset(
+                    x: -stripWidth - 12,
+                    y: badgeYOffset(for: displayedActiveIndex, badgeSize: currentBadgeSize)
+                )
+                // Pronounced grow-in (0.4 → 1.0) so the badge feels
+                // like it leaps into view when the post-save signal lands.
+                .transition(.opacity.combined(with: .scale(scale: 0.4)))
+                .allowsHitTesting(false)
             }
         }
         .contentShape(Rectangle())
@@ -98,6 +120,26 @@ struct LetterIndex: View {
                 .onEnded { _ in activeIndex = nil }
         )
         .animation(.easeOut(duration: 0.25), value: displayedActiveIndex)
+        .onChange(of: externalHighlightLetter) { old, new in
+            if old != nil && new == nil {
+                // External highlight is ending — keep the badge alive in
+                // `fadingHighlightLetter` while we animate it to opacity 0,
+                // then clean up after the animation completes.
+                fadingHighlightLetter = old
+                highlightBadgeOpacity = 1.0
+                withAnimation(.easeOut(duration: 0.35)) {
+                    highlightBadgeOpacity = 0
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    fadingHighlightLetter = nil
+                    highlightBadgeOpacity = 1.0
+                }
+            } else if new != nil {
+                fadingHighlightLetter = nil
+                highlightBadgeOpacity = 1.0
+            }
+        }
     }
 
     private func letterColor(for letter: String, isActive: Bool) -> Color {
@@ -105,11 +147,11 @@ struct LetterIndex: View {
         return accent.opacity(populated.contains(letter) ? 0.85 : 0.3)
     }
 
-    private func magnifiedBadge(letter: String) -> some View {
+    private func magnifiedBadge(letter: String, size: CGFloat, fontSize: CGFloat) -> some View {
         Text(letter)
-            .font(.system(size: 72, weight: .heavy, design: .serif))
+            .font(.system(size: fontSize, weight: .heavy, design: .serif))
             .foregroundStyle(AppColor.onAccent)
-            .frame(width: badgeSize, height: badgeSize)
+            .frame(width: size, height: size)
             .background(
                 Circle().fill(
                     LinearGradient(
@@ -125,11 +167,7 @@ struct LetterIndex: View {
             .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
     }
 
-    /// Vertically aligns the badge's center on the active letter's
-    /// center. `.overlay(alignment: .topTrailing)` plants the badge
-    /// with its top at the strip top, so we offset down by
-    /// `(letterCenterY - badgeSize/2)`.
-    private func badgeYOffset(for index: Int) -> CGFloat {
+    private func badgeYOffset(for index: Int, badgeSize: CGFloat) -> CGFloat {
         let letterCenterY = verticalPadding + CGFloat(index) * rowHeight + rowHeight / 2
         return letterCenterY - badgeSize / 2
     }
