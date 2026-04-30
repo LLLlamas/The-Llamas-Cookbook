@@ -198,7 +198,7 @@ struct FriendRecipeDetailView: View {
                 .multilineTextAlignment(.center)
             Button {
                 Haptics.selection()
-                Task { await loadEnvelope() }
+                Task { await loadDetail() }
             } label: {
                 Text("Try again")
                     .font(.system(size: 14, weight: .semibold))

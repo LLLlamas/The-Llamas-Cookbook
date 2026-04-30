@@ -48,7 +48,7 @@ final class LibraryMirrorService {
     /// UserDefaults key for the one-time bulk-publish marker. The
     /// `.v1` suffix lets a future schema migration force a re-bulk
     /// without wiping all of UserDefaults.
-    private static let bulkPublishedKey = "libraryMirror.didBulkPublish.v1"
+    nonisolated private static let bulkPublishedKey = "libraryMirror.didBulkPublish.v1"
 
     /// Per-recipe debounce slots. Editor saves the same recipe four
     /// times → four cancels + a single delayed upload at the tail.
