@@ -17,6 +17,12 @@ struct LlamasCookbookApp: App {
     /// path through `UserAccount` instead. See
     /// Implementing-User-Sign-In.md §3.
     @State private var userAccount = UserAccount()
+    /// Cached friends + pending-requests state for the social slice.
+    /// Refreshed lazily from `ProfileView`'s `.task` and after every
+    /// social mutation. Best-effort with respect to CloudKit
+    /// availability — silently no-ops when iCloud is unavailable.
+    /// See `FriendsStore` and `implement-social.md` slices 2+.
+    @State private var friendsStore = FriendsStore()
     /// Owns the UNUserNotificationCenter delegate. SwiftUI keeps this
     /// alive for the app lifetime so foreground notification handling
     /// (sound + banner while Cook Mode is minimized) keeps working.
@@ -41,6 +47,7 @@ struct LlamasCookbookApp: App {
                 .environment(appearance)
                 .environment(ownerProfile)
                 .environment(userAccount)
+                .environment(friendsStore)
                 // The cream + terracotta palette has no dark-mode variant
                 // (AppColor values are hard sRGB, not asset-catalog system
                 // colors). Locking to light keeps SwiftUI's default fills

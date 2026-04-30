@@ -12,17 +12,29 @@ import UIKit
 final class AppearanceSettings {
     private static let storageKey = "userAccentHex"
 
+    /// Suppress mirror pushes during rehydrate-from-UserDefaults so a
+    /// cold launch doesn't fire a redundant CloudKit write republishing
+    /// the same accent hex that's already there. Flipped false at the
+    /// end of `init`; subsequent user-driven didSets push to the
+    /// `UserProfileMirror` (debounced).
+    private var isInitializing: Bool = true
+
     var accentColor: Color = AppColor.accent {
         didSet {
             persist()
             applyToUIKit()
+            if !isInitializing, let hex = accentColor.toHex {
+                UserProfileMirror.updateAccent(hex)
+            }
         }
     }
 
     init() {
         if let hex = UserDefaults.standard.string(forKey: Self.storageKey),
            let color = Color(hex: hex) {
-            // Triggers didSet → applies to UIKit + persists.
+            // Triggers didSet → applies to UIKit + persists. Mirror push
+            // is gated by `isInitializing` so this rehydrate doesn't
+            // republish to CloudKit on every cold launch.
             self.accentColor = color
         } else {
             // Default-value init doesn't fire didSet, so apply manually
@@ -31,6 +43,7 @@ final class AppearanceSettings {
             // already on the baseline accent before any view appears.
             applyToUIKit()
         }
+        isInitializing = false
     }
 
     func resetToDefault() {

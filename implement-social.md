@@ -34,9 +34,7 @@ We are NOT using Cloudflare Pages `/f/` invite-link routes. The earlier draft of
 | Display Name | `App/OwnerProfile.swift` | Friend's user-facing label |
 | `CloudKitService` | `Lib/CloudKitService.swift` | All CK reads/writes |
 | `RecipeShare.materialize` | `Lib/RecipeShare.swift` | Deep-copy recipe with new UUIDs + photo rewrite |
-| Universal Link plumbing | `RootView.onOpenURL` + `onContinueUserActivity` | Invite link receive |
-| Cloudflare Pages router | `cloudflare-pages/` | Serves invite link landing page (new `/f/` route) |
-| Llama progress indicator | (used by share flow — confirm location during slice 5) | Reuse for import progress |
+| `LlamaProgressIndicator` | `Views/Components/LlamaProgressIndicator.swift` | Reuse for photo-heavy import progress |
 | Account-deletion outbox | `cloudShareOutbox.v1` in `CloudKitService` | Extend to wipe profile, friendships, library mirror |
 
 ## Data model
@@ -284,7 +282,7 @@ Tap the chip → sheet listing each `RecipeImport` row: importer display name + 
 | # | Slice | Scope | CK schema deploy? |
 |---|---|---|---|
 | 1 | UserProfile mirror | Add `UserProfile` record (incl. `accentHex`, `lastCooked*`, `cookingStartedAt`). On SIWA sign-in, upsert mine. Wire local hooks: cook complete → updates `lastCooked*`; cook start/all-end → updates `cookingStartedAt`; accent change → updates `accentHex`. Read others' on demand. | Yes |
-| 2 | Invite link + Friendship | Generate link, share sheet, Cloudflare Pages `/f/` route, accept screen, `Friendship` write. Friends list in `ProfileView`. | Yes |
+| 2 | Friend search + Friendship | `+` popover with name search, debounced `searchUserProfiles(prefix:)` query, request/approve/deny flow, `Friendship` writes, Requests section in `ProfileView`. | Yes |
 | 3 | Library mirror | `PublishedRecipe` upsert on Save, delete on delete, batch-publish on first friend, debounced via `LibraryMirrorService`. | Yes |
 | 4 | Friends UI | `FriendLibraryView` + `FriendRecipeDetailView`, pulling from CK. Read-only renderers. | No |
 | 5 | Import flow | New `materializeFromPublished`, toolbar button + animation, llama progress for photo-heavy, attribution fields on local Recipe, "Originally shared by" header. | No |
@@ -322,10 +320,9 @@ This is the App Store account-deletion compliance requirement; we already pass i
 
 ## Still open — please confirm
 
-1. **What goes in the `+` popover?** I drafted it as **(a) Share my invite link** (primary, opens system share sheet) plus **(b) a Paste invite text field** for pasting links received outside iMessage. Was your "little input text" the paste field, the share-link entry, or something else (e.g. typing a Display Name to search — which we'd need handles for)?
-2. **What does "Originally shared by" show when chain length > 1?** Recommend always showing the chain root creator. The intermediate friends are an implementation detail.
-3. **Anonymize-on-delete vs hard-delete `RecipeImport` rows?** Recommend anonymize — preserves counter integrity, which is a delight surface.
-4. **Per-recipe private toggle?** Deferred. Everything in your library is visible to friends. Add toggle later if user feedback demands it.
+1. **What does "Originally shared by" show when chain length > 1?** Recommend always showing the chain root creator. The intermediate friends are an implementation detail.
+2. **Anonymize-on-delete vs hard-delete `RecipeImport` rows?** Recommend anonymize — preserves counter integrity, which is a delight surface.
+3. **Per-recipe private toggle?** Deferred. Everything in your library is visible to friends. Add toggle later if user feedback demands it.
 
 ## What this doc does not cover
 

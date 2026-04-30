@@ -210,6 +210,13 @@ final class CookingSession {
         // user does anything still leaves us with a recipe ID + cook
         // ID to recover from.
         CookingSessionStore.save([cook.toState()])
+        // Cloud presence: announce that this user is cooking now so
+        // friends' Friends list dots glow. Best-effort; the mirror
+        // silently no-ops when iCloud is unavailable. Note: endAll
+        // above does NOT fire the cloud "cooking ended" signal, so
+        // this set isn't racing a clear from this code path —
+        // intentional, see implement-social.md › "cooking lifecycle".
+        Task { await UserProfileMirror.recordCookStarted() }
     }
 
     /// Tear down the entire session — equivalent to "end all cooks."
@@ -217,6 +224,12 @@ final class CookingSession {
     /// the exit confirm dialog.
     func end() {
         endAll()
+        // Clear the cloud presence flag so friends' Friends-list dots
+        // stop glowing for this user. Best-effort. The mirror call
+        // lives here (not inside endAll) because the start(_:) → endAll
+        // path explicitly does NOT want to fire a clear-then-set pair
+        // that races on the cloud — see implement-social.md.
+        Task { await UserProfileMirror.recordCookSessionEmpty() }
     }
 
     /// Add another recipe alongside the existing cooks, no replacement.
@@ -239,6 +252,11 @@ final class CookingSession {
         activeCooks.append(cook)
         foregroundedCookID = cook.id
         CookingSessionStore.save(activeCooks.map { $0.toState() })
+        // Refresh the cooking-now flag. Each parallel-add resets the
+        // cloud `cookingStartedAt` to `.now`, which is fine — the
+        // 6-hour staleness window is purely for force-kill recovery
+        // and the dot indicator only cares "is the user cooking now."
+        Task { await UserProfileMirror.recordCookStarted() }
     }
 
     /// Foreground a specific cook by ID and re-present Cook Mode. Used
@@ -287,6 +305,12 @@ final class CookingSession {
 
         if activeCooks.isEmpty {
             endAll()
+            // Cloud presence: the last live cook just went away, so
+            // signal to friends that this user is no longer cooking.
+            // Same reason this lives outside `endAll` as in `end()` —
+            // start(_:)'s endAll path mustn't race a clear against
+            // the subsequent set.
+            Task { await UserProfileMirror.recordCookSessionEmpty() }
             return
         }
         if foregroundedCookID == cookID {

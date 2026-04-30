@@ -273,6 +273,13 @@ struct CookModeView: View {
             Button("Not this time", role: .cancel) { onClose() }
             Button("Mark cooked") {
                 recipe.markCooked()
+                // Cloud-side last-cooked update for the Profile screen
+                // and the friends-list "Last cooked: …" line. Captured
+                // by value so the Task body is Sendable around the
+                // SwiftData @Model.
+                let recipeID = recipe.id
+                let recipeTitle = recipe.title
+                Task { await UserProfileMirror.recordCookCompleted(recipeID: recipeID, recipeTitle: recipeTitle) }
                 onClose()
             }
         } message: {
@@ -744,6 +751,12 @@ struct CookModeView: View {
                 Button {
                     recipe.markCooked()
                     Haptics.success()
+                    // Cloud-side last-cooked update — same pattern as
+                    // the Mark-cooked alert path above. Capture by
+                    // value for Sendable.
+                    let recipeID = recipe.id
+                    let recipeTitle = recipe.title
+                    Task { await UserProfileMirror.recordCookCompleted(recipeID: recipeID, recipeTitle: recipeTitle) }
                     onClose()
                 } label: {
                     HStack(spacing: AppSpacing.sm) {

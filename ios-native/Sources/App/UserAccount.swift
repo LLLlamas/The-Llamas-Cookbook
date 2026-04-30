@@ -82,7 +82,8 @@ final class UserAccount {
     /// name as `sharedBy` in outbound envelopes.
     func completeSignIn(
         with credential: SignInWithAppleService.Credential,
-        ownerProfile: OwnerProfile
+        ownerProfile: OwnerProfile,
+        accentHex: String?
     ) {
         let resolvedName = Self.resolveDisplayName(
             credentialName: credential.givenName,
@@ -109,6 +110,23 @@ final class UserAccount {
         }
 
         status = .signedIn(identity)
+
+        // Cloud-side mirror bind. Best-effort, fire-and-forget — the
+        // local UI flips to .signedIn instantly while CloudKit handles
+        // the iCloud-user-record fetch + initial UserProfile upsert in
+        // the background. If iCloud isn't signed in or the schema
+        // hasn't deployed yet, the mirror silently no-ops; the user's
+        // local app continues to function without the friends/cloud
+        // features. Captures resolvedName/accentHex by value so the
+        // detached task is `Sendable`.
+        let mirroredName = resolvedName
+        let mirroredAccent = accentHex
+        Task.detached {
+            await UserProfileMirror.bindAfterSignIn(
+                displayName: mirroredName,
+                accentHex: mirroredAccent
+            )
+        }
     }
 
     /// Called from `ProfileView` when Apple's completion delivers an
@@ -141,6 +159,12 @@ final class UserAccount {
     func signOut() {
         wipeLocalState()
         status = .signedOut
+        // Drop the UserProfile mirror cache so subsequent mirror calls
+        // (e.g. an accent change while signed out) silently no-op
+        // instead of pushing updates against a now-orphaned identity.
+        // Synchronous — no network involvement, just clears
+        // UserDefaults.
+        UserProfileMirror.clearAfterSignOut()
     }
 
     /// Wipes local identity AND fires a CloudKit cascade to delete
@@ -163,7 +187,25 @@ final class UserAccount {
         wipeLocalState()
         status = .signedOut
         Task.detached {
+            // Capture the iCloud user record name *before* the
+            // mirror's deletion path clears its cache — the
+            // friendship cascade below needs it to find every
+            // record this user was part of.
+            let cascadeUserID = UserProfileMirror.cachedRecordID()
             await CloudKitService.deleteAuthoredShares()
+            // Delete the UserProfile mirror record + drop the local
+            // cache. PublishedRecipe / RecipeImport cascades land in
+            // slices 3 and 6 respectively; account-deletion
+            // compliance requires every cloud-side trace get
+            // cleaned up, so each slice extends this cascade.
+            await UserProfileMirror.deleteOnAccountDeletion()
+            if let me = cascadeUserID {
+                // Slice 2 cascade: every Friendship record this user
+                // appears in. Includes pending requests in either
+                // direction so the recipient / requester sees them
+                // vanish silently on their next refresh.
+                await CloudKitService.deleteAllFriendships(for: me)
+            }
         }
     }
 
@@ -178,6 +220,13 @@ final class UserAccount {
         identity.displayName = resolved
         persist(identity)
         status = .signedIn(identity)
+
+        // Push the new display name to CloudKit so friends searching
+        // for this user (or already-friended viewers) see the updated
+        // label. Best-effort, fire-and-forget.
+        Task.detached {
+            await UserProfileMirror.updateDisplayName(resolved)
+        }
     }
 
     /// Cold-launch revocation check. Called from `AppDelegate`. If the
