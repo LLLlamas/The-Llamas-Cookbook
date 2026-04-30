@@ -49,7 +49,9 @@
       "Bash(git merge *)",
       "Bash(mkdir -p /tmp/build-logs)",
       "Bash(unzip -o \"C:/Users/fines/Downloads/logs_66824155707.zip\" -d /tmp/build-logs/)",
-      "Bash(awk 'NR>=940 && NR<=970' \"/tmp/build-logs/Build + upload \\(Swift\\)/13_Archive.txt\")"
+      "Bash(awk 'NR>=940 && NR<=970' \"/tmp/build-logs/Build + upload \\(Swift\\)/13_Archive.txt\")",
+      "Bash(git -C \"C:/Users/fines/Documents/2026 Repository/The-Llamas-Cookbook\" diff HEAD~1 HEAD -- ios-native/Sources/Views/Editor/RecipeEditorView.swift)",
+      "Bash(git *)"
     ]
   }
 }

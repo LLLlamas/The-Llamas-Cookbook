@@ -347,7 +347,12 @@ struct FriendRecipeDetailView: View {
     private func provenanceLine(_ envelope: LCRecipeShareV1) -> String? {
         let envelopeName = envelope.share.sharedBy
         let cappedEnvelopeName = RecipeShare.cappedDisplayName(envelopeName)
-        let cappedFriendName = RecipeShare.cappedDisplayName(friend.displayName) ?? friend.displayName
+        // `cappedDisplayName` returns nil for empty / whitespace-only
+        // input; in that rare case we'd otherwise render "Shared by "
+        // with a trailing space, so suppress the line entirely.
+        guard let cappedFriendName = RecipeShare.cappedDisplayName(friend.displayName) else {
+            return nil
+        }
 
         if let cappedEnvelopeName,
            cappedEnvelopeName != cappedFriendName {
@@ -409,7 +414,12 @@ struct FriendRecipeDetailView: View {
 
     private func decodeGallery(_ envelope: LCRecipeShareV1) -> [Data] {
         let sorted = envelope.recipe.photos.sorted { $0.order < $1.order }
-        return sorted.compactMap { Data(base64Encoded: $0.image) }
+        // Drop empty bytes — `injecting(photoBytes:)` writes "" for
+        // photos whose CKAsset was missing or over-cap, and an empty
+        // Data renders as a blank thumbnail.
+        return sorted
+            .compactMap { Data(base64Encoded: $0.image) }
+            .filter { !$0.isEmpty }
     }
 
     /// Map underlying CK / RecipeShare errors to user-facing copy.

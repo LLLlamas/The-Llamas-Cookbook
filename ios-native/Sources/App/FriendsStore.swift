@@ -77,7 +77,16 @@ final class FriendsStore {
     /// state on failure: a transient network blip shouldn't make
     /// the friends list disappear.
     func refresh() async {
+        // Re-entrancy guard. Set BEFORE the first await — otherwise
+        // two near-simultaneous callers (e.g. .task + .onChange of
+        // sign-in status) could both pass a "not refreshing" check
+        // and proceed to fetch concurrently, racing on the result
+        // assignments below. The class is `@MainActor`-isolated, so
+        // assigning the flag here is atomic with respect to other
+        // refresh calls.
         guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
 
         // Resolve the local user's iCloud record name. Prefer the
         // mirror cache (written by `bindAfterSignIn`) for the warm
@@ -103,9 +112,6 @@ final class FriendsStore {
             outgoingRequests = [:]
             return
         }
-
-        isRefreshing = true
-        defer { isRefreshing = false }
 
         guard let friendships = try? await CloudKitService.fetchFriendships(for: me) else {
             return

@@ -432,7 +432,10 @@ enum CloudKitService {
         })
     }
 
-    private static func makeEncoder() -> JSONEncoder {
+    /// Local JSON encoder for upload paths. Internal-not-private so
+    /// other CloudKitService extensions (`CloudKitPublishedRecipe`)
+    /// can reuse the same encoder configuration.
+    static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         return e

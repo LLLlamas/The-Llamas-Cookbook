@@ -56,7 +56,7 @@ final class LibraryMirrorService {
     /// one's pending save.
     private var pendingUploads: [UUID: Task<Void, Never>] = [:]
 
-    /// Per-cook debounce window. Long enough that the editor's
+    /// Per-recipe debounce window. Long enough that the editor's
     /// auto-save chatter coalesces; short enough that a friend
     /// looking at the user's library within ~10 seconds of a save
     /// sees the latest content.

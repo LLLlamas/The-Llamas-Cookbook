@@ -158,10 +158,13 @@ struct AddFriendSheet: View {
             searchResults = []
             return
         }
+        // Flip the spinner up synchronously so the resultsList
+        // doesn't show a stale "No one matches" for the 300ms
+        // debounce window while the user is still typing.
+        isSearching = true
         searchTask = Task { @MainActor in
             try? await Task.sleep(for: Self.debounce)
             if Task.isCancelled { return }
-            isSearching = true
             do {
                 let results = try await CloudKitService.searchUserProfiles(prefix: trimmed)
                 if Task.isCancelled { return }

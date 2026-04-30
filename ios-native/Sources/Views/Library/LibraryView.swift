@@ -34,6 +34,11 @@ struct LibraryView: View {
     @Environment(NavigationContext.self) private var navContext
     @Environment(UserAccount.self) private var userAccount
     @Environment(OwnerProfile.self) private var ownerProfile
+    // Read so we can re-inject across the ProfileView sheet boundary —
+    // iOS 18 occasionally drops @Observable values across sheet
+    // presentations (per CLAUDE.md › "Re-inject environments into
+    // covers"). LibraryView itself doesn't consume FriendsStore.
+    @Environment(FriendsStore.self) private var friendsStore
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
@@ -118,6 +123,7 @@ struct LibraryView: View {
                 .environment(userAccount)
                 .environment(ownerProfile)
                 .environment(appearance)
+                .environment(friendsStore)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -604,6 +610,7 @@ private struct RecipeCardButtonStyle: ButtonStyle {
         .environment(AppearanceSettings())
         .environment(UserAccount())
         .environment(OwnerProfile())
+        .environment(FriendsStore())
 }
 
 #Preview("Empty") {
@@ -615,6 +622,7 @@ private struct RecipeCardButtonStyle: ButtonStyle {
         .environment(AppearanceSettings())
         .environment(UserAccount())
         .environment(OwnerProfile())
+        .environment(FriendsStore())
 }
 
 @MainActor

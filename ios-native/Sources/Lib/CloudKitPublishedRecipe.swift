@@ -79,7 +79,7 @@ extension CloudKitService {
 
         // Strip photo bytes so the envelope JSON stays a few KB —
         // photos travel as sibling CKAssets (no base64 inflation).
-        let strippedJSON = try makeUploadEncoder().encode(envelope.withClearedPhotoBytes())
+        let strippedJSON = try makeEncoder().encode(envelope.withClearedPhotoBytes())
         let envelopeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("publish-envelope-\(UUID().uuidString).json")
         try strippedJSON.write(to: envelopeURL, options: .atomic)
@@ -235,17 +235,4 @@ extension CloudKitService {
         return strippedEnvelope.injecting(photoBytes: photoBytes)
     }
 
-    // MARK: - Helpers
-
-    /// Local JSON encoder for upload paths. Mirrors the one inside
-    /// `CloudKitService.uploadShare` — we duplicate rather than
-    /// expose the original because that one is private and the
-    /// upload path's encoder needs ISO-8601 dates only (no sorted
-    /// keys, since the envelope is bytes-on-the-wire and order
-    /// doesn't matter for upload).
-    private static func makeUploadEncoder() -> JSONEncoder {
-        let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
-        return e
-    }
 }
