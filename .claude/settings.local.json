@@ -45,7 +45,8 @@
       "Bash(mkdir -p \"/c/Users/fines/.claude/skills\")",
       "Bash(mv \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/content-research-writer\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/frontend-design\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/senior-frontend\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/senior-fullstack\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/ui-design-system\" \"/c/Users/fines/Documents/2026 Repository/Dog Newsletter and Store/.claude/skills/ui-ux-pro-max\" \"/c/Users/fines/.claude/skills/\")",
       "Read(//c/Users/fines/.claude/**)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git merge *)"
     ]
   }
 }
