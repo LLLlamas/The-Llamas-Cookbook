@@ -334,8 +334,10 @@ struct ProfileView: View {
                     Text(message)
                         .font(AppFont.caption)
                         .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(4)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
+                        .textSelection(.enabled)
                 } else {
                     Text("Push your profile to CloudKit so friends can find you in search.")
                         .font(AppFont.caption)

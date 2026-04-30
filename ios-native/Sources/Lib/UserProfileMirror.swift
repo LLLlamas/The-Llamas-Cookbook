@@ -1,4 +1,5 @@
 import Foundation
+import CloudKit
 
 /// Coordinator that mirrors the local user's identity into the public
 /// CloudKit `UserProfile` record. Friends read these records through
@@ -111,7 +112,47 @@ enum UserProfileMirror {
             }
             return nil
         } catch {
-            return error.localizedDescription
+            return Self.describeCloudKitError(error)
+        }
+    }
+
+    /// Extract a useful diagnostic string from a CloudKit save error.
+    /// `error.localizedDescription` on a `CKError` typically returns
+    /// only the leading "error saving record <CKRecordID: ...>" line
+    /// and drops the actual reason (missing schema field, permission
+    /// denied, etc.). We dig into `userInfo` for the server message,
+    /// then append the error code so the diagnostic surfaces the
+    /// piece of information that actually identifies the fix.
+    private static func describeCloudKitError(_ error: Error) -> String {
+        let ck = error as? CKError
+        let codeName = ck.map { describeCode($0.code) } ?? "Error"
+        var parts: [String] = [codeName]
+        let info = (error as NSError).userInfo
+        if let serverMessage = info["ServerErrorDescription"] as? String, !serverMessage.isEmpty {
+            parts.append(serverMessage)
+        } else if let reason = info[NSLocalizedFailureReasonErrorKey] as? String, !reason.isEmpty {
+            parts.append(reason)
+        } else if let underlying = info[NSUnderlyingErrorKey] as? NSError {
+            parts.append(underlying.localizedDescription)
+        } else {
+            parts.append(error.localizedDescription)
+        }
+        return parts.joined(separator: " — ")
+    }
+
+    private static func describeCode(_ code: CKError.Code) -> String {
+        switch code {
+        case .notAuthenticated: return "Not signed into iCloud"
+        case .permissionFailure: return "Permission failure"
+        case .quotaExceeded: return "Quota exceeded"
+        case .networkUnavailable, .networkFailure: return "Network unavailable"
+        case .serviceUnavailable: return "Service unavailable"
+        case .invalidArguments: return "Invalid arguments (likely schema mismatch)"
+        case .serverRecordChanged: return "Server record changed"
+        case .unknownItem: return "Unknown item"
+        case .badContainer: return "Bad container (entitlement?)"
+        case .missingEntitlement: return "Missing entitlement"
+        default: return "CKError(\(code.rawValue))"
         }
     }
 
