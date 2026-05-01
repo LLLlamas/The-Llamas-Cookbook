@@ -77,6 +77,31 @@ extension CloudKitService {
     /// a uniqueness query.
     static let userProfileRecordType = "UserProfile"
 
+    /// Prefix applied to UserProfile recordNames to avoid collision
+    /// with CloudKit's built-in `Users` system record type. The
+    /// system `Users` record's recordName IS the iCloud user record
+    /// name, so saving a custom record with the same recordName
+    /// fetches the system record back and rejects our custom
+    /// fields ("Cannot create or modify field 'accentHex' in record
+    /// Users in productions schema"). Prefixing decouples our
+    /// recordName from the system one while still giving us
+    /// "exactly one profile per user" via deterministic addressing.
+    /// External callers continue to pass raw iCloud user record
+    /// names — the prefix is applied / stripped inside this file.
+    private static let userProfileRecordNamePrefix = "profile_"
+
+    private static func userProfileRecordID(for userRecordName: String) -> CKRecord.ID {
+        CKRecord.ID(recordName: userProfileRecordNamePrefix + userRecordName)
+    }
+
+    private static func userRecordName(fromProfileRecordID id: CKRecord.ID) -> String {
+        let name = id.recordName
+        if name.hasPrefix(userProfileRecordNamePrefix) {
+            return String(name.dropFirst(userProfileRecordNamePrefix.count))
+        }
+        return name
+    }
+
     /// Fetches the current iCloud user's stable record name for this
     /// container. This is the identifier friends use to address each
     /// other in the social schema — `Friendship.userA/userB` and the
@@ -104,7 +129,7 @@ extension CloudKitService {
     /// errors so callers can distinguish "not yet" from "temporarily
     /// can't reach."
     static func fetchUserProfile(userRecordName: String) async throws -> UserProfileSnapshot? {
-        let recordID = CKRecord.ID(recordName: userRecordName)
+        let recordID = userProfileRecordID(for: userRecordName)
         do {
             let record = try await publicDB.record(for: recordID)
             return UserProfileSnapshot(record: record, userRecordName: userRecordName)
@@ -141,7 +166,10 @@ extension CloudKitService {
         )
         return matchResults.compactMap { (id, result) in
             guard case .success(let record) = result else { return nil }
-            return UserProfileSnapshot(record: record, userRecordName: id.recordName)
+            return UserProfileSnapshot(
+                record: record,
+                userRecordName: userRecordName(fromProfileRecordID: id)
+            )
         }
     }
 
@@ -166,7 +194,7 @@ extension CloudKitService {
         userRecordName: String,
         apply: (CKRecord) -> Void
     ) async throws {
-        let recordID = CKRecord.ID(recordName: userRecordName)
+        let recordID = userProfileRecordID(for: userRecordName)
         let record: CKRecord
         do {
             record = try await publicDB.record(for: recordID)
@@ -183,7 +211,7 @@ extension CloudKitService {
     /// treated as success (the record's already gone, which is the
     /// post-condition we want).
     static func deleteUserProfile(userRecordName: String) async throws {
-        let recordID = CKRecord.ID(recordName: userRecordName)
+        let recordID = userProfileRecordID(for: userRecordName)
         do {
             _ = try await publicDB.deleteRecord(withID: recordID)
         } catch let ckError as CKError where ckError.code == .unknownItem {
