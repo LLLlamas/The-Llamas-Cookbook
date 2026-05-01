@@ -67,13 +67,20 @@ enum CloudKitSubscriptions {
     // MARK: - Subscription identifiers
 
     /// Stable per-user subscription identifier for the friendship
-    /// stream. Includes the user record name so multi-tenant
-    /// devices (signed-in as A, then B) carry distinct
-    /// subscriptions on the cloud side; CloudKit's upsert
-    /// semantics on `save(subscription)` then mean A's sign-out
-    /// cleanup doesn't accidentally tear down B's stream.
-    static func friendshipSubscriptionID(for me: String) -> String {
-        "friendship-events-\(me)"
+    /// stream's userA half. CloudKit doesn't support `OR` across
+    /// different fields in subscription predicates, so the symmetric
+    /// "fire for any friendship I'm in" semantic requires two
+    /// subscriptions — one matching `userA == me`, one matching
+    /// `userB == me`. Both fire into the same NotificationCenter
+    /// event so consumers don't need to know which half triggered.
+    static func friendshipSubscriptionIDA(for me: String) -> String {
+        "friendship-events-A-\(me)"
+    }
+
+    /// Stable per-user subscription identifier for the friendship
+    /// stream's userB half. Pair with `friendshipSubscriptionIDA`.
+    static func friendshipSubscriptionIDB(for me: String) -> String {
+        "friendship-events-B-\(me)"
     }
 
     /// Stable per-user subscription identifier for the
@@ -116,11 +123,28 @@ enum CloudKitSubscriptions {
     }
 
     private static func registerFriendshipSubscription(for me: String) async throws {
-        let predicate = NSPredicate(format: "userA == %@ OR userB == %@", me, me)
+        // CloudKit subscription predicates don't support `OR` across
+        // different fields, so we split into two single-field
+        // subscriptions. Both produce identical NotificationInfo so
+        // FriendsStore.observeRemotePushes treats them as one stream.
+        try await saveFriendshipSubscription(
+            id: friendshipSubscriptionIDA(for: me),
+            predicate: NSPredicate(format: "userA == %@", me)
+        )
+        try await saveFriendshipSubscription(
+            id: friendshipSubscriptionIDB(for: me),
+            predicate: NSPredicate(format: "userB == %@", me)
+        )
+    }
+
+    private static func saveFriendshipSubscription(
+        id: String,
+        predicate: NSPredicate
+    ) async throws {
         let subscription = CKQuerySubscription(
             recordType: CloudKitService.friendshipRecordType,
             predicate: predicate,
-            subscriptionID: friendshipSubscriptionID(for: me),
+            subscriptionID: id,
             options: [.firesOnRecordCreation, .firesOnRecordUpdate]
         )
         // Silent push: wake the app, no banner. The app handler
@@ -166,7 +190,8 @@ enum CloudKitSubscriptions {
     /// little quota until CloudKit GCs it.
     static func unregisterAll(userRecordName me: String) async {
         let ids = [
-            friendshipSubscriptionID(for: me),
+            friendshipSubscriptionIDA(for: me),
+            friendshipSubscriptionIDB(for: me),
             recipeImportSubscriptionID(for: me),
         ]
         for id in ids {

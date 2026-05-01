@@ -208,4 +208,30 @@ extension CloudKitService {
             )
         }
     }
+
+    /// Delete every `Friendship` record between two users — used as
+    /// post-action cleanup when a user pair lands in an inconsistent
+    /// state (mutual outgoing requests, leftover pendings after
+    /// accept/remove, duplicate requests sent before the dedup
+    /// fetch was healthy). Optionally preserve a single record by
+    /// recordName (e.g. the just-accepted one). Best-effort; per-
+    /// record failures are swallowed so a transient blip doesn't
+    /// strand the user mid-cleanup.
+    static func deleteAllFriendshipsBetween(
+        _ me: String,
+        and other: String,
+        preservingRecordName: String? = nil
+    ) async {
+        guard let records = try? await fetchFriendships(for: me) else {
+            return
+        }
+        for friendship in records {
+            guard friendship.otherUserID(from: me) == other else { continue }
+            if friendship.recordName == preservingRecordName { continue }
+            try? await deleteFriendship(
+                recordName: friendship.recordName,
+                currentUserID: me
+            )
+        }
+    }
 }

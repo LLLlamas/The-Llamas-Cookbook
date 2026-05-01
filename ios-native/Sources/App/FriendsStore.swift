@@ -144,14 +144,43 @@ final class FriendsStore {
             return
         }
 
+        // Collapse multiple records for the same user pair into one
+        // logical relationship. CloudKit doesn't enforce uniqueness
+        // (no unique index on the userA/userB pair), so duplicates
+        // can land when the dedup-fetch in `sendRequest` was failing
+        // (early-onboarding schema state) or when both users
+        // mutual-requested at the same time. Precedence: accepted >
+        // pending; among pendings keep the first one we encounter so
+        // refresh is deterministic. Stale duplicates get swept off
+        // the server in the cleanup pass below.
+        var byOtherID: [String: FriendshipRecord] = [:]
+        var staleRecords: [FriendshipRecord] = []
+        for friendship in friendships {
+            guard let otherID = friendship.otherUserID(from: me) else { continue }
+            if let existing = byOtherID[otherID] {
+                let keepNew: Bool
+                switch (friendship.status, existing.status) {
+                case (.accepted, .pending): keepNew = true
+                case (.pending, .accepted): keepNew = false
+                default: keepNew = false  // both same status — keep first
+                }
+                if keepNew {
+                    staleRecords.append(existing)
+                    byOtherID[otherID] = friendship
+                } else {
+                    staleRecords.append(friendship)
+                }
+            } else {
+                byOtherID[otherID] = friendship
+            }
+        }
+
         var newFriends: [UserProfileSnapshot] = []
         var newIncoming: [PendingRequest] = []
         var newOutgoing: [String: String] = [:]
         var skippedNoProfile = 0
 
-        for friendship in friendships {
-            guard let otherID = friendship.otherUserID(from: me) else { continue }
-
+        for (otherID, friendship) in byOtherID {
             switch friendship.status {
             case .accepted:
                 if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
@@ -159,14 +188,8 @@ final class FriendsStore {
                 }
             case .pending:
                 if friendship.requesterID == me {
-                    // Outgoing — track by other-user-id for the
-                    // `+`-button state in the search popover. We
-                    // don't need the profile; the popover already
-                    // has it.
                     newOutgoing[otherID] = friendship.recordName
                 } else {
-                    // Incoming — need the requester's profile to
-                    // render the row.
                     if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
                         newIncoming.append(PendingRequest(
                             friendshipRecordName: friendship.recordName,
@@ -179,8 +202,22 @@ final class FriendsStore {
             }
         }
 
+        // Background sweep — delete duplicate records so the server
+        // converges to one record per pair. Non-blocking; a failed
+        // delete just means the next refresh will sweep again.
+        if !staleRecords.isEmpty {
+            Task.detached {
+                for stale in staleRecords {
+                    try? await CloudKitService.deleteFriendship(
+                        recordName: stale.recordName,
+                        currentUserID: me
+                    )
+                }
+            }
+        }
+
         let mePreview = String(me.prefix(20))
-        lastRefreshDiagnostic = "me=\(mePreview)… fetched=\(friendships.count) accepted=\(newFriends.count) incoming=\(newIncoming.count) outgoing=\(newOutgoing.count) skipped(no profile)=\(skippedNoProfile)"
+        lastRefreshDiagnostic = "me=\(mePreview)… fetched=\(friendships.count) accepted=\(newFriends.count) incoming=\(newIncoming.count) outgoing=\(newOutgoing.count) skipped(no profile)=\(skippedNoProfile) deduped=\(staleRecords.count)"
 
         newFriends.sort { lhs, rhs in
             lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
@@ -207,14 +244,25 @@ final class FriendsStore {
         // Self-request guard — defense in depth; the popover also
         // filters self out before showing the row.
         guard other.userRecordName != me else { return }
-        // Already-friend / already-requested guards. Cheap local
-        // check; avoids a duplicate Friendship record on rapid
-        // double-tap. (Server-side dedup is the spec's deferred
-        // problem — see implement-social.md.)
+        // Local-cache guards covering the three "no new request
+        // needed" states: already friends, my outgoing pending
+        // already exists, or they've already requested me (sender
+        // should accept their request rather than sending one back,
+        // which would create a duplicate pending pair).
         if friends.contains(where: { $0.userRecordName == other.userRecordName }) { return }
         if outgoingRequests[other.userRecordName] != nil { return }
-        if let remoteFriendships = try? await CloudKitService.fetchFriendships(for: me),
-           remoteFriendships.contains(where: { $0.otherUserID(from: me) == other.userRecordName }) {
+        if incomingRequests.contains(where: { $0.requester.userRecordName == other.userRecordName }) {
+            return
+        }
+        // Remote backstop. If this query fails (transient network,
+        // CK throttling), we'd rather fail-closed than silently
+        // create a duplicate Friendship record — the duplicates we
+        // already have in production were caused by this exact
+        // path failing while the schema was deploying.
+        guard let remoteFriendships = try? await CloudKitService.fetchFriendships(for: me) else {
+            return
+        }
+        if remoteFriendships.contains(where: { $0.otherUserID(from: me) == other.userRecordName }) {
             await refresh()
             return
         }
@@ -256,6 +304,10 @@ final class FriendsStore {
     /// Approve an incoming friend request. Flips the CK record's
     /// status and re-fetches so the new friend appears in the
     /// `friends` list and disappears from `incomingRequests`.
+    /// After accepting, sweeps any duplicate pending records for
+    /// the same user pair so the server converges to one accepted
+    /// record (mutual-request and pre-dedup-fetch duplicates would
+    /// otherwise leave behind ghost pendings).
     func acceptRequest(_ pending: PendingRequest) async {
         guard let me = UserProfileMirror.cachedRecordID() else { return }
         try? await CloudKitService.approveFriendRequest(
@@ -265,9 +317,21 @@ final class FriendsStore {
         // Optimistic local update so the row vanishes immediately
         // (the refresh below will reconcile).
         incomingRequests.removeAll { $0.id == pending.id }
+        outgoingRequests.removeValue(forKey: pending.requester.userRecordName)
         friends.append(pending.requester)
         friends.sort { lhs, rhs in
             lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
+        // Cascade-delete duplicate friendship records for this pair
+        // (everything except the just-accepted one). Detached so the
+        // accept feels instant and a slow sweep doesn't block the
+        // refresh below.
+        let otherID = pending.requester.userRecordName
+        let preserve = pending.friendshipRecordName
+        Task.detached {
+            await CloudKitService.deleteAllFriendshipsBetween(
+                me, and: otherID, preservingRecordName: preserve
+            )
         }
         await refresh()
     }
@@ -275,34 +339,37 @@ final class FriendsStore {
     /// Deny an incoming friend request — destructively removes the
     /// CK record so the requester just sees their pending entry
     /// vanish on next refresh. No notification fires (per spec —
-    /// "saves face").
+    /// "saves face"). Also sweeps any duplicate pending records for
+    /// the same pair so a denied user can re-request cleanly later
+    /// without colliding with the leftover ghosts.
     func denyRequest(_ pending: PendingRequest) async {
         guard let me = UserProfileMirror.cachedRecordID() else { return }
+        let otherID = pending.requester.userRecordName
         try? await CloudKitService.deleteFriendship(
             recordName: pending.friendshipRecordName,
             currentUserID: me
         )
         incomingRequests.removeAll { $0.id == pending.id }
+        outgoingRequests.removeValue(forKey: otherID)
+        Task.detached {
+            await CloudKitService.deleteAllFriendshipsBetween(me, and: otherID)
+        }
     }
 
     /// Remove an accepted friend. Either side can do this. Local
     /// removal is optimistic; refresh reconciles. The other side
     /// won't be notified — they discover via their own friends list
-    /// missing the entry on next refresh.
+    /// missing the entry on next refresh. Wipes EVERY friendship
+    /// record for the pair (accepted + any leftover pendings) so
+    /// either user can immediately re-request without the local
+    /// dedup guards rejecting them due to a stale record.
     func removeFriend(_ friend: UserProfileSnapshot) async {
         guard let me = UserProfileMirror.cachedRecordID() else { return }
-        guard let friendships = try? await CloudKitService.fetchFriendships(for: me) else {
-            return
-        }
-        let target = friendships.first { f in
-            f.status == .accepted && f.otherUserID(from: me) == friend.userRecordName
-        }
-        guard let target else { return }
-        try? await CloudKitService.deleteFriendship(
-            recordName: target.recordName,
-            currentUserID: me
-        )
-        friends.removeAll { $0.userRecordName == friend.userRecordName }
+        let otherID = friend.userRecordName
+        await CloudKitService.deleteAllFriendshipsBetween(me, and: otherID)
+        friends.removeAll { $0.userRecordName == otherID }
+        outgoingRequests.removeValue(forKey: otherID)
+        incomingRequests.removeAll { $0.requester.userRecordName == otherID }
     }
 
     // MARK: - Sign-in lifecycle
