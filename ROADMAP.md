@@ -1,28 +1,21 @@
 # Roadmap
 
-Current source of truth for active work is `CLAUDE.md`. This file is the short backlog.
-
-## Now
-
-1. Verify Universal Links end to end on real iPhones.
-2. Remove the temporary cloud-share diagnostic alert after verification.
-3. Enable Push Notifications capability on the App ID.
-4. Regenerate the main app provisioning profile and update `IOS_PROVISIONING_PROFILE_BASE64`.
-5. Deploy `RecipeImport` CloudKit schema/indexes Dev to Prod.
+`CLAUDE.md` carries the active priorities. This file is the longer backlog only.
 
 ## Next
 
-1. Add `TimerLiveActivityRegistry` keyed by `cookID`.
-2. Finish aesthetic/type pass.
-3. Adopt Liquid Glass before iOS 27 removes the compatibility opt-out.
-4. Review App Store privacy labels against CloudKit/Cloudflare sharing.
-5. Add durable deletion/outbox cleanup for all social record types if needed after testing.
+- `TimerLiveActivityRegistry` keyed by `cookID` so backgrounded cooks keep managed Live Activities.
+- Fan-out `FriendsStore.refresh()` profile fetches via `withTaskGroup` (currently serial).
+- Aesthetic/type pass; adopt Liquid Glass before iOS 27.
+- Review App Store privacy labels against actual CloudKit / Cloudflare sharing.
+- Durable deletion outbox for stranded social records if account-deletion testing finds any.
+- Server-side uniqueness for `Friendship(userA,userB)` (currently client-deduped only).
 
 ## Later
 
-- Settings screen beyond accent/sign-out/delete.
+- Settings beyond accent / sign-out / delete.
 - Dark mode.
 - iPad layout.
 - Live Activity App Intents.
-- More robust social CloudKit role verification tooling.
+- Tooling for inspecting CloudKit roles in-app.
 - Optional per-recipe share controls if product direction changes.

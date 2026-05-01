@@ -1,26 +1,12 @@
-# Llama Intro Summary
+# Llama Intro
 
-Historical plan, implemented as coach-mark tours.
+Coach-mark tour overlay shown for New Recipe / Import From Text / Import From Link.
 
-## Current Behavior
+Files: `ios-native/Sources/Views/Components/LlamaIntro/`, `Tours/*.swift`, hosted by `Views/Editor/` and `Views/Library/`.
 
-SwiftUI overlay highlights fields and shows helper copy for:
-
-- New Recipe
-- Import From Text
-- Import From Link
-
-## Critical Files
-
-- `ios-native/Sources/Views/Components/LlamaIntro/`
-- `Tours/NewRecipeTour.swift`
-- `Tours/TextImportTour.swift`
-- `Tours/LinkImportTour.swift`
-- Host views in `Views/Editor/` and `Views/Library/`
-
-## Guardrails
+Guardrails:
 
 - Respect Reduce Motion.
-- Keep overlay lightweight and dismissible.
-- Do not auto-show during share-extension/prefilled URL intent.
-- Help text should stay short; no feature manual inside the UI.
+- Stays lightweight and dismissible.
+- Do not auto-show during share-extension or prefilled-URL intents.
+- Help text stays short.

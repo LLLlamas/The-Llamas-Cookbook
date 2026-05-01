@@ -1,16 +1,8 @@
-# Sign In Summary
+# Sign In
 
-Historical plan, condensed after implementation.
+Sign in with Apple. Optional. Required for in-app social/friends. Display name only, never email. Identity persisted in Keychain via `UserAccount` + `KeychainStore`.
 
-## Current Behavior
-
-- Sign in with Apple is optional.
-- Required for in-app social/friends features.
-- Not required for local cookbook use, file export, or link sharing fallback.
-- The app requests display name only, not email.
-- Stable identity is stored locally/keychain-backed through `UserAccount` and `KeychainStore`.
-
-## Critical Files
+## Files
 
 - `ios-native/Sources/App/UserAccount.swift`
 - `ios-native/Sources/Lib/SignInWithAppleService.swift`
@@ -18,14 +10,12 @@ Historical plan, condensed after implementation.
 - `ios-native/Sources/Lib/UserProfileMirror.swift`
 - `ios-native/Sources/Views/Profile/ProfileView.swift`
 
-## Privacy Notes
+## Privacy
 
-- No password is stored or handled by the app.
-- Social/shared CloudKit data is public/unlisted; do not describe it as hard-private.
-- App Store privacy labels must reflect identifiers, display name/profile data, recipe/user content, and sharing/social records.
+- No password handled.
+- Social/shared CloudKit data is public/unlisted; do not describe as hard-private.
+- App Store privacy labels must reflect identifiers, display name/profile, recipe/user content, sharing/social records.
 
-## Signing
+## Entitlement
 
-SIWA entitlement must remain on the main app target:
-
-`com.apple.developer.applesignin = ["Default"]`
+`com.apple.developer.applesignin = ["Default"]` on the main app target.

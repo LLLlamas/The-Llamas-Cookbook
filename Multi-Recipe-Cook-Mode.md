@@ -1,15 +1,8 @@
-# Multi-Recipe Cook Mode Summary
+# Multi-Recipe Cook Mode
 
-Historical plan, mostly implemented.
+`CookingSession` supports 1-4 active cooks. `ActiveCook.id` is distinct from `Recipe.id`. Per-cook state persists; state file is `cooking-session-states.v2` (with v1 migration).
 
-## Current Behavior
-
-- `CookingSession` supports 1-4 active cooks.
-- `ActiveCook.id` is distinct from `Recipe.id`.
-- Cook Mode can switch between cooks and persists per-cook state.
-- Session state is saved in `cooking-session-states.v2` with v1 migration.
-
-## Critical Files
+## Files
 
 - `ios-native/Sources/App/CookingSession.swift`
 - `ios-native/Sources/App/CookingSessionState.swift`
@@ -18,11 +11,11 @@ Historical plan, mostly implemented.
 - `ios-native/Sources/Lib/TimerNotifications.swift`
 - `ios-native/Sources/Lib/TimerLiveActivityController.swift`
 
-## Still Open
+## Open
 
-`TimerLiveActivityController` is still effectively per visible Cook Mode view. Add a `TimerLiveActivityRegistry` keyed by `cookID` so backgrounded cooks keep managed Live Activities.
+`TimerLiveActivityController` is per-Cook-Mode-view. Add `TimerLiveActivityRegistry` keyed by `cookID` so backgrounded cooks keep their Live Activities.
 
-## Must Test
+## Test
 
 - One-cook behavior unchanged.
 - Marking one of multiple cooks done keeps Cook Mode open.

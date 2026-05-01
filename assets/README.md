@@ -1,22 +1,12 @@
 # Assets
 
-Llama logo and exported app-icon/favicon assets.
-
-## Source
+Llama logo + exported app-icon / favicon assets.
 
 - Master vector: `assets/logo.svg`
-- App icon exports: `assets/ios/`
+- iOS app icons: `assets/ios/`
 - Transparent PNGs: `assets/png/`
 - Favicons: `assets/favicon/`
 
-## iOS
+iOS icons are also copied into `ios-native/Resources/Assets.xcassets/AppIcon.appiconset/`. CI sanitizes them to opaque sRGB before archive.
 
-Current app icons are already copied into:
-
-`ios-native/Resources/Assets.xcassets/AppIcon.appiconset/`
-
-CI sanitizes app icon PNGs to opaque sRGB before archive.
-
-## Regenerate
-
-If the logo changes, re-export from `logo.svg`, replace the matching files, and verify TestFlight archive still passes asset validation.
+If the logo changes, re-export from `logo.svg`, replace the matching files, verify TestFlight archive still passes asset validation.

@@ -1,16 +1,12 @@
-# Photo Capability Summary
-
-Historical plan, condensed after implementation.
-
-## Current Behavior
+# Photos
 
 - Recipe gallery photos and per-step photos are SwiftData relationship models.
-- `RecipeStep.image` is deprecated and kept only for migration.
-- Editor writes photos through `DraftPhoto` and commits via `Recipe.apply(_:)`.
+- `RecipeStep.image` is deprecated migration baggage. Never write to it.
+- Editor writes photos through `DraftPhoto` / `DraftStep`; commit via `Recipe.apply(_:)`.
 - Detail gallery can mutate saved recipe photos directly.
-- Cloud share/published recipes strip photo bytes from JSON and send photos as CKAssets.
+- Cloud share/published recipes strip photo bytes from JSON and send photos as CKAssets, capped per-photo (10 MB) and total (40 MB).
 
-## Critical Files
+## Files
 
 - `ios-native/Sources/Models/Recipe.swift`
 - `ios-native/Sources/Lib/ImageProcessing.swift`
@@ -22,7 +18,6 @@ Historical plan, condensed after implementation.
 
 ## Guardrails
 
-- Keep photo decode/resize off the main path where possible.
+- Decode/resize off the main path where possible.
 - Keep CloudKit receive caps in place.
-- Never write new data to `RecipeStep.image`.
 - Any save flow must carry image bytes through the draft.
