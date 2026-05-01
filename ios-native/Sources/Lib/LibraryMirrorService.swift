@@ -190,6 +190,49 @@ final class LibraryMirrorService {
         UserDefaults.standard.removeObject(forKey: bulkPublishedKey)
     }
 
+    /// Diagnostic recovery — force a republish of every local recipe,
+    /// ignoring the one-shot bulk-publish marker. Surfaced behind a
+    /// "Re-publish library" button in `ProfileView` for users whose
+    /// bulk publish ran while the CloudKit schema was still half-
+    /// deployed (the marker flipped to "done", but every individual
+    /// upload silently failed). Returns a tuple so the UI can render
+    /// "published N of M, first failure: <msg>" without needing
+    /// granular per-recipe state.
+    func republishLibrary(recipes: [Recipe]) async -> (succeeded: Int, failed: Int, firstError: String?) {
+        guard let ownerID = UserProfileMirror.cachedRecordID() else {
+            return (0, 0, "Not signed into iCloud — cloud sync is unavailable.")
+        }
+        guard !recipes.isEmpty else {
+            UserDefaults.standard.set(true, forKey: Self.bulkPublishedKey)
+            return (0, 0, nil)
+        }
+        let appVersion = Self.currentAppVersion()
+        var succeeded = 0
+        var failed = 0
+        var firstError: String? = nil
+        for recipe in recipes {
+            do {
+                try await CloudKitService.upsertPublishedRecipe(
+                    ownerID: ownerID,
+                    sharedBy: recipe.originalCreatorDisplayName,
+                    appVersion: appVersion,
+                    recipe: recipe,
+                    originalCreatorID: recipe.originalCreatorUserRecordName,
+                    originalRecipeID: recipe.originalRecipeID
+                )
+                succeeded += 1
+            } catch {
+                failed += 1
+                if firstError == nil {
+                    let serverMessage = (error as NSError).userInfo["ServerErrorDescription"] as? String
+                    firstError = serverMessage ?? error.localizedDescription
+                }
+            }
+        }
+        UserDefaults.standard.set(true, forKey: Self.bulkPublishedKey)
+        return (succeeded, failed, firstError)
+    }
+
     // MARK: - Helpers
 
     /// `CFBundleShortVersionString` (e.g. "1.0.0"). Used as the

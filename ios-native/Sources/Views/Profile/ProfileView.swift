@@ -66,6 +66,14 @@ struct ProfileView: View {
     @State private var resyncResultMessage: String? = nil
     @State private var resyncSucceeded: Bool = false
 
+    /// Diagnostic state for the "Re-publish library" button — drives
+    /// the spinner and the inline result message that surfaces
+    /// per-recipe success/failure counts plus the first CKError so
+    /// the user can see whether their bulk publish actually landed.
+    @State private var isRepublishingLibrary: Bool = false
+    @State private var republishResultMessage: String? = nil
+    @State private var republishSucceeded: Bool = false
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
@@ -303,6 +311,8 @@ struct ProfileView: View {
 
             cloudSyncRow(identity: identity)
 
+            republishLibraryRow
+
             if let lastCooked = lastCookedRecipe {
                 lastCookedLine(recipe: lastCooked)
             }
@@ -310,6 +320,86 @@ struct ProfileView: View {
             requestsSection
 
             friendsSection
+        }
+    }
+
+    /// Force-republish-library diagnostic. The bulk publish on first-
+    /// friend transition runs once per install and silently swallows
+    /// errors — if that pass ran while the CloudKit schema was still
+    /// half-deployed, every recipe failed to publish AND the gate
+    /// flipped to "done" so it never retried. This button resets the
+    /// gate and re-uploads every recipe, surfacing the per-recipe
+    /// success/failure counts so the user can confirm the recovery
+    /// actually worked.
+    private var republishLibraryRow: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("LIBRARY SYNC")
+                .eyebrowStyle(AppColor.textTertiary)
+            HStack(spacing: AppSpacing.sm) {
+                if let message = republishResultMessage {
+                    Image(systemName: republishSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(republishSucceeded ? AppColor.success : AppColor.destructive)
+                    Text(message)
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                        .textSelection(.enabled)
+                } else {
+                    Text("Re-upload all your recipes so friends can see them in your cookbook.")
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(3)
+                }
+                Spacer(minLength: AppSpacing.sm)
+                Button {
+                    Task { await republishLibrary() }
+                } label: {
+                    if isRepublishingLibrary {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 32, height: 32)
+                    } else {
+                        Image(systemName: "icloud.and.arrow.up")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                            .frame(width: 32, height: 32)
+                            .background(AppColor.surfaceSunken)
+                            .clipShape(Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isRepublishingLibrary)
+                .accessibilityLabel("Re-publish library to cloud")
+            }
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private func republishLibrary() async {
+        isRepublishingLibrary = true
+        let recipes = allRecipes
+        let result = await LibraryMirrorService.shared.republishLibrary(recipes: recipes)
+        isRepublishingLibrary = false
+        if result.failed == 0 && result.firstError == nil {
+            republishSucceeded = true
+            republishResultMessage = "Published \(result.succeeded) recipe\(result.succeeded == 1 ? "" : "s"). Friends should see your full cookbook within a minute."
+        } else {
+            republishSucceeded = false
+            var msg = "Published \(result.succeeded) of \(result.succeeded + result.failed)."
+            if let firstError = result.firstError {
+                msg += " First error: \(firstError)"
+            }
+            republishResultMessage = msg
         }
     }
 
