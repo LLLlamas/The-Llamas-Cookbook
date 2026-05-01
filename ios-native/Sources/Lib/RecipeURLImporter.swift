@@ -225,6 +225,13 @@ enum RecipeURLImporter {
         return ""
     }
 
+    /// 10 MB cap on response bodies. Real recipe pages are well under
+    /// 1 MB; anything larger is either a misconfigured server, a video
+    /// page we can't parse anyway, or an adversarial response designed
+    /// to push us toward an OOM. Stream-aborts above the cap so we
+    /// never hold the full body in memory.
+    private static let maxResponseBytes = 10 * 1024 * 1024
+
     private static func fetchData(url: URL) async throws -> Data {
         var request = URLRequest(url: url, timeoutInterval: 15)
         // Mobile Safari UA — recipe sites and Pinterest both serve a
@@ -241,10 +248,23 @@ enum RecipeURLImporter {
             forHTTPHeaderField: "Accept"
         )
         request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
         if let http = response as? HTTPURLResponse, !(200..<400).contains(http.statusCode) {
             throw URLError(.badServerResponse)
         }
-        return data
+        // Fast reject when the server is honest about size.
+        if response.expectedContentLength > Int64(maxResponseBytes) {
+            throw URLError(.dataLengthExceedsMaximum)
+        }
+        var buffer = Data()
+        let hint = Int(max(response.expectedContentLength, 0))
+        buffer.reserveCapacity(min(hint, maxResponseBytes))
+        for try await byte in bytes {
+            buffer.append(byte)
+            if buffer.count > maxResponseBytes {
+                throw URLError(.dataLengthExceedsMaximum)
+            }
+        }
+        return buffer
     }
 }

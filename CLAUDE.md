@@ -11,11 +11,10 @@ Live SwiftUI app under `ios-native/`. Shipped: CRUD, editor, Cook Mode, multi-co
 Open work:
 
 - Verify Universal Links on real devices, then drop the diagnostic alert in `RecipeDetailView.cloudShareError`.
-- Enable Push Notifications on the App ID, regenerate the main provisioning profile, update `IOS_PROVISIONING_PROFILE_BASE64`.
-- Deploy `RecipeImport` schema/indexes Dev to Prod.
 - Per-cook `TimerLiveActivityRegistry`.
 - Aesthetic/type pass; adopt Liquid Glass before iOS 27 drops the compatibility opt-out.
-- Verify CloudKit Console security roles for `UserProfile`, `Friendship`, `PublishedRecipe`, `RecipeImport`, `RecipeShare`.
+- Add CloudKit Console Security Role gating `UserProfile` queries to `_icloud` (authenticated iCloud users) before TestFlight expands.
+- Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision` from dev box.
 
 ## Product rules
 
@@ -80,8 +79,8 @@ Open work:
 - `Resources/PrivacyInfo.xcprivacy` covers required-reason APIs. App Store privacy labels still need a once-over against CloudKit/Cloudflare sharing.
 - `UIDesignRequiresCompatibility = true` is the temporary Liquid Glass opt-out.
 - App Group `group.com.llamascookbook.app` must match main app + share extension entitlements + portal profiles.
-- CloudKit schema needs `RecipeShare`, `UserProfile`, `Friendship`, `PublishedRecipe`, `RecipeImport`. `photo0`-`photo19` asset fields are added manually.
-- Push Notifications capability + regenerated main provisioning profile still required for subscription delivery.
+- CloudKit schema (`RecipeShare`, `UserProfile`, `Friendship`, `PublishedRecipe`, `RecipeImport`) deployed Dev → Prod. `photo0`-`photo19` asset fields are added manually.
+- Push Notifications capability + main provisioning profile shipped.
 - Cloudflare Pages env: `CLOUDKIT_CONTAINER_ID`, `CLOUDKIT_KEY_ID`, `CLOUDKIT_PRIVATE_KEY` (encrypted), `CLOUDKIT_ENVIRONMENT`.
 
 ## Docs

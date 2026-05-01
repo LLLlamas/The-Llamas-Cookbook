@@ -1191,7 +1191,16 @@ struct RecipeDetailView: View {
         case .file:
             shareAsFile()
         case .url:
+            // Re-entry guard. The cloud path runs an async account-status
+            // probe before the upload sets its own gate, so two fast taps
+            // could both clear the inner check and queue duplicate
+            // uploads. Setting the flag synchronously here closes that
+            // window; the Task's defer hands it back regardless of which
+            // branch shareViaPreferredTransport returns through.
+            guard !isPreparingCloudShare else { return }
+            isPreparingCloudShare = true
             Task { @MainActor in
+                defer { isPreparingCloudShare = false }
                 await shareViaPreferredTransport()
             }
         case .text:
@@ -1256,13 +1265,11 @@ struct RecipeDetailView: View {
 
     /// Returns true on a successful cloud upload; the caller (and
     /// `shareViaPreferredTransport`) treats false as "fall back to
-    /// the local URL form." Surfaces a blocking spinner via
-    /// `isPreparingCloudShare` while the upload is in flight.
+    /// the local URL form." `isPreparingCloudShare` is set by the
+    /// outer `executeShare(.url)` entry point so the spinner stays up
+    /// across the account-status probe too.
     @MainActor
     private func tryShareViaCloud() async -> Bool {
-        isPreparingCloudShare = true
-        defer { isPreparingCloudShare = false }
-
         let envelope = makeShareEnvelope()
         let trimmedName = ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
