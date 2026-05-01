@@ -310,6 +310,12 @@ struct AccentDot: View {
     /// soft glow — see implement-social.md › "Presence indicator
     /// (the glowing dot)".
     var isGlowing: Bool = false
+    /// When true and not glowing, the dot renders as a hollow circle
+    /// stroked in the accent color instead of a filled disc. Used in
+    /// the friend cookbook header to encode cooking state into the
+    /// indicator itself: filled+pulsing when cooking, outline when
+    /// idle.
+    var outlineWhenIdle: Bool = false
 
     @State private var pulse: Bool = false
 
@@ -320,22 +326,29 @@ struct AccentDot: View {
         return fallback
     }
 
+    private var isOutline: Bool { outlineWhenIdle && !isGlowing }
+
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 12, height: 12)
-            .shadow(
-                color: color.opacity(isGlowing ? 0.9 : 0),
-                radius: isGlowing ? 6 : 0
-            )
-            .scaleEffect(isGlowing && pulse ? 1.15 : 1.0)
-            .animation(
-                isGlowing
-                    ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
-                    : .default,
-                value: pulse
-            )
-            .onAppear { if isGlowing { pulse = true } }
-            .onChange(of: isGlowing) { _, newValue in pulse = newValue }
+        Group {
+            if isOutline {
+                Circle().strokeBorder(color, lineWidth: 1.5)
+            } else {
+                Circle().fill(color)
+            }
+        }
+        .frame(width: 12, height: 12)
+        .shadow(
+            color: color.opacity(isGlowing ? 0.9 : 0),
+            radius: isGlowing ? 6 : 0
+        )
+        .scaleEffect(isGlowing && pulse ? 1.15 : 1.0)
+        .animation(
+            isGlowing
+                ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
+                : .default,
+            value: pulse
+        )
+        .onAppear { if isGlowing { pulse = true } }
+        .onChange(of: isGlowing) { _, newValue in pulse = newValue }
     }
 }

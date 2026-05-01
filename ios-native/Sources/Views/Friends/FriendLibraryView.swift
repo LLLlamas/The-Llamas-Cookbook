@@ -70,56 +70,38 @@ struct FriendLibraryView: View {
 
     // MARK: - Header
 
-    /// Mirrors the friend's identity at the top of their cookbook —
-    /// accent dot (glowing if cooking now), display name, and the
-    /// "Last cooked: <Title>" line when the friend has a most-
-    /// recently-cooked recipe published. Joined-date sits as a
-    /// secondary anchor below the cooking line so the user always
-    /// has at least two cues to identify the friend in the rare
-    /// shared-display-name case.
+    /// Single centered line directly under the navigation title — the
+    /// fork-and-knife glyph, the friend's most recently cooked recipe
+    /// title, and a presence indicator. The dot is filled and pulses
+    /// in the friend's accent when they're cooking right now, and
+    /// renders as a hollow outline (same color, no fill) when they're
+    /// not. Hidden entirely when the friend has no last-cooked recipe
+    /// yet — the indicator alone has no anchor to read against.
+    @ViewBuilder
     private var friendHeader: some View {
-        HStack(alignment: .top, spacing: AppSpacing.md) {
-            AccentDot(
-                hex: friend.accentHex,
-                fallback: friendAccent,
-                isGlowing: friend.isCookingNow
-            )
-            .padding(.top, 6)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(friend.displayName)
-                    .font(AppFont.recipeTitle)
-                    .foregroundStyle(friendAccent)
-                    .lineLimit(1)
-                if let lastCookedTitle = friend.lastCookedTitle, !lastCookedTitle.isEmpty {
-                    HStack(spacing: AppSpacing.xs) {
-                        Image(systemName: "fork.knife")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(AppColor.textTertiary)
-                        Text("Last cooked: ")
-                            .foregroundStyle(AppColor.textTertiary)
-                        + Text(lastCookedTitle)
-                            .foregroundStyle(friendAccent)
-                            .fontWeight(.semibold)
-                    }
-                    .font(AppFont.caption)
-                    .lineLimit(1)
-                }
-                Text("Joined \(Self.joinedFormatter.string(from: friend.createdAt))")
+        if let lastCookedTitle = friend.lastCookedTitle, !lastCookedTitle.isEmpty {
+            HStack(spacing: AppSpacing.xs) {
+                Image(systemName: "fork.knife")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+                (Text("Last cooked: ")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
+                + Text(lastCookedTitle)
+                    .font(AppFont.caption.weight(.semibold))
+                    .foregroundStyle(friendAccent))
+                    .lineLimit(1)
+                AccentDot(
+                    hex: friend.accentHex,
+                    fallback: friendAccent,
+                    isGlowing: friend.isCookingNow,
+                    outlineWhenIdle: true
+                )
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.bottom, AppSpacing.xs)
         }
-        .padding(.bottom, AppSpacing.sm)
     }
-
-    private static let joinedFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMMM yyyy"
-        return f
-    }()
 
     // MARK: - Content
 
