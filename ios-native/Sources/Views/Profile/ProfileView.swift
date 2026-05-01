@@ -487,8 +487,40 @@ struct ProfileView: View {
 
     private var requestsSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            Text("REQUESTS (\(friendsStore.incomingRequests.count))")
-                .eyebrowStyle(AppColor.textTertiary)
+            HStack(spacing: AppSpacing.sm) {
+                Text("REQUESTS (\(friendsStore.incomingRequests.count))")
+                    .eyebrowStyle(AppColor.textTertiary)
+                Spacer(minLength: 0)
+                Button {
+                    Haptics.selection()
+                    Task { await friendsStore.refresh() }
+                } label: {
+                    if friendsStore.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh friends and requests")
+                .disabled(friendsStore.isRefreshing)
+            }
+
+            if let error = friendsStore.lastRefreshError {
+                Text("Refresh error: \(error)")
+                    .font(AppFont.caption)
+                    .foregroundStyle(AppColor.destructive)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(AppSpacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColor.destructive.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+            }
 
             if friendsStore.incomingRequests.isEmpty {
                 emptyRequestsBody

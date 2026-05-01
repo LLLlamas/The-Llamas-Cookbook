@@ -53,6 +53,14 @@ final class FriendsStore {
     /// header on first load.
     private(set) var isRefreshing: Bool = false
 
+    /// Last-error diagnostic from `refresh()`. Normally `refresh`
+    /// swallows CK errors silently so a transient blip doesn't blank
+    /// the friends list — but during onboarding / schema deployment
+    /// it's load-bearing to know *why* nothing is showing up. Surfaced
+    /// in `ProfileView` as a small inline banner under the Requests
+    /// header when non-nil.
+    private(set) var lastRefreshError: String? = nil
+
     /// Token for the block-based push observer. NotificationCenter
     /// retains block observers until removed, so setup is explicitly
     /// idempotent.
@@ -119,7 +127,13 @@ final class FriendsStore {
             return
         }
 
-        guard let friendships = try? await CloudKitService.fetchFriendships(for: me) else {
+        let friendships: [FriendshipRecord]
+        do {
+            friendships = try await CloudKitService.fetchFriendships(for: me)
+            lastRefreshError = nil
+        } catch {
+            lastRefreshError = (error as NSError).userInfo["ServerErrorDescription"] as? String
+                ?? error.localizedDescription
             return
         }
 
