@@ -144,16 +144,33 @@ extension CloudKitService {
     /// Follows CloudKit cursors so large friend lists don't silently
     /// stop at the first query page.
     static func fetchFriendships(for userRecordName: String) async throws -> [FriendshipRecord] {
-        let predicate = NSPredicate(
-            format: "userA == %@ OR userB == %@",
-            userRecordName, userRecordName
+        // CloudKit's query predicate language doesn't support `OR`
+        // across two different fields, so the symmetric "find every
+        // friendship where I'm either userA or userB" lookup runs as
+        // two separate queries that we merge + dedupe by recordName.
+        // The userA/userB pair is also lexicographically sorted at
+        // write time, so for any given pair only one of the two
+        // queries can return the record — but we dedupe defensively
+        // in case a future write path lands on the unsorted side.
+        let queryA = CKQuery(
+            recordType: friendshipRecordType,
+            predicate: NSPredicate(format: "userA == %@", userRecordName)
         )
-        let query = CKQuery(recordType: friendshipRecordType, predicate: predicate)
-        let matchResults = try await queryAllRecords(matching: query)
+        let queryB = CKQuery(
+            recordType: friendshipRecordType,
+            predicate: NSPredicate(format: "userB == %@", userRecordName)
+        )
+        async let resultsA = queryAllRecords(matching: queryA)
+        async let resultsB = queryAllRecords(matching: queryB)
+        let combined = try await resultsA + resultsB
+
+        var seen: Set<String> = []
         var results: [FriendshipRecord] = []
-        results.reserveCapacity(matchResults.count)
-        for (id, result) in matchResults {
+        results.reserveCapacity(combined.count)
+        for (id, result) in combined {
             guard case .success(let record) = result else { continue }
+            guard !seen.contains(id.recordName) else { continue }
+            seen.insert(id.recordName)
             guard let userA = record["userA"] as? String,
                   let userB = record["userB"] as? String,
                   let requesterID = record["requesterID"] as? String,

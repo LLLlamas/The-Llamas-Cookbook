@@ -61,6 +61,13 @@ final class FriendsStore {
     /// header when non-nil.
     private(set) var lastRefreshError: String? = nil
 
+    /// Diagnostic snapshot from the most recent successful `refresh()`.
+    /// Surfaced inline in `ProfileView` so the user can spot mismatches
+    /// between what CloudKit Console shows and what the app sees
+    /// (e.g. their cached `me` ID not matching `userA`/`userB` on any
+    /// Friendship record). Cleared on sign-out / clearOnSignOut.
+    private(set) var lastRefreshDiagnostic: String? = nil
+
     /// Token for the block-based push observer. NotificationCenter
     /// retains block observers until removed, so setup is explicitly
     /// idempotent.
@@ -140,6 +147,7 @@ final class FriendsStore {
         var newFriends: [UserProfileSnapshot] = []
         var newIncoming: [PendingRequest] = []
         var newOutgoing: [String: String] = [:]
+        var skippedNoProfile = 0
 
         for friendship in friendships {
             guard let otherID = friendship.otherUserID(from: me) else { continue }
@@ -164,10 +172,15 @@ final class FriendsStore {
                             friendshipRecordName: friendship.recordName,
                             requester: profile
                         ))
+                    } else {
+                        skippedNoProfile += 1
                     }
                 }
             }
         }
+
+        let mePreview = String(me.prefix(20))
+        lastRefreshDiagnostic = "me=\(mePreview)… fetched=\(friendships.count) accepted=\(newFriends.count) incoming=\(newIncoming.count) outgoing=\(newOutgoing.count) skipped(no profile)=\(skippedNoProfile)"
 
         newFriends.sort { lhs, rhs in
             lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
@@ -302,6 +315,8 @@ final class FriendsStore {
         friends = []
         incomingRequests = []
         outgoingRequests = [:]
+        lastRefreshError = nil
+        lastRefreshDiagnostic = nil
     }
 
     // MARK: - Push observation

@@ -522,6 +522,19 @@ struct ProfileView: View {
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
             }
 
+            if let diagnostic = friendsStore.lastRefreshDiagnostic {
+                Text(diagnostic)
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundStyle(AppColor.textTertiary)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(AppSpacing.xs)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColor.surfaceSunken)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+            }
+
             if friendsStore.incomingRequests.isEmpty {
                 emptyRequestsBody
             } else {
