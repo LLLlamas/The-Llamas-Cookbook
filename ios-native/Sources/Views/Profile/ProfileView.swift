@@ -578,7 +578,7 @@ struct ProfileView: View {
     private var requestsSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack(spacing: AppSpacing.sm) {
-                Text("REQUESTS (\(friendsStore.incomingRequests.count))")
+                Text("REQUESTS (\(friendsStore.incomingRequests.count + friendsStore.outgoingRequestProfiles.count))")
                     .eyebrowStyle(AppColor.textTertiary)
                 Spacer(minLength: 0)
                 Button {
@@ -625,16 +625,72 @@ struct ProfileView: View {
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
             }
 
-            if friendsStore.incomingRequests.isEmpty {
+            if friendsStore.incomingRequests.isEmpty && friendsStore.outgoingRequestProfiles.isEmpty {
                 emptyRequestsBody
             } else {
                 VStack(spacing: AppSpacing.xs) {
                     ForEach(friendsStore.incomingRequests) { request in
                         requestRow(request: request)
                     }
+                    ForEach(friendsStore.outgoingRequestProfiles) { request in
+                        outgoingRequestRow(request: request)
+                    }
                 }
             }
         }
+    }
+
+    /// Row for an outgoing pending request — same identity treatment
+    /// as the incoming row (accent dot + display name) but with a
+    /// "Sent" pill in place of Approve and a Cancel button instead
+    /// of Deny. Cancel deletes the friendship record so the
+    /// recipient sees the request silently disappear.
+    private func outgoingRequestRow(request: FriendsStore.PendingRequest) -> some View {
+        HStack(spacing: AppSpacing.sm) {
+            AccentDot(
+                hex: request.requester.accentHex,
+                fallback: appearance.accentColor,
+                isGlowing: request.requester.isCookingNow
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(request.requester.displayName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppColor.textPrimary)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Sent")
+                        .font(AppFont.caption)
+                }
+                .foregroundStyle(AppColor.textTertiary)
+            }
+            Spacer(minLength: AppSpacing.sm)
+            Button {
+                Haptics.selection()
+                Task { await friendsStore.cancelRequest(to: request.requester) }
+            } label: {
+                Text("Cancel")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .padding(.horizontal, AppSpacing.sm)
+                    .padding(.vertical, 6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppRadius.sm)
+                            .stroke(AppColor.divider, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cancel friend request")
+        }
+        .padding(AppSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     private var emptyRequestsBody: some View {

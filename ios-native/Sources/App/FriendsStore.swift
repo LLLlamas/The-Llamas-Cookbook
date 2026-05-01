@@ -47,6 +47,13 @@ final class FriendsStore {
     /// cancel without another query round-trip.
     private(set) var outgoingRequests: [String: String] = [:]
 
+    /// Profile-resolved counterpart to `outgoingRequests` — same set
+    /// of pending sends, but with the recipient's profile snapshot
+    /// resolved so the Profile sheet's Requests section can render
+    /// "Sent to {Name}" rows alongside incoming requests. Sorted
+    /// alphabetically by display name.
+    private(set) var outgoingRequestProfiles: [PendingRequest] = []
+
     /// True while a `refresh()` is in flight. Prevents overlapping
     /// fetches when the user yanks the popover open / closed
     /// rapidly. Also drives a small spinner in the Friends section
@@ -178,6 +185,7 @@ final class FriendsStore {
         var newFriends: [UserProfileSnapshot] = []
         var newIncoming: [PendingRequest] = []
         var newOutgoing: [String: String] = [:]
+        var newOutgoingProfiles: [PendingRequest] = []
         var skippedNoProfile = 0
 
         for (otherID, friendship) in byOtherID {
@@ -188,7 +196,16 @@ final class FriendsStore {
                 }
             case .pending:
                 if friendship.requesterID == me {
+                    // Outgoing — track in the dict (search popover
+                    // button state) AND resolve the profile so the
+                    // Requests section can render a "Sent to X" row.
                     newOutgoing[otherID] = friendship.recordName
+                    if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
+                        newOutgoingProfiles.append(PendingRequest(
+                            friendshipRecordName: friendship.recordName,
+                            requester: profile
+                        ))
+                    }
                 } else {
                     if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
                         newIncoming.append(PendingRequest(
@@ -225,10 +242,14 @@ final class FriendsStore {
         newIncoming.sort { lhs, rhs in
             lhs.requester.displayName.localizedStandardCompare(rhs.requester.displayName) == .orderedAscending
         }
+        newOutgoingProfiles.sort { lhs, rhs in
+            lhs.requester.displayName.localizedStandardCompare(rhs.requester.displayName) == .orderedAscending
+        }
 
         friends = newFriends
         incomingRequests = newIncoming
         outgoingRequests = newOutgoing
+        outgoingRequestProfiles = newOutgoingProfiles
     }
 
     // MARK: - Mutations
@@ -292,6 +313,9 @@ final class FriendsStore {
         guard let me = UserProfileMirror.cachedRecordID() else { return }
         guard let recordName = outgoingRequests[other.userRecordName] else { return }
         outgoingRequests.removeValue(forKey: other.userRecordName)
+        outgoingRequestProfiles.removeAll {
+            $0.requester.userRecordName == other.userRecordName
+        }
         // Skip the network call when only an optimistic placeholder
         // ever landed (the send is in flight or failed).
         guard !recordName.hasPrefix("pending-") else { return }
@@ -318,6 +342,9 @@ final class FriendsStore {
         // (the refresh below will reconcile).
         incomingRequests.removeAll { $0.id == pending.id }
         outgoingRequests.removeValue(forKey: pending.requester.userRecordName)
+        outgoingRequestProfiles.removeAll {
+            $0.requester.userRecordName == pending.requester.userRecordName
+        }
         friends.append(pending.requester)
         friends.sort { lhs, rhs in
             lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
@@ -351,6 +378,7 @@ final class FriendsStore {
         )
         incomingRequests.removeAll { $0.id == pending.id }
         outgoingRequests.removeValue(forKey: otherID)
+        outgoingRequestProfiles.removeAll { $0.requester.userRecordName == otherID }
         Task.detached {
             await CloudKitService.deleteAllFriendshipsBetween(me, and: otherID)
         }
@@ -369,6 +397,7 @@ final class FriendsStore {
         await CloudKitService.deleteAllFriendshipsBetween(me, and: otherID)
         friends.removeAll { $0.userRecordName == otherID }
         outgoingRequests.removeValue(forKey: otherID)
+        outgoingRequestProfiles.removeAll { $0.requester.userRecordName == otherID }
         incomingRequests.removeAll { $0.requester.userRecordName == otherID }
     }
 
@@ -382,6 +411,7 @@ final class FriendsStore {
         friends = []
         incomingRequests = []
         outgoingRequests = [:]
+        outgoingRequestProfiles = []
         lastRefreshError = nil
         lastRefreshDiagnostic = nil
     }
