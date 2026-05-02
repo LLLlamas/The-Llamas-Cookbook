@@ -261,19 +261,12 @@ struct FriendRecipeDetailView: View {
                 .foregroundStyle(friendAccent)
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
-            // Always render an attribution line under the title
-            // when viewing via FriendLibraryView. Two cases:
-            //
-            // 1. The recipe is the friend's own — show "Shared by
-            //    <Friend>"; envelope.share.sharedBy may be nil for
-            //    own-authored recipes that were published before
-            //    the share-flow stamped sharedBy automatically. We
-            //    fall back to the friend's UserProfile displayName.
-            // 2. The recipe was imported by the friend from someone
-            //    else — envelope.share.sharedBy carries that
-            //    original name (slice 5 will set this on import).
-            //    We render that instead so the chain root gets
-            //    credit.
+            // Render an attribution line only when the friend
+            // imported the recipe from someone else — surfaces
+            // the chain root so credit travels with the recipe.
+            // The friend's own recipes get no eyebrow line here:
+            // "Shared by <Friend>" repeats the navigation title
+            // ("<Friend>'s Cookbook") and adds visual noise.
             if let provenance = provenanceLine(envelope) {
                 Text(provenance)
                     .font(AppFont.eyebrow)
@@ -430,37 +423,26 @@ struct FriendRecipeDetailView: View {
 
     // MARK: - Provenance + formatting
 
-    /// Two-mode attribution line under the recipe title:
-    ///
-    /// - **Friend's own recipe** (envelope's `sharedBy` matches the
-    ///   friend's display name, or is nil): "Shared by <Friend>".
-    ///   The friend's UserProfile is the truth here even though
-    ///   `sharedBy` may not be set on records published before the
-    ///   share-flow stamped it.
-    /// - **Friend imported it from someone else** (slice 5+ — the
-    ///   chain root's name is in `sharedBy`): "Originally shared
-    ///   by <Original Creator>". Surfaces the actual chain root so
-    ///   credit travels with the recipe.
+    /// Attribution line under the recipe title — only rendered when
+    /// the friend imported the recipe from someone else (chain
+    /// attribution). For the friend's own recipes we suppress the
+    /// line entirely: the friend's name is already in the
+    /// navigation title ("Catalina's Cookbook"), so a "Shared by
+    /// Catalina" eyebrow on every card just repeats what the user
+    /// already knows. The chain-attribution case still surfaces
+    /// because the original creator isn't otherwise visible.
     ///
     /// Always passes through `RecipeShare.cappedDisplayName` for
     /// the same render-side defense the share preview applies.
     private func provenanceLine(_ envelope: LCRecipeShareV1) -> String? {
-        let envelopeName = envelope.share.sharedBy
-        let cappedEnvelopeName = RecipeShare.cappedDisplayName(envelopeName)
-        // `cappedDisplayName` returns nil for empty / whitespace-only
-        // input; in that rare case we'd otherwise render "Shared by "
-        // with a trailing space, so suppress the line entirely.
-        guard let cappedFriendName = RecipeShare.cappedDisplayName(friend.displayName) else {
+        guard let cappedEnvelopeName = RecipeShare.cappedDisplayName(envelope.share.sharedBy) else {
             return nil
         }
-
-        if let cappedEnvelopeName,
-           cappedEnvelopeName != cappedFriendName {
-            // Different name than the friend → chain attribution.
-            return "Originally shared by \(cappedEnvelopeName)"
+        let cappedFriendName = RecipeShare.cappedDisplayName(friend.displayName)
+        if cappedEnvelopeName == cappedFriendName {
+            return nil
         }
-        // Friend's own (or unstamped) recipe → just credit them.
-        return "Shared by \(cappedFriendName)"
+        return "Originally shared by \(cappedEnvelopeName)"
     }
 
     private func collectedNotes(_ envelope: LCRecipeShareV1) -> [String] {

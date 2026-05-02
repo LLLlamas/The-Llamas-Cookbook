@@ -47,7 +47,10 @@ struct FriendLibraryView: View {
                 content
             }
             .padding(.horizontal, AppSpacing.lg)
-            .padding(.top, AppSpacing.lg)
+            // Tight top inset so the friend-header sits close
+            // under the navigation title rather than floating
+            // an obvious gap below it.
+            .padding(.top, AppSpacing.xs)
             .padding(.bottom, AppSpacing.xxl)
         }
         .llamaBackground()
@@ -71,14 +74,15 @@ struct FriendLibraryView: View {
     // MARK: - Header
 
     /// Single centered line directly under the navigation title — the
-    /// fork-and-knife glyph, the friend's most recently cooked recipe
-    /// title, and a presence indicator. The dot is filled and pulses
-    /// in the friend's accent when they're cooking right now, and
-    /// renders as a hollow outline (same color, no fill) when they're
-    /// idle. Always rendered so the cookbook header carries a presence
-    /// signal even before the friend has cooked anything in-app —
-    /// falls back to "Cooking now" / "Not cooked yet" copy when there
-    /// is no `lastCookedTitle`.
+    /// fork-and-knife glyph, an optional last-cooked title, and a
+    /// presence indicator. The dot is filled and pulses in the
+    /// friend's accent when they're cooking right now, and renders as
+    /// a hollow outline (same color, no fill) when they're idle.
+    /// Always rendered so the cookbook header carries a presence
+    /// signal — when the friend is cooking right now we surface
+    /// "Cooking now"; when they're idle and have no lastCookedTitle
+    /// we show just the glyph + dot (no "Not cooked yet" copy, which
+    /// reads as a negative judgment on a brand-new friend).
     private var friendHeader: some View {
         HStack(spacing: AppSpacing.xs) {
             Image(systemName: "fork.knife")
@@ -92,8 +96,8 @@ struct FriendLibraryView: View {
                     .font(AppFont.caption.weight(.semibold))
                     .foregroundStyle(friendAccent))
                     .lineLimit(1)
-            } else {
-                Text(friend.isCookingNow ? "Cooking now" : "Not cooked yet")
+            } else if friend.isCookingNow {
+                Text("Cooking now")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
             }
@@ -105,7 +109,6 @@ struct FriendLibraryView: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.bottom, AppSpacing.xs)
     }
 
     // MARK: - Content

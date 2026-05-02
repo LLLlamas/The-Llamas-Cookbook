@@ -215,7 +215,31 @@ private struct SearchResultRow: View {
         return .canRequest
     }
 
+    @ViewBuilder
     var body: some View {
+        if rowState == .alreadyFriend {
+            // Tap an already-friend row → push their cookbook
+            // inside this sheet's NavigationStack. Prefer the
+            // FriendsStore's live snapshot (it carries the latest
+            // accent / cooking-now state pushed via subscription)
+            // and fall back to the search-result profile if for
+            // some reason the store and CK search disagree.
+            NavigationLink {
+                FriendLibraryView(friend: friendSnapshot)
+            } label: {
+                rowContent
+            }
+            .buttonStyle(.plain)
+        } else {
+            rowContent
+        }
+    }
+
+    private var friendSnapshot: UserProfileSnapshot {
+        friendsStore.friends.first { $0.userRecordName == profile.userRecordName } ?? profile
+    }
+
+    private var rowContent: some View {
         HStack(spacing: AppSpacing.sm) {
             AccentDot(hex: profile.accentHex, fallback: appearance.accentColor)
 
