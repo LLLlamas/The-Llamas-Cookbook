@@ -834,7 +834,8 @@ struct ProfileView: View {
                 AccentDot(
                     hex: friend.accentHex,
                     fallback: appearance.accentColor,
-                    isGlowing: friend.isCookingNow
+                    isGlowing: friend.isCookingNow,
+                    outlineWhenIdle: true
                 )
                 Text(friend.displayName)
                     .font(.system(size: 16, weight: .semibold))

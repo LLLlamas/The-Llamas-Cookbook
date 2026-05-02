@@ -75,15 +75,16 @@ struct FriendLibraryView: View {
     /// title, and a presence indicator. The dot is filled and pulses
     /// in the friend's accent when they're cooking right now, and
     /// renders as a hollow outline (same color, no fill) when they're
-    /// not. Hidden entirely when the friend has no last-cooked recipe
-    /// yet — the indicator alone has no anchor to read against.
-    @ViewBuilder
+    /// idle. Always rendered so the cookbook header carries a presence
+    /// signal even before the friend has cooked anything in-app —
+    /// falls back to "Cooking now" / "Not cooked yet" copy when there
+    /// is no `lastCookedTitle`.
     private var friendHeader: some View {
-        if let lastCookedTitle = friend.lastCookedTitle, !lastCookedTitle.isEmpty {
-            HStack(spacing: AppSpacing.xs) {
-                Image(systemName: "fork.knife")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppColor.textTertiary)
+        HStack(spacing: AppSpacing.xs) {
+            Image(systemName: "fork.knife")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppColor.textTertiary)
+            if let lastCookedTitle = friend.lastCookedTitle, !lastCookedTitle.isEmpty {
                 (Text("Last cooked: ")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
@@ -91,16 +92,20 @@ struct FriendLibraryView: View {
                     .font(AppFont.caption.weight(.semibold))
                     .foregroundStyle(friendAccent))
                     .lineLimit(1)
-                AccentDot(
-                    hex: friend.accentHex,
-                    fallback: friendAccent,
-                    isGlowing: friend.isCookingNow,
-                    outlineWhenIdle: true
-                )
+            } else {
+                Text(friend.isCookingNow ? "Cooking now" : "Not cooked yet")
+                    .font(AppFont.caption)
+                    .foregroundStyle(AppColor.textTertiary)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.bottom, AppSpacing.xs)
+            AccentDot(
+                hex: friend.accentHex,
+                fallback: friendAccent,
+                isGlowing: friend.isCookingNow,
+                outlineWhenIdle: true
+            )
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.bottom, AppSpacing.xs)
     }
 
     // MARK: - Content
@@ -209,11 +214,12 @@ struct FriendLibraryView: View {
     }
 }
 
-/// Recipe card for a friend's library list. Slimmer than
-/// `RecipeCardView` — we don't have photo thumbnails (the summary
-/// doesn't carry them, and one network round-trip per card to
-/// fetch them would be wasteful), so the card leans on the title
-/// and updated-on date instead.
+/// Recipe card for a friend's library list. Mirrors `RecipeCardView`'s
+/// two-column layout (title + dates left, square thumbnail right) so a
+/// friend's cookbook reads as the same kind of surface as the home
+/// library. Thumbnails come from `PublishedRecipeSummary.thumbnailData`
+/// — populated from the record's `photo0` asset on fetch — with a
+/// graceful photo-glyph fallback when the recipe has no photos yet.
 private struct FriendRecipeCard: View {
     let summary: PublishedRecipeSummary
     let accent: Color
@@ -250,10 +256,10 @@ private struct FriendRecipeCard: View {
 
             Spacer(minLength: 0)
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppColor.textTertiary)
-                .padding(.top, 6)
+            VStack(alignment: .trailing, spacing: AppSpacing.sm) {
+                thumbnail
+                Spacer(minLength: 0)
+            }
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,5 +280,31 @@ private struct FriendRecipeCard: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
         .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+    }
+
+    private var thumbnail: some View {
+        Group {
+            if let data = summary.thumbnailData {
+                RecipeImageView(
+                    data: data,
+                    contentMode: .fill,
+                    cornerRadius: AppRadius.md
+                )
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: AppRadius.md)
+                        .fill(accent.opacity(0.12))
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(accent.opacity(0.55))
+                }
+            }
+        }
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
+        )
     }
 }

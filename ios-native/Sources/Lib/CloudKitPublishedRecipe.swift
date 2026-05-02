@@ -15,6 +15,12 @@ struct PublishedRecipeSummary: Identifiable, Hashable {
     let localRecipeID: UUID
     let recipeTitle: String
     let updatedAt: Date
+    /// First gallery photo bytes (`photo0`), capped via
+    /// `readCappedAsset`. Lets `FriendLibraryView`'s card list render
+    /// a thumbnail without a per-card round-trip — same visual rhythm
+    /// as the home library. Nil when the recipe has no photos or the
+    /// asset failed to download.
+    let thumbnailData: Data?
 
     var id: String { recordName }
 }
@@ -229,12 +235,27 @@ extension CloudKitService {
                   let updatedAt = record["updatedAt"] as? Date else {
                 continue
             }
+            // First photo carries the card thumbnail. CKQuery hands
+            // back the asset's locally-cached fileURL on records it
+            // returned (assets travel inline with the query result),
+            // so this is just a disk read — no extra network round-
+            // trip. `readCappedAsset` enforces the 10 MB per-photo
+            // ceiling defensively even though the publish path already
+            // re-encodes photos far below that.
+            var thumbnailData: Data? = nil
+            if let photoAsset = record["photo0"] as? CKAsset,
+               let url = photoAsset.fileURL,
+               let bytes = readCappedAsset(at: url),
+               !bytes.isEmpty {
+                thumbnailData = bytes
+            }
             results.append(PublishedRecipeSummary(
                 recordName: id.recordName,
                 ownerID: ownerID,
                 localRecipeID: localRecipeID,
                 recipeTitle: recipeTitle,
-                updatedAt: updatedAt
+                updatedAt: updatedAt,
+                thumbnailData: thumbnailData
             ))
         }
         return results

@@ -355,7 +355,12 @@ struct RecipeDetailView: View {
             // Slice 6 — chain-root recipe id is `recipe.id` for
             // own-authored recipes. The chip never renders for
             // imported recipes, so this fork is the only one we
-            // need.
+            // need. FriendsStore + NavigationContext + UserAccount
+            // are re-injected so a row tap can push the importer's
+            // cookbook (and onward into a friend recipe detail)
+            // without a missing-environment crash — sheets break
+            // the @Observable chain so explicit re-injection is
+            // required.
             ImportersListSheet(
                 originalRecipeID: recipe.id.uuidString,
                 recipeTitle: recipe.title
@@ -363,6 +368,9 @@ struct RecipeDetailView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .environment(appearance)
+            .environment(friendsStore)
+            .environment(navContext)
+            .environment(userAccount)
         }
         .sheet(isPresented: $showingAttribution) {
             // Slice 6 — only ever presented for imported recipes
@@ -602,11 +610,11 @@ struct RecipeDetailView: View {
         return true
     }
 
-    /// "Imported by N" pill below the title. Cap at "99+" so the
+    /// "Saved by N" pill below the title. Cap at "99+" so the
     /// chip width stays bounded for viral recipes (vanishingly
     /// unlikely on a friends-of-friends graph, but cheap to
     /// guard). 0-count case is hidden — no chip until at least
-    /// one friend has imported, otherwise the surface reads as
+    /// one friend has saved, otherwise the surface reads as
     /// pre-emptive bragging.
     @ViewBuilder
     private var importCounterChip: some View {
@@ -616,7 +624,7 @@ struct RecipeDetailView: View {
                 showingImporters = true
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "square.and.arrow.down")
+                    Image(systemName: "bookmark")
                         .font(.system(size: 11, weight: .semibold))
                     Text(importCounterLabel)
                         .font(.system(size: 13, weight: .semibold))
@@ -629,14 +637,14 @@ struct RecipeDetailView: View {
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("View who imported this recipe")
+            .accessibilityLabel("View who saved this recipe")
         }
     }
 
     private var importCounterLabel: String {
         let n = cachedImportCount
         let display = n > 99 ? "99+" : "\(n)"
-        return "Imported by \(display)"
+        return "Saved by \(display)"
     }
 
     /// Eyebrow line under the title. For imported recipes, wraps

@@ -23,6 +23,7 @@ import SwiftUI
 /// failures.
 struct ImportersListSheet: View {
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(FriendsStore.self) private var friendsStore
     @Environment(\.dismiss) private var dismiss
 
     /// Chain-root recipe id — the query field. For own-authored
@@ -54,7 +55,7 @@ struct ImportersListSheet: View {
                 .padding(.bottom, AppSpacing.xxl)
             }
             .llamaBackground()
-            .navigationTitle("Importers")
+            .navigationTitle("Saves")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -99,9 +100,9 @@ struct ImportersListSheet: View {
 
     private var headerSubtitle: String {
         switch imports.count {
-        case 0: return "No imports yet."
-        case 1: return "1 friend has imported this recipe."
-        default: return "\(imports.count) friends have imported this recipe."
+        case 0: return "No saves yet."
+        case 1: return "1 friend has saved this recipe."
+        default: return "\(imports.count) friends have saved this recipe."
         }
     }
 
@@ -124,7 +125,7 @@ struct ImportersListSheet: View {
         VStack(spacing: AppSpacing.md) {
             Spacer().frame(height: AppSpacing.xl)
             LlamaProgressIndicator(size: 60, accent: appearance.accentColor)
-            Text("Loading importers…")
+            Text("Loading saves…")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textTertiary)
             Spacer().frame(height: AppSpacing.xl)
@@ -134,10 +135,10 @@ struct ImportersListSheet: View {
 
     private var emptyState: some View {
         VStack(spacing: AppSpacing.sm) {
-            Image(systemName: "square.and.arrow.down")
+            Image(systemName: "bookmark")
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(AppColor.textTertiary)
-            Text("Nobody has imported this recipe yet.")
+            Text("Nobody has saved this recipe yet.")
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -185,18 +186,40 @@ struct ImportersListSheet: View {
         }
     }
 
+    /// Look up the importer in the local FriendsStore — when matched,
+    /// the row renders in the friend's accent color and becomes a tap
+    /// target for their cookbook. When unmatched (former friend, or
+    /// importer the user has never been connected to), the row renders
+    /// in the local accent and stays passive.
+    private func friendSnapshot(for record: RecipeImportRecord) -> UserProfileSnapshot? {
+        friendsStore.friends.first { $0.userRecordName == record.importerID }
+    }
+
+    @ViewBuilder
     private func importerRow(record: RecipeImportRecord) -> some View {
-        HStack(spacing: AppSpacing.sm) {
-            // Small filled circle in the user's accent color —
-            // matches the friends-list visual language. We don't
-            // have the importer's actual `accentHex` in the audit
-            // row (it's not denormalized there — would balloon the
-            // schema for a render-detail nicety), so we render
-            // with the local user's accent. Acceptable: the dot
-            // here is an indication of "a friend" rather than
-            // "this specific friend's identity color."
+        if let snapshot = friendSnapshot(for: record) {
+            NavigationLink {
+                FriendLibraryView(friend: snapshot)
+            } label: {
+                importerRowContent(record: record, friend: snapshot)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens \(snapshot.displayName)'s cookbook")
+        } else {
+            importerRowContent(record: record, friend: nil)
+        }
+    }
+
+    private func importerRowContent(record: RecipeImportRecord, friend: UserProfileSnapshot?) -> some View {
+        let resolvedAccent: Color = {
+            if let hex = friend?.accentHex, let parsed = Color(hex: hex) {
+                return parsed
+            }
+            return appearance.accentColor
+        }()
+        return HStack(spacing: AppSpacing.sm) {
             Circle()
-                .fill(appearance.accentColor)
+                .fill(resolvedAccent)
                 .frame(width: 10, height: 10)
             VStack(alignment: .leading, spacing: 2) {
                 Text(record.importerDisplayName)
@@ -208,6 +231,11 @@ struct ImportersListSheet: View {
                     .foregroundStyle(AppColor.textTertiary)
             }
             Spacer(minLength: 0)
+            if friend != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
         }
         .padding(AppSpacing.sm + 2)
         .background(AppColor.surface)
@@ -253,7 +281,7 @@ struct ImportersListSheet: View {
             // error — keep showing what we had while the user
             // decides whether to retry.
             if imports.isEmpty {
-                loadError = "Couldn't load importers right now."
+                loadError = "Couldn't load saves right now."
             }
         }
     }
