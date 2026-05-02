@@ -12,6 +12,7 @@ struct RecipeDetailView: View {
     @Environment(NavigationContext.self) private var navContext
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(FriendsStore.self) private var friendsStore
+    @Environment(UserAccount.self) private var userAccount
 
     let recipe: Recipe
 
