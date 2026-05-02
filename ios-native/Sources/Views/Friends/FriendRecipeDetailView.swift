@@ -52,6 +52,8 @@ struct FriendRecipeDetailView: View {
     /// double-taps and is set unconditionally for that purpose.
     @State private var showImportOverlay: Bool = false
     @State private var importError: String? = nil
+    @State private var showingDuplicateAlert = false
+    @State private var duplicateRenameText = ""
 
     /// Sugared accessor for the envelope half of `publishedDetail`,
     /// so the rendering code below reads `envelope` symmetrically
@@ -125,6 +127,26 @@ struct FriendRecipeDetailView: View {
             Button("OK") { importError = nil }
         } message: { message in
             Text(message)
+        }
+        .alert(
+            "Recipe already saved",
+            isPresented: $showingDuplicateAlert
+        ) {
+            TextField("Recipe name", text: $duplicateRenameText)
+                .textInputAutocapitalization(.words)
+            Button("Import") {
+                let trimmed = duplicateRenameText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                Task { await performImport(overrideTitle: trimmed) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            if let title = envelope?.recipe.title {
+                Text("You already have a recipe titled \"\(title)\". Import this one with a different name?")
+            } else {
+                Text("You already have a recipe with this title. Import this one with a different name?")
+            }
         }
         .task {
             if !hasLoadedOnce {
@@ -509,18 +531,30 @@ struct FriendRecipeDetailView: View {
     /// instantaneous and the sheet-dismiss + Detail-push transition
     /// is its own visible confirmation).
     @MainActor
-    private func performImport() async {
-        // Set the in-flight flag before any other check so a rapid
-        // double-tap can't race past the `canImport` guard before the
-        // first call reaches its first await. The photo overlay is
-        // still gated on `hasPhotos` separately below.
+    private func performImport(overrideTitle: String? = nil) async {
+        // Gate double-taps before any async work. Duplicate-title
+        // checks stay before the flag so the rename prompt can appear
+        // without putting the toolbar into an importing state.
         guard !isImporting else { return }
-        isImporting = true
         guard let detail = publishedDetail else {
-            isImporting = false
             return
         }
 
+        if overrideTitle == nil,
+           RecipeShare.libraryContainsRecipe(
+               withTitle: detail.envelope.recipe.title,
+               in: modelContext
+           ) {
+            duplicateRenameText = RecipeShare.resolveImportTitle(
+                base: detail.envelope.recipe.title,
+                in: modelContext
+            )
+            Haptics.warning()
+            showingDuplicateAlert = true
+            return
+        }
+
+        isImporting = true
         let hasPhotos = !detail.envelope.recipe.photos.isEmpty
             || detail.envelope.recipe.steps.contains { !$0.photos.isEmpty }
 
@@ -532,7 +566,8 @@ struct FriendRecipeDetailView: View {
         let newRecipe = await RecipeShare.materializeFromPublished(
             detail,
             into: modelContext,
-            friend: friend
+            friend: friend,
+            overrideTitle: overrideTitle
         )
 
         do {

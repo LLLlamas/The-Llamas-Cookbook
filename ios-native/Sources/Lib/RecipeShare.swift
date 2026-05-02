@@ -701,22 +701,22 @@ enum RecipeShare {
     ///   so we always have *some* stable identifier to pivot on
     ///   for the slice 6 import-counter query.
     ///
-    /// Title collisions resolved silently via `resolveImportTitle`
-    /// (no user-rename prompt for slice 5 — the friend-import flow
-    /// is already a deliberate tap, doubling up with a rename
-    /// dialog would feel heavy. Future enhancement if real
-    /// collisions become common.)
+    /// `overrideTitle` carries the explicit title chosen from the
+    /// friend-import duplicate-confirmation prompt. When nil, title
+    /// collisions still resolve silently via `resolveImportTitle`, so
+    /// callers that skip the prompt keep the same safety net.
     @MainActor
     static func materializeFromPublished(
         _ detail: PublishedRecipeDetail,
         into context: ModelContext,
-        friend: UserProfileSnapshot
+        friend: UserProfileSnapshot,
+        overrideTitle: String? = nil
     ) async -> Recipe {
         let envelope = detail.envelope
         let recipe = await createLocalRecipe(
             from: envelope,
             into: context,
-            overrideTitle: nil
+            overrideTitle: overrideTitle
         )
 
         recipe.originalSharerUserRecordName = friend.userRecordName

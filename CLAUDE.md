@@ -70,6 +70,7 @@ Open work:
 - Detail ingredient display uses accent quantity + em dash.
 - Per-step timers use the clock glyph and `needsTimer`.
 - Carousels: no inline reorder arrows. Use a dedicated reorder mode.
+- Imports prompt on exact duplicate recipe titles and prefill the next editable `Title (N)` name, including friend cookbook imports.
 - Friend/social copy: "shared", "appears in Friends", "unlisted". Never "private to friends" or "only friends can see."
 
 ## Signing & portal
