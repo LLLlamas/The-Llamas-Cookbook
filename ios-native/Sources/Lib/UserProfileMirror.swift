@@ -222,10 +222,22 @@ enum UserProfileMirror {
     /// cooking") would be preserved and friends would never see the
     /// dot turn back on for the new session. Called from
     /// `CookingSession.start` and `addParallel`.
-    static func recordCookStarted() async {
+    ///
+    /// Also writes `lastCookedTitle` so friends see "Cooking:
+    /// <title>" while the cook is in progress. The field doubles as
+    /// the post-cook "Last cooked: <title>" line — the same value is
+    /// re-stamped by `recordCookCompleted` on completion so the
+    /// title outlives a cancel / force-kill, and a fresh
+    /// `recordCookStarted(recipeTitle:)` overwrites it cleanly when
+    /// the user starts a different recipe. Avoids a CloudKit schema
+    /// change at the cost of a small semantic shift —
+    /// `lastCookedTitle` now means "most recently engaged title"
+    /// rather than "title of the last completed cook."
+    static func recordCookStarted(recipeTitle: String) async {
         guard let recordID = cachedRecordID() else { return }
         try? await CloudKitService.upsertUserProfile(userRecordName: recordID) { record in
             record["cookingStartedAt"] = Date() as NSDate
+            record["lastCookedTitle"] = recipeTitle as NSString
         }
     }
 

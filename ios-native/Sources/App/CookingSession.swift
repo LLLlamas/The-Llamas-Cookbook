@@ -216,7 +216,8 @@ final class CookingSession {
         // above does NOT fire the cloud "cooking ended" signal, so
         // this set isn't racing a clear from this code path —
         // intentional, see implement-social.md › "cooking lifecycle".
-        Task { await UserProfileMirror.recordCookStarted() }
+        let recipeTitle = recipe.title
+        Task { await UserProfileMirror.recordCookStarted(recipeTitle: recipeTitle) }
     }
 
     /// Tear down the entire session — equivalent to "end all cooks."
@@ -256,7 +257,11 @@ final class CookingSession {
         // cloud `cookingStartedAt` to `.now`, which is fine — the
         // 6-hour staleness window is purely for force-kill recovery
         // and the dot indicator only cares "is the user cooking now."
-        Task { await UserProfileMirror.recordCookStarted() }
+        // The newly-added recipe wins the "Cooking: <title>" surface
+        // — friends always see the most-recently-foregrounded cook
+        // since that's what the user is actively working on.
+        let recipeTitle = recipe.title
+        Task { await UserProfileMirror.recordCookStarted(recipeTitle: recipeTitle) }
     }
 
     /// Foreground a specific cook by ID and re-present Cook Mode. Used

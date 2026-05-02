@@ -599,32 +599,6 @@ struct ProfileView: View {
                 .disabled(friendsStore.isRefreshing)
             }
 
-            if let error = friendsStore.lastRefreshError {
-                Text("Refresh error: \(error)")
-                    .font(AppFont.caption)
-                    .foregroundStyle(AppColor.destructive)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .padding(AppSpacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppColor.destructive.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-            }
-
-            if let diagnostic = friendsStore.lastRefreshDiagnostic {
-                Text(diagnostic)
-                    .font(.system(size: 10, weight: .regular, design: .monospaced))
-                    .foregroundStyle(AppColor.textTertiary)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .padding(AppSpacing.xs)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppColor.surfaceSunken)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-            }
-
             if friendsStore.incomingRequests.isEmpty && friendsStore.outgoingRequestProfiles.isEmpty {
                 emptyRequestsBody
             } else {
@@ -837,10 +811,35 @@ struct ProfileView: View {
                     isGlowing: friend.isCookingNow,
                     outlineWhenIdle: true
                 )
-                Text(friend.displayName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AppColor.textPrimary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(friend.displayName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(AppColor.textPrimary)
+                        .lineLimit(1)
+                    if friend.isCookingNow,
+                       let title = friend.lastCookedTitle, !title.isEmpty {
+                        // Live-presence subtitle while a friend is in
+                        // cook mode. Fork-and-knife glyph plus the
+                        // recipe title in the friend's resolved accent
+                        // — same eyebrow language as the cookbook
+                        // header so the two surfaces read as the same
+                        // signal. Suppressed when there is no title
+                        // (older record, never set) rather than
+                        // showing a bare "Cooking: ".
+                        HStack(spacing: 4) {
+                            Image(systemName: "fork.knife")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(AppColor.textTertiary)
+                            (Text("Cooking: ")
+                                .font(AppFont.caption)
+                                .foregroundStyle(AppColor.textTertiary)
+                            + Text(title)
+                                .font(AppFont.caption.weight(.semibold))
+                                .foregroundStyle(resolvedAccent(for: friend)))
+                                .lineLimit(1)
+                        }
+                    }
+                }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
@@ -862,6 +861,17 @@ struct ProfileView: View {
                 Label("Remove friend", systemImage: "person.fill.xmark")
             }
         }
+    }
+
+    /// Decode the friend's saved accent hex, falling back to the
+    /// local user's accent if missing or malformed. Used for the
+    /// "Cooking: <title>" subtitle so the cooked-recipe title pops
+    /// in the friend's color rather than borrowing yours.
+    private func resolvedAccent(for friend: UserProfileSnapshot) -> Color {
+        if let hex = friend.accentHex, let parsed = Color(hex: hex) {
+            return parsed
+        }
+        return appearance.accentColor
     }
 
     // MARK: - Settings sheet (cog menu)

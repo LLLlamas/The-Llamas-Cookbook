@@ -28,6 +28,13 @@ struct RecipeDetailView: View {
     /// own-authored recipes (`originalCreator*` nil); imported
     /// recipes show the attribution sheet below instead.
     @State private var showingImporters = false
+    /// Driven detent for the Saves sheet. Starts at `.medium` for the
+    /// importers list itself; flips to `.large` while the user is
+    /// pushed into a friend's cookbook (so recipe cards are visible
+    /// without an extra drag), and back to `.medium` on pop. Reset to
+    /// `.medium` whenever the sheet is dismissed so the next open
+    /// always starts compact.
+    @State private var importersDetent: PresentationDetent = .medium
     /// Slice 6 — tap target for the "Originally shared by"
     /// caption on imported recipes. Sheet shows the chain root,
     /// import date, and (when chain length > 1) the
@@ -269,12 +276,14 @@ struct RecipeDetailView: View {
                 } label: {
                     LlamaLogo(size: 72, shadowColor: appearance.accentColor)
                         .frame(width: 72, height: 72)
-                        // Lift the logo a hair off the bottom edge of
-                        // the navigation bar so the drop shadow has
-                        // room to render — without this, the bar
-                        // clips the bottom ~3pt of halo and the
-                        // mascot reads as cropped.
-                        .padding(.bottom, 4)
+                        // Lift the logo off the bottom edge of the
+                        // navigation bar so the full drop shadow has
+                        // room to render — at size 72 the halo's
+                        // y-offset + radius reach roughly 8pt past
+                        // the frame bounds, and without padding the
+                        // bar clips the lower halo and the mascot
+                        // reads as cropped.
+                        .padding(.bottom, 10)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")
@@ -370,14 +379,23 @@ struct RecipeDetailView: View {
             // required.
             ImportersListSheet(
                 originalRecipeID: recipe.id.uuidString,
-                recipeTitle: recipe.title
+                recipeTitle: recipe.title,
+                detent: $importersDetent
             )
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.medium, .large], selection: $importersDetent)
             .presentationDragIndicator(.visible)
             .environment(appearance)
             .environment(friendsStore)
             .environment(navContext)
             .environment(userAccount)
+        }
+        .onChange(of: showingImporters) { _, isShowing in
+            // Re-arm the saves sheet to its compact landing state
+            // every time it closes — without this, dismissing while
+            // pushed into a friend cookbook would leave `.large`
+            // selected and the next open would skip the medium
+            // landing the user expects.
+            if !isShowing { importersDetent = .medium }
         }
         .sheet(isPresented: $showingAttribution) {
             // Slice 6 — only ever presented for imported recipes

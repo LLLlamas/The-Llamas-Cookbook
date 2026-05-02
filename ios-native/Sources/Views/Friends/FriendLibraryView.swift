@@ -74,32 +74,31 @@ struct FriendLibraryView: View {
     // MARK: - Header
 
     /// Single centered line directly under the navigation title — the
-    /// fork-and-knife glyph, an optional last-cooked title, and a
-    /// presence indicator. The dot is filled and pulses in the
-    /// friend's accent when they're cooking right now, and renders as
-    /// a hollow outline (same color, no fill) when they're idle.
-    /// Always rendered so the cookbook header carries a presence
-    /// signal — when the friend is cooking right now we surface
-    /// "Cooking now"; when they're idle and have no lastCookedTitle
-    /// we show just the glyph + dot (no "Not cooked yet" copy, which
-    /// reads as a negative judgment on a brand-new friend).
+    /// fork-and-knife glyph, an optional cooking-now / last-cooked
+    /// title, and a presence indicator. The dot is filled and pulses
+    /// in the friend's accent when they're cooking right now, and
+    /// renders as a hollow outline (same color, no fill) when they're
+    /// idle. The eyebrow text surfaces the recipe in flight as
+    /// "Cooking: <title>" while they're in cook mode (the title is
+    /// stamped into `lastCookedTitle` on cook start), then collapses
+    /// back to "Last cooked: <title>" once the cook ends. Empty
+    /// state (new friend, never cooked anything in-app, not cooking)
+    /// shows just the glyph + dot — no "Not cooked yet" copy, which
+    /// reads as a negative judgment on someone who simply hasn't
+    /// played around with the app yet.
     private var friendHeader: some View {
         HStack(spacing: AppSpacing.xs) {
             Image(systemName: "fork.knife")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AppColor.textTertiary)
-            if let lastCookedTitle = friend.lastCookedTitle, !lastCookedTitle.isEmpty {
-                (Text("Last cooked: ")
+            if let title = friend.lastCookedTitle, !title.isEmpty {
+                (Text(friend.isCookingNow ? "Cooking: " : "Last cooked: ")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
-                + Text(lastCookedTitle)
+                + Text(title)
                     .font(AppFont.caption.weight(.semibold))
                     .foregroundStyle(friendAccent))
                     .lineLimit(1)
-            } else if friend.isCookingNow {
-                Text("Cooking now")
-                    .font(AppFont.caption)
-                    .foregroundStyle(AppColor.textTertiary)
             }
             AccentDot(
                 hex: friend.accentHex,

@@ -38,6 +38,14 @@ struct ImportersListSheet: View {
     /// `recipe.title`.
     let recipeTitle: String
 
+    /// Bound to the parent's `presentationDetents(_:selection:)` so
+    /// pushing into a friend's cookbook can expand the sheet to
+    /// `.large` (the saves list itself reads fine at `.medium`, but a
+    /// cookbook's recipe cards need the full sheet to avoid forcing a
+    /// drag-up gesture). The saves landing screen returns to
+    /// `.medium` on pop via `.onDisappear` on the destination.
+    @Binding var detent: PresentationDetent
+
     @State private var imports: [RecipeImportRecord] = []
     @State private var isLoading: Bool = false
     @State private var loadError: String? = nil
@@ -200,6 +208,12 @@ struct ImportersListSheet: View {
         if let snapshot = friendSnapshot(for: record) {
             NavigationLink {
                 FriendLibraryView(friend: snapshot)
+                    // Expand the sheet so a cookbook's recipe cards
+                    // are visible without an explicit drag-up. Pop
+                    // back collapses to `.medium` again so the saves
+                    // list looks the way it did on first present.
+                    .onAppear { detent = .large }
+                    .onDisappear { detent = .medium }
             } label: {
                 importerRowContent(record: record, friend: snapshot)
             }
