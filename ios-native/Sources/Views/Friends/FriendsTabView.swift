@@ -45,7 +45,10 @@ struct FriendsTabView: View {
                 grid
             }
         }
-        .llamaBackground()
+        .llamaBackground(
+            asset: "Friends_Llama_Icon_Large",
+            tint: appearance.accentColor
+        )
         .navigationTitle(friendsTitle)
         .navigationBarTitleDisplayMode(.inline)
         .tint(appearance.accentColor)
@@ -103,7 +106,7 @@ struct FriendsTabView: View {
 
     private var emptyState: some View {
         VStack(spacing: AppSpacing.lg) {
-            Image("Friends_Llama_Icon")
+            Image("Friends_Llama_Icon_Large")
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
@@ -229,20 +232,30 @@ private struct FriendCardView: View {
         return fallbackAccent
     }
 
-    /// Show the thumbnail only when the eyebrow text would also surface
-    /// the recipe — i.e. there's a `lastCookedTitle` to caption it. The
-    /// card never reserves an empty placeholder slot; layout collapses
-    /// cleanly back to the original (name + dot) when there's nothing
-    /// to show.
-    private var showThumbnail: Bool {
-        guard cookThumbnail != nil else { return false }
+    /// Has the friend cooked something we know the title of? Drives
+    /// fallback selection in the thumbnail slot — `LlamaLogo` for "they
+    /// cooked something but it had no photo" vs. `Friends_Llama_Icon`
+    /// for "they've never cooked anything." The slot itself is always
+    /// rendered so the card layout stays uniform across friends.
+    private var hasLastCookedTitle: Bool {
         guard let title = friend.lastCookedTitle, !title.isEmpty else { return false }
         return true
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            HStack(alignment: .top, spacing: AppSpacing.xs) {
+            // Top row — presence dot + name on a single baseline.
+            // Mirrors `FriendLibraryView.headerLabel`, which pairs
+            // `AccentDot` with text via a default-center HStack; the
+            // 12pt circle reads cleanly against caption / heading
+            // text without needing baseline alignment.
+            HStack(spacing: AppSpacing.xs) {
+                AccentDot(
+                    hex: friend.accentHex,
+                    fallback: fallbackAccent,
+                    isGlowing: friend.isCookingNow,
+                    outlineWhenIdle: true
+                )
                 Text(friend.displayName)
                     .font(AppFont.sectionHeading)
                     .foregroundStyle(friendAccent)
@@ -254,55 +267,27 @@ private struct FriendCardView: View {
                     .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
                     .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 Spacer(minLength: 0)
-                if showThumbnail, let data = cookThumbnail {
-                    // Thumbnail with the AccentDot overlaid on its top-
-                    // right corner so presence stays visible without
-                    // costing a second slot in the row. Same rounded
-                    // rect + stroke treatment as `FriendRecipeCard` so
-                    // friend-thumb visual identity is consistent across
-                    // surfaces.
-                    RecipeImageView(
-                        data: data,
-                        contentMode: .fill,
-                        cornerRadius: AppRadius.md
-                    ) {
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .fill(friendAccent.opacity(0.12))
-                    }
-                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
-                    )
-                    .overlay(alignment: .topTrailing) {
-                        AccentDot(
-                            hex: friend.accentHex,
-                            fallback: fallbackAccent,
-                            isGlowing: friend.isCookingNow,
-                            outlineWhenIdle: true
-                        )
-                        .padding(2)
-                        .background(
-                            Circle().fill(AppColor.surfaceRaised.opacity(0.85))
-                        )
-                        .offset(x: 4, y: -4)
-                    }
-                } else {
-                    AccentDot(
-                        hex: friend.accentHex,
-                        fallback: fallbackAccent,
-                        isGlowing: friend.isCookingNow,
-                        outlineWhenIdle: true
-                    )
-                }
             }
 
+            // Second row — full-width cooking-status eyebrow.
+            // Collapses entirely when there's no `lastCookedTitle`
+            // and the friend isn't actively cooking; `minHeight: 150`
+            // still anchors the card so heights stay uniform.
             cookingLine
 
             Spacer(minLength: 0)
 
-            recipeCountBadge
+            // Bottom row — recipe-count badge pinned left, thumbnail
+            // slot pinned right. The slot is always rendered with the
+            // same rounded-rect chrome so the card silhouette stays
+            // uniform across friends; only the inner content changes
+            // with the fallback chain (cooked photo → LlamaLogo →
+            // Friends_Llama_Icon).
+            HStack(alignment: .center, spacing: AppSpacing.sm) {
+                recipeCountBadge
+                Spacer(minLength: 0)
+                thumbnailSlot
+            }
         }
         .padding(AppSpacing.md)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
@@ -350,6 +335,69 @@ private struct FriendCardView: View {
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
             }
+        }
+    }
+
+    /// Trailing thumbnail slot. Always rendered at `thumbnailSize`
+    /// with the same `AppRadius.md` clip + 0.5pt divider stroke as
+    /// `FriendRecipeCard`'s photo treatment, so the card's visual
+    /// "card slot" stays identical regardless of which fallback
+    /// branch fires. Inner content follows the fallback chain:
+    ///
+    /// 1. `cookThumbnail` data present → render the photo.
+    /// 2. `lastCookedTitle` present but no thumbnail → `LlamaLogo`
+    ///    tinted in the friend's accent (cooked something, no photo).
+    /// 3. Neither → `Friends_Llama_Icon` (52pt variant) tinted in the
+    ///    friend's accent (never cooked anything).
+    @ViewBuilder
+    private var thumbnailSlot: some View {
+        Group {
+            if let data = cookThumbnail {
+                RecipeImageView(
+                    data: data,
+                    contentMode: .fill,
+                    cornerRadius: AppRadius.md
+                ) {
+                    RoundedRectangle(cornerRadius: AppRadius.md)
+                        .fill(friendAccent.opacity(0.12))
+                }
+            } else {
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .fill(friendAccent.opacity(0.12))
+                    .overlay(fallbackLlama)
+            }
+        }
+        .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
+        )
+    }
+
+    /// Inner llama silhouette for the no-photo fallbacks. Both branches
+    /// render an alpha-derived silhouette tinted in the friend's accent
+    /// — `LlamaLogoTemplate` (template-rendering variant of the brand
+    /// artwork) for friends who cooked something without a photo, and
+    /// `Friends_Llama_Icon` (tab-bar variant) for friends who haven't
+    /// cooked anything yet. Same scaling, same interior padding, so the
+    /// two fallbacks read as the same kind of placeholder.
+    @ViewBuilder
+    private var fallbackLlama: some View {
+        if hasLastCookedTitle {
+            Image("LlamaLogoTemplate")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .foregroundStyle(friendAccent)
+                .padding(7)
+        } else {
+            Image("Friends_Llama_Icon")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .foregroundStyle(friendAccent)
+                .padding(7)
         }
     }
 

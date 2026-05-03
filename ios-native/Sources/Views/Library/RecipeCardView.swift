@@ -178,11 +178,25 @@ struct RecipeCardView: View {
 /// two side curves tapering to a single bottom point at `y = height`.
 /// Filling the full `rect` keeps the heart's footprint identical to
 /// the rounded-square thumbnail it replaces.
+///
+/// The mid-height side control points are pulled `sideBulge` past the
+/// rect edges so the lobes bulge outward more at the heart's midline
+/// — yielding a slightly wider, rounder silhouette without changing
+/// the bottom-tip angle or pushing the visible curve outside `rect`
+/// (a cubic Bézier only approaches its control points, never reaches
+/// them, so a 7% overshoot here yields ~3-4% wider visible bulge).
 private struct HeartShape: Shape {
+    /// Horizontal overshoot for the side-most control points, as a
+    /// fraction of `rect.width`. Larger values fatten the lobes at
+    /// midline; ~0.07 reads as "tiny bit fatter at the sides" without
+    /// blob-rounding the silhouette.
+    private static let sideBulge: CGFloat = 0.07
+
     func path(in rect: CGRect) -> Path {
         var path = Path()
         let w = rect.width
         let h = rect.height
+        let bulge = w * Self.sideBulge
 
         path.move(to: CGPoint(x: w / 2, y: h / 4))
         path.addCurve(
@@ -192,13 +206,13 @@ private struct HeartShape: Shape {
         )
         path.addCurve(
             to: CGPoint(x: w / 2, y: h),
-            control1: CGPoint(x: 0, y: h / 2),
+            control1: CGPoint(x: -bulge, y: h / 2),
             control2: CGPoint(x: w / 4, y: h * 3 / 4)
         )
         path.addCurve(
             to: CGPoint(x: w, y: h / 4),
             control1: CGPoint(x: w * 3 / 4, y: h * 3 / 4),
-            control2: CGPoint(x: w, y: h / 2)
+            control2: CGPoint(x: w + bulge, y: h / 2)
         )
         path.addCurve(
             to: CGPoint(x: w / 2, y: h / 4),
