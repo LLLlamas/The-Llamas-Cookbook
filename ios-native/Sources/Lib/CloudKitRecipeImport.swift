@@ -190,6 +190,26 @@ extension CloudKitService {
         try await fetchRecipeImports(forOriginalRecipeID: originalRecipeID).count
     }
 
+    /// Per-creator total — sums every `RecipeImport` row whose
+    /// chain root was authored by `creatorID`, i.e. "how many
+    /// times has anyone imported any recipe this user originally
+    /// created." Powers the per-friend saves stat on the Friends
+    /// tab card. Same `originalCreatorID` field the
+    /// account-deletion cascade's creator leg queries against, so
+    /// it's already indexed in the deployed schema.
+    ///
+    /// Counts events, not unique people — re-imports increment.
+    /// Follows cursors so a prolific friend doesn't silently cap
+    /// at the first query page. Skips full row decode (just
+    /// counts match results) since the call site only needs the
+    /// integer.
+    static func countRecipeImports(forCreatorID creatorID: String) async throws -> Int {
+        let predicate = NSPredicate(format: "originalCreatorID == %@", creatorID)
+        let query = CKQuery(recordType: recipeImportRecordType, predicate: predicate)
+        let matchResults = try await queryAllRecords(matching: query)
+        return matchResults.count
+    }
+
     // MARK: Cascade
 
     /// Cascade — delete every `RecipeImport` row this user

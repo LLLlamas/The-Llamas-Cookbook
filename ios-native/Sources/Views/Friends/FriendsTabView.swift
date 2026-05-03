@@ -33,14 +33,16 @@ struct FriendsTabView: View {
     /// `recipeCounts` so a friend's last-cooked thumbnail piggybacks on
     /// the existing per-friend round-trip — no per-card render fetch.
     @State private var cookThumbnails: [String: Data] = [:]
-    /// Saves count for each friend's last-cooked recipe — i.e. the
-    /// transitive `RecipeImport` count keyed by the friend's
-    /// `lastCookedRecipeID`. Hydrated from `ImportCountCache` on first
-    /// touch and stale-while-revalidated against CloudKit via
-    /// `countRecipeImports(forOriginalRecipeID:)`. Mirrors the dict
-    /// shape of `cookThumbnails` so the card stays a pure projection
-    /// of `@State` lookups keyed by `userRecordName`.
-    @State private var cookSaves: [String: Int] = [:]
+    /// Per-friend accumulated saves — total `RecipeImport` rows whose
+    /// chain root was authored by the friend, i.e. "how many times
+    /// anyone imported any recipe this friend originally created."
+    /// Keyed by `userRecordName` to match the other per-friend dicts.
+    /// Memoized in-memory only (not persisted) — the friend list is
+    /// bounded and the value is delight-tier metadata, so a single
+    /// fetch per friend per session is the right cost/complexity
+    /// trade. Promote to a UserDefaults cache the day this number
+    /// shows up on a second surface.
+    @State private var friendTotalSaves: [String: Int] = [:]
     @State private var inFlightCounts: Set<String> = []
     @State private var inFlightSaves: Set<String> = []
 
@@ -180,7 +182,7 @@ struct FriendsTabView: View {
                             friend: friend,
                             recipeCount: recipeCounts[friend.userRecordName],
                             cookThumbnail: cookThumbnails[friend.userRecordName],
-                            cookSaves: cookSaves[friend.userRecordName],
+                            totalSaves: friendTotalSaves[friend.userRecordName],
                             friendsSince: friendsStore.friendsSinceByID[friend.userRecordName],
                             fallbackAccent: appearance.accentColor
                         )
@@ -188,7 +190,7 @@ struct FriendsTabView: View {
                     .buttonStyle(.plain)
                     .task(id: friend.userRecordName) {
                         await loadCountIfNeeded(for: friend)
-                        await loadSavesIfNeeded(for: friend)
+                        await loadTotalSavesIfNeeded(for: friend)
                     }
                 }
             }
@@ -220,34 +222,18 @@ struct FriendsTabView: View {
         }
     }
 
-    /// Hydrate the saves badge for a friend's last-cooked recipe.
-    /// The transitive import count isn't denormalized onto the
-    /// `PublishedRecipe` mirror, so we reuse the same
-    /// `ImportCountCache` UserDefaults store the Detail-view
-    /// "Imported by N" chip uses — local hits are free, and uncached
-    /// friends pay one `countRecipeImports` round-trip per render
-    /// session that's then memoized for next time.
-    private func loadSavesIfNeeded(for friend: UserProfileSnapshot) async {
+    /// Hydrate the per-friend accumulated saves stat — total
+    /// `RecipeImport` rows across every recipe this friend originally
+    /// authored. No persistent cache: the value lives in `@State` for
+    /// the lifetime of the view and re-fetches once per friend per
+    /// session. In-flight dedupe matches `loadCountIfNeeded`.
+    private func loadTotalSavesIfNeeded(for friend: UserProfileSnapshot) async {
         let key = friend.userRecordName
-        guard cookSaves[key] == nil, !inFlightSaves.contains(key) else { return }
-        guard let raw = friend.lastCookedRecipeID,
-              let recipeID = UUID(uuidString: raw) else {
-            return
-        }
-        // Stale-while-revalidate: paint whatever the cache has now,
-        // then refresh against CloudKit. Mirrors RecipeDetailView's
-        // chip refresh (`task(id: recipe.id) { ... }`) so the two
-        // surfaces share the same staleness semantics.
-        if ImportCountCache.checkedAt(for: recipeID) != nil {
-            cookSaves[key] = ImportCountCache.count(for: recipeID)
-        }
+        guard friendTotalSaves[key] == nil, !inFlightSaves.contains(key) else { return }
         inFlightSaves.insert(key)
         defer { inFlightSaves.remove(key) }
-        if let count = try? await CloudKitService.countRecipeImports(
-            forOriginalRecipeID: recipeID.uuidString
-        ) {
-            ImportCountCache.set(count: count, checkedAt: Date(), for: recipeID)
-            cookSaves[key] = count
+        if let count = try? await CloudKitService.countRecipeImports(forCreatorID: key) {
+            friendTotalSaves[key] = count
         }
     }
 }
@@ -269,10 +255,12 @@ private struct FriendCardView: View {
     let friend: UserProfileSnapshot
     let recipeCount: Int?
     let cookThumbnail: Data?
-    /// Transitive import count for the friend's last-cooked recipe,
-    /// or nil while the lookup is in flight / unavailable. Drives the
-    /// saves row above the cooking line; falls back silently when nil.
-    let cookSaves: Int?
+    /// Accumulated saves across every recipe this friend originally
+    /// authored — i.e. total `RecipeImport` rows where the friend is
+    /// the chain-root creator. Per-friend stat, not per-recipe. Nil
+    /// while the lookup is in flight / unavailable; the saves row
+    /// falls back silently when nil.
+    let totalSaves: Int?
     /// When this friendship was accepted (status flipped pending →
     /// accepted on the `Friendship` record). Drives the secondary
     /// metadata line's fallback when there are no saves to show.
@@ -428,7 +416,7 @@ private struct FriendCardView: View {
     ///    uniform.
     @ViewBuilder
     private var secondaryMetaLine: some View {
-        if let saves = cookSaves, saves > 0 {
+        if let saves = totalSaves, saves > 0 {
             HStack(spacing: 4) {
                 Image(systemName: "bookmark.fill")
                     .font(.system(size: 10, weight: .semibold))
@@ -460,9 +448,9 @@ private struct FriendCardView: View {
         if let title = friend.lastCookedTitle, !title.isEmpty {
             HStack(spacing: 4) {
                 Image(systemName: "fork.knife")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
-                (Text(friend.isCookingNow ? "Cooking: " : "Last cooked: ")
+                (Text(friend.isCookingNow ? "Cooking: " : "Last Cooked: ")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
                 + Text(title)
@@ -474,7 +462,7 @@ private struct FriendCardView: View {
         } else if friend.isCookingNow {
             HStack(spacing: 4) {
                 Image(systemName: "fork.knife")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
                 Text("Cooking now")
                     .font(AppFont.caption)
