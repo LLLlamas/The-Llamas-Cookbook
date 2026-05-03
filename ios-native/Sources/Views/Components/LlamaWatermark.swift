@@ -26,17 +26,14 @@ struct LlamaWatermark: View {
 
     /// Optional asset override. When nil (default) the watermark
     /// renders the brand `LlamaLogo` — body color baked into the
-    /// bitmap, accent only drives the (suppressed) drop shadow.
-    /// When set, the named asset is rendered as a template image
-    /// tinted in `tint`, so screens with their own mascot variant
-    /// (e.g. Friends tab using `Friends_Llama_Icon_Large`) can
-    /// substitute artwork without forking the watermark stack.
+    /// bitmap. When set, the named asset renders with its original
+    /// colors; `tint` drives only the drop shadow so the accent
+    /// color picker still has visible influence.
     var assetName: String? = nil
 
-    /// Tint applied to `assetName` when overriding. Ignored when
+    /// Shadow color applied when `assetName` is set. Ignored when
     /// `assetName` is nil. Pass the user's resolved accent so the
-    /// watermark tracks the live color picker, matching how the
-    /// home llama's halo tracks accent on the empty state.
+    /// shadow hue tracks the live color picker.
     var tint: Color = AppColor.accent
 
     var body: some View {
@@ -45,11 +42,12 @@ struct LlamaWatermark: View {
             Group {
                 if let assetName {
                     Image(assetName)
+                        .renderingMode(.original)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
                         .frame(width: dim, height: dim)
-                        .foregroundStyle(tint)
+                        .shadow(color: tint.opacity(0.35), radius: dim * 0.06, x: 0, y: dim * 0.04)
                 } else {
                     LlamaLogo(size: dim, shadowOpacity: 0)
                 }

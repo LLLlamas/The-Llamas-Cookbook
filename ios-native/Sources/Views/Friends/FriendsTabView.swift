@@ -2,8 +2,10 @@ import SwiftUI
 
 /// Friends tab — card grid mirroring the Library's card chrome so the
 /// surface feels populated even with a handful of friends. Each card
-/// surfaces the friend's display name, presence dot, cooking /
-/// last-cooked line, and the count of recipes they've published.
+/// surfaces the friend's display name, recipe count, saves on their
+/// last-cooked recipe, the cooking / last-cooked line, and a
+/// thumbnail. Presence is encoded as the card's accent border + a
+/// pulsing glow when cooking — no inline indicator dot.
 ///
 /// Tapping a card pushes `FriendLibraryView`. The empty state centers a
 /// llama with an Add Friend CTA that opens the same `AddFriendSheet`
@@ -31,7 +33,16 @@ struct FriendsTabView: View {
     /// `recipeCounts` so a friend's last-cooked thumbnail piggybacks on
     /// the existing per-friend round-trip — no per-card render fetch.
     @State private var cookThumbnails: [String: Data] = [:]
+    /// Saves count for each friend's last-cooked recipe — i.e. the
+    /// transitive `RecipeImport` count keyed by the friend's
+    /// `lastCookedRecipeID`. Hydrated from `ImportCountCache` on first
+    /// touch and stale-while-revalidated against CloudKit via
+    /// `countRecipeImports(forOriginalRecipeID:)`. Mirrors the dict
+    /// shape of `cookThumbnails` so the card stays a pure projection
+    /// of `@State` lookups keyed by `userRecordName`.
+    @State private var cookSaves: [String: Int] = [:]
     @State private var inFlightCounts: Set<String> = []
+    @State private var inFlightSaves: Set<String> = []
 
     private var friendsTitle: String {
         StringCase.friendsTitle(displayName: userAccount.status.identity?.displayName)
@@ -107,11 +118,11 @@ struct FriendsTabView: View {
     private var emptyState: some View {
         VStack(spacing: AppSpacing.lg) {
             Image("Friends_Llama_Icon_Large")
+                .renderingMode(.original)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 160, height: 160)
-                .foregroundStyle(appearance.accentColor)
                 .shadow(
                     color: appearance.accentColor.opacity(0.45),
                     radius: 160 * 0.0643,
@@ -169,12 +180,14 @@ struct FriendsTabView: View {
                             friend: friend,
                             recipeCount: recipeCounts[friend.userRecordName],
                             cookThumbnail: cookThumbnails[friend.userRecordName],
+                            cookSaves: cookSaves[friend.userRecordName],
                             fallbackAccent: appearance.accentColor
                         )
                     }
                     .buttonStyle(.plain)
                     .task(id: friend.userRecordName) {
                         await loadCountIfNeeded(for: friend)
+                        await loadSavesIfNeeded(for: friend)
                     }
                 }
             }
@@ -205,25 +218,72 @@ struct FriendsTabView: View {
             }
         }
     }
+
+    /// Hydrate the saves badge for a friend's last-cooked recipe.
+    /// The transitive import count isn't denormalized onto the
+    /// `PublishedRecipe` mirror, so we reuse the same
+    /// `ImportCountCache` UserDefaults store the Detail-view
+    /// "Imported by N" chip uses — local hits are free, and uncached
+    /// friends pay one `countRecipeImports` round-trip per render
+    /// session that's then memoized for next time.
+    private func loadSavesIfNeeded(for friend: UserProfileSnapshot) async {
+        let key = friend.userRecordName
+        guard cookSaves[key] == nil, !inFlightSaves.contains(key) else { return }
+        guard let raw = friend.lastCookedRecipeID,
+              let recipeID = UUID(uuidString: raw) else {
+            return
+        }
+        // Stale-while-revalidate: paint whatever the cache has now,
+        // then refresh against CloudKit. Mirrors RecipeDetailView's
+        // chip refresh (`task(id: recipe.id) { ... }`) so the two
+        // surfaces share the same staleness semantics.
+        if ImportCountCache.checkedAt(for: recipeID) != nil {
+            cookSaves[key] = ImportCountCache.count(for: recipeID)
+        }
+        inFlightSaves.insert(key)
+        defer { inFlightSaves.remove(key) }
+        if let count = try? await CloudKitService.countRecipeImports(
+            forOriginalRecipeID: recipeID.uuidString
+        ) {
+            ImportCountCache.set(count: count, checkedAt: Date(), for: recipeID)
+            cookSaves[key] = count
+        }
+    }
 }
 
 /// One friend tile in the Friends-tab grid. Mirrors the visual chrome
 /// of `RecipeCardView` (translucent gradient surface, same stroke, same
 /// shadow stack) so the two surfaces read as the same kind of object.
-/// Tinted in the friend's resolved accent — title text + presence dot
-/// + recipe-count badge — so visiting Marco's tile *feels like Marco's*
-/// the same way `FriendLibraryView` does on push.
+/// Tinted in the friend's resolved accent — title text, soft border,
+/// cooking glow, save count — so visiting Marco's tile *feels like
+/// Marco's* the same way `FriendLibraryView` does on push.
+///
+/// Presence is encoded in chrome rather than a glyph: the card always
+/// wears a soft accent border, and when the friend is cooking
+/// (`cookingStartedAt` within the 6h window) the border thickens and a
+/// pulsing accent glow sits underneath — same `1.1s easeInOut`
+/// `repeatForever(autoreverses:)` curve `AccentDot` uses, so cooking-
+/// state affordances feel consistent across surfaces.
 private struct FriendCardView: View {
     let friend: UserProfileSnapshot
     let recipeCount: Int?
     let cookThumbnail: Data?
+    /// Transitive import count for the friend's last-cooked recipe,
+    /// or nil while the lookup is in flight / unavailable. Drives the
+    /// saves row above the cooking line; falls back silently when nil.
+    let cookSaves: Int?
     let fallbackAccent: Color
 
-    /// Trailing-edge thumbnail size. Sized to sit comfortably opposite a
-    /// 2-line title in a half-screen card without crowding it, and
-    /// well under the card's `minHeight: 150` so cards with and without
-    /// a thumbnail share the same row height.
+    /// Bottom-left thumbnail size. Same 52pt frame as before — the
+    /// slot moved from the trailing edge to under the cooking line,
+    /// but the chrome (rounded square, divider stroke, fallback
+    /// chain) is unchanged so the visual "card slot" stays familiar.
     private static let thumbnailSize: CGFloat = 52
+
+    /// Pulse driver for the cooking-now glow. Mirrors `AccentDot`'s
+    /// `pulse` flag and animation curve so the two affordances feel
+    /// like one design vocabulary.
+    @State private var pulse: Bool = false
 
     private var friendAccent: Color {
         if let hex = friend.accentHex, let color = Color(hex: hex) {
@@ -243,53 +303,54 @@ private struct FriendCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            // Top row — presence dot + name on a single baseline.
-            // Mirrors `FriendLibraryView.headerLabel`, which pairs
-            // `AccentDot` with text via a default-center HStack; the
-            // 12pt circle reads cleanly against caption / heading
-            // text without needing baseline alignment.
-            HStack(spacing: AppSpacing.xs) {
-                AccentDot(
-                    hex: friend.accentHex,
-                    fallback: fallbackAccent,
-                    isGlowing: friend.isCookingNow,
-                    outlineWhenIdle: true
-                )
-                Text(friend.displayName)
-                    .font(AppFont.sectionHeading)
-                    .foregroundStyle(friendAccent)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: -0.4)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
-                    .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
-                Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            // Display name — a touch larger than `sectionHeading` so the
+            // friend reads as the headline of their own card. Single
+            // line + truncation keeps the row geometry stable so the
+            // metadata stack below sits at a predictable y across cards.
+            Text(friend.displayName)
+                .font(.system(size: 22, weight: .bold, design: .serif))
+                .foregroundStyle(friendAccent)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
+                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4, y: 0)
+                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: -0.4)
+                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
+                .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
+
+            // Recipe count — small caption directly under the name, in
+            // the same muted-tertiary tone `RecipeCardView`'s `dateStack`
+            // uses for secondary metadata. Renders nothing while the
+            // count is still loading rather than flashing "0 Recipes."
+            if let count = recipeCount {
+                Text(count == 1 ? "1 Recipe" : "\(count) Recipes")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
             }
 
-            // Second row — full-width cooking-status eyebrow.
-            // Collapses entirely when there's no `lastCookedTitle`
-            // and the friend isn't actively cooking; `minHeight: 150`
-            // still anchors the card so heights stay uniform.
+            // Saves / Serves row. Reserved with a fixed minHeight so
+            // collapsing this line doesn't shift the cooking line up
+            // — combined with the card's `minHeight: 150`, this keeps
+            // every card the same height regardless of state.
+            savesOrServesLine
+                .frame(minHeight: 14, alignment: .leading)
+
+            // Cooking-status eyebrow — kept verbatim from the previous
+            // pass (copy + styling) since the line itself is the rule
+            // CLAUDE.md calls out under "lastCookedTitle doubles as
+            // live 'Cooking: <title>' eyebrow during a cook."
             cookingLine
 
             Spacer(minLength: 0)
 
-            // Bottom row — recipe-count badge pinned left, thumbnail
-            // slot pinned right. The slot is always rendered with the
-            // same rounded-rect chrome so the card silhouette stays
-            // uniform across friends; only the inner content changes
-            // with the fallback chain (cooked photo → LlamaLogo →
-            // Friends_Llama_Icon).
-            HStack(alignment: .center, spacing: AppSpacing.sm) {
-                recipeCountBadge
-                Spacer(minLength: 0)
-                thumbnailSlot
-            }
+            // Thumbnail anchored to the leading edge, sharing the
+            // column gutter with every text row above. Only the
+            // inner content changes with the fallback chain
+            // (cooked photo → LlamaLogo → Friends_Llama_Icon).
+            thumbnailSlot
         }
-        .padding(AppSpacing.md)
+        .padding(AppSpacing.sm)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
         .background(
             LinearGradient(
@@ -301,13 +362,67 @@ private struct FriendCardView: View {
                 endPoint: .bottom
             )
         )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        // Soft accent border, always present, in the friend's accent
+        // — replaces the dot as the "this card belongs to Marco" cue.
+        // Thicker + brighter when cooking so the border itself reads
+        // as the active state alongside the glow underneath.
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
-                .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.5)
+                .strokeBorder(
+                    friendAccent.opacity(friend.isCookingNow ? 0.85 : 0.5),
+                    lineWidth: friend.isCookingNow ? 1.5 : 1
+                )
         )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        // Additive cooking-now glow. Pulses radius/opacity on the
+        // same 1.1s easeInOut autoreverse curve `AccentDot` uses; the
+        // two soft drop-shadows below stay regardless so the card
+        // never loses its base elevation.
+        .shadow(
+            color: friend.isCookingNow ? friendAccent.opacity(pulse ? 0.55 : 0.3) : .clear,
+            radius: friend.isCookingNow ? (pulse ? 14 : 8) : 0,
+            x: 0,
+            y: 0
+        )
         .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
         .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+        .animation(
+            friend.isCookingNow
+                ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
+                : .default,
+            value: pulse
+        )
+        .onAppear { if friend.isCookingNow { pulse = true } }
+        .onChange(of: friend.isCookingNow) { _, newValue in pulse = newValue }
+    }
+
+    /// Thin metadata row between the recipe count and the cooking
+    /// eyebrow. Three states, in order:
+    ///
+    /// 1. Saves > 0 → bookmark glyph + count, matching the chip
+    ///    `RecipeDetailView` uses for "Imported by N" so the two
+    ///    surfaces share a visual vocabulary for save activity.
+    /// 2. Otherwise → empty (the line collapses to its
+    ///    `minHeight` reservation upstream).
+    ///
+    /// Note: the spec also calls for a `Serves: N` fallback when
+    /// saves == 0 but the recipe has a servings count. The friend's
+    /// servings field isn't denormalized onto `PublishedRecipe`
+    /// (it lives inside the envelope JSON), so reaching it cheaply
+    /// would require a schema change. Omitted in this pass — see
+    /// the report for the field that would need adding.
+    @ViewBuilder
+    private var savesOrServesLine: some View {
+        if let saves = cookSaves, saves > 0 {
+            HStack(spacing: 4) {
+                Image(systemName: "bookmark.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(friendAccent)
+                Text("\(saves)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+        }
     }
 
     @ViewBuilder
@@ -338,7 +453,7 @@ private struct FriendCardView: View {
         }
     }
 
-    /// Trailing thumbnail slot. Always rendered at `thumbnailSize`
+    /// Bottom-left thumbnail slot. Always rendered at `thumbnailSize`
     /// with the same `AppRadius.md` clip + 0.5pt divider stroke as
     /// `FriendRecipeCard`'s photo treatment, so the card's visual
     /// "card slot" stays identical regardless of which fallback
@@ -401,21 +516,6 @@ private struct FriendCardView: View {
         }
     }
 
-    @ViewBuilder
-    private var recipeCountBadge: some View {
-        if let count = recipeCount {
-            HStack(spacing: 4) {
-                Image(systemName: "book.closed.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(count == 1 ? "1 recipe" : "\(count) recipes")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .foregroundStyle(AppColor.accentDeep)
-            .padding(.horizontal, AppSpacing.sm)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(friendAccent.opacity(0.15)))
-        }
-    }
 }
 
 #Preview {
