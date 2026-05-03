@@ -54,6 +54,18 @@ final class FriendsStore {
     /// alphabetically by display name.
     private(set) var outgoingRequestProfiles: [PendingRequest] = []
 
+    /// When each accepted friendship started, keyed by the friend's
+    /// `userRecordName`. Sourced from the `Friendship` record's
+    /// `acceptedAt` (the moment status flipped from pending →
+    /// accepted, which is semantically "the friendship began" — not
+    /// when the request was sent). Lives parallel to `friends` rather
+    /// than as a property on `UserProfileSnapshot` because the date is
+    /// a property of the *relationship*, not the profile, and the
+    /// profile snapshot is also returned by `searchUserProfiles` where
+    /// no friendship exists. Nil for legacy accepted records that
+    /// predate the `acceptedAt` field.
+    private(set) var friendsSinceByID: [String: Date] = [:]
+
     /// True while a `refresh()` is in flight. Prevents overlapping
     /// fetches when the user yanks the popover open / closed
     /// rapidly. Also drives a small spinner in the Friends section
@@ -183,6 +195,7 @@ final class FriendsStore {
         }
 
         var newFriends: [UserProfileSnapshot] = []
+        var newFriendsSince: [String: Date] = [:]
         var newIncoming: [PendingRequest] = []
         var newOutgoing: [String: String] = [:]
         var newOutgoingProfiles: [PendingRequest] = []
@@ -193,6 +206,9 @@ final class FriendsStore {
             case .accepted:
                 if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
                     newFriends.append(profile)
+                    if let acceptedAt = friendship.acceptedAt {
+                        newFriendsSince[otherID] = acceptedAt
+                    }
                 }
             case .pending:
                 if friendship.requesterID == me {
@@ -247,6 +263,7 @@ final class FriendsStore {
         }
 
         friends = newFriends
+        friendsSinceByID = newFriendsSince
         incomingRequests = newIncoming
         outgoingRequests = newOutgoing
         outgoingRequestProfiles = newOutgoingProfiles
@@ -349,6 +366,11 @@ final class FriendsStore {
         friends.sort { lhs, rhs in
             lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
         }
+        // Match the CK write — `approveFriendRequest` stamps
+        // `acceptedAt = Date()` server-side, so the optimistic local
+        // entry uses the same instant. The next refresh reconciles
+        // against the authoritative server value (within a few ms).
+        friendsSinceByID[pending.requester.userRecordName] = Date()
         // Cascade-delete duplicate friendship records for this pair
         // (everything except the just-accepted one). Detached so the
         // accept feels instant and a slow sweep doesn't block the
@@ -396,6 +418,7 @@ final class FriendsStore {
         let otherID = friend.userRecordName
         await CloudKitService.deleteAllFriendshipsBetween(me, and: otherID)
         friends.removeAll { $0.userRecordName == otherID }
+        friendsSinceByID.removeValue(forKey: otherID)
         outgoingRequests.removeValue(forKey: otherID)
         outgoingRequestProfiles.removeAll { $0.requester.userRecordName == otherID }
         incomingRequests.removeAll { $0.requester.userRecordName == otherID }
@@ -409,6 +432,7 @@ final class FriendsStore {
     /// refresh fires (or, if signed out for good, never).
     func clearOnSignOut() {
         friends = []
+        friendsSinceByID = [:]
         incomingRequests = []
         outgoingRequests = [:]
         outgoingRequestProfiles = []

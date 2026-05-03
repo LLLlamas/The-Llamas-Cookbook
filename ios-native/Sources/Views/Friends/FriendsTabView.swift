@@ -181,6 +181,7 @@ struct FriendsTabView: View {
                             recipeCount: recipeCounts[friend.userRecordName],
                             cookThumbnail: cookThumbnails[friend.userRecordName],
                             cookSaves: cookSaves[friend.userRecordName],
+                            friendsSince: friendsStore.friendsSinceByID[friend.userRecordName],
                             fallbackAccent: appearance.accentColor
                         )
                     }
@@ -272,6 +273,12 @@ private struct FriendCardView: View {
     /// or nil while the lookup is in flight / unavailable. Drives the
     /// saves row above the cooking line; falls back silently when nil.
     let cookSaves: Int?
+    /// When this friendship was accepted (status flipped pending →
+    /// accepted on the `Friendship` record). Drives the secondary
+    /// metadata line's fallback when there are no saves to show.
+    /// Nil for legacy accepted records that predate the field — the
+    /// line collapses silently in that case.
+    let friendsSince: Date?
     let fallbackAccent: Color
 
     /// Bottom-left thumbnail size. Same 52pt frame as before — the
@@ -329,11 +336,11 @@ private struct FriendCardView: View {
                     .foregroundStyle(AppColor.textTertiary)
             }
 
-            // Saves / Serves row. Reserved with a fixed minHeight so
-            // collapsing this line doesn't shift the cooking line up
-            // — combined with the card's `minHeight: 150`, this keeps
-            // every card the same height regardless of state.
-            savesOrServesLine
+            // Secondary metadata row. Reserved with a fixed minHeight
+            // so collapsing this line doesn't shift the cooking line
+            // up — combined with the card's `minHeight: 150`, this
+            // keeps every card the same height regardless of state.
+            secondaryMetaLine
                 .frame(minHeight: 14, alignment: .leading)
 
             // Cooking-status eyebrow — kept verbatim from the previous
@@ -397,22 +404,20 @@ private struct FriendCardView: View {
     }
 
     /// Thin metadata row between the recipe count and the cooking
-    /// eyebrow. Three states, in order:
+    /// eyebrow. Two states, in order:
     ///
     /// 1. Saves > 0 → bookmark glyph + count, matching the chip
     ///    `RecipeDetailView` uses for "Imported by N" so the two
     ///    surfaces share a visual vocabulary for save activity.
-    /// 2. Otherwise → empty (the line collapses to its
-    ///    `minHeight` reservation upstream).
-    ///
-    /// Note: the spec also calls for a `Serves: N` fallback when
-    /// saves == 0 but the recipe has a servings count. The friend's
-    /// servings field isn't denormalized onto `PublishedRecipe`
-    /// (it lives inside the envelope JSON), so reaching it cheaply
-    /// would require a schema change. Omitted in this pass — see
-    /// the report for the field that would need adding.
+    /// 2. Otherwise → "Friends since: M/D/YY" using the friendship's
+    ///    `acceptedAt` date (when status flipped to accepted, i.e.
+    ///    when the friendship actually began). Falls back to empty
+    ///    if the date is unavailable (legacy records that predate
+    ///    the `acceptedAt` field) — the line collapses to its
+    ///    `minHeight` reservation upstream so the card height stays
+    ///    uniform.
     @ViewBuilder
-    private var savesOrServesLine: some View {
+    private var secondaryMetaLine: some View {
         if let saves = cookSaves, saves > 0 {
             HStack(spacing: 4) {
                 Image(systemName: "bookmark.fill")
@@ -422,8 +427,23 @@ private struct FriendCardView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
             }
+        } else if let since = friendsSince {
+            Text("Friends since: \(Self.shortDate.string(from: since))")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(AppColor.textTertiary)
         }
     }
+
+    /// Shared formatter — `M/d/yy` matches the short-date convention
+    /// used by `RecipeCardView` and `FriendLibraryView` for compact
+    /// card metadata. Fixed format (rather than `dateStyle: .short`)
+    /// so the line stays narrow enough to coexist with the cooking
+    /// eyebrow on a half-width grid cell across locales.
+    private static let shortDate: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "M/d/yy"
+        return f
+    }()
 
     @ViewBuilder
     private var cookingLine: some View {
