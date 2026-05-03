@@ -97,9 +97,7 @@ struct RecipeCardView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: AppRadius.md)
                         .fill(AppColor.accentSoft.opacity(0.5))
-                    Image(systemName: "photo")
-                        .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(appearance.accentColor.opacity(0.55))
+                    LlamaLogo(size: 56, shadowColor: appearance.accentColor)
                 }
             }
         }

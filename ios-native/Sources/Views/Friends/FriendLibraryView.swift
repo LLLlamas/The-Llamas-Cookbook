@@ -305,9 +305,7 @@ private struct FriendRecipeCard: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: AppRadius.md)
                         .fill(accent.opacity(0.12))
-                    Image(systemName: "photo")
-                        .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(accent.opacity(0.55))
+                    LlamaLogo(size: 56, shadowColor: accent)
                 }
             }
         }
