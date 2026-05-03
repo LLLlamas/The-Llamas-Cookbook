@@ -61,7 +61,11 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem {
-                Label("Friends", systemImage: "person.2.fill")
+                Label {
+                    Text("Friends")
+                } icon: {
+                    Image("Friends_Llama_Icon")
+                }
             }
             .tag(AppTab.friends)
 

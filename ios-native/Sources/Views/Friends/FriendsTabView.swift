@@ -90,7 +90,19 @@ struct FriendsTabView: View {
 
     private var emptyState: some View {
         VStack(spacing: AppSpacing.lg) {
-            LlamaLogo(size: 160, shadowColor: appearance.accentColor)
+            Image("Friends_Llama_Icon")
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 160, height: 160)
+                .foregroundStyle(appearance.accentColor)
+                .shadow(
+                    color: appearance.accentColor.opacity(0.45),
+                    radius: 160 * 0.0643,
+                    x: 0,
+                    y: 160 * 0.05
+                )
+                .accessibilityHidden(true)
             VStack(spacing: AppSpacing.xs) {
                 Text("No friends yet")
                     .font(AppFont.sectionHeading)
