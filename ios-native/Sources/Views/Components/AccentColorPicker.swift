@@ -14,7 +14,7 @@ struct AccentColorPicker: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: AppSpacing.xl) {
+            VStack(spacing: AppSpacing.lg) {
                 preview
 
                 VStack(spacing: AppSpacing.sm) {
@@ -61,13 +61,12 @@ struct AccentColorPicker: View {
     }
 
     private var preview: some View {
-        VStack(spacing: AppSpacing.sm) {
-            // Sized to feel "almost as big as the LibraryView watermark
-            // behind the sheet" — the watermark is ~min(screen) × 0.9
-            // (~320pt on iPhone) at 6% opacity; the preview llama is at
-            // full opacity, so 220pt reads as a confident hero of the
-            // preview card without crowding the title/icon row below.
-            LlamaLogo(size: 220, shadowColor: settings.accentColor)
+        VStack(spacing: AppSpacing.xs) {
+            // Sized down from 220 → 160 so the preview card clears
+            // the medium detent without forcing the user to drag the
+            // sheet up to reach the Reset pill. Still reads as a
+            // confident hero next to the title row.
+            LlamaLogo(size: 160, shadowColor: settings.accentColor)
 
             Text("Sample Recipe Title")
                 .font(AppFont.recipeTitle)
@@ -88,7 +87,7 @@ struct AccentColorPicker: View {
             }
             .padding(.top, AppSpacing.xs)
         }
-        .padding(AppSpacing.lg)
+        .padding(AppSpacing.md)
         .frame(maxWidth: .infinity)
         .background(
             LinearGradient(

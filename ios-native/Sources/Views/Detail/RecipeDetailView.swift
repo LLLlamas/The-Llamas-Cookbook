@@ -276,14 +276,14 @@ struct RecipeDetailView: View {
                 } label: {
                     LlamaLogo(size: 72, shadowColor: appearance.accentColor)
                         .frame(width: 72, height: 72)
-                        // Lift the logo off the bottom edge of the
-                        // navigation bar so the full drop shadow has
-                        // room to render — at size 72 the halo's
-                        // y-offset + radius reach roughly 8pt past
-                        // the frame bounds, and without padding the
-                        // bar clips the lower halo and the mascot
-                        // reads as cropped.
-                        .padding(.bottom, 10)
+                        // Breathe the logo in both directions inside
+                        // the navigation bar — bottom needs the most
+                        // because the drop shadow's y-offset extends
+                        // past the frame, but a hair of top padding
+                        // also keeps the mascot's head from kissing
+                        // the title-bar divider.
+                        .padding(.top, 6)
+                        .padding(.bottom, 12)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")

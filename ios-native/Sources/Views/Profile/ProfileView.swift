@@ -816,27 +816,36 @@ struct ProfileView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(AppColor.textPrimary)
                         .lineLimit(1)
-                    if friend.isCookingNow,
-                       let title = friend.lastCookedTitle, !title.isEmpty {
+                    if friend.isCookingNow {
                         // Live-presence subtitle while a friend is in
                         // cook mode. Fork-and-knife glyph plus the
                         // recipe title in the friend's resolved accent
                         // — same eyebrow language as the cookbook
                         // header so the two surfaces read as the same
-                        // signal. Suppressed when there is no title
-                        // (older record, never set) rather than
-                        // showing a bare "Cooking: ".
+                        // signal. Older sessions started before the
+                        // title-on-start write are surfaced without a
+                        // title ("Currently Cooking") rather than
+                        // collapsing the row entirely, so presence
+                        // doesn't disappear just because the friend's
+                        // record predates the field write.
                         HStack(spacing: 4) {
                             Image(systemName: "fork.knife")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(AppColor.textTertiary)
-                            (Text("Cooking: ")
-                                .font(AppFont.caption)
-                                .foregroundStyle(AppColor.textTertiary)
-                            + Text(title)
-                                .font(AppFont.caption.weight(.semibold))
-                                .foregroundStyle(resolvedAccent(for: friend)))
-                                .lineLimit(1)
+                            if let title = friend.lastCookedTitle, !title.isEmpty {
+                                (Text("Currently Cooking: ")
+                                    .font(AppFont.caption)
+                                    .foregroundStyle(AppColor.textTertiary)
+                                + Text(title)
+                                    .font(AppFont.caption.weight(.semibold))
+                                    .foregroundStyle(resolvedAccent(for: friend)))
+                                    .lineLimit(1)
+                            } else {
+                                Text("Currently Cooking")
+                                    .font(AppFont.caption)
+                                    .foregroundStyle(AppColor.textTertiary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                 }

@@ -92,13 +92,22 @@ struct FriendLibraryView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AppColor.textTertiary)
             if let title = friend.lastCookedTitle, !title.isEmpty {
-                (Text(friend.isCookingNow ? "Cooking: " : "Last cooked: ")
+                (Text(friend.isCookingNow ? "Currently Cooking: " : "Last cooked: ")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
                 + Text(title)
                     .font(AppFont.caption.weight(.semibold))
                     .foregroundStyle(friendAccent))
                     .lineLimit(1)
+            } else if friend.isCookingNow {
+                // Fallback for cooks that started before the title-on-
+                // start write existed — `cookingStartedAt` is set but
+                // `lastCookedTitle` is empty/stale. Surface presence
+                // without a title rather than rendering a dangling
+                // "Currently Cooking: " or just a bare dot.
+                Text("Currently Cooking")
+                    .font(AppFont.caption)
+                    .foregroundStyle(AppColor.textTertiary)
             }
             AccentDot(
                 hex: friend.accentHex,
