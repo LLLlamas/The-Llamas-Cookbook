@@ -87,6 +87,32 @@ struct FriendLibraryView: View {
     /// reads as a negative judgment on someone who simply hasn't
     /// played around with the app yet.
     private var friendHeader: some View {
+        // When the friend's last-cooked recipe is one we've also
+        // pulled into `summaries`, wrap the eyebrow in a tap target
+        // that pushes its `FriendRecipeDetailView`. Same visual
+        // treatment as ProfileView's "Last cooked" link — exact same
+        // font / size / color as before, link affordance is purely
+        // behavioral. When no summary match is available (still
+        // loading, or the cooked recipe was deleted from the friend's
+        // cookbook), the eyebrow falls through to the original
+        // non-tappable form.
+        Group {
+            if let summary = lastCookedSummary {
+                NavigationLink {
+                    FriendRecipeDetailView(friend: friend, summary: summary)
+                } label: {
+                    headerLabel
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                headerLabel
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var headerLabel: some View {
         HStack(spacing: AppSpacing.xs) {
             Image(systemName: "fork.knife")
                 .font(.system(size: 12, weight: .semibold))
@@ -116,7 +142,19 @@ struct FriendLibraryView: View {
                 outlineWhenIdle: true
             )
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// The published-recipe summary that matches the friend's
+    /// `lastCookedRecipeID`, when both sides are available. Returns
+    /// nil while summaries are loading or when the friend's last-
+    /// cooked recipe has since been removed from their cookbook
+    /// (in which case the eyebrow stays as a plain non-tappable
+    /// label rather than dead-ending the user on a 404).
+    private var lastCookedSummary: PublishedRecipeSummary? {
+        guard let raw = friend.lastCookedRecipeID,
+              let id = UUID(uuidString: raw)
+        else { return nil }
+        return summaries.first { $0.localRecipeID == id }
     }
 
     // MARK: - Content

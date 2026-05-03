@@ -29,36 +29,60 @@ struct RootView: View {
     /// shape doesn't match the expected pattern).
     @State private var shareImportError: String?
 
+    /// Selected tab in the bottom bar. Cold launch lands on Home;
+    /// kept as `@State` so any future deep link can flip the
+    /// selection (e.g. routing a friend-related push to the Friends
+    /// tab) without restructuring.
+    @State private var selectedTab: AppTab = .home
+
     var body: some View {
-        NavigationStack(path: $libraryPath) {
-            LibraryView()
+        TabView(selection: $selectedTab) {
+            NavigationStack(path: $libraryPath) {
+                LibraryView()
+            }
+            .modifier(CookingPillsOverlay(
+                session: session,
+                navContext: navContext,
+                accent: appearance.accentColor,
+                lookupRecipe: lookupRecipe
+            ))
+            .tabItem {
+                Label("Home", systemImage: "books.vertical.fill")
+            }
+            .tag(AppTab.home)
+
+            NavigationStack {
+                FriendsTabView()
+            }
+            .modifier(CookingPillsOverlay(
+                session: session,
+                navContext: navContext,
+                accent: appearance.accentColor,
+                lookupRecipe: lookupRecipe
+            ))
+            .tabItem {
+                Label("Friends", systemImage: "person.2.fill")
+            }
+            .tag(AppTab.friends)
+
+            NavigationStack {
+                ProfileView(presentation: .tab)
+            }
+            .modifier(CookingPillsOverlay(
+                session: session,
+                navContext: navContext,
+                accent: appearance.accentColor,
+                lookupRecipe: lookupRecipe
+            ))
+            .tabItem {
+                Label("Me", systemImage: "person.crop.circle.fill")
+            }
+            .tag(AppTab.me)
         }
         .tint(appearance.accentColor)
         .environment(session)
         .environment(editor)
         .environment(navContext)
-        .overlay(alignment: .bottom) {
-            // Floats above Library / Detail / any pushed nav screens
-            // while a cook session is minimized. Plural-aware:
-            //   • 1 cook, no Detail-eligible add → single full pill
-            //   • 1 cook + Detail of a different recipe → small green
-            //     "Add to Cook Mode" button on the left + pill on the
-            //     right (~1/4 + 3/4 split)
-            //   • 2+ cooks → equally-sized pills, each tappable to
-            //     foreground that cook
-            if !session.activeCooks.isEmpty && !session.isCookModeVisible {
-                CookingPillsBar(
-                    session: session,
-                    navContext: navContext,
-                    accent: appearance.accentColor,
-                    lookupRecipe: lookupRecipe
-                )
-                .padding(.horizontal, AppSpacing.lg)
-                .padding(.bottom, AppSpacing.md)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: session.isCookModeVisible)
         .task {
             // Cold launch (or relaunch after iOS killed us) — pull any
             // saved cook session back into memory before the first frame
@@ -826,6 +850,47 @@ private struct AddToCookButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Add this recipe to Cook Mode")
+    }
+}
+
+/// Bottom-tab identity. Stored in `RootView.selectedTab` so the
+/// selection persists across re-renders and any future deep-link
+/// routing can flip the active tab programmatically (e.g. routing a
+/// friend push to `.friends`).
+enum AppTab: Hashable {
+    case home
+    case friends
+    case me
+}
+
+/// Attaches the minimized-cook pills bar to a single tab's content.
+/// Applied per-tab (rather than once on the parent TabView) because
+/// `.overlay(alignment: .bottom)` on a TabView paints the overlay
+/// over the tab bar — applying inside each tab puts the overlay
+/// above the tab bar where it belongs. Same content + spring
+/// animation as the original inline overlay.
+private struct CookingPillsOverlay: ViewModifier {
+    let session: CookingSession
+    let navContext: NavigationContext
+    let accent: Color
+    let lookupRecipe: (UUID) -> Recipe?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottom) {
+                if !session.activeCooks.isEmpty && !session.isCookModeVisible {
+                    CookingPillsBar(
+                        session: session,
+                        navContext: navContext,
+                        accent: accent,
+                        lookupRecipe: lookupRecipe
+                    )
+                    .padding(.horizontal, AppSpacing.lg)
+                    .padding(.bottom, AppSpacing.md)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: session.isCookModeVisible)
     }
 }
 

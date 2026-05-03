@@ -33,6 +33,20 @@ import AuthenticationServices
 /// header re-render with `{newName} Cookbook`. Signed-out state falls
 /// back to the literal "Llamas Cookbook" branding.
 struct ProfileView: View {
+    /// How this view is being hosted. The legacy presentation is the
+    /// `LibraryView` toolbar sheet, which renders a Done button and
+    /// dismisses on tap. The bottom-tab presentation hides Done (the
+    /// tab bar is the affordance to leave) and wraps the same content
+    /// in a navigation-stack-friendly shape so pushes (e.g. tapping
+    /// the Last Cooked line) work the same way the friend-library
+    /// surfaces do.
+    enum Presentation {
+        case sheet
+        case tab
+    }
+
+    var presentation: Presentation = .sheet
+
     @Environment(UserAccount.self) private var userAccount
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(AppearanceSettings.self) private var appearance
@@ -75,8 +89,23 @@ struct ProfileView: View {
     @State private var republishSucceeded: Bool = false
 
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
+        // When presented as a sheet from LibraryView's toolbar, we own
+        // our own NavigationStack so the friend-library push has
+        // somewhere to land. When hosted as a bottom-tab, RootView's
+        // tab provides the NavigationStack — nesting another one here
+        // would double the chrome and break navigation pushes.
+        Group {
+            if presentation == .sheet {
+                NavigationStack { content }
+            } else {
+                content
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: AppSpacing.lg) {
                         header
@@ -132,6 +161,9 @@ struct ProfileView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)
+            .navigationDestination(for: Recipe.self) { recipe in
+                RecipeDetailView(recipe: recipe)
+            }
             .toolbar {
                 if userAccount.status.isSignedIn {
                     ToolbarItem(placement: .topBarLeading) {
@@ -146,10 +178,12 @@ struct ProfileView: View {
                         .accessibilityLabel("Settings")
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor)
+                if presentation == .sheet {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                    }
                 }
             }
             .alert(
@@ -225,7 +259,6 @@ struct ProfileView: View {
                     }
                 }
             }
-        }
     }
 
     // MARK: - Header
@@ -557,20 +590,29 @@ struct ProfileView: View {
     }
 
     private func lastCookedLine(recipe: Recipe) -> some View {
-        HStack(spacing: AppSpacing.xs) {
-            Image(systemName: "fork.knife")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppColor.textTertiary)
-            Text("Last cooked: ")
-                .font(AppFont.caption)
-                .foregroundStyle(AppColor.textTertiary)
-            +
-            Text(recipe.title)
-                .font(AppFont.caption.weight(.semibold))
-                .foregroundStyle(appearance.accentColor)
-            Spacer(minLength: 0)
+        // Wrapped in a NavigationLink so tapping the eyebrow pushes
+        // the recipe's Detail. `.buttonStyle(.plain)` removes the
+        // default link tinting / chrome — the inner Text stack keeps
+        // the exact font, size, and color it had before, the link
+        // affordance is purely behavioral.
+        NavigationLink(value: recipe) {
+            HStack(spacing: AppSpacing.xs) {
+                Image(systemName: "fork.knife")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+                Text("Last cooked: ")
+                    .font(AppFont.caption)
+                    .foregroundStyle(AppColor.textTertiary)
+                +
+                Text(recipe.title)
+                    .font(AppFont.caption.weight(.semibold))
+                    .foregroundStyle(appearance.accentColor)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, AppSpacing.sm)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, AppSpacing.sm)
+        .buttonStyle(.plain)
     }
 
     // MARK: - Requests section
