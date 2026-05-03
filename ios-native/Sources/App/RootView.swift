@@ -47,7 +47,11 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem {
-                Label("Home", systemImage: "books.vertical.fill")
+                Label {
+                    Text("Home")
+                } icon: {
+                    Image("Home_Llama_Icon")
+                }
             }
             .tag(AppTab.home)
 
@@ -79,7 +83,11 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem {
-                Label("Me", systemImage: "person.crop.circle.fill")
+                Label {
+                    Text("Me")
+                } icon: {
+                    Image("Profile_Llama_Icon")
+                }
             }
             .tag(AppTab.me)
         }

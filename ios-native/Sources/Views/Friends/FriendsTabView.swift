@@ -310,13 +310,13 @@ private struct FriendCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        VStack(alignment: .center, spacing: AppSpacing.xs) {
             // Display name — a touch larger than `sectionHeading` so the
             // friend reads as the headline of their own card. Single
             // line + truncation keeps the row geometry stable so the
             // metadata stack below sits at a predictable y across cards.
             Text(friend.displayName)
-                .font(.system(size: 22, weight: .bold, design: .serif))
+                .font(.system(size: 24, weight: .bold, design: .serif))
                 .foregroundStyle(friendAccent)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -328,12 +328,22 @@ private struct FriendCardView: View {
 
             // Recipe count — small caption directly under the name, in
             // the same muted-tertiary tone `RecipeCardView`'s `dateStack`
-            // uses for secondary metadata. Renders nothing while the
-            // count is still loading rather than flashing "0 Recipes."
+            // uses for secondary metadata. The leading `book.closed.fill`
+            // glyph is the same icon the previous `recipeCountBadge` pill
+            // used (and matches the "this many recipes" convention the
+            // app reads as elsewhere) — kept inline + tertiary-tinted so
+            // it reads as secondary metadata, not an accent affordance.
+            // Renders nothing while the count is still loading rather
+            // than flashing "0 Recipes."
             if let count = recipeCount {
-                Text(count == 1 ? "1 Recipe" : "\(count) Recipes")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(AppColor.textTertiary)
+                HStack(spacing: 4) {
+                    Image(systemName: "book.closed.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(AppColor.textTertiary)
+                    Text(count == 1 ? "1 Recipe" : "\(count) Recipes")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(AppColor.textTertiary)
+                }
             }
 
             // Secondary metadata row. Reserved with a fixed minHeight
@@ -341,7 +351,7 @@ private struct FriendCardView: View {
             // up — combined with the card's `minHeight: 150`, this
             // keeps every card the same height regardless of state.
             secondaryMetaLine
-                .frame(minHeight: 14, alignment: .leading)
+                .frame(minHeight: 14, alignment: .center)
 
             // Cooking-status eyebrow — kept verbatim from the previous
             // pass (copy + styling) since the line itself is the rule
@@ -351,14 +361,14 @@ private struct FriendCardView: View {
 
             Spacer(minLength: 0)
 
-            // Thumbnail anchored to the leading edge, sharing the
-            // column gutter with every text row above. Only the
-            // inner content changes with the fallback chain
-            // (cooked photo → LlamaLogo → Friends_Llama_Icon).
+            // Thumbnail centered horizontally under the text stack so
+            // it shares the card's vertical axis with the title and
+            // metadata rows. Only the inner content changes with the
+            // fallback chain (cooked photo → LlamaLogo → Friends_Llama_Icon).
             thumbnailSlot
         }
         .padding(AppSpacing.sm)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .top)
         .background(
             LinearGradient(
                 colors: [
@@ -378,7 +388,7 @@ private struct FriendCardView: View {
             RoundedRectangle(cornerRadius: AppRadius.lg)
                 .strokeBorder(
                     friendAccent.opacity(friend.isCookingNow ? 0.85 : 0.5),
-                    lineWidth: friend.isCookingNow ? 1.5 : 1
+                    lineWidth: friend.isCookingNow ? 2.5 : 1.5
                 )
         )
         // Additive cooking-now glow. Pulses radius/opacity on the
@@ -459,7 +469,7 @@ private struct FriendCardView: View {
                     .font(AppFont.caption.weight(.semibold))
                     .foregroundStyle(friendAccent))
                     .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                    .multilineTextAlignment(.center)
             }
         } else if friend.isCookingNow {
             HStack(spacing: 4) {

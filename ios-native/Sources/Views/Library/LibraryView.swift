@@ -81,16 +81,14 @@ struct LibraryView: View {
                     Haptics.selection()
                     showingProfile = true
                 } label: {
-                    // Filled glyph when signed in, outline when not — gives
-                    // the user a quiet visual cue that the app knows who
-                    // they are without surfacing the display name in the
-                    // toolbar (no room, and the Profile sheet shows it
-                    // prominently anyway).
-                    Image(systemName: userAccount.status.isSignedIn
-                          ? "person.crop.circle.fill"
-                          : "person.crop.circle")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor)
+                    Image("Profile_Llama_Icon")
+                        .renderingMode(.original)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .opacity(userAccount.status.isSignedIn ? 1.0 : 0.45)
+                        .shadow(color: appearance.accentColor.opacity(0.35), radius: 4, x: 0, y: 1)
                 }
                 .accessibilityLabel("Profile")
                 // The editor sheet is presented from RootView (parent
