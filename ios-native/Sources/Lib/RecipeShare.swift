@@ -52,6 +52,59 @@ struct LCRecipeShareV1: Codable {
         /// import-time errors so the user knows how stale the sender
         /// is.
         let appVersion: String
+        /// Chain-root creator's iCloud user record name. Carried so
+        /// the recipient can write a `RecipeImport` audit row that
+        /// credits the chain root (A's stat ticks even when B
+        /// re-shared A's recipe to C). Optional + Codable-defaults
+        /// to nil so legacy envelopes already in iMessage threads
+        /// round-trip without breakage; the import audit write
+        /// silently skips when nil rather than guessing. Sender
+        /// populates from `Recipe.originalCreatorUserRecordName` when
+        /// present (re-shared chain), otherwise from
+        /// `UserProfileMirror.cachedRecordID()` (own-authored).
+        let originalCreatorID: String?
+        /// Chain-root recipe id (UUID string). Same chain-preservation
+        /// reason as `originalCreatorID` — `sourceRecipeID` above is
+        /// the *sender's* local id, which diverges from the chain
+        /// root after the first re-share hop. Optional for legacy
+        /// envelopes; the import audit write falls back to skipping
+        /// when nil rather than crediting the wrong recipe.
+        let originalRecipeID: String?
+
+        init(
+            id: UUID,
+            createdAt: Date,
+            sharedBy: String?,
+            sourceRecipeID: UUID,
+            appVersion: String,
+            originalCreatorID: String? = nil,
+            originalRecipeID: String? = nil
+        ) {
+            self.id = id
+            self.createdAt = createdAt
+            self.sharedBy = sharedBy
+            self.sourceRecipeID = sourceRecipeID
+            self.appVersion = appVersion
+            self.originalCreatorID = originalCreatorID
+            self.originalRecipeID = originalRecipeID
+        }
+
+        // Explicit decode so older envelopes (which lack the chain
+        // fields) round-trip cleanly to nil instead of throwing
+        // `keyNotFound`. `JSONDecoder` does not auto-default missing
+        // keys for non-Optional Codable, and even for Optional fields
+        // the safer pattern is `decodeIfPresent` — which is also what
+        // matches the "silently skip the audit write" contract above.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id              = try c.decode(UUID.self, forKey: .id)
+            createdAt       = try c.decode(Date.self, forKey: .createdAt)
+            sharedBy        = try c.decodeIfPresent(String.self, forKey: .sharedBy)
+            sourceRecipeID  = try c.decode(UUID.self, forKey: .sourceRecipeID)
+            appVersion      = try c.decode(String.self, forKey: .appVersion)
+            originalCreatorID = try c.decodeIfPresent(String.self, forKey: .originalCreatorID)
+            originalRecipeID  = try c.decodeIfPresent(String.self, forKey: .originalRecipeID)
+        }
     }
 
     struct ShareRecipe: Codable {
@@ -412,6 +465,19 @@ enum RecipeShare {
     /// stamps the sender's display name from `OwnerProfile.userName`
     /// (caller passes it as `sharedBy` so this layer stays free of
     /// UserDefaults coupling).
+    ///
+    /// **Chain attribution** is derived here so callers don't have to
+    /// know the rules. Two cases:
+    /// - Re-shared recipe (sender imported it from someone earlier):
+    ///   the local `Recipe` carries `originalCreatorUserRecordName` /
+    ///   `originalRecipeID`. Use those — the envelope must credit the
+    ///   *chain root*, not the sender, so A→B→C still tallies on A.
+    /// - Own-authored recipe: chain fields are nil locally; substitute
+    ///   the sender's iCloud user record name + the recipe's local id.
+    /// When `UserProfileMirror.cachedRecordID()` returns nil
+    /// (signed-out / no iCloud), the envelope ships with
+    /// `originalCreatorID == nil` and recipients silently skip the
+    /// audit write — same contract as the friend-cookbook flow.
     static func envelope(
         for recipe: Recipe,
         sharedBy: String?,
@@ -456,6 +522,26 @@ enum RecipeShare {
             )
         }
 
+        // Resolve chain root. `Recipe.originalCreatorUserRecordName`
+        // is set on import (file/link path stamps `sharedBy*` only;
+        // friend path stamps the `originalCreator*` fields). When
+        // it's set, this is a re-share and we forward as-is. When
+        // nil, this is an own-authored recipe and we use the
+        // sender's iCloud user record name + local recipe id.
+        let chainCreatorID: String?
+        let chainRecipeID: String?
+        if let importedCreator = recipe.originalCreatorUserRecordName,
+           !importedCreator.isEmpty {
+            chainCreatorID = importedCreator
+            chainRecipeID  = recipe.originalRecipeID ?? recipe.id.uuidString
+        } else if let me = UserProfileMirror.cachedRecordID() {
+            chainCreatorID = me
+            chainRecipeID  = recipe.id.uuidString
+        } else {
+            chainCreatorID = nil
+            chainRecipeID  = nil
+        }
+
         return LCRecipeShareV1(
             schemaVersion: currentVersion,
             share: LCRecipeShareV1.ShareEnvelope(
@@ -463,7 +549,9 @@ enum RecipeShare {
                 createdAt: .now,
                 sharedBy: cappedDisplayName(sharedBy),
                 sourceRecipeID: recipe.id,
-                appVersion: appVersion
+                appVersion: appVersion,
+                originalCreatorID: chainCreatorID,
+                originalRecipeID: chainRecipeID
             ),
             recipe: LCRecipeShareV1.ShareRecipe(
                 id: recipe.id,
@@ -672,6 +760,24 @@ enum RecipeShare {
         recipe.sharedBy      = envelope.share.sharedBy
         recipe.sharedAt      = .now
         recipe.sourceShareID = envelope.share.sourceRecipeID
+
+        // Carry chain attribution forward when the envelope carries
+        // it (newer-sender envelopes only — legacy envelopes leave
+        // these nil and the recipient is treated as if they own-
+        // authored). Without this, B saving A's recipe via link
+        // forgets A; B's subsequent re-share to C would credit B
+        // as the chain root in the next envelope's
+        // `originalCreatorID`. Display name comes from `sharedBy`
+        // since the link-share envelope has no separate
+        // chain-root display name field.
+        if let chainCreatorID = envelope.share.originalCreatorID,
+           !chainCreatorID.isEmpty {
+            recipe.originalCreatorUserRecordName = chainCreatorID
+            recipe.originalCreatorDisplayName    = envelope.share.sharedBy
+            recipe.originalRecipeID              = envelope.share.originalRecipeID
+                ?? envelope.recipe.id.uuidString
+            recipe.importedAt                    = .now
+        }
 
         return recipe
     }

@@ -90,7 +90,7 @@ struct ImportersListSheet: View {
                 .eyebrowStyle(AppColor.textTertiary)
             Text(StringCase.titleCase(recipeTitle))
                 .font(AppFont.sectionHeading)
-                .foregroundStyle(AppColor.textPrimary)
+                .foregroundStyle(appearance.accentColor)
                 .lineLimit(2)
             Text(headerSubtitle)
                 .font(AppFont.caption)
@@ -109,8 +109,8 @@ struct ImportersListSheet: View {
     private var headerSubtitle: String {
         switch imports.count {
         case 0: return "No saves yet."
-        case 1: return "1 friend has saved this recipe."
-        default: return "\(imports.count) friends have saved this recipe."
+        case 1: return "1 Cook has saved this recipe."
+        default: return "\(imports.count) Cooks have saved this recipe."
         }
     }
 
@@ -150,7 +150,7 @@ struct ImportersListSheet: View {
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textSecondary)
                 .multilineTextAlignment(.center)
-            Text("Friends who add this to their cookbook will show up here.")
+            Text("Cooks who add this to their cookbook will show up here.")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textTertiary)
                 .multilineTextAlignment(.center)
@@ -231,10 +231,20 @@ struct ImportersListSheet: View {
             }
             return appearance.accentColor
         }()
+        let isCooking = friend?.isCookingNow ?? false
         return HStack(spacing: AppSpacing.sm) {
-            Circle()
-                .fill(resolvedAccent)
-                .frame(width: 10, height: 10)
+            Group {
+                if isCooking {
+                    Image(systemName: "fork.knife")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(resolvedAccent)
+                } else {
+                    Circle()
+                        .stroke(resolvedAccent, lineWidth: 1.5)
+                        .frame(width: 10, height: 10)
+                }
+            }
+            .frame(width: 14, alignment: .center)
             VStack(alignment: .leading, spacing: 2) {
                 Text(record.importerDisplayName)
                     .font(.system(size: 16, weight: .semibold))

@@ -24,6 +24,7 @@ struct RecipeImportPreviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(UserAccount.self) private var userAccount
 
     let envelope: LCRecipeShareV1
     /// Called after `RecipeShare.materialize` returns the new
@@ -387,6 +388,7 @@ struct RecipeImportPreviewView: View {
                 into: modelContext,
                 overrideTitle: overrideTitle
             )
+            writeImportAuditRow(forEnvelope: envelope)
             isSaving = false
             Haptics.success()
             // Hand the new recipe back to the parent BEFORE dismiss —
@@ -394,6 +396,48 @@ struct RecipeImportPreviewView: View {
             // the sheet finishes its dismiss animation.
             onSaved(recipe)
             dismiss()
+        }
+    }
+
+    /// Mirror of `FriendRecipeDetailView.writeImportAuditRow` for the
+    /// link/file share path. Same fire-and-forget semantics —
+    /// `RecipeImport` powers the "Saved by N" chip on the chain
+    /// root's Detail view and the "Saved By N Cooks" line on their
+    /// friend card; a network blip during this write under-counts
+    /// by one event (acceptable, the surfaces are delight, not
+    /// billing). Three skip cases, all silent:
+    ///
+    /// 1. **Signed-out / no iCloud** (`cachedRecordID()` nil). Same
+    ///    short-circuit every other social write uses.
+    /// 2. **Legacy envelope** (`originalCreatorID` nil — sender on a
+    ///    pre-chain-attribution build). Skipped rather than guessing,
+    ///    so we never credit the wrong account.
+    /// 3. **Self-import** (importer == chain root). Saving your own
+    ///    recipe back into your own cookbook via your own permalink
+    ///    shouldn't inflate your own count.
+    private func writeImportAuditRow(forEnvelope envelope: LCRecipeShareV1) {
+        guard let importerID = UserProfileMirror.cachedRecordID() else { return }
+        guard let originalCreatorID = envelope.share.originalCreatorID,
+              let originalRecipeID  = envelope.share.originalRecipeID
+        else { return }
+        guard importerID != originalCreatorID else { return }
+        let importerDisplayName = userAccount.status.identity?.displayName ?? "Cook"
+        // Link/file shares carry no chain-hop info beyond the chain
+        // root — the recipient doesn't know who the immediate sender
+        // was as a CK user record name (only `sharedBy` display name).
+        // Pin `sourceUserID` to the chain root so the field stays
+        // populated; the friend-cookbook flow uses the actual
+        // immediate-friend id, which is more precise but unavailable
+        // here.
+        let sourceUserID = originalCreatorID
+        Task.detached {
+            try? await CloudKitService.writeRecipeImport(
+                originalCreatorID: originalCreatorID,
+                originalRecipeID: originalRecipeID,
+                importerID: importerID,
+                importerDisplayName: importerDisplayName,
+                sourceUserID: sourceUserID
+            )
         }
     }
 }

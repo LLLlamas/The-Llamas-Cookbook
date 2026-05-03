@@ -668,8 +668,9 @@ struct RecipeDetailView: View {
 
     private var importCounterLabel: String {
         let n = cachedImportCount
+        if n == 1 { return "Saved By 1 Cook" }
         let display = n > 99 ? "99+" : "\(n)"
-        return "Saved by \(display)"
+        return "Saved By \(display) Cooks"
     }
 
     /// Eyebrow line under the title. For imported recipes, wraps

@@ -271,8 +271,11 @@ struct RootView: View {
             }
             // @Observable values can drop out across sheet
             // boundaries — re-injecting is cheap insurance, same
-            // pattern as the Cook Mode cover above.
+            // pattern as the Cook Mode cover above. `userAccount`
+            // is read by the preview's `RecipeImport` audit write
+            // for the importer's display name.
             .environment(appearance)
+            .environment(userAccount)
         }
         .alert(
             "Couldn't import recipe",

@@ -430,7 +430,7 @@ private struct FriendCardView: View {
                 Image(systemName: "bookmark.fill")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(friendAccent)
-                Text(saves == 1 ? "1 Saved By Friend" : "\(saves) Saved By Friends")
+                Text(saves == 1 ? "Saved By 1 Cook" : "Saved By \(saves) Cooks")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
             }
