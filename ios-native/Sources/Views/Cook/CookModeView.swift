@@ -181,6 +181,13 @@ struct CookModeView: View {
         .onChange(of: timerExpired) { _, expired in
             if expired {
                 showingTimerSheet = false
+                // End the Live Activity immediately so the Dynamic Island
+                // doesn't freeze at "0:00" until the staleDate fires.
+                liveActivity.end()
+                // Cancel the pending/delivered notification — the in-app
+                // overlay + alarm replace it, so we don't want a redundant
+                // banner stacking on top of the ready overlay.
+                TimerNotifications.cancel(cookID: cookID)
                 startAlarm()
             } else {
                 stopAlarm()
@@ -203,6 +210,14 @@ struct CookModeView: View {
             // (filters by cookID so two parallel cooks of the same
             // recipe don't grab each other's activities).
             liveActivity.adopt(forCookID: cookID, recipeID: recipe.id)
+            // If the timer already expired while the app was killed
+            // (timer-while-killed init path sets timerExpired = true
+            // directly, so onChange never fires for that initial value),
+            // end any orphaned activity immediately so the Dynamic Island
+            // doesn't stay frozen at "0:00".
+            if timerExpired {
+                liveActivity.end()
+            }
             // One-shot title glow on every entry — start, restore, and
             // pill-switch all rebuild this view via `.id(cookID)` so
             // the highlight plays cleanly on each foregrounding. Spin
@@ -963,7 +978,20 @@ struct CookModeView: View {
                 stepNumber: stepNumber,
                 stepText: stepText
             )
-            liveActivity.update(endDate: end, label: timerLabel, stepNumber: stepNumber)
+            if liveActivity.isActive {
+                liveActivity.update(endDate: end, label: timerLabel, stepNumber: stepNumber)
+            } else {
+                // Activity was ended when the timer expired — restart it
+                // for the new window so the Dynamic Island lights back up.
+                liveActivity.start(
+                    cookID: cookID,
+                    recipeID: recipe.id,
+                    recipeTitle: recipe.title,
+                    endDate: end,
+                    label: timerLabel,
+                    stepNumber: stepNumber
+                )
+            }
         }
     }
 

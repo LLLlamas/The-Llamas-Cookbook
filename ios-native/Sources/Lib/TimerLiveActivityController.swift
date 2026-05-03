@@ -10,6 +10,11 @@ import Foundation
 final class TimerLiveActivityController {
     private var activity: Activity<TimerAttributes>?
 
+    /// True when a Live Activity is currently running for this cook.
+    /// Used by `extendTimer` to choose between `start` (after expiry
+    /// cleared the activity) and `update` (mid-run adjustment).
+    var isActive: Bool { activity != nil }
+
     init() {
         // No auto-adopt: with multi-cook, multiple activities may be
         // alive across distinct cooks and `activities.first` is a
@@ -65,7 +70,7 @@ final class TimerLiveActivityController {
         // staleDate tells iOS when to fade/remove the activity automatically
         // if the app never issues an update or end. Give it a small buffer
         // past the end date so the "0:00" state is visible briefly.
-        let content = ActivityContent(state: state, staleDate: endDate.addingTimeInterval(120))
+        let content = ActivityContent(state: state, staleDate: endDate.addingTimeInterval(30))
 
         do {
             activity = try Activity.request(
@@ -86,7 +91,7 @@ final class TimerLiveActivityController {
             label: label,
             stepNumber: stepNumber
         )
-        let content = ActivityContent(state: state, staleDate: endDate.addingTimeInterval(120))
+        let content = ActivityContent(state: state, staleDate: endDate.addingTimeInterval(30))
         Task {
             await activity.update(content)
         }
