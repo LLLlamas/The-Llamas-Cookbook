@@ -4,8 +4,8 @@ import SwiftUI
 /// surface feels populated even with a handful of friends. Each card
 /// surfaces the friend's display name, recipe count, saves on their
 /// last-cooked recipe, the cooking / last-cooked line, and a
-/// thumbnail. Presence is encoded as the card's accent border + a
-/// pulsing glow when cooking — no inline indicator dot.
+/// thumbnail. Presence is encoded as an inline `AccentDot` next to
+/// the name plus a pulsing accent border around the card when cooking.
 ///
 /// Tapping a card pushes `FriendLibraryView`. The empty state centers a
 /// llama with an Add Friend CTA that opens the same `AddFriendSheet`
@@ -245,12 +245,13 @@ struct FriendsTabView: View {
 /// cooking glow, save count — so visiting Marco's tile *feels like
 /// Marco's* the same way `FriendLibraryView` does on push.
 ///
-/// Presence is encoded in chrome rather than a glyph: the card always
-/// wears a soft accent border, and when the friend is cooking
-/// (`cookingStartedAt` within the 6h window) the border thickens and a
-/// pulsing accent glow sits underneath — same `1.1s easeInOut`
-/// `repeatForever(autoreverses:)` curve `AccentDot` uses, so cooking-
-/// state affordances feel consistent across surfaces.
+/// Presence is encoded two ways that pulse in sync: an inline
+/// `AccentDot` next to the display name (filled+pulsing when cooking,
+/// hollow outline when idle), and a soft accent border around the
+/// card that thickens + brightens on the same `1.1s easeInOut`
+/// `repeatForever(autoreverses:)` curve when cooking. The border
+/// pulses in place via `strokeBorder` (no external glow shadow), so
+/// the card's outer footprint is identical idle vs cooking.
 private struct FriendCardView: View {
     let friend: UserProfileSnapshot
     let recipeCount: Int?
@@ -275,9 +276,9 @@ private struct FriendCardView: View {
     /// chain) is unchanged so the visual "card slot" stays familiar.
     private static let thumbnailSize: CGFloat = 52
 
-    /// Pulse driver for the cooking-now glow. Mirrors `AccentDot`'s
-    /// `pulse` flag and animation curve so the two affordances feel
-    /// like one design vocabulary.
+    /// Pulse driver for the cooking-now border (lineWidth + opacity).
+    /// Mirrors `AccentDot`'s `pulse` flag and animation curve so the
+    /// inline dot and the border breathe in sync.
     @State private var pulse: Bool = false
 
     private var friendAccent: Color {
@@ -299,20 +300,32 @@ private struct FriendCardView: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: AppSpacing.xs) {
-            // Display name — a touch larger than `sectionHeading` so the
-            // friend reads as the headline of their own card. Single
-            // line + truncation keeps the row geometry stable so the
-            // metadata stack below sits at a predictable y across cards.
-            Text(friend.displayName)
-                .font(.system(size: 24, weight: .bold, design: .serif))
-                .foregroundStyle(friendAccent)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
-                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4, y: 0)
-                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: -0.4)
-                .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
-                .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
+            // Top row — accent dot + display name on a single baseline.
+            // Mirrors `FriendLibraryView.headerLabel`, which pairs
+            // `AccentDot` with text via a default-center HStack; the
+            // 12pt circle reads cleanly against a 24pt serif title at
+            // standard center alignment without needing baseline tuning.
+            // The HStack has intrinsic width and centers as a unit
+            // under the parent VStack's `.center` alignment, same as
+            // the metadata rows below.
+            HStack(spacing: AppSpacing.xs) {
+                AccentDot(
+                    hex: friend.accentHex,
+                    fallback: fallbackAccent,
+                    isGlowing: friend.isCookingNow,
+                    outlineWhenIdle: true
+                )
+                Text(friend.displayName)
+                    .font(.system(size: 24, weight: .bold, design: .serif))
+                    .foregroundStyle(friendAccent)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4, y: 0)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: -0.4)
+                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
+                    .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
+            }
 
             // Recipe count — small caption directly under the name, in
             // the same muted-tertiary tone `RecipeCardView`'s `dateStack`
@@ -327,7 +340,7 @@ private struct FriendCardView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "book.closed.fill")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(AppColor.textTertiary)
+                        .foregroundStyle(friendAccent)
                     Text(count == 1 ? "1 Recipe" : "\(count) Recipes")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(AppColor.textTertiary)
@@ -368,26 +381,22 @@ private struct FriendCardView: View {
             )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        // Soft accent border, always present, in the friend's accent
-        // — replaces the dot as the "this card belongs to Marco" cue.
-        // Thicker + brighter when cooking so the border itself reads
-        // as the active state alongside the glow underneath.
+        // Soft accent border in the friend's accent — always present,
+        // and pulses (lineWidth + opacity) when cooking instead of
+        // throwing an external glow shadow. `strokeBorder` strokes
+        // inside the rect, so the card's outer footprint stays
+        // identical idle vs cooking — the active state reads through
+        // a thicker, brighter, breathing border on the same 1.1s
+        // easeInOut autoreverse curve `AccentDot` uses, so the dot
+        // and border pulse in sync.
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
                 .strokeBorder(
-                    friendAccent.opacity(friend.isCookingNow ? 0.85 : 0.5),
-                    lineWidth: friend.isCookingNow ? 2.5 : 1.5
+                    friendAccent.opacity(
+                        friend.isCookingNow ? (pulse ? 0.95 : 0.65) : 0.5
+                    ),
+                    lineWidth: friend.isCookingNow ? (pulse ? 2.5 : 2.0) : 1.5
                 )
-        )
-        // Additive cooking-now glow. Pulses radius/opacity on the
-        // same 1.1s easeInOut autoreverse curve `AccentDot` uses; the
-        // two soft drop-shadows below stay regardless so the card
-        // never loses its base elevation.
-        .shadow(
-            color: friend.isCookingNow ? friendAccent.opacity(pulse ? 0.55 : 0.3) : .clear,
-            radius: friend.isCookingNow ? (pulse ? 14 : 8) : 0,
-            x: 0,
-            y: 0
         )
         .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
         .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
@@ -421,7 +430,7 @@ private struct FriendCardView: View {
                 Image(systemName: "bookmark.fill")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(friendAccent)
-                Text("\(saves)")
+                Text(saves == 1 ? "1 Saved By Friend" : "\(saves) Saved By Friends")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
             }
