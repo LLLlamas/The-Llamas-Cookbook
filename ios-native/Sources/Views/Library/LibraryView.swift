@@ -86,7 +86,7 @@ struct LibraryView: View {
                         .resizable()
                         .interpolation(.high)
                         .scaledToFit()
-                        .frame(width: 28, height: 28)
+                        .frame(width: 52, height: 52)
                         .opacity(userAccount.status.isSignedIn ? 1.0 : 0.45)
                         .shadow(color: appearance.accentColor.opacity(0.35), radius: 4, x: 0, y: 1)
                 }
