@@ -57,6 +57,17 @@ struct FriendLibraryView: View {
         .navigationTitle(StringCase.cookbookTitle(displayName: friend.displayName))
         .navigationBarTitleDisplayMode(.inline)
         .tint(friendAccent)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                // Friend cookbook surfaces tint in the friend's accent
+                // (CLAUDE.md › UX guardrails) — pass `friendAccent`,
+                // not the local user's appearance.accentColor.
+                CookbookHeader(
+                    title: StringCase.cookbookTitle(displayName: friend.displayName),
+                    accent: friendAccent
+                )
+            }
+        }
         .task {
             // First load only — subsequent .task fires on view
             // re-appear, but we let .refreshable / explicit retry

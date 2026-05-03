@@ -22,10 +22,20 @@ import SwiftUI
 struct FriendsTabView: View {
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(UserAccount.self) private var userAccount
 
     @State private var showingAddFriend = false
     @State private var recipeCounts: [String: Int] = [:]
+    /// Bytes of `photo0` for each friend's `lastCookedRecipeID`, populated
+    /// on the same `fetchPublishedRecipeSummaries` pass that fills
+    /// `recipeCounts` so a friend's last-cooked thumbnail piggybacks on
+    /// the existing per-friend round-trip — no per-card render fetch.
+    @State private var cookThumbnails: [String: Data] = [:]
     @State private var inFlightCounts: Set<String> = []
+
+    private var friendsTitle: String {
+        StringCase.friendsTitle(displayName: userAccount.status.identity?.displayName)
+    }
 
     var body: some View {
         Group {
@@ -36,10 +46,13 @@ struct FriendsTabView: View {
             }
         }
         .llamaBackground()
-        .navigationTitle("Friends")
+        .navigationTitle(friendsTitle)
         .navigationBarTitleDisplayMode(.inline)
         .tint(appearance.accentColor)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                CookbookHeader(title: friendsTitle, accent: appearance.accentColor)
+            }
             if !friendsStore.friends.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -152,6 +165,7 @@ struct FriendsTabView: View {
                         FriendCardView(
                             friend: friend,
                             recipeCount: recipeCounts[friend.userRecordName],
+                            cookThumbnail: cookThumbnails[friend.userRecordName],
                             fallbackAccent: appearance.accentColor
                         )
                     }
@@ -175,6 +189,17 @@ struct FriendsTabView: View {
         defer { inFlightCounts.remove(id) }
         if let summaries = try? await CloudKitService.fetchPublishedRecipeSummaries(ownerID: id) {
             recipeCounts[id] = summaries.count
+            // Pluck the thumbnail for the friend's last-cooked recipe out
+            // of the same payload — the summaries already carry `photo0`
+            // bytes so the trailing-edge thumb costs zero extra round-
+            // trips. Skipped silently when the friend's last-cooked
+            // recipe isn't published or has no photo.
+            if let raw = friend.lastCookedRecipeID,
+               let recipeID = UUID(uuidString: raw),
+               let match = summaries.first(where: { $0.localRecipeID == recipeID }),
+               let data = match.thumbnailData {
+                cookThumbnails[id] = data
+            }
         }
     }
 }
@@ -188,13 +213,31 @@ struct FriendsTabView: View {
 private struct FriendCardView: View {
     let friend: UserProfileSnapshot
     let recipeCount: Int?
+    let cookThumbnail: Data?
     let fallbackAccent: Color
+
+    /// Trailing-edge thumbnail size. Sized to sit comfortably opposite a
+    /// 2-line title in a half-screen card without crowding it, and
+    /// well under the card's `minHeight: 150` so cards with and without
+    /// a thumbnail share the same row height.
+    private static let thumbnailSize: CGFloat = 52
 
     private var friendAccent: Color {
         if let hex = friend.accentHex, let color = Color(hex: hex) {
             return color
         }
         return fallbackAccent
+    }
+
+    /// Show the thumbnail only when the eyebrow text would also surface
+    /// the recipe — i.e. there's a `lastCookedTitle` to caption it. The
+    /// card never reserves an empty placeholder slot; layout collapses
+    /// cleanly back to the original (name + dot) when there's nothing
+    /// to show.
+    private var showThumbnail: Bool {
+        guard cookThumbnail != nil else { return false }
+        guard let title = friend.lastCookedTitle, !title.isEmpty else { return false }
+        return true
     }
 
     var body: some View {
@@ -211,12 +254,48 @@ private struct FriendCardView: View {
                     .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
                     .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 Spacer(minLength: 0)
-                AccentDot(
-                    hex: friend.accentHex,
-                    fallback: fallbackAccent,
-                    isGlowing: friend.isCookingNow,
-                    outlineWhenIdle: true
-                )
+                if showThumbnail, let data = cookThumbnail {
+                    // Thumbnail with the AccentDot overlaid on its top-
+                    // right corner so presence stays visible without
+                    // costing a second slot in the row. Same rounded
+                    // rect + stroke treatment as `FriendRecipeCard` so
+                    // friend-thumb visual identity is consistent across
+                    // surfaces.
+                    RecipeImageView(
+                        data: data,
+                        contentMode: .fill,
+                        cornerRadius: AppRadius.md
+                    ) {
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .fill(friendAccent.opacity(0.12))
+                    }
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
+                    )
+                    .overlay(alignment: .topTrailing) {
+                        AccentDot(
+                            hex: friend.accentHex,
+                            fallback: fallbackAccent,
+                            isGlowing: friend.isCookingNow,
+                            outlineWhenIdle: true
+                        )
+                        .padding(2)
+                        .background(
+                            Circle().fill(AppColor.surfaceRaised.opacity(0.85))
+                        )
+                        .offset(x: 4, y: -4)
+                    }
+                } else {
+                    AccentDot(
+                        hex: friend.accentHex,
+                        fallback: fallbackAccent,
+                        isGlowing: friend.isCookingNow,
+                        outlineWhenIdle: true
+                    )
+                }
             }
 
             cookingLine

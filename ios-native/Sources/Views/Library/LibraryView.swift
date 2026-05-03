@@ -61,7 +61,7 @@ struct LibraryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                HStack(spacing: AppSpacing.xs) {
+                CookbookHeader(title: cookbookTitle, accent: appearance.accentColor) {
                     Button {
                         Haptics.selection()
                         showingAppearance = true
@@ -74,22 +74,7 @@ struct LibraryView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Customize accent color")
-                    // Aggressive minimumScaleFactor so long display names
-                    // like "Maximilian's Cookbook" still fit on a single
-                    // line alongside the 52pt logo and the trailing
-                    // profile glyph on the narrowest iPhone widths.
-                    Text(cookbookTitle)
-                        .font(.system(size: 22, weight: .heavy, design: .serif))
-                        .foregroundStyle(appearance.accentColor)
-                        .tracking(0.2)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .truncationMode(.tail)
                 }
-                // Trailing breathing room before the profile icon —
-                // without this, "Cookbook" runs flush against the
-                // person.crop.circle glyph on iPhone widths.
-                .padding(.trailing, AppSpacing.sm)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

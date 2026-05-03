@@ -149,17 +149,32 @@ enum StringCase {
     /// `ProfileView`'s header read through here so the title in the
     /// nav bar matches the title on the Profile sheet exactly.
     static func cookbookTitle(displayName: String?) -> String {
-        let fallback = "Llamas Cookbook"
+        possessiveTitle(displayName: displayName, suffix: "Cookbook", fallback: "Llamas Cookbook")
+    }
+
+    /// Possessive friends title — "Lorenzo's Friends" / "Sas' Friends",
+    /// same possessive rules as `cookbookTitle`. Powers the Friends
+    /// tab principal-toolbar header so it parallels the home cookbook
+    /// title. Falls back to "Llamas Friends" under the same conditions
+    /// as `cookbookTitle`.
+    static func friendsTitle(displayName: String?) -> String {
+        possessiveTitle(displayName: displayName, suffix: "Friends", fallback: "Llamas Friends")
+    }
+
+    /// Shared possessive builder for "<Name>'s <Suffix>" titles. Holds
+    /// the apostrophe rules + signed-out / placeholder fallbacks in
+    /// one place so the cookbook and friends headers can't drift apart.
+    private static func possessiveTitle(displayName: String?, suffix word: String, fallback: String) -> String {
         guard let raw = displayName else { return fallback }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "Cook" else { return fallback }
-        let suffix: String
+        let possessive: String
         if let last = trimmed.last, last.lowercased() == "s" {
-            suffix = "'"
+            possessive = "'"
         } else {
-            suffix = "'s"
+            possessive = "'s"
         }
-        return "\(trimmed)\(suffix) Cookbook"
+        return "\(trimmed)\(possessive) \(word)"
     }
 
     /// Proper title case — uppercase the first letter of each word,
