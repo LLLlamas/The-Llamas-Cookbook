@@ -46,7 +46,8 @@ enum TimerNotifications {
         recipeID: UUID,
         recipeTitle: String,
         stepNumber: Int,
-        stepText: String?
+        stepText: String?,
+        timerSound: TimerSound
     ) {
         let seconds = date.timeIntervalSinceNow
         guard seconds > 0 else { return }
@@ -58,11 +59,11 @@ enum TimerNotifications {
             recipeIDUserInfoKey: recipeID.uuidString,
             cookIDUserInfoKey: cookID.uuidString,
         ]
-        if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
-            content.sound = UNNotificationSound(named: UNNotificationSoundName("timer-alarm.caf"))
-        } else {
-            content.sound = .default
-        }
+        // `silent` resolves to nil so the banner still appears in NC
+        // without a sound. All other picks fall through to `.default`
+        // for non-bell sounds because UNNotificationSound has no
+        // public way to reference Apple's private alarm-tone library.
+        content.sound = timerSound.notificationSound
 
         let id = identifier(for: cookID)
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)

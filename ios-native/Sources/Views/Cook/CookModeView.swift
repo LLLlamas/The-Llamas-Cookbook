@@ -6,6 +6,7 @@ import AudioToolbox
 struct CookModeView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
+    @Environment(TimerSettings.self) private var timerSettings
 
     let recipe: Recipe
     /// Identity of the cook this view is rendering. Captured at init
@@ -897,7 +898,8 @@ struct CookModeView: View {
             recipeID: recipe.id,
             recipeTitle: recipe.title,
             stepNumber: stepNumber,
-            stepText: stepText
+            stepText: stepText,
+            timerSound: timerSettings.sound
         )
 
         liveActivity.end() // clear any lingering activity from a prior step
@@ -976,7 +978,8 @@ struct CookModeView: View {
                 recipeID: recipe.id,
                 recipeTitle: recipe.title,
                 stepNumber: stepNumber,
-                stepText: stepText
+                stepText: stepText,
+                timerSound: timerSettings.sound
             )
             if liveActivity.isActive {
                 liveActivity.update(endDate: end, label: timerLabel, stepNumber: stepNumber)
@@ -1010,13 +1013,16 @@ struct CookModeView: View {
     }
 
     private func startAlarm() {
-        alarmPlayer.start()
+        alarmPlayer.start(sound: timerSettings.sound, volume: timerSettings.volume)
         alarmTask?.cancel()
+        let haptic = timerSettings.haptic
         alarmTask = Task { @MainActor in
             while !Task.isCancelled {
-                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-                Haptics.warning()
-                try? await Task.sleep(for: .milliseconds(1200))
+                if haptic != .off {
+                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                    Haptics.warning()
+                }
+                try? await Task.sleep(for: .milliseconds(haptic.intervalMilliseconds))
             }
         }
     }
