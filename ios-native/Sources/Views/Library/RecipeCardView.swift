@@ -28,7 +28,7 @@ struct RecipeCardView: View {
                         .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: 0.4)
                         .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                     Spacer(minLength: 0)
-                    if recipe.favorite {
+                    if recipe.favorite && !showsHeartThumbnail {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(appearance.accentColor)
@@ -91,7 +91,7 @@ struct RecipeCardView: View {
                 RecipeImageView(
                     data: photoData,
                     contentMode: .fill,
-                    cornerRadius: AppRadius.md
+                    cornerRadius: showsHeartThumbnail ? 0 : AppRadius.md
                 )
             } else {
                 ZStack {
@@ -102,11 +102,31 @@ struct RecipeCardView: View {
             }
         }
         .frame(width: 72, height: 72)
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .clipShape(thumbnailShape)
         .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
+            thumbnailShape
                 .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
         )
+    }
+
+    /// True when the recipe is favorited *and* has a photo. Favorited
+    /// recipes without a photo keep the rounded-square llama placeholder
+    /// + the heart glyph next to the title, since the placeholder itself
+    /// can't carry the heart-shape signal.
+    private var showsHeartThumbnail: Bool {
+        recipe.favorite && recipe.sortedPhotos.first?.image != nil
+    }
+
+    /// Outer clip + stroke shape. Heart for favorited recipes with a
+    /// photo; otherwise the standard rounded square. `AnyShape` lets us
+    /// reuse the same value for both `.clipShape` and the stroke
+    /// overlay so they always agree.
+    private var thumbnailShape: AnyShape {
+        if showsHeartThumbnail {
+            AnyShape(HeartShape())
+        } else {
+            AnyShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        }
     }
 
     private var tagChips: some View {
@@ -150,4 +170,41 @@ struct RecipeCardView: View {
         f.dateFormat = "M/d/yy"
         return f
     }()
+}
+
+/// Heart silhouette for favorited-recipe thumbnails. Built from four
+/// cubic Bezier segments — two top lobes whose control points pull
+/// toward `y = 0` so the lobes nearly touch the top of the frame, and
+/// two side curves tapering to a single bottom point at `y = height`.
+/// Filling the full `rect` keeps the heart's footprint identical to
+/// the rounded-square thumbnail it replaces.
+private struct HeartShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let w = rect.width
+        let h = rect.height
+
+        path.move(to: CGPoint(x: w / 2, y: h / 4))
+        path.addCurve(
+            to: CGPoint(x: 0, y: h / 4),
+            control1: CGPoint(x: w / 4, y: 0),
+            control2: CGPoint(x: 0, y: h / 8)
+        )
+        path.addCurve(
+            to: CGPoint(x: w / 2, y: h),
+            control1: CGPoint(x: 0, y: h / 2),
+            control2: CGPoint(x: w / 4, y: h * 3 / 4)
+        )
+        path.addCurve(
+            to: CGPoint(x: w, y: h / 4),
+            control1: CGPoint(x: w * 3 / 4, y: h * 3 / 4),
+            control2: CGPoint(x: w, y: h / 2)
+        )
+        path.addCurve(
+            to: CGPoint(x: w / 2, y: h / 4),
+            control1: CGPoint(x: w, y: h / 8),
+            control2: CGPoint(x: w * 3 / 4, y: 0)
+        )
+        return path
+    }
 }
