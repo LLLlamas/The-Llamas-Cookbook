@@ -393,9 +393,9 @@ private struct FriendCardView: View {
             RoundedRectangle(cornerRadius: AppRadius.lg)
                 .strokeBorder(
                     friendAccent.opacity(
-                        friend.isCookingNow ? (pulse ? 1.0 : 0.75) : 0.5
+                        friend.isCookingNow ? (pulse ? 0.95 : 0.65) : 0.5
                     ),
-                    lineWidth: friend.isCookingNow ? (pulse ? 3.5 : 2.75) : 1.5
+                    lineWidth: friend.isCookingNow ? (pulse ? 2.5 : 2.0) : 1.5
                 )
         )
         .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
@@ -430,7 +430,7 @@ private struct FriendCardView: View {
                 Image(systemName: "bookmark.fill")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(friendAccent)
-                Text(saves == 1 ? "Saved By 1 Cook" : "Saved By \(saves) Cooks")
+                Text(saves == 1 ? "1 Save" : "\(saves) Saves")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
             }
