@@ -72,6 +72,13 @@ final class FriendsStore {
     /// header on first load.
     private(set) var isRefreshing: Bool = false
 
+    /// Timestamp of the most recent `refresh()` invocation. Stamped at
+    /// the *start* of refresh (not the end) so a long-running fetch
+    /// doesn't open a re-trigger window for `refreshIfStale` while
+    /// it's still in flight — combined with the `isRefreshing` guard,
+    /// this means rapid re-foregrounds never stack concurrent fetches.
+    private(set) var lastRefreshAt: Date?
+
     /// Last-error diagnostic from `refresh()`. Normally `refresh`
     /// swallows CK errors silently so a transient blip doesn't blank
     /// the friends list — but during onboarding / schema deployment
@@ -126,6 +133,7 @@ final class FriendsStore {
         // refresh calls.
         guard !isRefreshing else { return }
         isRefreshing = true
+        lastRefreshAt = Date()
         defer { isRefreshing = false }
 
         // Resolve the local user's iCloud record name. Prefer the
@@ -267,6 +275,24 @@ final class FriendsStore {
         incomingRequests = newIncoming
         outgoingRequests = newOutgoing
         outgoingRequestProfiles = newOutgoingProfiles
+    }
+
+    /// Conditional refresh used by the scene-active hook. Fires
+    /// `refresh()` only when the previous run is older than
+    /// `minimumAge` (or has never run). The 30s default is the
+    /// debounce floor for foreground-driven presence refreshes —
+    /// short enough that a user re-opening the app after lunch sees
+    /// fresh "Cooking: <title>" eyebrows on friend cards, long enough
+    /// that rapid tab-switching / lockscreen peeks don't hammer the
+    /// public CloudKit DB. The `isRefreshing` guard inside `refresh()`
+    /// is still the source of truth for re-entrancy; this helper just
+    /// avoids the no-op call when nothing meaningful has elapsed.
+    func refreshIfStale(minimumAge: TimeInterval = 30) async {
+        if let last = lastRefreshAt,
+           Date().timeIntervalSince(last) < minimumAge {
+            return
+        }
+        await refresh()
     }
 
     // MARK: - Mutations
@@ -438,6 +464,7 @@ final class FriendsStore {
         outgoingRequestProfiles = []
         lastRefreshError = nil
         lastRefreshDiagnostic = nil
+        lastRefreshAt = nil
     }
 
     // MARK: - Push observation

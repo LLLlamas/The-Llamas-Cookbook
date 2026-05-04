@@ -36,7 +36,7 @@ struct TimerLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 6) {
                         llamaMark(size: 22)
-                        Text(context.attributes.metadata.label.capitalized)
+                        Text((context.attributes.metadata?.label ?? "timer").capitalized)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(TimerWidgetColor.textPrimary)
                     }
@@ -48,13 +48,13 @@ struct TimerLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 6) {
-                        Text("Step \(context.attributes.metadata.stepNumber)")
+                        Text("Step \(context.attributes.metadata?.stepNumber ?? 0)")
                             .font(.system(size: 12, weight: .heavy))
                             .tracking(0.4)
                             .foregroundStyle(TimerWidgetColor.accentDeep)
                         Text("·")
                             .foregroundStyle(TimerWidgetColor.textSecondary)
-                        Text(context.attributes.metadata.recipeTitle)
+                        Text(context.attributes.metadata?.recipeTitle ?? "")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(TimerWidgetColor.textSecondary)
                             .lineLimit(1)
@@ -86,11 +86,11 @@ struct TimerLiveActivity: Widget {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Step \(context.attributes.metadata.stepNumber) · \(context.attributes.metadata.label.capitalized)")
+                Text("Step \(context.attributes.metadata?.stepNumber ?? 0) · \((context.attributes.metadata?.label ?? "timer").capitalized)")
                     .font(.system(size: 11, weight: .heavy))
                     .tracking(0.6)
                     .foregroundStyle(TimerWidgetColor.accentDeep)
-                Text(context.attributes.metadata.recipeTitle)
+                Text(context.attributes.metadata?.recipeTitle ?? "")
                     .font(.system(size: 15, weight: .semibold, design: .serif))
                     .foregroundStyle(TimerWidgetColor.textPrimary)
                     .lineLimit(1)
@@ -109,7 +109,7 @@ struct TimerLiveActivity: Widget {
         // `llamascookbook://cook/<uuid>` scheme registered in the main
         // app's Info.plist; the app's `onOpenURL` handler resolves the
         // recipe and re-presents Cook Mode.
-        .widgetURL(URL(string: "llamascookbook://cook/\(context.attributes.metadata.recipeID.uuidString)"))
+        .widgetURL(context.attributes.metadata.flatMap { URL(string: "llamascookbook://cook/\($0.recipeID.uuidString)") })
     }
 
     /// Pull the active alarm's countdown end date out of AlarmKit's
@@ -124,7 +124,8 @@ struct TimerLiveActivity: Widget {
         for context: ActivityViewContext<AlarmAttributes<TimerAlarmMetadata>>,
         font: Font
     ) -> some View {
-        if let fireDate = context.state.fireDate {
+        let fireDate = context.state.alarmDate
+        if fireDate > Date() {
             Text(timerInterval: Date()...fireDate, countsDown: true)
                 .font(font)
                 .monospacedDigit()

@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(UserAccount.self) private var userAccount
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
     @State private var navContext = NavigationContext()
@@ -229,6 +230,22 @@ struct RootView: View {
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             guard let url = activity.webpageURL else { return }
             routeUniversalLink(url)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Foreground-refresh hook for friend presence. The
+            // `cookingStartedAt` / `lastCookedTitle` fields on
+            // `UserProfile` drive the pulsing dot + "Cooking: <title>"
+            // eyebrow, and a CloudKit subscription on those fields was
+            // explicitly rejected (push budget + bookkeeping cost) —
+            // so we lean on scene-active transitions and a 30s
+            // debounce floor inside `refreshIfStale`. Gated on iCloud
+            // binding because every social fetch short-circuits when
+            // the mirror cache is empty anyway, but checking here
+            // skips the Task spawn entirely.
+            guard newPhase == .active,
+                  UserProfileMirror.cachedRecordID() != nil
+            else { return }
+            Task { await friendsStore.refreshIfStale() }
         }
         .onChange(of: navContext.goHomeRequestedAt) { _, newValue in
             // Library "go home" signal — written by the All chip and by
