@@ -124,6 +124,7 @@ struct LibraryView: View {
         }
         .sheet(isPresented: $showingAppearance) {
             AccentColorPicker(settings: appearance)
+                .environment(appearance)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
