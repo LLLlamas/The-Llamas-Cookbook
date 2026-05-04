@@ -44,4 +44,21 @@ final class NavigationContext {
     /// `RootView` clears the field at the end of the highlight
     /// sequence so a subsequent import fires a fresh transition.
     var pendingImportedRecipeID: UUID?
+
+    /// Bump-token signal for the Library "go home" reset. Writers:
+    /// `LibraryView`'s All chip and `RootView`'s bottom-nav Home re-tap
+    /// (tap on the active Home tab) — both fire a fresh `Date()`.
+    /// Two observers react:
+    ///
+    /// 1. `RootView` clears `libraryPath` so a pushed Detail page pops
+    ///    back to the list (the path lives there, not in LibraryView).
+    /// 2. `LibraryView` runs the rest of the reset — filter → `.all`,
+    ///    scroll list to top — and owns the no-op guard so a tap with
+    ///    nothing to reset costs nothing.
+    ///
+    /// A timestamp (rather than a Bool) is used so consecutive go-home
+    /// taps each fire a distinct value transition without a manual
+    /// reset step. Sort is intentionally *not* part of the reset —
+    /// `library.sort.v1` is a sticky user preference.
+    var goHomeRequestedAt: Date?
 }

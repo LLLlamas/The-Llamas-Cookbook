@@ -36,7 +36,7 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .home
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: tabSelection) {
             NavigationStack(path: $libraryPath) {
                 LibraryView()
             }
@@ -230,6 +230,17 @@ struct RootView: View {
             guard let url = activity.webpageURL else { return }
             routeUniversalLink(url)
         }
+        .onChange(of: navContext.goHomeRequestedAt) { _, newValue in
+            // Library "go home" signal — written by the All chip and by
+            // a Home-tab re-tap on the bottom nav. Reset the library
+            // NavigationStack so a Detail page (or any future pushed
+            // destination) pops back to the list. The signal also
+            // drives a filter + scroll reset inside LibraryView; this
+            // hook only owns the navigation-path reset because
+            // `libraryPath` lives here, not in LibraryView.
+            guard newValue != nil, !libraryPath.isEmpty else { return }
+            libraryPath = NavigationPath()
+        }
         .onChange(of: navContext.pendingImportedRecipeID) { _, newID in
             // Slice 5 — friend-import navigation. When
             // `FriendRecipeDetailView.performImport` signals
@@ -353,6 +364,28 @@ struct RootView: View {
         } message: { _ in
             Text("You have unsaved changes. Leaving will lose them.")
         }
+    }
+
+    /// Tab-selection binding that intercepts a re-tap on the active
+    /// Home tab and fires the Library "go home" signal before passing
+    /// the selection through. SwiftUI's `TabView` doesn't natively
+    /// expose "tapped the active tab again"; the standard pattern is a
+    /// custom `Binding` whose setter compares the incoming value to
+    /// the current one and triggers a side effect when they match.
+    /// Friends / Me re-taps fall through unchanged — only Home owns a
+    /// reset signal today. The no-op guard for "already at home" lives
+    /// in LibraryView's observer, so a re-tap with nothing to reset
+    /// stays free here.
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                if newValue == selectedTab && newValue == .home {
+                    navContext.goHomeRequestedAt = Date()
+                }
+                selectedTab = newValue
+            }
+        )
     }
 
     private var cookingSheetPresented: Binding<Bool> {

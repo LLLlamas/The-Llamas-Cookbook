@@ -42,10 +42,29 @@ struct LibraryView: View {
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
-    @State private var sort: LibrarySort = .aToZ
+    /// Sort preference persisted via `@AppStorage` so the user's choice
+    /// (A–Z vs. Most Recent) survives relaunches. Mirrors the same
+    /// `@AppStorage`-string-with-enum-bridge pattern used elsewhere in
+    /// the Library (see `hasSeenImportHelp` etc. — string-keyed
+    /// UserDefaults is the established persistence channel for
+    /// per-user UI state on this screen). `LibrarySort` is already
+    /// `String`-backed; the `sort` computed property below decodes
+    /// this string for read sites, and the All-chip context-menu
+    /// writes the raw value directly.
+    @AppStorage("library.sort.v1") private var sortRawValue: String = LibrarySort.aToZ.rawValue
     @State private var deletingRecipe: Recipe?
     @State private var showingAppearance = false
     @State private var showingProfile = false
+    /// Bump-token consumed by `recipeList`'s ScrollViewReader to scroll
+    /// the list back to its first row. Bumped by the All-chip "go
+    /// home" tap. A counter (rather than a Bool) is used so repeated
+    /// taps each register as a distinct value transition without a
+    /// manual reset step.
+    @State private var scrollToTopToken: Int = 0
+
+    private var sort: LibrarySort {
+        LibrarySort(rawValue: sortRawValue) ?? .aToZ
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -129,6 +148,14 @@ struct LibraryView: View {
             if newID != nil {
                 showingProfile = false
             }
+        }
+        .onChange(of: navContext.goHomeRequestedAt) { _, newValue in
+            // "Go home" signal — written by the All chip and by a
+            // bottom-nav Home re-tap. Run the local reset (filter +
+            // scroll); RootView observes the same signal to clear the
+            // nav path. No-op guard lives in `applyGoHomeReset`.
+            guard newValue != nil else { return }
+            applyGoHomeReset()
         }
         .toolbarBackground(AppColor.background, for: .navigationBar)
         .navigationDestination(for: Recipe.self) { recipe in
@@ -260,6 +287,15 @@ struct LibraryView: View {
                     proxy.scrollTo(target.id, anchor: .top)
                 }
             }
+            .onChange(of: scrollToTopToken) { _, _ in
+                // All-chip "go home" tap. Scroll back to the first
+                // visible row so a tap from anywhere in a long scroll
+                // resets the user's view to the top of their library.
+                guard let first = filtered.first else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(first.id, anchor: .top)
+                }
+            }
         }
     }
 
@@ -311,76 +347,136 @@ struct LibraryView: View {
     }
 
     private var filterStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: AppSpacing.xs) {
-                allChipMenu
+        // The All chip is pinned outside the ScrollView so it stays
+        // visible at the leading edge regardless of horizontal scroll
+        // position; Favorites + tag chips scroll behind it as before.
+        // Horizontal screen-margin padding is split between the outer
+        // HStack (leading, for the All chip) and the inner HStack
+        // (trailing, for the last scrolling chip) so the visual gutter
+        // matches the previous single-ScrollView layout.
+        HStack(spacing: AppSpacing.xs) {
+            allChipMenu
 
-                if favoriteCount > 0 {
-                    FilterChip(
-                        label: "Favorites  ·  \(favoriteCount)",
-                        isActive: filter == .favorites,
-                        iconName: "heart.fill",
-                        accent: appearance.accentColor
-                    ) {
-                        filter = filter == .favorites ? .all : .favorites
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: AppSpacing.xs) {
+                    if favoriteCount > 0 {
+                        FilterChip(
+                            label: "Favorites  ·  \(favoriteCount)",
+                            isActive: filter == .favorites,
+                            iconName: "heart.fill",
+                            accent: appearance.accentColor
+                        ) {
+                            filter = filter == .favorites ? .all : .favorites
+                        }
+                    }
+
+                    ForEach(allTags, id: \.self) { tag in
+                        let count = recipes.filter { $0.tags.contains(tag) }.count
+                        FilterChip(
+                            label: "\(StringCase.titleCase(tag))  ·  \(count)",
+                            isActive: filter == .tag(tag),
+                            iconName: nil,
+                            accent: appearance.accentColor
+                        ) {
+                            filter = filter == .tag(tag) ? .all : .tag(tag)
+                        }
                     }
                 }
-
-                ForEach(allTags, id: \.self) { tag in
-                    let count = recipes.filter { $0.tags.contains(tag) }.count
-                    FilterChip(
-                        label: "\(StringCase.titleCase(tag))  ·  \(count)",
-                        isActive: filter == .tag(tag),
-                        iconName: nil,
-                        accent: appearance.accentColor
-                    ) {
-                        filter = filter == .tag(tag) ? .all : .tag(tag)
-                    }
-                }
+                .padding(.trailing, AppSpacing.lg)
             }
-            .padding(.horizontal, AppSpacing.lg)
-            .padding(.vertical, AppSpacing.sm)
         }
+        .padding(.leading, AppSpacing.lg)
+        .padding(.vertical, AppSpacing.sm)
     }
 
-    /// "All" chip rendered as a Menu so a tap opens the sort dropdown
-    /// (A–Z vs. Most Recent). Selecting an option both pins the filter
-    /// to All and updates the sort. The chip itself shows a small
-    /// chevron so the dropdown affordance is discoverable; the active
-    /// sort gets a checkmark inside the menu.
+    /// "All" chip with a split interaction model:
+    ///   • Tap → "go home": reset the filter to All, scroll the list to
+    ///     the top, and pop the Library nav stack to root. No-op when
+    ///     the user is already in the clean landing state.
+    ///   • Long-press → sort picker (A–Z vs. Most Recent) via the
+    ///     standard iOS `.contextMenu` (haptic + preview), matching
+    ///     the long-press affordance recipe cards already use below.
+    /// The chip carries a small `arrow.up.arrow.down` glyph so the
+    /// long-press affordance is discoverable; the active sort gets a
+    /// checkmark inside the menu.
     private var allChipMenu: some View {
-        Menu {
+        Button {
+            handleAllChipTap()
+        } label: {
+            allChipLabel
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
             Button {
                 Haptics.selection()
-                filter = .all
-                sort = .aToZ
+                sortRawValue = LibrarySort.aToZ.rawValue
             } label: {
                 Label(LibrarySort.aToZ.label,
                       systemImage: sort == .aToZ ? "checkmark" : LibrarySort.aToZ.iconName)
             }
             Button {
                 Haptics.selection()
-                filter = .all
-                sort = .mostRecent
+                sortRawValue = LibrarySort.mostRecent.rawValue
             } label: {
                 Label(LibrarySort.mostRecent.label,
                       systemImage: sort == .mostRecent ? "checkmark" : LibrarySort.mostRecent.iconName)
             }
-        } label: {
-            allChipLabel
         }
     }
 
-    /// Chip surface for the All Menu — mirrors `FilterChip`'s look so
+    /// Tap behaviour for the All chip. Fires the shared
+    /// `goHomeRequestedAt` signal — `applyGoHomeReset` (run by the
+    /// `.onChange` observer below) owns the reset logic and the no-op
+    /// guard. Routing through the signal means the bottom-nav Home
+    /// re-tap and the All chip share one code path and can't drift.
+    private func handleAllChipTap() {
+        navContext.goHomeRequestedAt = Date()
+    }
+
+    /// Shared "go home" reset, fired by both the All chip and the
+    /// bottom-nav Home re-tap (via `goHomeRequestedAt`). Resets every
+    /// piece of "where am I in the library" state so the user lands
+    /// back on the clean landing view:
+    ///   • filter → `.all`
+    ///   • scroll position → top (via `scrollToTopToken` consumed by
+    ///     the recipeList's ScrollViewReader)
+    ///   • Library nav stack → root (via the same signal observed by
+    ///     RootView, which owns `libraryPath`)
+    ///
+    /// Sort is *not* touched — `library.sort.v1` is a sticky user
+    /// preference. No-ops when nothing needs to change — already on
+    /// filter All, nothing pushed on the nav stack — to avoid
+    /// wastefully re-triggering the scroll animation and the haptic.
+    /// (We can't cheaply detect "scroll is already at top" here, so
+    /// any tap that has either other reset to do also fires the
+    /// scroll; a redundant scroll on an already-top list is visually
+    /// a no-op.)
+    private func applyGoHomeReset() {
+        let needsFilterReset = filter != .all
+        let hasPushedNav = navContext.detailedRecipeID != nil
+        guard needsFilterReset || hasPushedNav else {
+            // Pure no-op state — nothing to reset.
+            return
+        }
+        Haptics.selection()
+        if needsFilterReset { filter = .all }
+        scrollToTopToken &+= 1
+    }
+
+    /// Chip surface for the All chip — mirrors `FilterChip`'s look so
     /// the trigger sits in line with the other chips visually, but
-    /// without being a Button (Menu owns the tap).
+    /// rendered as a label (the parent Button owns the tap).
     private var allChipLabel: some View {
         let isActive = filter == .all
         return HStack(spacing: AppSpacing.xs) {
             Text("All  ·  \(recipes.count)")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
-            Image(systemName: "chevron.down")
+            // Sort glyph (not a chevron) signals the long-press menu
+            // is a *sort* picker rather than a generic dropdown — the
+            // tap action is "go home", which the chip label itself
+            // already implies.
+            Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(isActive ? AppColor.onAccent : appearance.accentColor)
         }
