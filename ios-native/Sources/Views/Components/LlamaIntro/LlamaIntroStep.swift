@@ -18,4 +18,28 @@ struct LlamaIntroStep: Identifiable, Equatable {
     /// True for the first step of each tour — triggers the wave
     /// animation on the llama after the initial fade-in.
     let waveOnEnter: Bool
+    /// Additional fields to include in the highlight halo. The
+    /// overlay unions `target`'s rect with each of these to compute
+    /// a single bounding cutout — used when one walkthrough beat
+    /// covers two adjacent fields (e.g. servings + prep time, or
+    /// the steps editor + the special-notes block below it).
+    /// Resolved targets that aren't laid out yet are silently
+    /// skipped so a missing optional field doesn't break the step.
+    let extraTargets: [LlamaTourTarget]
+
+    init(
+        id: Int,
+        target: LlamaTourTarget?,
+        headline: String,
+        body: String,
+        waveOnEnter: Bool,
+        extraTargets: [LlamaTourTarget] = []
+    ) {
+        self.id = id
+        self.target = target
+        self.headline = headline
+        self.body = body
+        self.waveOnEnter = waveOnEnter
+        self.extraTargets = extraTargets
+    }
 }

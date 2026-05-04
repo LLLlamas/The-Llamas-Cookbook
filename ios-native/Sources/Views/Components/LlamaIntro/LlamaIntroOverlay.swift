@@ -52,9 +52,7 @@ struct LlamaIntroOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let frame: CGRect? = currentStep.target
-                .flatMap { anchors[$0] }
-                .map { geometry[$0] }
+            let frame: CGRect? = resolveFrame(in: geometry)
             let safeArea = geometry.frame(in: .local)
 
             ZStack {
@@ -83,6 +81,18 @@ struct LlamaIntroOverlay: View {
         .onChange(of: currentIndex) { _, _ in
             handleStepChange(initial: false)
         }
+    }
+
+    /// Union the primary target rect with any `extraTargets` so a
+    /// single step can highlight two adjacent fields. Targets that
+    /// haven't been laid out yet (no anchor in the dictionary) are
+    /// skipped — that way a step on a screen where one of the extras
+    /// is conditionally absent still spotlights the rest cleanly.
+    private func resolveFrame(in geometry: GeometryProxy) -> CGRect? {
+        let ids = [currentStep.target].compactMap { $0 } + currentStep.extraTargets
+        let rects = ids.compactMap { anchors[$0] }.map { geometry[$0] }
+        guard let first = rects.first else { return nil }
+        return rects.dropFirst().reduce(first) { $0.union($1) }
     }
 
     // MARK: - Dim + halo

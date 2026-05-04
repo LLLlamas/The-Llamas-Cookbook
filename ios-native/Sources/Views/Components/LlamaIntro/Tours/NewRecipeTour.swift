@@ -1,6 +1,6 @@
 import Foundation
 
-/// 6-step interactive tour shown the first time a user opens the
+/// 7-step interactive tour shown the first time a user opens the
 /// editor for a brand-new recipe (`recipe == nil` and the seed draft
 /// is empty — imports / photo "Edit then Save" hand-offs skip the
 /// tour since the user has already engaged with a different parser
@@ -27,7 +27,8 @@ enum NewRecipeTour {
             target: .servingsField,
             headline: "Servings & Prep",
             body: "How many it feeds and how long it takes !",
-            waveOnEnter: false
+            waveOnEnter: false,
+            extraTargets: [.prepTimeField]
         ),
         LlamaIntroStep(
             id: 3,
@@ -55,6 +56,14 @@ enum NewRecipeTour {
             target: .stepQuickAdd,
             headline: "Steps & Notes",
             body: "One step at a time, tap the clock if it needs a timer. Special notes sit right below !",
+            waveOnEnter: false,
+            extraTargets: [.specialNotesEditor]
+        ),
+        LlamaIntroStep(
+            id: 7,
+            target: .saveButton,
+            headline: "Save It!",
+            body: "All done? Hit Save up here to drop it in your cookbook !",
             waveOnEnter: false
         )
     ]
