@@ -139,14 +139,18 @@ enum TimerNotifications {
 
     /// Map `TimerSound` to AlarmKit's `AlertConfiguration.AlertSound`.
     /// `bell` references the bundled `.caf` by name; `system` uses
-    /// AlarmKit's default tone; `silent` returns nil so AlarmKit
-    /// suppresses audio (the alert still fires visually + haptically).
+    /// AlarmKit's default tone. `silent` falls back to `.default` because
+    /// the `sound:` parameter on `AlarmManager.AlarmConfiguration` is
+    /// non-optional in iOS 26.5 beta 2 and `AlertSound` exposes no
+    /// silent / none variant — true silent-mode delivery needs a
+    /// different mechanism (TODO: investigate `AlarmPresentation`-only
+    /// scheduling or a haptic-only configuration path).
     /// Chime / ping aren't in the picker today — they fall back to
     /// `.default` for safety if a future picker re-enables them.
-    private static func alarmSound(for sound: TimerSound) -> AlertConfiguration.AlertSound? {
+    private static func alarmSound(for sound: TimerSound) -> AlertConfiguration.AlertSound {
         switch sound {
         case .silent:
-            return nil
+            return .default
         case .bell:
             if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
                 return .named("timer-alarm")
