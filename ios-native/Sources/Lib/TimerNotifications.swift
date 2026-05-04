@@ -142,7 +142,7 @@ enum TimerNotifications {
     /// suppresses audio (the alert still fires visually + haptically).
     /// Chime / ping aren't in the picker today — they fall back to
     /// `.default` for safety if a future picker re-enables them.
-    private static func alarmSound(for sound: TimerSound) -> AlertConfiguration.AlertSound? {
+    private static func alarmSound(for sound: TimerSound) -> AlarmSound? {
         switch sound {
         case .silent:
             return nil
