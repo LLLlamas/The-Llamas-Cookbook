@@ -19,13 +19,13 @@ struct AccentColorPicker: View {
     @Environment(AppearanceSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
-    // Local state drives the ColorPicker binding. Writing directly to
-    // settings.accentColor causes SwiftUI to re-render the ColorPicker
-    // with the new value, which programmatically updates the underlying
-    // UIColorPickerViewController.selectedColor — breaking the two-way
-    // sync for the rest of that picker session (only the first pick
-    // registers). The @State here is never written back by SwiftUI on
-    // re-render, so the picker's internal drag/slider state stays intact.
+    // Local state drives the ColorPicker binding AND every live-preview
+    // read in this sheet. We deliberately do NOT write to settings.accentColor
+    // mid-session: doing so causes the @Observable to fire, which re-renders
+    // the parent body (which reads settings.accentColor in tint/preview),
+    // which rebuilds the ColorPicker subtree, which can desync the system
+    // UIColorPickerViewController so only the first pick registers.
+    // Commit happens once in .onDisappear.
     @State private var pickerColor: Color = AppColor.accent
 
     var body: some View {
@@ -59,29 +59,28 @@ struct AccentColorPicker: View {
 
                 resetButton
             }
-            .padding(AppSpacing.lg)
-            .padding(.bottom, AppSpacing.sm)
+            .padding(.horizontal, AppSpacing.lg)
+            .padding(.top, AppSpacing.xs)
+            .padding(.bottom, AppSpacing.lg + AppSpacing.sm)
             .llamaBackground()
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .tint(settings.accentColor)
+            .tint(pickerColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(settings.accentColor)
+                        .foregroundStyle(pickerColor)
                 }
             }
             .onAppear {
                 pickerColor = settings.accentColor
             }
-            .onChange(of: pickerColor) { _, newColor in
-                // Sync user pick → observable. Only the @State pickerColor
-                // writes here; the ColorPicker binding never sees a
-                // programmatic update, so mid-session picks work correctly.
-                settings.accentColor = newColor
-            }
             .onDisappear {
+                // Commit once on dismiss. Writing mid-session would fire
+                // the @Observable and break the active picker session
+                // (see pickerColor doc comment).
+                settings.accentColor = pickerColor
                 settings.syncToUIKit()
             }
         }
@@ -89,24 +88,24 @@ struct AccentColorPicker: View {
 
     private var preview: some View {
         VStack(spacing: 6) {
-            LlamaLogo(size: 140, shadowColor: settings.accentColor)
+            LlamaLogo(size: 140, shadowColor: pickerColor)
 
             Text("Sample Recipe Title")
                 .font(AppFont.recipeTitle)
-                .foregroundStyle(settings.accentColor)
+                .foregroundStyle(pickerColor)
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
                 .multilineTextAlignment(.center)
 
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(settings.accentColor)
+                    .foregroundStyle(pickerColor)
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(settings.accentColor)
+                    .foregroundStyle(pickerColor)
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(settings.accentColor)
+                    .foregroundStyle(pickerColor)
             }
             .padding(.top, 2)
         }
@@ -131,7 +130,7 @@ struct AccentColorPicker: View {
     private var resetButton: some View {
         Button {
             Haptics.selection()
-            settings.resetToDefault()
+            // Local-only reset; commit happens onDisappear like any other pick.
             pickerColor = AppColor.accent
         } label: {
             HStack(spacing: AppSpacing.xs + 2) {
