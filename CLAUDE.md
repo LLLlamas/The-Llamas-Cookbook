@@ -2,7 +2,7 @@
 
 Source of truth for agents. Code wins when this disagrees.
 
-Last refreshed: 2026-05-05.
+Last refreshed: 2026-05-04.
 
 ## Status
 
@@ -44,13 +44,17 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - `ios-native/Sources/Theme/` — `AppColor`, `AppFont`, `AppSpacing`, `ColorHex`
 
 **Library / import**
-- `ios-native/Sources/Views/Library/LibraryView.swift`
+- `ios-native/Sources/Views/Library/LibraryView.swift`, `RecipeCardView.swift`, `EmptyLibraryView.swift`, `ImportHelpView.swift`
 - `ios-native/Sources/Views/Library/ImportFromTextView.swift`, `ImportFromLinkView.swift`, `ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
-- `ios-native/Sources/Lib/RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `RecipeSchemaParser.swift`
+- `ios-native/Sources/Views/Components/LetterIndex.swift`, `CookbookHeader.swift`, `RecipeImageView.swift`
+- `ios-native/Sources/Lib/RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
 
 **Editor**
 - `ios-native/Sources/Views/Editor/RecipeEditorView.swift`
+- `ios-native/Sources/Views/Editor/IngredientRowEditor.swift`, `IngredientQuickAdd.swift`, `StepRowEditor.swift`, `StepQuickAdd.swift`, `SpecialNotesEditor.swift`, `TagInputView.swift`, `PhotoToggleButton.swift`
+- `ios-native/Sources/Views/Editor/Chips/QuantityChips.swift`, `UnitChips.swift`
 - `ios-native/Sources/App/EditorCoordinator.swift`
+- `ios-native/Sources/Lib/TagPresets.swift`, `IngredientDisplay.swift`, `Plural.swift`
 
 **Detail / share**
 - `ios-native/Sources/Views/Detail/RecipeDetailView.swift`
@@ -99,9 +103,11 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - `cloudflare-pages/.well-known/apple-app-site-association` — AASA for Universal Links
 
 **Components / misc**
-- `ios-native/Sources/Views/Components/` — `PhotoCarouselView`, `PhotoReorderView`, `LlamaIntro/` (onboarding tours)
-- `ios-native/Sources/Lib/ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`
-- `ios-native/Sources/App/NavigationContext.swift` — cross-view navigation signals
+- `ios-native/Sources/Views/Components/` — `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/` (onboarding tours)
+- `ios-native/Sources/Views/Components/AccentColorPicker.swift` — system `ColorPicker` sheet; commits accent on `.onDisappear` only
+- `ios-native/Sources/Views/Components/SavedToast.swift` — friend-import success badge + `ImportFlyGhost` fly animation, driven by `NavigationContext.FriendImportToast`
+- `ios-native/Sources/Lib/ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `KeyboardDismiss.swift`, `Shake.swift`
+- `ios-native/Sources/App/NavigationContext.swift` — cross-view navigation signals + friend-import toast payload
 
 ## Hard invariants
 
@@ -122,6 +128,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - **HEIC photos transcode to JPEG before upload to `RecipeShare`** (`ImageProcessing.transcodeHEICToJPEGForSharing`, called from `CloudKitService.uploadShare`). Local SwiftData stays HEIC; only the share-bound copy is JPEG so non-Apple link unfurlers (WhatsApp, Slack, Discord, Chrome) can preview the photo.
 - **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` is the single source of truth for the 25 MB inbound cap. Both `RecipeShare.maxInboundBytes` (main app) and `ShareViewController.maxInboundBytes` (share extension) reference it — do not reintroduce duplicated literals.
 - **Cloud-share failures show "try again later"** — `RecipeDetailView.shareViaPreferredTransport` aborts with an alert when iCloud is unavailable or upload fails. No long-URL fallback. The "Share recipe" menu only ever produces an HTTPS Universal Link permalink.
+- **`AccentColorPicker` commits on `.onDisappear`, never mid-pick** — driving `pickerColor` straight into `AppearanceSettings.accentColor` re-renders the parent, rebuilds the `ColorPicker` subtree, and desyncs `UIColorPickerViewController` so only the first pick registers. `@Environment(AppearanceSettings.self)` must also be re-injected at every call site or the live preview stops updating once the system picker covers the sheet.
 
 ## CloudKit schema
 

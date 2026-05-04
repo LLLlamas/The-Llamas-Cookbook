@@ -275,7 +275,7 @@ struct RecipeDetailView: View {
                         // past the frame, but a hair of top padding
                         // also keeps the mascot's head from kissing
                         // the title-bar divider.
-                        .padding(.top, 6)
+                        .padding(.top, 22)
                         .padding(.bottom, 22)
                 }
                 .buttonStyle(.plain)
