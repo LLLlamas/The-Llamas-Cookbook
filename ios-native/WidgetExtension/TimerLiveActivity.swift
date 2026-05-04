@@ -25,9 +25,7 @@ struct TimerLiveActivity: Widget {
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 6) {
-                        Image(systemName: "timer")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(TimerWidgetColor.accent)
+                        llamaMark(size: 22)
                         Text(context.state.label.capitalized)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(TimerWidgetColor.textPrimary)
@@ -55,16 +53,14 @@ struct TimerLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                Image(systemName: "timer")
-                    .foregroundStyle(TimerWidgetColor.accent)
+                llamaMark(size: 18)
             } compactTrailing: {
                 Text(timerInterval: Date()...context.state.endDate, countsDown: true)
                     .monospacedDigit()
                     .foregroundStyle(TimerWidgetColor.accent)
                     .frame(maxWidth: 50)
             } minimal: {
-                Image(systemName: "timer")
-                    .foregroundStyle(TimerWidgetColor.accent)
+                llamaMark(size: 18)
             }
             .keylineTint(TimerWidgetColor.accent)
         }
@@ -78,9 +74,7 @@ struct TimerLiveActivity: Widget {
                 Circle()
                     .fill(TimerWidgetColor.accent.opacity(0.18))
                     .frame(width: 44, height: 44)
-                Image(systemName: "timer")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(TimerWidgetColor.accent)
+                llamaMark(size: 32)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -109,5 +103,20 @@ struct TimerLiveActivity: Widget {
         // app's Info.plist; the app's `onOpenURL` handler resolves the
         // recipe and re-presents Cook Mode.
         .widgetURL(URL(string: "llamascookbook://cook/\(context.attributes.recipeID.uuidString)"))
+    }
+
+    /// Brand llama, sized for Live Activity slots. Asset is bundled into
+    /// the widget extension (the main app's `Assets.xcassets` isn't on
+    /// this target's source paths) and renders in original colors —
+    /// `template-rendering-intent: original` preserves the baked-in
+    /// llama palette over a `foregroundStyle` tint, matching the in-app
+    /// `LlamaLogo` view.
+    private func llamaMark(size: CGFloat) -> some View {
+        Image("LlamaLogo")
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
