@@ -82,7 +82,7 @@ struct TimerLiveActivity: Widget {
                 Circle()
                     .fill(TimerWidgetColor.accent.opacity(0.18))
                     .frame(width: 44, height: 44)
-                llamaMark(size: 32)
+                profileLlamaMark(size: 36)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -105,6 +105,22 @@ struct TimerLiveActivity: Widget {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        // Branded watermark: the full-body llama logo bleeds off the
+        // trailing edge behind the countdown so the activity reads as
+        // a Llamas Cookbook surface at a glance, while leaving the
+        // foreground text legible. Cream `activityBackgroundTint` on
+        // the configuration sits underneath this image.
+        .background(alignment: .trailing) {
+            Image("LlamaLogo")
+                .renderingMode(.original)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .opacity(0.22)
+                .padding(.trailing, -28)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         // Tap deep-links into Cook Mode for this recipe via the
         // `llamascookbook://cook/<uuid>` scheme registered in the main
         // app's Info.plist; the app's `onOpenURL` handler resolves the
@@ -140,6 +156,21 @@ struct TimerLiveActivity: Widget {
     /// `LlamaLogo` view.
     private func llamaMark(size: CGFloat) -> some View {
         Image("LlamaLogo")
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+
+    /// Profile-style llama head, used as the lock-screen activity's
+    /// avatar icon — the head-on framing reads cleaner than the full
+    /// body at small sizes. Bundled into the widget extension's
+    /// asset catalog (the main app's catalog isn't on this target's
+    /// source paths) and rendered with original colors.
+    private func profileLlamaMark(size: CGFloat) -> some View {
+        Image("Profile_Llama_Icon")
             .renderingMode(.original)
             .resizable()
             .interpolation(.high)

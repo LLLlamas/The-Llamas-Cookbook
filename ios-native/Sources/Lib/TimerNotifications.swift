@@ -137,28 +137,20 @@ enum TimerNotifications {
         }
     }
 
-    /// Map `TimerSound` to AlarmKit's `AlertConfiguration.AlertSound`.
-    /// `bell` references the bundled `.caf` by name; `system` uses
-    /// AlarmKit's default tone. `silent` falls back to `.default` because
-    /// the `sound:` parameter on `AlarmManager.AlarmConfiguration` is
-    /// non-optional in iOS 26.5 beta 2 and `AlertSound` exposes no
-    /// silent / none variant — true silent-mode delivery needs a
-    /// different mechanism (TODO: investigate `AlarmPresentation`-only
-    /// scheduling or a haptic-only configuration path).
-    /// Chime / ping aren't in the picker today — they fall back to
-    /// `.default` for safety if a future picker re-enables them.
+    /// Resolve the lock-screen alert sound. Unified on the bundled
+    /// `timer-alarm.caf` regardless of `TimerSound` so the foreground
+    /// `AlarmPlayer` and the AlarmKit lock-screen alert ring with the
+    /// exact same tone — there is no other way to reference AlarmKit's
+    /// internal `.default` tone from the in-app player, so we route
+    /// both surfaces through our own `.caf`. Falls back to `.default`
+    /// only when the bundled file is missing (e.g., local dev builds
+    /// without the CI-generated asset). The `sound` parameter is kept
+    /// on the signature for call-site stability.
     private static func alarmSound(for sound: TimerSound) -> AlertConfiguration.AlertSound {
-        switch sound {
-        case .silent:
-            return .default
-        case .bell:
-            if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
-                return .named("timer-alarm")
-            }
-            return .default
-        case .system, .chime, .ping:
-            return .default
+        if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
+            return .named("timer-alarm")
         }
+        return .default
     }
 
     private static func formatTitle(recipeTitle: String, stepNumber: Int) -> String {

@@ -79,7 +79,12 @@ enum TimerSound: String, CaseIterable, Identifiable {
     /// Subset surfaced in the Profile cog picker. `chime` / `ping` are
     /// hidden until they have AlarmKit-compatible bundled audio assets;
     /// the enum cases stay so re-enabling them is a one-line change.
-    static let pickerOptions: [TimerSound] = [.bell, .system, .silent]
+    /// `silent` is struck off the picker because iOS 26.5's AlarmKit
+    /// dropped the optional `sound` parameter — there's no longer a way
+    /// to deliver a true silent alert through the lock-screen path. The
+    /// case stays in the enum so previously-saved values still decode
+    /// (they now play the unified bell tone via `AlarmPlayer`).
+    static let pickerOptions: [TimerSound] = [.bell, .system]
 
     var displayName: String {
         switch self {
