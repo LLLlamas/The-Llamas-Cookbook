@@ -22,44 +22,44 @@ final class AppearanceSettings {
     var accentColor: Color = AppColor.accent {
         didSet {
             persist()
-            // Defer the UIView.appearance() write off the synchronous
-            // setter. While the system UIColorPickerViewController is
-            // presented, mutating the global appearance proxy in-line
-            // re-snapshots the live picker's selectedColor against the
-            // binding's pre-write value and detaches subsequent picks
-            // from the SwiftUI writeback — the user's first pick lands,
-            // then every later pick in the same session is silently
-            // dropped. Async-hopping to the next runloop tick lets the
-            // binding write settle before UIKit reaches into appearance.
-            DispatchQueue.main.async { [weak self] in
-                self?.applyToUIKit()
-            }
+            // Do NOT call applyToUIKit() here. While UIColorPickerViewController
+            // is presented, any UIView.appearance() mutation causes UIKit to
+            // re-snapshot the picker's selectedColor back onto the SwiftUI binding,
+            // dropping every pick after the first. SwiftUI's own .tint() modifier
+            // handles live preview inside the SwiftUI hierarchy; UIKit chrome sync
+            // is deferred to syncToUIKit(), called explicitly by AccentColorPicker
+            // onDisappear so the global tint is updated exactly once after dismiss.
             if !isInitializing, let hex = accentColor.toHex {
                 UserProfileMirror.updateAccent(hex)
             }
         }
     }
 
+    /// Sync the current accent into UIKit's global appearance proxy.
+    /// Call this after the color picker is dismissed — not during an
+    /// active picker session (see accentColor didSet comment above).
+    func syncToUIKit() {
+        applyToUIKit()
+    }
+
     init() {
         if let hex = UserDefaults.standard.string(forKey: Self.storageKey),
            let color = Color(hex: hex) {
-            // Triggers didSet → applies to UIKit + persists. Mirror push
-            // is gated by `isInitializing` so this rehydrate doesn't
-            // republish to CloudKit on every cold launch.
+            // Mirror push is gated by `isInitializing` so this rehydrate
+            // doesn't republish to CloudKit on every cold launch.
             self.accentColor = color
-        } else {
-            // Default-value init doesn't fire didSet, so apply manually
-            // so the first frame's UIKit chrome (keyboard Return key,
-            // navigation back chevron, text-edit selection handles) is
-            // already on the baseline accent before any view appears.
-            applyToUIKit()
         }
+        // Apply to UIKit unconditionally after the stored color (or default)
+        // is in place. didSet no longer calls applyToUIKit() to avoid
+        // interfering with UIColorPickerViewController during picker sessions.
+        applyToUIKit()
         isInitializing = false
     }
 
     func resetToDefault() {
         accentColor = AppColor.accent
         UserDefaults.standard.removeObject(forKey: Self.storageKey)
+        applyToUIKit()
     }
 
     private func persist() {

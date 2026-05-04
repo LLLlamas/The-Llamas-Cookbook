@@ -288,11 +288,12 @@ struct LibraryView: View {
                 }
             }
             .onChange(of: scrollToTopToken) { _, _ in
-                // All-chip "go home" tap. Scroll back to the first
-                // visible row so a tap from anywhere in a long scroll
-                // resets the user's view to the top of their library.
+                // "Go home" scroll-to-top — fired by the All chip and
+                // by a re-tap of the active Home tab. Resets the user's
+                // view to the first row so a tap from anywhere in a
+                // long scroll lands them back at the top of the library.
                 guard let first = filtered.first else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                     proxy.scrollTo(first.id, anchor: .top)
                 }
             }
@@ -445,22 +446,14 @@ struct LibraryView: View {
     ///     RootView, which owns `libraryPath`)
     ///
     /// Sort is *not* touched — `library.sort.v1` is a sticky user
-    /// preference. No-ops when nothing needs to change — already on
-    /// filter All, nothing pushed on the nav stack — to avoid
-    /// wastefully re-triggering the scroll animation and the haptic.
-    /// (We can't cheaply detect "scroll is already at top" here, so
-    /// any tap that has either other reset to do also fires the
-    /// scroll; a redundant scroll on an already-top list is visually
-    /// a no-op.)
+    /// preference. The scroll-to-top fires unconditionally so a re-tap
+    /// of the Home tab from deep in a long scroll lands at the top
+    /// (matching the standard iOS scroll-to-top affordance) even when
+    /// the filter is already All and the nav stack is at root. A
+    /// redundant scroll on an already-top list is visually a no-op.
     private func applyGoHomeReset() {
-        let needsFilterReset = filter != .all
-        let hasPushedNav = navContext.detailedRecipeID != nil
-        guard needsFilterReset || hasPushedNav else {
-            // Pure no-op state — nothing to reset.
-            return
-        }
         Haptics.selection()
-        if needsFilterReset { filter = .all }
+        if filter != .all { filter = .all }
         scrollToTopToken &+= 1
     }
 

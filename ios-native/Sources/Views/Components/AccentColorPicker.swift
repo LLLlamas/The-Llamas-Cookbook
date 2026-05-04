@@ -57,6 +57,14 @@ struct AccentColorPicker: View {
                         .foregroundStyle(settings.accentColor)
                 }
             }
+            .onDisappear {
+                // Sync the final chosen color into UIKit's global
+                // appearance proxy now that the picker is gone. We
+                // intentionally skip this during the picker session
+                // to avoid UIKit re-pushing selectedColor back onto
+                // the binding and dropping intermediate picks.
+                settings.syncToUIKit()
+            }
         }
     }
 
