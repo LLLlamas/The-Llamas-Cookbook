@@ -189,9 +189,13 @@ enum CloudKitService {
                 photoURLs.append(nil)
                 continue
             }
+            // HEIC → JPEG for the share-bound copy so non-Apple link
+            // unfurlers (WhatsApp, Slack, Discord, Chrome) can render
+            // the og:image preview. Local storage stays HEIC.
+            let shareBytes = ImageProcessing.transcodeHEICToJPEGForSharing(bytes)
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("share-photo\(i)-\(UUID().uuidString).bin")
-            try bytes.write(to: url, options: .atomic)
+            try shareBytes.write(to: url, options: .atomic)
             photoURLs.append(url)
         }
 

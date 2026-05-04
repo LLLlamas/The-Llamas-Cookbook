@@ -125,6 +125,53 @@ enum ImageProcessing {
         return encoded.count < source.count ? encoded : source
     }
 
+    /// Transcode HEIC bytes to JPEG without resizing. Pass-through for
+    /// JPEG/PNG/WebP inputs. Used by the cloud-share upload path so
+    /// recipients on non-Apple platforms (WhatsApp, Slack, Discord,
+    /// Chrome) get a previewable image — those unfurlers don't decode
+    /// HEIC. Local SwiftData storage stays HEIC; only the share-bound
+    /// copy is converted.
+    static func transcodeHEICToJPEGForSharing(_ source: Data) -> Data {
+        guard isHEIC(source) else { return source }
+        guard let imageSource = CGImageSourceCreateWithData(source as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+            return source
+        }
+        let dest = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            dest,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
+            return source
+        }
+        CGImageDestinationAddImage(destination, image, [
+            kCGImageDestinationLossyCompressionQuality: 0.85
+        ] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return source }
+        return dest as Data
+    }
+
+    /// HEIC magic-byte check: `ftyp` at offset 4 with a HEIC brand at
+    /// offset 8. Same brand list as the Cloudflare image proxy's
+    /// `detectImageContentType`.
+    private static func isHEIC(_ data: Data) -> Bool {
+        guard data.count >= 12 else { return false }
+        let ftyp = data[4..<8]
+        guard ftyp == Data([0x66, 0x74, 0x79, 0x70]) else { return false }
+        let brand = data[8..<12]
+        let brands: [Data] = [
+            Data([0x68, 0x65, 0x69, 0x63]), // heic
+            Data([0x68, 0x65, 0x69, 0x78]), // heix
+            Data([0x68, 0x65, 0x76, 0x63]), // hevc
+            Data([0x68, 0x65, 0x76, 0x78]), // hevx
+            Data([0x6d, 0x69, 0x66, 0x31]), // mif1
+            Data([0x6d, 0x73, 0x66, 0x31]), // msf1
+        ]
+        return brands.contains(brand)
+    }
+
     /// Pick the output container format. HEIC source preserves HEIC,
     /// JPEG preserves JPEG, everything else (PNG screenshot, BMP, etc.)
     /// re-encodes to JPEG to avoid bloat. Falls back to JPEG when the
