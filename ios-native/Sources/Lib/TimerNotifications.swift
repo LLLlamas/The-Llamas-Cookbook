@@ -85,7 +85,8 @@ enum TimerNotifications {
             recipeID: recipeID,
             cookID: cookID,
             label: label,
-            stepNumber: stepNumber
+            stepNumber: stepNumber,
+            endDate: date
         )
 
         Task {

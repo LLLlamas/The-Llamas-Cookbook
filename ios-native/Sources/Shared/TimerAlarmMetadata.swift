@@ -33,4 +33,9 @@ struct TimerAlarmMetadata: AlarmMetadata {
     /// 1-based index of the step that owns this timer, so the widget can
     /// say "Step 3" without needing the full recipe object.
     var stepNumber: Int
+
+    /// Scheduled alarm fire date, stored here so the widget's countdown
+    /// text doesn't depend on `AlarmPresentationState` property names
+    /// that change across AlarmKit betas.
+    var endDate: Date
 }

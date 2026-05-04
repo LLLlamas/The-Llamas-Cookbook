@@ -112,21 +112,17 @@ struct TimerLiveActivity: Widget {
         .widgetURL(context.attributes.metadata.flatMap { URL(string: "llamascookbook://cook/\($0.recipeID.uuidString)") })
     }
 
-    /// Pull the active alarm's countdown end date out of AlarmKit's
-    /// presentation state. AlarmKit drives the countdown by handing
-    /// `context.state` an `AlarmPresentationState` whose `.countdown`
-    /// case carries the fire date; we render the live `timerInterval`
-    /// off that. When the alarm has fired (`.alert` mode), fall back
-    /// to a static "0:00" so the widget doesn't go blank between fire
-    /// and dismissal.
+    /// Renders a live countdown or a static "0:00" after the alarm fires.
+    /// Uses `endDate` from our own metadata rather than any
+    /// `AlarmPresentationState` property so this stays stable across
+    /// AlarmKit beta API changes.
     @ViewBuilder
     private func countdownText(
         for context: ActivityViewContext<AlarmAttributes<TimerAlarmMetadata>>,
         font: Font
     ) -> some View {
-        let fireDate = context.state.alarmDate
-        if fireDate > Date() {
-            Text(timerInterval: Date()...fireDate, countsDown: true)
+        if let endDate = context.attributes.metadata?.endDate, endDate > Date() {
+            Text(timerInterval: Date()...endDate, countsDown: true)
                 .font(font)
                 .monospacedDigit()
         } else {
@@ -144,6 +140,7 @@ struct TimerLiveActivity: Widget {
     /// `LlamaLogo` view.
     private func llamaMark(size: CGFloat) -> some View {
         Image("LlamaLogo")
+            .renderingMode(.original)
             .resizable()
             .interpolation(.high)
             .aspectRatio(contentMode: .fit)
