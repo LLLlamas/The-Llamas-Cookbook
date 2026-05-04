@@ -276,7 +276,7 @@ struct RecipeDetailView: View {
                         // also keeps the mascot's head from kissing
                         // the title-bar divider.
                         .padding(.top, 6)
-                        .padding(.bottom, 12)
+                        .padding(.bottom, 22)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")

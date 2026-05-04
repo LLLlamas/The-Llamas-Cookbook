@@ -60,7 +60,7 @@ struct AccentColorPicker: View {
                 resetButton
             }
             .padding(.horizontal, AppSpacing.lg)
-            .padding(.top, AppSpacing.xs)
+            .padding(.top, 0)
             .padding(.bottom, AppSpacing.lg + AppSpacing.sm)
             .llamaBackground()
             .navigationTitle("")
@@ -76,18 +76,33 @@ struct AccentColorPicker: View {
             .onAppear {
                 pickerColor = settings.accentColor
             }
+            .onChange(of: pickerColor) { _, newValue in
+                // Live-write to the @Observable so chrome outside this
+                // sheet (TabView .tint → bottom tab bar selected font
+                // color, NavigationStack tints, FAB, hearts) follows
+                // the drag in real time. Safe because nothing in this
+                // view's body reads settings.accentColor reactively
+                // (everything renders from pickerColor), so the
+                // @Observable fire does NOT re-render this sheet's
+                // ColorPicker subtree — the original desync trap.
+                // UserProfileMirror.updateAccent is debounced inside
+                // the mirror, so a drag through 100 colors collapses
+                // to a single CloudKit push.
+                settings.accentColor = newValue
+            }
             .onDisappear {
-                // Commit once on dismiss. Writing mid-session would fire
-                // the @Observable and break the active picker session
-                // (see pickerColor doc comment).
-                settings.accentColor = pickerColor
+                // Final UIKit chrome sync (UIView.appearance().tintColor)
+                // — done once after dismiss to avoid mutating the
+                // appearance proxy mid-picker-session, which would
+                // re-snapshot UIColorPickerViewController.selectedColor
+                // back onto the binding (see AppearanceSettings docs).
                 settings.syncToUIKit()
             }
         }
     }
 
     private var preview: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: -6) {
             LlamaLogo(size: 140, shadowColor: pickerColor)
 
             Text("Sample Recipe Title")
@@ -109,7 +124,8 @@ struct AccentColorPicker: View {
             }
             .padding(.top, 2)
         }
-        .padding(.vertical, AppSpacing.sm)
+        .padding(.top, 2)
+        .padding(.bottom, AppSpacing.sm)
         .padding(.horizontal, AppSpacing.md)
         .frame(maxWidth: .infinity)
         .background(
