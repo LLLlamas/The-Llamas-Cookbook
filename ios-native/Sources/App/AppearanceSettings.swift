@@ -22,7 +22,18 @@ final class AppearanceSettings {
     var accentColor: Color = AppColor.accent {
         didSet {
             persist()
-            applyToUIKit()
+            // Defer the UIView.appearance() write off the synchronous
+            // setter. While the system UIColorPickerViewController is
+            // presented, mutating the global appearance proxy in-line
+            // re-snapshots the live picker's selectedColor against the
+            // binding's pre-write value and detaches subsequent picks
+            // from the SwiftUI writeback — the user's first pick lands,
+            // then every later pick in the same session is silently
+            // dropped. Async-hopping to the next runloop tick lets the
+            // binding write settle before UIKit reaches into appearance.
+            DispatchQueue.main.async { [weak self] in
+                self?.applyToUIKit()
+            }
             if !isInitializing, let hex = accentColor.toHex {
                 UserProfileMirror.updateAccent(hex)
             }
