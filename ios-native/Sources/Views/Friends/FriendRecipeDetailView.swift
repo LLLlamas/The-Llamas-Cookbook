@@ -603,6 +603,16 @@ struct FriendRecipeDetailView: View {
         // types we can copy out cheaply.
         writeImportAuditRow(for: newRecipe)
 
+        // Fire the fly-to-tab ghost + "Saved" toast affordance.
+        // Carries the friend's accent so the toast tints
+        // consistently regardless of where the overlay decodes it.
+        // Set BEFORE `pendingImportedRecipeID` so the toast overlay
+        // sees its signal before the sheet-dismiss / Detail-push
+        // cascade pulls focus.
+        navContext.pendingFriendImportToast = FriendImportToast(
+            accentHex: friend.accentHex
+        )
+
         // Trigger the cross-sheet navigation. LibraryView's
         // `.onChange(pendingImportedRecipeID)` dismisses the
         // Profile sheet; RootView's same observer runs the

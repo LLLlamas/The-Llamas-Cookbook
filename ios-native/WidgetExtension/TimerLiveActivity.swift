@@ -35,7 +35,7 @@ struct TimerLiveActivity: Widget {
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 6) {
-                        llamaMark(size: 22)
+                        profileLlamaMark(size: 22)
                         Text((context.attributes.metadata?.label ?? "timer").capitalized)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(TimerWidgetColor.textPrimary)
@@ -61,14 +61,14 @@ struct TimerLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                llamaMark(size: 18)
+                profileLlamaMark(size: 18)
             } compactTrailing: {
                 countdownText(for: context, font: .system(size: 13, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(TimerWidgetColor.accent)
                     .frame(maxWidth: 50)
             } minimal: {
-                llamaMark(size: 18)
+                profileLlamaMark(size: 18)
             }
             .keylineTint(TimerWidgetColor.accent)
         }

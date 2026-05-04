@@ -36,7 +36,55 @@ struct RootView: View {
     /// tab) without restructuring.
     @State private var selectedTab: AppTab = .home
 
+    /// Active payload for the friend-import "Saved" toast + fly
+    /// ghost. Mirrored locally from `navContext.pendingFriendImportToast`
+    /// so the overlay can drive its own springs without re-reading
+    /// the @Observable on every layout pass. Cleared at the end of
+    /// the affordance sequence.
+    @State private var activeFriendImportToast: FriendImportToast?
+    /// Drives the ghost's spring source → destination on appear.
+    /// Flipped from false to true immediately after mount.
+    @State private var ghostFlying: Bool = false
+    /// Bump-counter that drives the home-tab glow-marker shake when
+    /// the fly ghost lands. Tab item icons themselves are rendered by
+    /// UIKit (UITabBarItem) and ignore SwiftUI shake/shadow modifiers,
+    /// so we shake the SwiftUI overlay marker instead — same visual
+    /// signal anchored on the same screen position.
+    @State private var homeTabShakeCount: CGFloat = 0
+
     var body: some View {
+        tabViewBody
+            .overlay(alignment: .bottom) {
+                // Active-tab dropshadow glow + home-tab shake marker.
+                // SwiftUI tab bar items are rendered by UIKit
+                // (UITabBarItem), which ignores SwiftUI shadow /
+                // shake / overlay modifiers — drawing our own glow
+                // anchored to the active tab's center is the
+                // SwiftUI-native escape hatch and is also what gets
+                // shaken when the friend-import ghost lands. Lives in
+                // a single overlay so the tab geometry math is
+                // computed once.
+                tabBarOverlay
+            }
+            .overlay {
+                // Friend-import "Saved" toast + fly-ghost. Z-stack
+                // overlay on top of everything (TabView + tab-bar
+                // glow) so the ghost flight reads cleanly across the
+                // sheet-dismiss + Detail-push cascade that fires
+                // immediately afterward.
+                friendImportToastOverlay
+            }
+            .onChange(of: navContext.pendingFriendImportToast) { _, payload in
+                guard let payload else { return }
+                // Pop the signal off navContext immediately — we've
+                // captured it locally; further UI sequencing happens
+                // inside `runFriendImportToast`.
+                navContext.pendingFriendImportToast = nil
+                runFriendImportToast(payload)
+            }
+    }
+
+    private var tabViewBody: some View {
         TabView(selection: tabSelection) {
             NavigationStack(path: $libraryPath) {
                 LibraryView()
@@ -380,6 +428,153 @@ struct RootView: View {
             Button("Discard", role: .destructive) { editor.confirmDiscard() }
         } message: { _ in
             Text("You have unsaved changes. Leaving will lose them.")
+        }
+    }
+
+    // MARK: - Tab overlay (active-tab glow + import-ghost shake target)
+
+    /// Soft accent-tinted glow positioned under the currently active
+    /// tab's icon, plus the shake-bump target for the friend-import
+    /// affordance. Three tabs split the bottom bar evenly: Home at
+    /// width × 1/6, Friends at width × 1/2, Me at width × 5/6. Tab
+    /// bar height is ~49pt + safe-area bottom inset; the glow sits
+    /// roughly over the icon's vertical center, ~22pt up from the
+    /// safe-area bottom.
+    private var tabBarOverlay: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let centerX: CGFloat
+            switch selectedTab {
+            case .home:    centerX = width * (1.0 / 6.0)
+            case .friends: centerX = width * (3.0 / 6.0)
+            case .me:      centerX = width * (5.0 / 6.0)
+            }
+            // Vertical offset from the bottom edge of the proxy: tab
+            // bar icons sit roughly 22pt above the safe-area bottom
+            // anchor in iOS 26. The overlay attaches at `.bottom`
+            // alignment so we draw upward from the bottom edge.
+            let bottomAnchor = proxy.size.height
+            let iconCenterY = bottomAnchor - proxy.safeAreaInsets.bottom - 22
+
+            ZStack {
+                Circle()
+                    .fill(appearance.accentColor.opacity(0.6))
+                    .frame(width: 28, height: 28)
+                    .blur(radius: 8)
+                    .position(x: centerX, y: iconCenterY)
+                    .shake(count: selectedTab == .home ? homeTabShakeCount : 0)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75),
+                               value: selectedTab)
+            }
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// Friend-import "Saved" toast + fly-ghost overlay. Source +
+    /// destination are hardcoded screen-relative anchors (top-trailing
+    /// for the import-toolbar button, bottom-leading for the Home tab)
+    /// — see `SavedToast.swift` for why we don't thread frames across
+    /// the Profile-sheet → NavigationStack hierarchy for a 600ms
+    /// transient.
+    private var friendImportToastOverlay: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+            let topInset = proxy.safeAreaInsets.top
+            let bottomInset = proxy.safeAreaInsets.bottom
+
+            let source = CGPoint(
+                x: width - AppSpacing.xl - 8,
+                y: topInset + 28
+            )
+            let destination = CGPoint(
+                x: width * (1.0 / 6.0),
+                y: height - bottomInset - 22
+            )
+            let toastAccent = resolveToastAccent(activeFriendImportToast?.accentHex)
+
+            ZStack(alignment: .top) {
+                // Transparent sizer so the GeometryReader fills the
+                // window without intercepting taps.
+                Color.clear
+
+                if let _ = activeFriendImportToast {
+                    SavedToast(accent: toastAccent)
+                        .padding(.top, topInset + AppSpacing.md)
+                        .transition(
+                            .move(edge: .top)
+                                .combined(with: .opacity)
+                        )
+
+                    ImportFlyGhost(
+                        source: source,
+                        destination: destination,
+                        accent: toastAccent,
+                        isFlying: ghostFlying
+                    )
+                    .animation(
+                        .spring(response: 0.55, dampingFraction: 0.78),
+                        value: ghostFlying
+                    )
+                }
+            }
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .animation(.spring(response: 0.42, dampingFraction: 0.82),
+                   value: activeFriendImportToast)
+    }
+
+    private func resolveToastAccent(_ hex: String?) -> Color {
+        if let hex, let color = Color(hex: hex) { return color }
+        return appearance.accentColor
+    }
+
+    /// Coordinates the friend-import "Saved" affordance:
+    ///   1. Show toast + ghost at source (instant).
+    ///   2. Spring ghost to destination (~600ms via the binding flip).
+    ///   3. On landing, bump `homeTabShakeCount` and fire success haptic.
+    ///   4. Linger toast briefly past the landing so the user reads
+    ///      "Saved" after the ghost arrives.
+    ///   5. Tear everything down.
+    @MainActor
+    private func runFriendImportToast(_ payload: FriendImportToast) {
+        // Reset spring source position before mount — without this, a
+        // back-to-back import would start the ghost from its previous
+        // destination.
+        ghostFlying = false
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+            activeFriendImportToast = payload
+        }
+        // Kick the spring on the next runloop tick so SwiftUI has a
+        // chance to mount the ghost at `source` before we flip
+        // `ghostFlying = true` and let the spring carry it to
+        // `destination`. Without the hop, both states collapse into
+        // the same layout pass and the ghost teleports.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(20))
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
+                ghostFlying = true
+            }
+            // Land time matches the spring response above plus a beat
+            // for the spring to settle. ~580ms feels right; the
+            // home-tab shake fires here so the wobble lands with the
+            // ghost rather than after.
+            try? await Task.sleep(for: .milliseconds(580))
+            Haptics.success()
+            homeTabShakeCount += 1
+            // Toast lingers ~450ms past the landing so the user has
+            // time to read "Saved" after their eye has tracked the
+            // ghost down to the tab.
+            try? await Task.sleep(for: .milliseconds(450))
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.85)) {
+                activeFriendImportToast = nil
+            }
+            ghostFlying = false
         }
     }
 

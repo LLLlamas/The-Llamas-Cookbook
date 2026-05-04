@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Lightweight signal of "which recipe is the user currently viewing
 /// in Detail?" Lives at the app root and gets read by the cooking
@@ -61,4 +62,31 @@ final class NavigationContext {
     /// reset step. Sort is intentionally *not* part of the reset —
     /// `library.sort.v1` is a sticky user preference.
     var goHomeRequestedAt: Date?
+
+    /// Friend-import "Saved" affordance signal. Set by
+    /// `FriendRecipeDetailView.performImport` immediately after the
+    /// local SwiftData save succeeds, alongside the existing
+    /// `pendingImportedRecipeID` push. RootView's overlay observes a
+    /// non-nil value, fires the fly-to-tab ghost + spring "Saved"
+    /// toast tinted in the friend's accent, and bumps the home-tab
+    /// shake marker when the ghost lands. Cleared at the end of the
+    /// affordance sequence so a rapid second import re-triggers.
+    ///
+    /// Scoped to the friend-import path on purpose — share-link and
+    /// scratch-entry saves keep their existing
+    /// `runPostSaveHighlight`-only behavior.
+    var pendingFriendImportToast: FriendImportToast?
+}
+
+/// Payload for the post-friend-import "Saved" toast + fly affordance.
+/// Carries the friend's accent so the toast can tint without
+/// re-resolving the friend snapshot at the overlay layer.
+struct FriendImportToast: Equatable {
+    let id: UUID
+    let accentHex: String?
+
+    init(accentHex: String?) {
+        self.id = UUID()
+        self.accentHex = accentHex
+    }
 }
