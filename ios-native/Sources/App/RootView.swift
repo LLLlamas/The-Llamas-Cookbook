@@ -443,12 +443,13 @@ struct RootView: View {
     private var tabBarOverlay: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
-            let centerX: CGFloat
-            switch selectedTab {
-            case .home:    centerX = width * (1.0 / 6.0)
-            case .friends: centerX = width * (3.0 / 6.0)
-            case .me:      centerX = width * (5.0 / 6.0)
-            }
+            let centerX: CGFloat = {
+                switch selectedTab {
+                case .home:    return width * (1.0 / 6.0)
+                case .friends: return width * (3.0 / 6.0)
+                case .me:      return width * (5.0 / 6.0)
+                }
+            }()
             // Vertical offset from the bottom edge of the proxy: tab
             // bar icons sit roughly 22pt above the safe-area bottom
             // anchor in iOS 26. The overlay attaches at `.bottom`
