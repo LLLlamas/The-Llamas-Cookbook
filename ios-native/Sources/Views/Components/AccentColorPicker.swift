@@ -9,7 +9,14 @@ import SwiftUI
 /// sample title, and a heart all retint in real time. Reset returns to
 /// the default terracotta.
 struct AccentColorPicker: View {
-    @Bindable var settings: AppearanceSettings
+    // settings is passed explicitly by callers AND injected via
+    // .environment(appearance) at every call site. We read from
+    // @Environment here so that iOS 26's @Observable environment
+    // re-injection actually takes effect for the preview section —
+    // without this, the observation subscription can drop when the
+    // system UIColorPickerViewController is presented on top of this
+    // sheet, causing the preview to stop updating after the first pick.
+    @Environment(AppearanceSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     // Local state drives the ColorPicker binding. Writing directly to
@@ -55,8 +62,8 @@ struct AccentColorPicker: View {
             .padding(AppSpacing.lg)
             .padding(.bottom, AppSpacing.sm)
             .llamaBackground()
-            .navigationTitle("Customize")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .tint(settings.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

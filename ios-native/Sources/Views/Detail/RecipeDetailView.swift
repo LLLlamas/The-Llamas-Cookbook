@@ -349,7 +349,7 @@ struct RecipeDetailView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingAppearance) {
-            AccentColorPicker(settings: appearance)
+            AccentColorPicker()
                 .environment(appearance)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
