@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct RootView: View {
     @Environment(AppearanceSettings.self) private var appearance
@@ -45,27 +46,31 @@ struct RootView: View {
     /// Drives the ghost's spring source → destination on appear.
     /// Flipped from false to true immediately after mount.
     @State private var ghostFlying: Bool = false
-    /// Bump-counter that drives the home-tab glow-marker shake when
-    /// the fly ghost lands. Tab item icons themselves are rendered by
-    /// UIKit (UITabBarItem) and ignore SwiftUI shake/shadow modifiers,
-    /// so we shake the SwiftUI overlay marker instead — same visual
-    /// signal anchored on the same screen position.
-    @State private var homeTabShakeCount: CGFloat = 0
+
+    init() {
+        Self.configureTabBarAppearance()
+    }
+
+    /// Bolds the title of the currently selected tab via UIKit's
+    /// appearance proxy. SwiftUI's `tabItem` doesn't expose a
+    /// per-state font hook, so we override the selected state's
+    /// font on `UITabBarAppearance` and let the system continue to
+    /// resolve the selected tint color via `.tint(...)`. Idempotent
+    /// — re-running on a re-init is harmless. Inheriting the rest
+    /// of `UITabBarAppearance()`'s defaults preserves iOS 26 Liquid
+    /// Glass background styling.
+    private static func configureTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        let selectedFont = UIFont.systemFont(ofSize: 10, weight: .bold)
+        appearance.stackedLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
+        appearance.inlineLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
+        appearance.compactInlineLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
 
     var body: some View {
         tabViewBody
-            .overlay(alignment: .bottom) {
-                // Active-tab dropshadow glow + home-tab shake marker.
-                // SwiftUI tab bar items are rendered by UIKit
-                // (UITabBarItem), which ignores SwiftUI shadow /
-                // shake / overlay modifiers — drawing our own glow
-                // anchored to the active tab's center is the
-                // SwiftUI-native escape hatch and is also what gets
-                // shaken when the friend-import ghost lands. Lives in
-                // a single overlay so the tab geometry math is
-                // computed once.
-                tabBarOverlay
-            }
             .overlay {
                 // Friend-import "Saved" toast + fly-ghost. Z-stack
                 // overlay on top of everything (TabView + tab-bar
@@ -431,49 +436,6 @@ struct RootView: View {
         }
     }
 
-    // MARK: - Tab overlay (active-tab glow + import-ghost shake target)
-
-    /// Soft accent-tinted glow positioned under the currently active
-    /// tab's icon, plus the shake-bump target for the friend-import
-    /// affordance. Three tabs split the bottom bar evenly: Home at
-    /// width × 1/6, Friends at width × 1/2, Me at width × 5/6. Tab
-    /// bar height is ~49pt + safe-area bottom inset; the glow sits
-    /// roughly over the icon's vertical center, ~22pt up from the
-    /// safe-area bottom.
-    private var tabBarOverlay: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            let centerX: CGFloat = {
-                switch selectedTab {
-                case .home:    return width * (1.0 / 6.0)
-                case .friends: return width * (3.0 / 6.0)
-                case .me:      return width * (5.0 / 6.0)
-                }
-            }()
-            // Vertical offset from the bottom edge of the proxy: tab
-            // bar icons sit roughly 22pt above the safe-area bottom
-            // anchor in iOS 26. The overlay attaches at `.bottom`
-            // alignment so we draw upward from the bottom edge.
-            let bottomAnchor = proxy.size.height
-            let iconCenterY = bottomAnchor - proxy.safeAreaInsets.bottom - 22
-
-            ZStack {
-                Circle()
-                    .fill(appearance.accentColor.opacity(0.6))
-                    .frame(width: 28, height: 28)
-                    .blur(radius: 8)
-                    .position(x: centerX, y: iconCenterY)
-                    .shake(count: selectedTab == .home ? homeTabShakeCount : 0)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75),
-                               value: selectedTab)
-            }
-            .allowsHitTesting(false)
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
     /// Friend-import "Saved" toast + fly-ghost overlay. Source +
     /// destination are hardcoded screen-relative anchors (top-trailing
     /// for the import-toolbar button, bottom-leading for the Home tab)
@@ -538,7 +500,7 @@ struct RootView: View {
     /// Coordinates the friend-import "Saved" affordance:
     ///   1. Show toast + ghost at source (instant).
     ///   2. Spring ghost to destination (~600ms via the binding flip).
-    ///   3. On landing, bump `homeTabShakeCount` and fire success haptic.
+    ///   3. On landing, fire a success haptic.
     ///   4. Linger toast briefly past the landing so the user reads
     ///      "Saved" after the ghost arrives.
     ///   5. Tear everything down.
@@ -563,11 +525,10 @@ struct RootView: View {
             }
             // Land time matches the spring response above plus a beat
             // for the spring to settle. ~580ms feels right; the
-            // home-tab shake fires here so the wobble lands with the
+            // success haptic fires here so the buzz lands with the
             // ghost rather than after.
             try? await Task.sleep(for: .milliseconds(580))
             Haptics.success()
-            homeTabShakeCount += 1
             // Toast lingers ~450ms past the landing so the user has
             // time to read "Saved" after their eye has tracked the
             // ghost down to the tab.

@@ -29,13 +29,10 @@ final class ShareViewController: UIViewController {
     private static let llamaRecipeUTI = "com.llamascookbook.recipe"
 
     /// Hard cap on `.llamarecipe` bytes the extension will commit to
-    /// the App Group inbox. Mirrors `RecipeShare.maxInboundBytes` (the
-    /// main app's decode-time cap) so a hostile 500 MB attachment
-    /// never even hits disk in our App Group container — much less
-    /// the main app's memory. The extension can't import
-    /// `Sources/Lib/RecipeShare.swift` (SwiftData drag), so we
-    /// duplicate the literal here; if either changes, both must.
-    private static let maxInboundBytes = 25_000_000
+    /// the App Group inbox. Pulls the value from the shared
+    /// `RecipeShareLimits` so the extension's pre-write cap and the
+    /// main app's decode-time cap can never drift apart.
+    private static let maxInboundBytes = RecipeShareLimits.maxInboundBytes
 
     override func viewDidLoad() {
         super.viewDidLoad()

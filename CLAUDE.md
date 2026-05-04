@@ -2,7 +2,7 @@
 
 Source of truth for agents. Code wins when this disagrees.
 
-Last refreshed: 2026-05-04.
+Last refreshed: 2026-05-05.
 
 ## Status
 
@@ -10,12 +10,11 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 
 ## Open work
 
-- Verify Universal Links on real devices, then drop the `cloudShareError` diagnostic alert in `RecipeDetailView`.
+- Verify Universal Links on real devices.
 - AlarmKit: Per-cook `TimerLiveActivityRegistry` not yet implemented.
 - Aesthetic/type pass; adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.
-- Add CloudKit Console Security Role gating `UserProfile` queries to `_icloud` before TestFlight expands.
 - Server-side uniqueness for `Friendship(userA,userB)` — currently client-side dedup only.
-- Account-deletion cascade needs offline/interrupted re-test; non-share cascades are single-shot best-effort.
+- Account-deletion cascade: extend the persistent pending-delete queue (currently only on authored `RecipeShare`) to `Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile`, and CKQuerySubscriptions. Today those are single-shot best-effort and can strand records on a flaky network mid-cascade — App Review tests this path.
 - Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision` from dev box (currently gitignored, not committed, but still present on disk).
 - App Store privacy labels need a once-over against CloudKit/Cloudflare sharing.
 
@@ -120,6 +119,9 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - **`ImportCountCache`** lives in UserDefaults, not on `Recipe` — chip refreshes must not trigger SwiftData change notifications that cause spurious `LibraryMirrorService` re-publishes.
 - **AlarmKit** owns the cook-timer lock-screen alert and Live Activity countdown. `TimerNotifications.schedule/cancel` wraps `AlarmManager.shared`. Widget renders `AlarmAttributes<TimerAlarmMetadata>` directly.
 - **App Group identifier** `group.com.llamascookbook.app` must match: `SharedContainer.appGroupID`, main app entitlements, share extension entitlements, and portal profiles — four places, one string.
+- **HEIC photos transcode to JPEG before upload to `RecipeShare`** (`ImageProcessing.transcodeHEICToJPEGForSharing`, called from `CloudKitService.uploadShare`). Local SwiftData stays HEIC; only the share-bound copy is JPEG so non-Apple link unfurlers (WhatsApp, Slack, Discord, Chrome) can preview the photo.
+- **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` is the single source of truth for the 25 MB inbound cap. Both `RecipeShare.maxInboundBytes` (main app) and `ShareViewController.maxInboundBytes` (share extension) reference it — do not reintroduce duplicated literals.
+- **Cloud-share failures show "try again later"** — `RecipeDetailView.shareViaPreferredTransport` aborts with an alert when iCloud is unavailable or upload fails. No long-URL fallback. The "Share recipe" menu only ever produces an HTTPS Universal Link permalink.
 
 ## CloudKit schema
 

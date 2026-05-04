@@ -392,7 +392,7 @@ enum RecipeShare {
     /// `.llamarecipe` from OOM-killing the app on lower-end devices.
     /// Also blocks a decompression-bomb attack on the URL form (a
     /// small base64 payload that lzma-expands to gigabytes).
-    static let maxInboundBytes = 25_000_000
+    static let maxInboundBytes = RecipeShareLimits.maxInboundBytes
 
     /// Hard cap on the sender's display name (`sharedBy` in the
     /// envelope, `senderDisplayName` on the CloudKit record). 40

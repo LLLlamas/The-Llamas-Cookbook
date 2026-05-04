@@ -34,11 +34,13 @@
     <!--
       iCloud / CloudKit — recipe-share permalink hosting. Sender
       uploads the share envelope (with photos as CKAsset) to the
-      public DB, gets back a random 6-char record ID, mints
-      `llamascookbook://share/<id>` and ships that to the recipient.
-      Recipient fetches by record ID; no Llamas Cookbook account
-      required on the receive side, only a system iCloud account
-      (which iPhone users effectively always have).
+      public DB, gets back a random 12-char record ID, mints
+      `https://llamascookbook.pages.dev/r/<id>` (HTTPS Universal
+      Link, AASA-routed back into the app) and ships that to the
+      recipient. Recipient fetches by record ID; no Llamas
+      Cookbook account required on the receive side, only a
+      system iCloud account (which iPhone users effectively
+      always have).
 
       Same portal+profile dance as Sign in with Apple above:
       capability enabled on the App ID in Apple Developer Portal,
