@@ -459,16 +459,17 @@ struct RootView: View {
             )
             let toastAccent = resolveToastAccent(activeFriendImportToast?.accentHex)
 
-            ZStack(alignment: .top) {
+            ZStack {
                 // Transparent sizer so the GeometryReader fills the
                 // window without intercepting taps.
                 Color.clear
 
                 if let _ = activeFriendImportToast {
-                    SavedToast(accent: toastAccent)
-                        .padding(.top, topInset + AppSpacing.md)
+                    // Centered iOS-screen-capture-style badge: scales
+                    // up from a small footprint and fades in.
+                    SavedToast()
                         .transition(
-                            .move(edge: .top)
+                            .scale(scale: 0.7)
                                 .combined(with: .opacity)
                         )
 

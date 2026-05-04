@@ -7,35 +7,33 @@ import SwiftUI
 ///      Import toolbar button lives) toward a bottom-leading anchor
 ///      (where the Home tab sits in the bottom bar). Lands after
 ///      ~600ms.
-///   2. `SavedToast` — a "Saved" pill with a `tray.and.arrow.down.fill`
-///      glyph, tinted in the friend's accent at slight transparency.
-///      Springs in from the top, lingers ~900–1100ms, then springs
-///      back out — slightly outlasting the ghost so the user reads
-///      the confirmation after the ghost arrives.
+///   2. `SavedToast` — a circular dark badge with a thin white border
+///      and a `bookmark.fill` glyph (the same icon used for the friend
+///      "Saves" count on friend cards, so the eye reads them as the
+///      same semantic). Mounts at screen center and pulses in/out.
 ///
 /// Both are scoped to the friend-import path; they're driven by a
 /// single `FriendImportToast` payload on `NavigationContext`.
 
 // MARK: - Saved toast
 
+/// Centered badge in the iOS screen-capture / "delivered" idiom: solid
+/// dark fill, thin white ring, big white glyph. Deliberately icon-only
+/// so it reads at a glance — the surrounding fly animation supplies
+/// the semantic context.
 struct SavedToast: View {
-    /// Friend's resolved accent — falls back to the user's accent when
-    /// the friend snapshot didn't carry a hex.
-    let accent: Color
-
     var body: some View {
-        HStack(spacing: AppSpacing.sm) {
-            Image(systemName: "tray.and.arrow.down.fill")
-                .font(.system(size: 14, weight: .bold))
-            Text("Saved")
-                .font(.system(size: 15, weight: .semibold, design: .serif))
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.78))
+            Circle()
+                .strokeBorder(Color.white.opacity(0.95), lineWidth: 1.5)
+            Image(systemName: "bookmark.fill")
+                .font(.system(size: 36, weight: .semibold))
+                .foregroundStyle(.white)
         }
-        .foregroundStyle(AppColor.onAccent)
-        .padding(.horizontal, AppSpacing.lg)
-        .padding(.vertical, AppSpacing.sm + 2)
-        .background(accent.opacity(0.88))
-        .clipShape(Capsule())
-        .shadow(color: AppColor.shadow, radius: 10, x: 0, y: 4)
+        .frame(width: 92, height: 92)
+        .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
         .accessibilityLabel("Saved to your cookbook")
     }
 }
@@ -44,8 +42,9 @@ struct SavedToast: View {
 
 /// Animatable token that flies from `source` to `destination` in
 /// screen coordinates over `duration`. Renders a small accent-tinted
-/// circle wrapping a `tray.and.arrow.down.fill` glyph — same icon as
-/// the toast, so the eye reads them as the same affordance.
+/// circle wrapping a `bookmark.fill` glyph — same icon used on friend
+/// cards' "Saves" count and on the centered toast, so the affordance
+/// reads as one continuous gesture.
 ///
 /// Source/destination are passed in screen coords; the parent overlay
 /// owns hardcoded anchors (top-trailing for the FriendRecipeDetail
@@ -72,7 +71,7 @@ struct ImportFlyGhost: View {
                 .fill(accent.opacity(0.92))
                 .frame(width: 32, height: 32)
                 .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 2)
-            Image(systemName: "tray.and.arrow.down.fill")
+            Image(systemName: "bookmark.fill")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(AppColor.onAccent)
         }
