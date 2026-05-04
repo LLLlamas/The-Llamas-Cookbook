@@ -5,11 +5,16 @@ import UIKit
 /// glow around the current step's tagged field (same drop-shadow
 /// silhouette as `LlamaLogo`'s halo), parks a llama + bubble above
 /// the field with the bubble's tail pointing down at it, and floats
-/// the Skip · Back · indicator · Next controls directly below the
-/// field. When the target is too close to the top to fit the bubble
-/// above (e.g. step 1 hero, step 11 toolbar Save button), the
-/// bubble drops below the target and the controls roll into the
+/// the Back · indicator · Next controls directly below the field.
+/// When the target is too close to the top to fit the bubble above,
+/// the bubble drops below the target and the controls roll into the
 /// cluster's VStack so the whole walkthrough still fits.
+///
+/// The dim + halo layers are non-hit-testing — touches fall through
+/// to the editor fields underneath, so the user types directly into
+/// the real draft as the tour progresses. Only the bubble + controls
+/// catch taps. There is no Skip button: finishing the walkthrough is
+/// the dismissal, and the user has built up a real recipe by then.
 ///
 /// The host owns the preference read — anchor preferences from
 /// `.tourTarget` modifiers in toolbar items don't reliably propagate
@@ -55,6 +60,7 @@ struct LlamaIntroOverlay: View {
             ZStack {
                 dimLayer(cutout: frame, in: safeArea)
                     .ignoresSafeArea()
+                    .allowsHitTesting(false)
 
                 if let frame {
                     haloGlow(around: frame)
@@ -99,8 +105,6 @@ struct LlamaIntroOverlay: View {
             context.fill(path, with: .color(.black.opacity(0.55)), style: FillStyle(eoFill: true))
         }
         .frame(width: bounds.width, height: bounds.height)
-        .contentShape(Rectangle())
-        .onTapGesture { /* swallow taps so the host doesn't react beneath the dim */ }
     }
 
     /// Steady accent halo around the cutout, shaped like
@@ -395,30 +399,13 @@ struct LlamaIntroOverlay: View {
 
     // MARK: - Controls
 
-    /// Skip · Back · indicator · Next. Skip stays a low-emphasis
-    /// text link on the left so the row's primary visual weight
-    /// sits on the navigation cluster (back arrow, dots, next
-    /// arrow). Back and Next are both filled accent circles with
+    /// Back · indicator · Next. No Skip — the user is editing the
+    /// real recipe as they walk through, so finishing the tour is
+    /// the dismissal. Back and Next are filled accent circles with
     /// just an arrow glyph; the last step swaps Next for a "Got
     /// it!" pill so the user reads "I'm done" rather than "next."
     private var controlsBar: some View {
         HStack(spacing: AppSpacing.sm) {
-            Button {
-                Haptics.selection()
-                finish()
-            } label: {
-                Text("Skip")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(AppColor.textSecondary)
-                    .padding(.horizontal, AppSpacing.sm)
-                    .padding(.vertical, AppSpacing.xs)
-                    .frame(minHeight: 36)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Skip walkthrough")
-
-            Spacer(minLength: AppSpacing.xs)
-
             backButton
 
             stepIndicator
