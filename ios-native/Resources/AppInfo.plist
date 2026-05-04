@@ -75,6 +75,16 @@
     -->
     <key>NSCameraUsageDescription</key>
     <string>Llamas Cookbook uses the camera to scan recipe pages. The photos stay on your device.</string>
+    <!--
+      AlarmKit usage description (iOS 26+). Required before
+      `AlarmManager.shared.requestAuthorization()` can prompt; the
+      copy here is what the user sees in the system permission
+      dialog. Cooking timers route through AlarmKit so the alert
+      fires on the lock screen, in another app, and in Silent mode
+      without needing the Critical Alerts entitlement.
+    -->
+    <key>NSAlarmKitUsageDescription</key>
+    <string>Llamas Cookbook uses alarms so cooking timers reach you even when the app isn't open or the phone is silenced.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

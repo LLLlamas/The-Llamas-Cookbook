@@ -175,12 +175,14 @@ struct LetterIndex: View {
 
 extension LetterIndex {
     /// Shared alphabet used by both Library and Friends lists. `#`
-    /// at the bottom catches anything that doesn't sort under a letter
-    /// (numerics, emoji-leading names, etc.) — matches LibraryView's
-    /// pre-extraction ordering, so the visual strip stays unchanged.
+    /// at the top catches anything that doesn't sort under a letter
+    /// (numerics, emoji-leading names, etc.). Top-bucket placement so
+    /// the non-letter group reads as the "before A" pile rather than
+    /// the dangling "after Z" tail — and tapping `#` with no non-letter
+    /// items falls through to A via the ordered `firstAtOrAfter` walk.
     static let allLetters: [String] = {
         let az = (0..<26).map { String(UnicodeScalar(UInt8(65 + $0))) }
-        return az + ["#"]
+        return ["#"] + az
     }()
 
     /// First letter of `name` uppercased, or `#` for non-letter starts

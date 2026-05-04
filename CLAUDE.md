@@ -26,7 +26,7 @@ Open work:
 
 ## Stack
 
-- Swift 5.10, SwiftUI, SwiftData, iOS 18+ deploy, iOS 26 SDK build.
+- Swift 5.10, SwiftUI, SwiftData, iOS 26+ deploy, iOS 26 SDK build.
 - App version: `MARKETING_VERSION = 0.1.0` in `ios-native/project.yml`; CI overrides `CURRENT_PROJECT_VERSION` per archive.
 - XcodeGen project: `ios-native/project.yml`. Do not hand-edit generated Xcode files.
 - CI only from Windows. Do not run `xcodegen`, `xcodebuild`, CocoaPods, or local previews here.
@@ -43,7 +43,7 @@ Open work:
 - Library/import: `Views/Library/`, `Lib/RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`.
 - Detail/share: `Views/Detail/RecipeDetailView.swift`, `Views/Detail/ImportersListSheet.swift`, `Views/Detail/AttributionSheet.swift`, `Lib/RecipeShare.swift`, `Lib/CloudKitService.swift`, `Lib/ImportCountCache.swift`.
 - Friends/social: `App/FriendsStore.swift`, `App/UserAccount.swift`, `Lib/CloudKitFriendship.swift`, `CloudKitUserProfile.swift`, `CloudKitPublishedRecipe.swift`, `CloudKitRecipeImport.swift`, `CloudKitSubscriptions.swift`, `Lib/UserProfileMirror.swift`, `Lib/LibraryMirrorService.swift`, `Views/Friends/FriendLibraryView.swift`, `Views/Friends/FriendRecipeDetailView.swift`, `Views/Profile/ProfileView.swift`, `Views/Profile/AddFriendSheet.swift`.
-- Cook/timers: `Views/Cook/CookModeView.swift`, `App/CookingSession.swift`, `Lib/TimerNotifications.swift`, `Lib/TimerLiveActivityController.swift`, `Sources/Shared/TimerAttributes.swift`.
+- Cook/timers: `Views/Cook/CookModeView.swift`, `App/CookingSession.swift`, `Lib/TimerNotifications.swift` (AlarmKit-backed), `Sources/Shared/TimerAlarmMetadata.swift`, `WidgetExtension/TimerLiveActivity.swift`.
 - Share extension: `ios-native/ShareExtension/`, `Sources/Shared/SharedContainer.swift`, `Base64URL.swift`.
 - Web preview: `cloudflare-pages/functions/r/[id].js`, `functions/img/[id].js`, `lib/cloudkit.js`, `.well-known/apple-app-site-association`. (`lib/` lives at `cloudflare-pages/lib/`, not under `functions/` — Pages bundler follows the relative import.)
 
@@ -65,6 +65,7 @@ Open work:
 - `FriendsStore` is `@MainActor`-isolated. `refresh()` sets the `isRefreshing` flag synchronously before any await to defeat re-entrancy across `.task` + `.onChange` racers.
 - `LibraryMirrorService` is a `@MainActor` singleton with a per-`Recipe.id` 5s debounce; sign-out / delete-account paths reset the bulk-publish marker so a re-sign-in re-bulks.
 - `UserProfileMirror.cachedRecordID()` is the canonical "is this device bound to iCloud?" check. Every social write short-circuits when nil.
+- AlarmKit is the cook-timer fire-path backbone. `TimerNotifications.schedule/cancel` wraps `AlarmManager.shared` so the alert reaches the lock screen + Silent mode without the Critical Alerts entitlement, and AlarmKit owns the Live Activity countdown — the widget renders `AlarmAttributes<TimerAlarmMetadata>` directly.
 
 ## CloudKit posture
 

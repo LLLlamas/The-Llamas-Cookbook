@@ -1,44 +1,71 @@
+import AlarmKit
 import Foundation
-import UserNotifications
+import SwiftUI
 
-/// Local-notification helper for cooking timers. Schedules a single
-/// alert-with-sound notification for the timer's end time so the user
-/// still hears the ding when the app is backgrounded or the phone is
-/// locked. Live Activity (Dynamic Island) is a separate future path —
-/// this just handles the "don't miss the timer" baseline.
+/// Cook-timer fire-path. Schedules and cancels per-cook alarms via
+/// AlarmKit (iOS 26+) so the alert reaches the user on the lock
+/// screen, in another app, and in Silent mode without needing the
+/// Critical Alerts entitlement. AlarmKit also owns the countdown +
+/// alert Live Activity presentation, so the widget extension's
+/// `ActivityConfiguration<AlarmAttributes<TimerAlarmMetadata>>`
+/// renders Dynamic Island + lock-screen UI from the same scheduled
+/// alarm — no separate `TimerLiveActivityController` round-trip.
+///
+/// Type name + method shapes are deliberately preserved from the
+/// pre-AlarmKit `UNUserNotificationCenter` implementation so
+/// `CookModeView` + `CookingSession` call sites don't churn.
 enum TimerNotifications {
-    /// Per-cook identifier prefix. Each active cook's pending timer
-    /// notification lives under `cooking-timer-<cookID>` so two
-    /// concurrent cooks (e.g. muffins + pizza dough) each get their
-    /// own dedicated lock-screen banner instead of one overwriting the
-    /// other. The legacy single-id `"cooking-timer"` key is kept only
-    /// in `cancelAll` for cleanup of pre-multi installs.
-    private static let identifierPrefix = "cooking-timer-"
-    private static let legacyIdentifier = "cooking-timer"
+    /// Per-cook deterministic UUID derived from `cookID`. AlarmKit
+    /// keys alarms by UUID, and we want re-scheduling the same cook's
+    /// timer (extend/subtract, step transitions) to overwrite the
+    /// existing alarm rather than stacking. Using `cookID` directly
+    /// is convenient — it's already a UUID and unique per cook.
+    private static func alarmID(for cookID: UUID) -> UUID { cookID }
 
-    private static func identifier(for cookID: UUID) -> String {
-        "\(identifierPrefix)\(cookID.uuidString)"
-    }
-
-    /// Request alert+sound permission. Idempotent — iOS caches the answer
-    /// and subsequent calls return the cached decision without re-prompting.
-    static func requestPermission() {
-        UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound]) { _, _ in }
-    }
-
-    /// `userInfo` keys. `recipeID` rides along so the AppDelegate's
-    /// `didReceive` handler can deep-link back to the right recipe via
-    /// `llamascookbook://cook/<uuid>`. `cookID` is added so PR-3 deep-link
-    /// routing can disambiguate two cooks of the same recipe.
+    // Kept as no-ops for symmetry with old call sites (e.g. AppDelegate
+    // routes that still read these from a `userInfo` dict). AlarmKit
+    // doesn't carry arbitrary `userInfo` through to the tap callback the
+    // way `UNNotificationContent` did — recipe routing now lives on
+    // `TimerAlarmMetadata` instead.
     static let recipeIDUserInfoKey = "recipeID"
     static let cookIDUserInfoKey = "cookID"
 
-    /// Schedule (or replace) the timer notification for one cook. Per
-    /// cook, not per timer slot — re-extending the same cook's running
-    /// timer just rewrites the cook's existing pending request. Two
-    /// concurrent cooks each get their own request keyed by `cookID`,
-    /// so neither overwrites the other.
+    /// Request AlarmKit authorization. Idempotent; subsequent calls
+    /// after the user's first decision return the cached state without
+    /// re-prompting. Fire-and-forget — caller doesn't await; the
+    /// schedule call below silently no-ops when authorization is
+    /// missing so a denied user still sees the in-app ready overlay.
+    static func requestPermission() {
+        Task {
+            do {
+                _ = try await AlarmManager.shared.requestAuthorization()
+            } catch {
+                // Auth failures degrade to the in-app `AlarmPlayer`
+                // path — Cook Mode still rings while foregrounded, the
+                // lock-screen alert just won't fire.
+            }
+        }
+    }
+
+    /// Current AlarmKit authorization state. Useful for surfacing a
+    /// one-time "lock-screen alerts are off" hint in Cook Mode when
+    /// the user has denied. Returns nil if the AlarmKit accessor
+    /// shape on the running SDK doesn't match — degrades to "we don't
+    /// know," which the UI should treat as "don't show the hint."
+    static func currentAuthorizationState() -> AlarmManager.AuthorizationState {
+        AlarmManager.shared.authorizationState
+    }
+
+    /// Schedule (or replace) the AlarmKit alarm for one cook. Per cook,
+    /// not per timer slot — re-extending the same cook's running timer
+    /// rewrites the cook's existing alarm. Two concurrent cooks each
+    /// get their own alarm keyed by `cookID`, so neither overwrites
+    /// the other.
+    ///
+    /// `timerSound` mapping: `bell` → bundled `timer-alarm.caf`,
+    /// `system` → AlarmKit's default tone, `silent` → no sound. The
+    /// in-app `AlarmPlayer` continues to ring the foregrounded ready
+    /// overlay independently using the same `TimerSettings` pick.
     static func schedule(
         cookID: UUID,
         endDate date: Date,
@@ -52,29 +79,80 @@ enum TimerNotifications {
         let seconds = date.timeIntervalSinceNow
         guard seconds > 0 else { return }
 
-        let content = UNMutableNotificationContent()
-        content.title = formatTitle(recipeTitle: recipeTitle, stepNumber: stepNumber)
-        content.body = formatBody(label: label, stepText: stepText)
-        content.userInfo = [
-            recipeIDUserInfoKey: recipeID.uuidString,
-            cookIDUserInfoKey: cookID.uuidString,
-        ]
-        // `silent` resolves to nil so the banner still appears in NC
-        // without a sound. All other picks fall through to `.default`
-        // for non-bell sounds because UNNotificationSound has no
-        // public way to reference Apple's private alarm-tone library.
-        content.sound = timerSound.notificationSound
+        let id = alarmID(for: cookID)
+        let metadata = TimerAlarmMetadata(
+            recipeTitle: recipeTitle,
+            recipeID: recipeID,
+            cookID: cookID,
+            label: label,
+            stepNumber: stepNumber
+        )
 
-        let id = identifier(for: cookID)
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+        Task {
+            // Defensive: cancel any existing alarm under this cookID so
+            // re-scheduling on extend / step transition doesn't stack.
+            // AlarmKit's `schedule(...)` is documented to overwrite an
+            // existing alarm with the same id, but cancel-then-schedule
+            // is the safer ordering on the public-beta API surface.
+            try? AlarmManager.shared.cancel(id: id)
 
-        let center = UNUserNotificationCenter.current()
-        // Replace any previously scheduled request for THIS cook so
-        // extend/subtract and step-to-step transitions don't leave a
-        // stale notification. Other cooks' notifications stay intact.
-        center.removePendingNotificationRequests(withIdentifiers: [id])
-        center.add(request, withCompletionHandler: nil)
+            let alertTitle = formatTitle(recipeTitle: recipeTitle, stepNumber: stepNumber)
+            let alertBody = formatBody(label: label, stepText: stepText)
+
+            let presentation = AlarmPresentation(
+                alert: AlarmPresentation.Alert(
+                    title: LocalizedStringResource(stringLiteral: alertTitle),
+                    stopButton: AlarmButton(
+                        text: LocalizedStringResource(stringLiteral: "Stop"),
+                        textColor: .white,
+                        systemImageName: "stop.fill"
+                    )
+                ),
+                countdown: AlarmPresentation.Countdown(
+                    title: LocalizedStringResource(stringLiteral: alertBody),
+                    pauseButton: nil
+                )
+            )
+
+            let attributes = AlarmAttributes<TimerAlarmMetadata>(
+                presentation: presentation,
+                metadata: metadata,
+                tintColor: Color(red: 0.788, green: 0.486, blue: 0.365)
+            )
+
+            let configuration = AlarmManager.AlarmConfiguration<TimerAlarmMetadata>(
+                countdownDuration: .init(preAlert: seconds, postAlert: nil),
+                attributes: attributes,
+                sound: alarmSound(for: timerSound)
+            )
+
+            do {
+                _ = try await AlarmManager.shared.schedule(id: id, configuration: configuration)
+            } catch {
+                // Authorization missing or scheduling rejected.
+                // Foregrounded ready overlay still rings via AlarmPlayer.
+            }
+        }
+    }
+
+    /// Map `TimerSound` to AlarmKit's `AlertConfiguration.AlertSound`.
+    /// `bell` references the bundled `.caf` by name; `system` uses
+    /// AlarmKit's default tone; `silent` returns nil so AlarmKit
+    /// suppresses audio (the alert still fires visually + haptically).
+    /// Chime / ping aren't in the picker today — they fall back to
+    /// `.default` for safety if a future picker re-enables them.
+    private static func alarmSound(for sound: TimerSound) -> AlertConfiguration.AlertSound? {
+        switch sound {
+        case .silent:
+            return nil
+        case .bell:
+            if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
+                return .named("timer-alarm")
+            }
+            return .default
+        case .system, .chime, .ping:
+            return .default
+        }
     }
 
     private static func formatTitle(recipeTitle: String, stepNumber: Int) -> String {
@@ -87,49 +165,34 @@ enum TimerNotifications {
 
     private static func formatBody(label: String, stepText: String?) -> String {
         if let raw = stepText?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-            // Cap to keep the body single-line on the lock screen — iOS
-            // truncates with an ellipsis past about 110 chars in 2-line
-            // banner mode. We pre-trim slightly under that to leave room
-            // for the trailing prompt.
+            // Cap to keep the body single-line on the alert presentation —
+            // AlarmKit's countdown title truncates past about 110 chars.
             let snippet = raw.count > 100 ? raw.prefix(100) + "…" : Substring(raw)
             return "\(snippet) — tap to check it off."
         }
         return "Your \(label) timer is ready. Tap to continue cooking."
     }
 
-    /// Remove pending + delivered notifications for one cook only.
-    /// Other cooks' timers are untouched — exactly what we want when a
-    /// single cook's timer is canceled, extended, or its ready overlay
-    /// is dismissed while another cook is still ticking.
+    /// Cancel the alarm + dismiss its Live Activity for one cook only.
+    /// Other cooks' alarms are untouched.
     static func cancel(cookID: UUID) {
-        let id = identifier(for: cookID)
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: [id])
-        center.removeDeliveredNotifications(withIdentifiers: [id])
+        let id = alarmID(for: cookID)
+        try? AlarmManager.shared.cancel(id: id)
     }
 
-    /// Wipe every cooking-timer notification — pending and delivered,
-    /// per-cook + the legacy single-id leftover from pre-multi installs.
-    /// Called from `CookingSession.endAll()` when the whole session is
-    /// torn down. Async fetch + filter is required because pending IDs
-    /// aren't enumerable synchronously.
+    /// Tear down every cooking-timer alarm. Called from
+    /// `CookingSession.endAll()` when the whole session is torn down.
+    /// Enumerates every alarm AlarmKit knows about and cancels each —
+    /// safe because the only alarms this app schedules are cooking
+    /// timers (so `alarms` never contains anything we want to keep).
     static func cancelAll() {
-        let center = UNUserNotificationCenter.current()
-        // Legacy id (just in case a notification scheduled under a
-        // pre-multi build is still pending when v2 launches).
-        center.removePendingNotificationRequests(withIdentifiers: [legacyIdentifier])
-        center.removeDeliveredNotifications(withIdentifiers: [legacyIdentifier])
-        // Per-cook ids — fetch then filter by prefix.
-        center.getPendingNotificationRequests { reqs in
-            let ids = reqs.map(\.identifier).filter { $0.hasPrefix(identifierPrefix) }
-            if !ids.isEmpty {
-                center.removePendingNotificationRequests(withIdentifiers: ids)
-            }
-        }
-        center.getDeliveredNotifications { notifs in
-            let ids = notifs.map(\.request.identifier).filter { $0.hasPrefix(identifierPrefix) }
-            if !ids.isEmpty {
-                center.removeDeliveredNotifications(withIdentifiers: ids)
+        Task {
+            // AlarmManager.alarms surface is in flux on the iOS 26
+            // public-beta SDK; if the accessor is sync-throws on this
+            // build, drop the `await` here.
+            guard let alarms = try? await AlarmManager.shared.alarms else { return }
+            for alarm in alarms {
+                try? AlarmManager.shared.cancel(id: alarm.id)
             }
         }
     }

@@ -1,4 +1,5 @@
 import ActivityKit
+import AlarmKit
 import SwiftUI
 import WidgetKit
 
@@ -15,9 +16,18 @@ private enum TimerWidgetColor {
     static let textSecondary = Color(red: 0.478, green: 0.435, blue: 0.400) // #7A6F66
 }
 
+/// AlarmKit-backed cooking timer Live Activity. AlarmKit owns the
+/// alarm lifecycle (schedule / fire / cancel) — this widget just
+/// renders the countdown + alert presentations using the metadata
+/// the main app attached when scheduling.
+///
+/// Uses `ActivityConfiguration(for: AlarmAttributes<TimerAlarmMetadata>.self)`
+/// — the same ActivityKit plumbing as before, but the attribute type
+/// is AlarmKit's wrapper around our metadata. AlarmKit's `AlarmPresentationState`
+/// drives the count-down vs. alert-fired layout via `context.state.mode`.
 struct TimerLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: TimerAttributes.self) { context in
+        ActivityConfiguration(for: AlarmAttributes<TimerAlarmMetadata>.self) { context in
             lockScreen(for: context)
                 .activityBackgroundTint(TimerWidgetColor.background)
                 .activitySystemActionForegroundColor(TimerWidgetColor.accentDeep)
@@ -26,27 +36,25 @@ struct TimerLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 6) {
                         llamaMark(size: 22)
-                        Text(context.state.label.capitalized)
+                        Text(context.attributes.metadata.label.capitalized)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(TimerWidgetColor.textPrimary)
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(timerInterval: Date()...context.state.endDate, countsDown: true)
-                        .font(.system(size: 22, weight: .bold, design: .serif))
-                        .monospacedDigit()
+                    countdownText(for: context, font: .system(size: 22, weight: .bold, design: .serif))
                         .foregroundStyle(TimerWidgetColor.accent)
                         .multilineTextAlignment(.trailing)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 6) {
-                        Text("Step \(context.state.stepNumber)")
+                        Text("Step \(context.attributes.metadata.stepNumber)")
                             .font(.system(size: 12, weight: .heavy))
                             .tracking(0.4)
                             .foregroundStyle(TimerWidgetColor.accentDeep)
                         Text("·")
                             .foregroundStyle(TimerWidgetColor.textSecondary)
-                        Text(context.attributes.recipeTitle)
+                        Text(context.attributes.metadata.recipeTitle)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(TimerWidgetColor.textSecondary)
                             .lineLimit(1)
@@ -55,7 +63,7 @@ struct TimerLiveActivity: Widget {
             } compactLeading: {
                 llamaMark(size: 18)
             } compactTrailing: {
-                Text(timerInterval: Date()...context.state.endDate, countsDown: true)
+                countdownText(for: context, font: .system(size: 13, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(TimerWidgetColor.accent)
                     .frame(maxWidth: 50)
@@ -68,7 +76,7 @@ struct TimerLiveActivity: Widget {
 
     // MARK: - Lock Screen / Notification-Center layout
 
-    private func lockScreen(for context: ActivityViewContext<TimerAttributes>) -> some View {
+    private func lockScreen(for context: ActivityViewContext<AlarmAttributes<TimerAlarmMetadata>>) -> some View {
         HStack(alignment: .center, spacing: 14) {
             ZStack {
                 Circle()
@@ -78,11 +86,11 @@ struct TimerLiveActivity: Widget {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Step \(context.state.stepNumber) · \(context.state.label.capitalized)")
+                Text("Step \(context.attributes.metadata.stepNumber) · \(context.attributes.metadata.label.capitalized)")
                     .font(.system(size: 11, weight: .heavy))
                     .tracking(0.6)
                     .foregroundStyle(TimerWidgetColor.accentDeep)
-                Text(context.attributes.recipeTitle)
+                Text(context.attributes.metadata.recipeTitle)
                     .font(.system(size: 15, weight: .semibold, design: .serif))
                     .foregroundStyle(TimerWidgetColor.textPrimary)
                     .lineLimit(1)
@@ -90,8 +98,7 @@ struct TimerLiveActivity: Widget {
 
             Spacer(minLength: 6)
 
-            Text(timerInterval: Date()...context.state.endDate, countsDown: true)
-                .font(.system(size: 28, weight: .bold, design: .serif))
+            countdownText(for: context, font: .system(size: 28, weight: .bold, design: .serif))
                 .monospacedDigit()
                 .foregroundStyle(TimerWidgetColor.accent)
                 .frame(maxWidth: 110, alignment: .trailing)
@@ -102,7 +109,30 @@ struct TimerLiveActivity: Widget {
         // `llamascookbook://cook/<uuid>` scheme registered in the main
         // app's Info.plist; the app's `onOpenURL` handler resolves the
         // recipe and re-presents Cook Mode.
-        .widgetURL(URL(string: "llamascookbook://cook/\(context.attributes.recipeID.uuidString)"))
+        .widgetURL(URL(string: "llamascookbook://cook/\(context.attributes.metadata.recipeID.uuidString)"))
+    }
+
+    /// Pull the active alarm's countdown end date out of AlarmKit's
+    /// presentation state. AlarmKit drives the countdown by handing
+    /// `context.state` an `AlarmPresentationState` whose `.countdown`
+    /// case carries the fire date; we render the live `timerInterval`
+    /// off that. When the alarm has fired (`.alert` mode), fall back
+    /// to a static "0:00" so the widget doesn't go blank between fire
+    /// and dismissal.
+    @ViewBuilder
+    private func countdownText(
+        for context: ActivityViewContext<AlarmAttributes<TimerAlarmMetadata>>,
+        font: Font
+    ) -> some View {
+        if let fireDate = context.state.fireDate {
+            Text(timerInterval: Date()...fireDate, countsDown: true)
+                .font(font)
+                .monospacedDigit()
+        } else {
+            Text("0:00")
+                .font(font)
+                .monospacedDigit()
+        }
     }
 
     /// Brand llama, sized for Live Activity slots. Asset is bundled into

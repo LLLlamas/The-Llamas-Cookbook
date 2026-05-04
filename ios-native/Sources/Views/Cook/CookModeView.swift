@@ -41,7 +41,6 @@ struct CookModeView: View {
 
     @State private var alarmTask: Task<Void, Never>?
     @State private var alarmPlayer = AlarmPlayer()
-    @State private var liveActivity = TimerLiveActivityController()
 
     @State private var showingExitConfirm = false
     @State private var showingTimerSheet = false
@@ -182,12 +181,10 @@ struct CookModeView: View {
         .onChange(of: timerExpired) { _, expired in
             if expired {
                 showingTimerSheet = false
-                // End the Live Activity immediately so the Dynamic Island
-                // doesn't freeze at "0:00" until the staleDate fires.
-                liveActivity.end()
-                // Cancel the pending/delivered notification — the in-app
-                // overlay + alarm replace it, so we don't want a redundant
-                // banner stacking on top of the ready overlay.
+                // Cancel the AlarmKit alarm — its alert presentation
+                // would otherwise stack on top of our in-app ready
+                // overlay (which is the foregrounded equivalent and
+                // takes precedence while the user is in the app).
                 TimerNotifications.cancel(cookID: cookID)
                 startAlarm()
             } else {
@@ -207,17 +204,17 @@ struct CookModeView: View {
         .onChange(of: timerLabel) { _, _ in persistSnapshot() }
         .onChange(of: timerOriginalMinutes) { _, _ in persistSnapshot() }
         .onAppear {
-            // Re-attach to an orphan Live Activity for THIS cook
-            // (filters by cookID so two parallel cooks of the same
-            // recipe don't grab each other's activities).
-            liveActivity.adopt(forCookID: cookID, recipeID: recipe.id)
+            // First-touch AlarmKit auth prompt — idempotent; iOS only
+            // shows the dialog the first time. Cached after that, so
+            // re-entering Cook Mode doesn't nag.
+            TimerNotifications.requestPermission()
             // If the timer already expired while the app was killed
             // (timer-while-killed init path sets timerExpired = true
             // directly, so onChange never fires for that initial value),
-            // end any orphaned activity immediately so the Dynamic Island
-            // doesn't stay frozen at "0:00".
+            // cancel any leftover alarm so its alert doesn't fire on
+            // top of the in-app ready overlay.
             if timerExpired {
-                liveActivity.end()
+                TimerNotifications.cancel(cookID: cookID)
             }
             // One-shot title glow on every entry — start, restore, and
             // pill-switch all rebuild this view via `.id(cookID)` so
@@ -264,7 +261,6 @@ struct CookModeView: View {
                     timerStepId = nil
                     timerExpired = false
                     TimerNotifications.cancel(cookID: cookID)
-                    liveActivity.end()
                 }
             )
         }
@@ -891,6 +887,8 @@ struct CookModeView: View {
 
         let stepNumber = (sortedSteps.firstIndex(where: { $0.id == stepId }) ?? 0) + 1
         let stepText = sortedSteps.first(where: { $0.id == stepId })?.text
+        // AlarmKit owns both the lock-screen alert and the Live
+        // Activity countdown — one schedule call handles both.
         TimerNotifications.schedule(
             cookID: cookID,
             endDate: endsAt,
@@ -900,16 +898,6 @@ struct CookModeView: View {
             stepNumber: stepNumber,
             stepText: stepText,
             timerSound: timerSettings.sound
-        )
-
-        liveActivity.end() // clear any lingering activity from a prior step
-        liveActivity.start(
-            cookID: cookID,
-            recipeID: recipe.id,
-            recipeTitle: recipe.title,
-            endDate: endsAt,
-            label: label,
-            stepNumber: stepNumber
         )
     }
 
@@ -942,7 +930,6 @@ struct CookModeView: View {
         timerEndsAt = nil
         timerStepId = nil
         TimerNotifications.cancel(cookID: cookID)
-        liveActivity.end()
     }
 
     /// Shift the current timer by `minutes` — positive extends, negative
@@ -962,8 +949,10 @@ struct CookModeView: View {
         now = Date()
         timerExpired = false
         Haptics.impact(.medium)
-        // Reschedule the background notification + Live Activity to match
-        // the new end time.
+        // Reschedule the AlarmKit alarm to match the new end time.
+        // `schedule(...)` cancels the existing alarm under this cookID
+        // first, so the rewrite covers both the lock-screen alert and
+        // the Live Activity countdown.
         if let end = timerEndsAt {
             let stepNumber = timerStepId
                 .flatMap { id in sortedSteps.firstIndex(where: { $0.id == id }) }
@@ -981,20 +970,6 @@ struct CookModeView: View {
                 stepText: stepText,
                 timerSound: timerSettings.sound
             )
-            if liveActivity.isActive {
-                liveActivity.update(endDate: end, label: timerLabel, stepNumber: stepNumber)
-            } else {
-                // Activity was ended when the timer expired — restart it
-                // for the new window so the Dynamic Island lights back up.
-                liveActivity.start(
-                    cookID: cookID,
-                    recipeID: recipe.id,
-                    recipeTitle: recipe.title,
-                    endDate: end,
-                    label: timerLabel,
-                    stepNumber: stepNumber
-                )
-            }
         }
     }
 

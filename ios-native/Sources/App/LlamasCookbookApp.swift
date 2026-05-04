@@ -42,9 +42,10 @@ struct LlamasCookbookApp: App {
         // user's pick propagates to UIKit surfaces alongside SwiftUI's
         // own `.tint()` modifier.
 
-        // Ask for notification permission up front so the first cooking
-        // timer can schedule its background alert without an extra round-trip.
-        TimerNotifications.requestPermission()
+        // AlarmKit auth is requested lazily from `CookModeView.onAppear`
+        // — prompting at cold launch (before the user has any concept of
+        // a "cooking timer") would feel mysterious. The first time they
+        // open Cook Mode is when the dialog earns its keep.
     }
 
     var body: some Scene {
@@ -185,10 +186,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         completionHandler([.banner, .sound, .list])
     }
 
-    /// Tap on a delivered timer notification → re-open the relevant
-    /// Cook Mode session. Routes through the `llamascookbook://cook/<uuid>`
-    /// scheme that the Live Activity widget already uses, so a single
-    /// `onOpenURL` handler in RootView covers both entry points.
+    /// Tap on a delivered notification → re-open the relevant Cook
+    /// Mode session if a recipe id is present. Cooking-timer alerts
+    /// route through AlarmKit now (which doesn't deliver via this
+    /// callback), so this path is effectively reserved for legacy /
+    /// future UN-delivered notifications that piggyback the same
+    /// `recipeID` userInfo key.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,

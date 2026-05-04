@@ -309,12 +309,13 @@ struct LibraryView: View {
         return Self.sectionLetter(for: recipe)
     }
 
-    /// Full A–Z (plus `#` for non-letter starts) — always rendered so the
-    /// strip has a consistent, filled-out look. Letters without any recipe
-    /// are dimmed; tapping one scrolls to the next available letter.
+    /// `#` (non-letter starts) at the top, then full A–Z. Always rendered
+    /// so the strip has a consistent, filled-out look. Letters without any
+    /// recipe are dimmed; tapping one scrolls to the next available letter
+    /// — `#` falls through to A when no non-letter recipes exist.
     private static let allLetters: [String] = {
         let az = (0..<26).map { String(UnicodeScalar(UInt8(65 + $0))) }
-        return az + ["#"]
+        return ["#"] + az
     }()
 
     private var populatedLetters: Set<String> {

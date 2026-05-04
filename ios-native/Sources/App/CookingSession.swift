@@ -130,10 +130,10 @@ struct ActiveCook: Identifiable {
 ///
 /// **`@MainActor`-isolated.** Every caller is already on the main actor
 /// in practice (SwiftUI button actions, `RootView.onOpenURL`, `.task`,
-/// `.onAppear`), and the session calls into `@MainActor`-isolated
-/// `TimerLiveActivityController.endActivities` from `remove(cookID:)`
-/// and `endAll()`. Without the explicit isolation, Xcode 26's strict-
-/// concurrency check fails the synchronous call to that static method.
+/// `.onAppear`), and the session's per-cook teardown calls into
+/// `TimerNotifications` (AlarmKit-backed) which is also main-actor-
+/// safe. Keeping the explicit isolation matches the rest of the
+/// session-touching call sites.
 @MainActor
 @Observable
 final class CookingSession {
@@ -303,9 +303,8 @@ final class CookingSession {
         // Per-cook cleanup. Lifted out of CookModeView.onDisappear so
         // the session is the single source of truth for cook lifecycle
         // — non-foregrounded cooks (which never had a view) get cleaned
-        // up correctly too. Filter by cookID so two parallel cooks of
-        // the same recipe don't tear each other's banners down.
-        TimerLiveActivityController.endActivities(forCookID: cookID)
+        // up correctly too. AlarmKit's cancel tears down both the
+        // scheduled alert and its Live Activity in one call.
         TimerNotifications.cancel(cookID: cookID)
 
         if activeCooks.isEmpty {
@@ -437,25 +436,16 @@ final class CookingSession {
     // MARK: - Private
 
     private func endAll() {
-        // End each cook's Live Activity individually so the lock-screen
-        // / Dynamic Island state matches the in-app teardown. Note: by
-        // the time `remove(cookID:)` falls through to `endAll`, that
-        // cook's activity is already ended — the loop covers the
-        // "explicit close X / multi-cook tear down everything" path.
-        for cook in activeCooks {
-            TimerLiveActivityController.endActivities(forCookID: cook.id)
-        }
         activeCooks = []
         foregroundedCookID = nil
         isCookModeVisible = false
         pendingRestoration = nil
         CookingSessionStore.clear()
-        // Wipe any pending/delivered timer notifications across all
-        // cooks (and the legacy single-id from pre-multi installs).
-        // remove(cookID:) handles the per-cook case during graceful
-        // teardown; this call covers the "kill everything" path and
-        // any leftover notifications scheduled before the multi-cook
-        // ID convention landed.
+        // Wipe every cooking-timer alarm across all cooks. AlarmKit
+        // owns both the alert and Live Activity teardown for each one,
+        // so this is the single call needed to clear everything.
+        // `remove(cookID:)` handles the per-cook case during graceful
+        // teardown; this covers the "kill everything" path.
         TimerNotifications.cancelAll()
     }
 }

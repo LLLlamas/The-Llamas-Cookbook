@@ -1000,8 +1000,14 @@ struct ProfileView: View {
 
             VStack(spacing: 0) {
                 cookModeRow(label: "Timer Sound") {
+                    // Picker is intentionally a subset of `TimerSound.allCases`:
+                    // chime/ping rely on `SystemSoundID`-loop hacks that don't
+                    // translate to AlarmKit's lock-screen alert today (no
+                    // bundled `.caf` for either). Hidden from the picker until
+                    // we ship audio assets for them; the enum cases stay so
+                    // re-enabling is a one-line change here.
                     Picker("Timer Sound", selection: $bindable.sound) {
-                        ForEach(TimerSound.allCases) { sound in
+                        ForEach(TimerSound.pickerOptions) { sound in
                             Text(sound.displayName).tag(sound)
                         }
                     }
@@ -1053,7 +1059,7 @@ struct ProfileView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
-            Text("Volume only affects the in-app alert. Lock-screen banner volume follows your phone's Ringer setting, and chime/ping/default ride the Ringer level.")
+            Text("Volume only affects the in-app alert. Lock-screen alarm volume follows your phone's alarm volume — Silent mode does not mute it.")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textTertiary)
                 .padding(.horizontal, AppSpacing.xs)

@@ -1,6 +1,5 @@
 import Foundation
 import AudioToolbox
-import UserNotifications
 
 /// User-customizable cook-timer alert preferences. Source of truth for
 /// `AlarmPlayer` (in-app loop) and `TimerNotifications.schedule` (lock-
@@ -55,15 +54,19 @@ final class TimerSettings {
 // MARK: - Sound
 
 /// Five timer sound choices. `bell` is the bundled `timer-alarm.caf`
-/// (the only custom file shipping today — playable both in-app and as
-/// the lock-screen `UNNotificationSound`). `chime` and `ping` use
+/// (the only custom file shipping today — playable both in-app via
+/// `AVAudioPlayer` and on the lock screen via AlarmKit's
+/// `AlertConfiguration.AlertSound.named(_:)`). `chime` and `ping` use
 /// built-in iOS `SystemSoundID` tones for the in-app loop; on the
-/// lock screen they fall back to `.default` because third-party apps
-/// can't reference Apple's private alarm-tone library
-/// (Radar/Beacon/etc.) via `UNNotificationSound`. `system` is the
-/// user's chosen default notification tone everywhere. `silent`
+/// lock screen they fall back to AlarmKit's default tone because
+/// third-party apps can't reference Apple's private alarm-tone
+/// library. `system` is the default tone everywhere. `silent`
 /// suppresses sound on both surfaces — vibration still fires unless
 /// `TimerHaptic` is also `.off`.
+///
+/// Today the picker only surfaces `[.bell, .system, .silent]` (see
+/// `pickerOptions`); chime / ping stay in the enum for the
+/// `AlarmPlayer` preview-by-rawValue path and easy future re-enable.
 enum TimerSound: String, CaseIterable, Identifiable {
     case bell   = "bell"
     case chime  = "chime"
@@ -72,6 +75,11 @@ enum TimerSound: String, CaseIterable, Identifiable {
     case silent = "silent"
 
     var id: String { rawValue }
+
+    /// Subset surfaced in the Profile cog picker. `chime` / `ping` are
+    /// hidden until they have AlarmKit-compatible bundled audio assets;
+    /// the enum cases stay so re-enabling them is a one-line change.
+    static let pickerOptions: [TimerSound] = [.bell, .system, .silent]
 
     var displayName: String {
         switch self {
@@ -109,23 +117,6 @@ enum TimerSound: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Lock-screen notification sound. `bell` uses the bundled .caf
-    /// directly; everything else falls back to `.default` (or nil for
-    /// `silent`) because there's no public API to reference Apple's
-    /// private alarm tones from a `UNNotificationSound`.
-    var notificationSound: UNNotificationSound? {
-        switch self {
-        case .bell:
-            if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
-                return UNNotificationSound(named: UNNotificationSoundName("timer-alarm.caf"))
-            }
-            return .default
-        case .chime, .ping, .system:
-            return .default
-        case .silent:
-            return nil
-        }
-    }
 }
 
 // MARK: - Haptic
