@@ -459,12 +459,8 @@ private struct FriendCardView: View {
                 Image(systemName: "fork.knife")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
-                (Text(friend.isCookingNow ? "Cooking: " : "Last Cooked: ")
+                Text("\(Text(friend.isCookingNow ? "Cooking: " : "Last Cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(friendAccent))")
                     .font(AppFont.caption)
-                    .foregroundStyle(AppColor.textTertiary)
-                + Text(title)
-                    .font(AppFont.caption.weight(.semibold))
-                    .foregroundStyle(friendAccent))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
             }

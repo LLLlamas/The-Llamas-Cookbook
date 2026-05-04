@@ -79,15 +79,6 @@ struct RecipeDetailView: View {
     /// §0 architecture pivot 2026-04-28).
     @State private var isPreparingCloudShare = false
 
-    /// Diagnostic surface for the cloud-share path. Populated when the
-    /// iCloud account isn't `.available` or when `uploadShare` throws,
-    /// then displayed via an alert with a "Use long URL" continue
-    /// button. **Temporary** — once the root cause of why cloud is
-    /// falling through is identified and fixed, revert the catch block
-    /// in `tryShareViaCloud` and the guard in `shareViaPreferredTransport`
-    /// back to silent fall-through (the user-friendly default).
-    @State private var cloudShareError: String?
-
     private enum ShareAction {
         case file, url, text
     }
@@ -540,38 +531,6 @@ struct RecipeDetailView: View {
                 }
             }
         }
-        // Diagnostic alert for the cloud-share path. Temporary —
-        // remove once the cloud transport is confirmed working.
-        // Tapping "Use long URL" defers ~350ms before invoking the
-        // local URL fallback so the alert dismiss doesn't race with
-        // the share sheet present (iOS 18 modal-stacking workaround,
-        // same shape as the photo carousel's picker dismiss path).
-        .alert("Cloud share diagnostic", isPresented: cloudShareErrorBinding) {
-            Button("Use long URL") {
-                cloudShareError = nil
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    shareAsLocalURL()
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                cloudShareError = nil
-            }
-        } message: {
-            Text(cloudShareError ?? "")
-        }
-    }
-
-    /// Two-way binding for the diagnostic alert. Driven by the
-    /// presence of `cloudShareError`; system-dismiss (e.g. swipe-out
-    /// on iPad) clears it.
-    private var cloudShareErrorBinding: Binding<Bool> {
-        Binding(
-            get: { cloudShareError != nil },
-            set: { newValue in
-                if !newValue { cloudShareError = nil }
-            }
-        )
     }
 
     // MARK: subsections
@@ -1260,41 +1219,19 @@ struct RecipeDetailView: View {
     /// Probes iCloud account state (cheap, locally cached) and
     /// attempts a CloudKit upload when available. Cloud success →
     /// short permalink (~50 chars, photos included). Anything else →
-    /// fall back to the existing self-contained URL form.
-    ///
-    /// **Diagnostic mode (temporary):** instead of silently falling
-    /// through to `shareAsLocalURL()` on failure, we capture the
-    /// reason in `cloudShareError` and surface an alert. The user
-    /// taps "Use long URL" to continue with the fallback. Revert to
-    /// silent fall-through once the cloud path is confirmed working.
+    /// silently fall through to the self-contained URL form.
     @MainActor
     private func shareViaPreferredTransport() async {
         let status = await CloudKitService.accountStatus()
         guard status == .available else {
-            let name = cloudAccountStatusName(status)
-            print("[CloudShare] account status not .available: \(name)")
-            cloudShareError = "iCloud account status: \(name)\n\nTap \"Use long URL\" to share with the fallback URL."
+            print("[CloudShare] account status not .available: \(status.rawValue)")
+            shareAsLocalURL()
             return
         }
         if await tryShareViaCloud() {
             return
         }
-        // tryShareViaCloud's catch block already populated cloudShareError
-        // and printed to console. The alert will surface it.
-    }
-
-    /// Human-readable name for a CKAccountStatus value. Used by the
-    /// diagnostic alert; exists locally so RecipeDetailView doesn't
-    /// have to reach back into CloudKitService for a string helper.
-    private func cloudAccountStatusName(_ s: CKAccountStatus) -> String {
-        switch s {
-        case .available: return "available"
-        case .noAccount: return "noAccount (device is not signed in to iCloud)"
-        case .restricted: return "restricted (iCloud blocked by parental controls / MDM)"
-        case .couldNotDetermine: return "couldNotDetermine"
-        case .temporarilyUnavailable: return "temporarilyUnavailable"
-        @unknown default: return "unknown(\(s.rawValue))"
-        }
+        shareAsLocalURL()
     }
 
     /// Returns true on a successful cloud upload; the caller (and
@@ -1331,18 +1268,7 @@ struct RecipeDetailView: View {
             pendingShareItem = .url(url)
             return true
         } catch {
-            // Diagnostic mode: capture the underlying error so the
-            // surfacing alert (and console log) tells us why cloud is
-            // failing. Once the root cause is fixed, restore the
-            // silent fall-through here.
-            let nsErr = error as NSError
-            var summary = "\(error.localizedDescription)\n\nDomain: \(nsErr.domain)\nCode: \(nsErr.code)"
-            if let ckError = error as? CKError {
-                summary += "\nCKError: \(ckError.code) (raw \(ckError.code.rawValue))"
-                print("[CloudShare] CKError code: \(ckError.code.rawValue) (\(ckError.code))")
-            }
-            print("[CloudShare] uploadShare threw: \(summary)")
-            cloudShareError = "Cloud upload failed.\n\n\(summary)\n\nTap \"Use long URL\" to share with the fallback URL."
+            print("[CloudShare] uploadShare threw: \(error.localizedDescription)")
             return false
         }
     }

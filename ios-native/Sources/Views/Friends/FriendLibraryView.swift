@@ -129,12 +129,8 @@ struct FriendLibraryView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AppColor.textTertiary)
             if let title = friend.lastCookedTitle, !title.isEmpty {
-                (Text(friend.isCookingNow ? "Currently Cooking: " : "Last cooked: ")
+                Text("\(Text(friend.isCookingNow ? "Currently Cooking: " : "Last cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(friendAccent))")
                     .font(AppFont.caption)
-                    .foregroundStyle(AppColor.textTertiary)
-                + Text(title)
-                    .font(AppFont.caption.weight(.semibold))
-                    .foregroundStyle(friendAccent))
                     .lineLimit(1)
             } else if friend.isCookingNow {
                 // Fallback for cooks that started before the title-on-

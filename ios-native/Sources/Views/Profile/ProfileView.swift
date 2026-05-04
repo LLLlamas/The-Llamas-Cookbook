@@ -606,13 +606,8 @@ struct ProfileView: View {
                 Image(systemName: "fork.knife")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
-                Text("Last cooked: ")
+                Text("\(Text("Last cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(recipe.title).fontWeight(.semibold).foregroundStyle(appearance.accentColor))")
                     .font(AppFont.caption)
-                    .foregroundStyle(AppColor.textTertiary)
-                +
-                Text(recipe.title)
-                    .font(AppFont.caption.weight(.semibold))
-                    .foregroundStyle(appearance.accentColor)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, AppSpacing.sm)
@@ -881,12 +876,8 @@ struct ProfileView: View {
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(AppColor.textTertiary)
                             if let title = friend.lastCookedTitle, !title.isEmpty {
-                                (Text("Currently Cooking: ")
+                                Text("\(Text("Currently Cooking: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(resolvedAccent(for: friend)))")
                                     .font(AppFont.caption)
-                                    .foregroundStyle(AppColor.textTertiary)
-                                + Text(title)
-                                    .font(AppFont.caption.weight(.semibold))
-                                    .foregroundStyle(resolvedAccent(for: friend)))
                                     .lineLimit(1)
                             } else {
                                 Text("Currently Cooking")
