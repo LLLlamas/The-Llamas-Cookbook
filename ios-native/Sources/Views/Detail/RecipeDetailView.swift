@@ -79,6 +79,8 @@ struct RecipeDetailView: View {
     /// §0 architecture pivot 2026-04-28).
     @State private var isPreparingCloudShare = false
 
+    @State private var showCloudShareUnavailable = false
+
     private enum ShareAction {
         case file, url, text
     }
@@ -303,18 +305,11 @@ struct RecipeDetailView: View {
                     }
                     .accessibilityLabel(recipe.favorite ? "Unfavorite" : "Favorite")
                     Menu {
-                        // Cloud-first routing: when iCloud is available
-                        // (almost always on iPhone), `shareViaPreferredTransport`
-                        // uploads to CloudKit and emits a short
-                        // `llamascookbook://share/<6char-id>` permalink with
-                        // photos included. iCloud-unavailable / upload-failed
-                        // → falls back to the self-contained
-                        // `llamascookbook://recipe/v2/<base64url>` URL form
-                        // (lzma-compressed, photos stripped). The internal
-                        // `.file` ShareAction + `shareAsFile()` are kept as
-                        // a paranoid last-resort fallback in
-                        // `shareAsLocalURL()` for pathological long-text
-                        // recipes that still trip the URL ceiling.
+                        // Cloud-first routing: `shareViaPreferredTransport`
+                        // uploads to CloudKit and emits an HTTPS Universal
+                        // Link permalink with photos included. iCloud-
+                        // unavailable / upload-failed surfaces a friendly
+                        // "try again later" alert and aborts.
                         Button {
                             triggerShare(.url)
                         } label: {
@@ -530,6 +525,11 @@ struct RecipeDetailView: View {
                     pendingShareItem = nil
                 }
             }
+        }
+        .alert("Couldn't share recipe", isPresented: $showCloudShareUnavailable) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Sharing needs iCloud and a network connection. Please try again later.")
         }
     }
 
@@ -1219,19 +1219,19 @@ struct RecipeDetailView: View {
     /// Probes iCloud account state (cheap, locally cached) and
     /// attempts a CloudKit upload when available. Cloud success →
     /// short permalink (~50 chars, photos included). Anything else →
-    /// silently fall through to the self-contained URL form.
+    /// surface a friendly "try again later" alert and abort.
     @MainActor
     private func shareViaPreferredTransport() async {
         let status = await CloudKitService.accountStatus()
         guard status == .available else {
             print("[CloudShare] account status not .available: \(status.rawValue)")
-            shareAsLocalURL()
+            showCloudShareUnavailable = true
             return
         }
         if await tryShareViaCloud() {
             return
         }
-        shareAsLocalURL()
+        showCloudShareUnavailable = true
     }
 
     /// Returns true on a successful cloud upload; the caller (and
@@ -1270,22 +1270,6 @@ struct RecipeDetailView: View {
         } catch {
             print("[CloudShare] uploadShare threw: \(error.localizedDescription)")
             return false
-        }
-    }
-
-    /// Self-contained URL form, used as fallback when iCloud is
-    /// unavailable or the cloud upload fails. Photos are stripped to
-    /// keep the URL under `RecipeShare.urlByteCeiling`; recipient
-    /// gets the recipe data without photos and can re-add their own.
-    private func shareAsLocalURL() {
-        let envelope = makeShareEnvelope().withoutPhotos()
-        if let url = try? RecipeShare.encodeURL(envelope) {
-            pendingShareItem = .url(url)
-        } else {
-            // Pathological fallback — a photoless recipe with enormous
-            // notes/steps could still trip the ceiling. Drop to file
-            // form rather than silently failing.
-            shareAsFile()
         }
     }
 
