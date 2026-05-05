@@ -57,17 +57,20 @@ struct RootView: View {
     /// — re-running on a re-init is harmless. Inheriting the rest
     /// of `UITabBarAppearance()`'s defaults preserves iOS 26 Liquid
     /// Glass background styling.
-    private static func configureTabBarAppearance(accent: Color? = nil) {
+    private static func configureTabBarAppearance(
+        accent: Color? = nil,
+        glow: Bool = false
+    ) {
         let appearance = UITabBarAppearance()
         let selectedFont = UIFont.systemFont(ofSize: 10, weight: .bold)
         let accentColor = accent.map { UIColor($0) }
 
-        applyTitleColor(accentColor, to: appearance.stackedLayoutAppearance.normal)
-        applyTitleColor(accentColor, to: appearance.stackedLayoutAppearance.selected)
-        applyTitleColor(accentColor, to: appearance.inlineLayoutAppearance.normal)
-        applyTitleColor(accentColor, to: appearance.inlineLayoutAppearance.selected)
-        applyTitleColor(accentColor, to: appearance.compactInlineLayoutAppearance.normal)
-        applyTitleColor(accentColor, to: appearance.compactInlineLayoutAppearance.selected)
+        applyTitleColor(accentColor, glow: glow, to: appearance.stackedLayoutAppearance.normal)
+        applyTitleColor(accentColor, glow: glow, to: appearance.stackedLayoutAppearance.selected)
+        applyTitleColor(accentColor, glow: glow, to: appearance.inlineLayoutAppearance.normal)
+        applyTitleColor(accentColor, glow: glow, to: appearance.inlineLayoutAppearance.selected)
+        applyTitleColor(accentColor, glow: glow, to: appearance.compactInlineLayoutAppearance.normal)
+        applyTitleColor(accentColor, glow: glow, to: appearance.compactInlineLayoutAppearance.selected)
 
         appearance.stackedLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
         appearance.inlineLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
@@ -82,10 +85,18 @@ struct RootView: View {
 
     private static func applyTitleColor(
         _ color: UIColor?,
+        glow: Bool,
         to stateAppearance: UITabBarItemStateAppearance
     ) {
         guard let color else { return }
-        stateAppearance.titleTextAttributes[.foregroundColor] = color
+        var attributes = stateAppearance.titleTextAttributes
+        attributes[.foregroundColor] = color
+        if glow {
+            attributes[.shadow] = titleGlow(color: color)
+        } else {
+            attributes.removeValue(forKey: .shadow)
+        }
+        stateAppearance.titleTextAttributes = attributes
     }
 
     private static func applyToVisibleTabBars(
@@ -99,14 +110,15 @@ struct RootView: View {
                 tabBar.tintColor = tintColor
                 tabBar.items?.forEach { item in
                     item.setTitleTextAttributes(
-                        [.foregroundColor: tintColor],
+                        titleAttributes(color: tintColor, glow: glow),
                         for: .normal
                     )
                     item.setTitleTextAttributes(
-                        [
-                            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
-                            .foregroundColor: tintColor
-                        ],
+                        titleAttributes(
+                            color: tintColor,
+                            font: UIFont.systemFont(ofSize: 10, weight: .bold),
+                            glow: glow
+                        ),
                         for: .selected
                     )
                 }
@@ -119,6 +131,29 @@ struct RootView: View {
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .flatMap { $0.descendants(ofType: UITabBar.self) }
+    }
+
+    private static func titleAttributes(
+        color: UIColor,
+        font: UIFont? = nil,
+        glow: Bool
+    ) -> [NSAttributedString.Key: Any] {
+        var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: color]
+        if let font {
+            attributes[.font] = font
+        }
+        if glow {
+            attributes[.shadow] = titleGlow(color: color)
+        }
+        return attributes
+    }
+
+    private static func titleGlow(color: UIColor) -> NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = color.withAlphaComponent(0.22)
+        shadow.shadowBlurRadius = 3.5
+        shadow.shadowOffset = .zero
+        return shadow
     }
 
     var body: some View {
@@ -149,7 +184,7 @@ struct RootView: View {
             .modifier(CookingPillsOverlay(
                 session: session,
                 navContext: navContext,
-                accent: appearance.accentColor,
+                accent: appearance.bottomNavAccentColor,
                 lookupRecipe: lookupRecipe
             ))
             .tabItem {
@@ -167,7 +202,7 @@ struct RootView: View {
             .modifier(CookingPillsOverlay(
                 session: session,
                 navContext: navContext,
-                accent: appearance.accentColor,
+                accent: appearance.bottomNavAccentColor,
                 lookupRecipe: lookupRecipe
             ))
             .tabItem {
@@ -185,7 +220,7 @@ struct RootView: View {
             .modifier(CookingPillsOverlay(
                 session: session,
                 navContext: navContext,
-                accent: appearance.accentColor,
+                accent: appearance.bottomNavAccentColor,
                 lookupRecipe: lookupRecipe
             ))
             .tabItem {
@@ -197,15 +232,27 @@ struct RootView: View {
             }
             .tag(AppTab.me)
         }
-        .tint(appearance.accentColor)
+        .tint(appearance.bottomNavAccentColor)
         .environment(session)
         .environment(editor)
         .environment(navContext)
         .onAppear {
-            Self.configureTabBarAppearance(accent: appearance.accentColor)
+            Self.configureTabBarAppearance(
+                accent: appearance.bottomNavAccentColor,
+                glow: appearance.isAccentGlowActive(.bottomNav)
+            )
         }
-        .onChange(of: appearance.accentColor.toHex ?? "") { _, _ in
-            Self.configureTabBarAppearance(accent: appearance.accentColor)
+        .onChange(of: appearance.bottomNavAccentColor.toHex ?? "") { _, _ in
+            Self.configureTabBarAppearance(
+                accent: appearance.bottomNavAccentColor,
+                glow: appearance.isAccentGlowActive(.bottomNav)
+            )
+        }
+        .onChange(of: appearance.accentTransitionStage) { _, _ in
+            Self.configureTabBarAppearance(
+                accent: appearance.bottomNavAccentColor,
+                glow: appearance.isAccentGlowActive(.bottomNav)
+            )
         }
         .task {
             // Cold launch (or relaunch after iOS killed us) — pull any

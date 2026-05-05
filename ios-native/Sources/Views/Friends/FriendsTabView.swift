@@ -60,14 +60,18 @@ struct FriendsTabView: View {
         }
         .llamaBackground(
             asset: "Friends_Llama_Icon_Large",
-            tint: appearance.accentColor
+            tint: appearance.cookbookTitleAccentColor
         )
         .navigationTitle(friendsTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .tint(appearance.accentColor)
+        .tint(appearance.cookbookTitleAccentColor)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                CookbookHeader(title: friendsTitle, accent: appearance.accentColor)
+                CookbookHeader(
+                    title: friendsTitle,
+                    accent: appearance.cookbookTitleAccentColor,
+                    glowActive: appearance.isAccentGlowActive(.cookbookTitle)
+                )
             }
             if !friendsStore.friends.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -77,7 +81,7 @@ struct FriendsTabView: View {
                     } label: {
                         Image(systemName: "person.crop.circle.badge.plus")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
+                            .foregroundStyle(appearance.cookbookTitleAccentColor)
                     }
                     .accessibilityLabel("Add a friend")
                 }
@@ -91,7 +95,7 @@ struct FriendsTabView: View {
                         } else {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(appearance.accentColor)
+                                .foregroundStyle(appearance.cookbookTitleAccentColor)
                         }
                     }
                     .accessibilityLabel("Refresh friends")

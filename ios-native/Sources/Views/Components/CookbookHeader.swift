@@ -20,8 +20,20 @@ import SwiftUI
 struct CookbookHeader<Leading: View>: View {
     let title: String
     let accent: Color
+    let glowActive: Bool
     @ViewBuilder var leading: () -> Leading
-    @State private var glowLevel: Double = 0
+
+    init(
+        title: String,
+        accent: Color,
+        glowActive: Bool = false,
+        @ViewBuilder leading: @escaping () -> Leading
+    ) {
+        self.title = title
+        self.accent = accent
+        self.glowActive = glowActive
+        self.leading = leading
+    }
 
     var body: some View {
         HStack(spacing: AppSpacing.xs) {
@@ -29,32 +41,18 @@ struct CookbookHeader<Leading: View>: View {
             Text(title)
                 .font(.system(size: 22, weight: .heavy, design: .serif))
                 .foregroundStyle(accent)
-                .shadow(color: accent.opacity(0.55 * glowLevel), radius: 8 * glowLevel)
-                .shadow(color: accent.opacity(0.25 * glowLevel), radius: 16 * glowLevel)
+                .shadow(color: accent.opacity(glowActive ? 0.20 : 0), radius: glowActive ? 7 : 0)
+                .shadow(color: accent.opacity(glowActive ? 0.08 : 0), radius: glowActive ? 14 : 0)
                 .tracking(0.2)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .truncationMode(.tail)
-                .onChange(of: accent.toHex ?? "") { _, _ in
-                    pulseGlow()
-                }
+                .animation(.easeInOut(duration: 0.28), value: glowActive)
         }
         // Trailing breathing room before any topBarTrailing glyph —
         // without this, long possessives run flush against the
         // adjacent toolbar button on iPhone widths.
         .padding(.trailing, AppSpacing.sm)
-    }
-
-    private func pulseGlow() {
-        withAnimation(.easeOut(duration: 0.16)) {
-            glowLevel = 1
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(260))
-            withAnimation(.easeOut(duration: 0.48)) {
-                glowLevel = 0
-            }
-        }
     }
 }
 
@@ -64,9 +62,9 @@ extension CookbookHeader where Leading == LlamaLogo {
     /// the home toolbar's down-sized logo — large enough to register
     /// as the brand mark, small enough to coexist with the title text
     /// and a trailing toolbar glyph in the principal slot.
-    init(title: String, accent: Color) {
-        self.title = title
-        self.accent = accent
-        self.leading = { LlamaLogo(size: 52, shadowColor: accent) }
+    init(title: String, accent: Color, glowActive: Bool = false) {
+        self.init(title: title, accent: accent, glowActive: glowActive) {
+            LlamaLogo(size: 52, shadowColor: accent)
+        }
     }
 }

@@ -10,6 +10,12 @@ import UIKit
 /// in `LlamasCookbookApp` and injected via `.environment(...)` at RootView.
 @Observable
 final class AppearanceSettings {
+    enum AccentTransitionStage: Int, Equatable {
+        case cookbookTitle = 0
+        case recipeList = 1
+        case bottomNav = 2
+    }
+
     private static let storageKey = "userAccentHex"
 
     /// Suppress mirror pushes during rehydrate-from-UserDefaults so a
@@ -18,6 +24,22 @@ final class AppearanceSettings {
     /// end of `init`; subsequent user-driven didSets push to the
     /// `UserProfileMirror` (debounced).
     private var isInitializing: Bool = true
+    private var previousAccentColor: Color?
+    private var accentTransitionGeneration: Int = 0
+
+    var accentTransitionStage: AccentTransitionStage?
+
+    var cookbookTitleAccentColor: Color {
+        transitionColor(for: .cookbookTitle)
+    }
+
+    var recipeListAccentColor: Color {
+        transitionColor(for: .recipeList)
+    }
+
+    var bottomNavAccentColor: Color {
+        transitionColor(for: .bottomNav)
+    }
 
     var accentColor: Color = AppColor.accent {
         didSet {
@@ -32,6 +54,9 @@ final class AppearanceSettings {
             if !isInitializing, let hex = accentColor.toHex {
                 UserProfileMirror.updateAccent(hex)
             }
+            if !isInitializing {
+                startAccentTransition(from: oldValue)
+            }
         }
     }
 
@@ -40,6 +65,10 @@ final class AppearanceSettings {
     /// active picker session (see accentColor didSet comment above).
     func syncToUIKit() {
         applyToUIKit()
+    }
+
+    func isAccentGlowActive(_ stage: AccentTransitionStage) -> Bool {
+        accentTransitionStage == stage
     }
 
     init() {
@@ -65,6 +94,44 @@ final class AppearanceSettings {
     private func persist() {
         if let hex = accentColor.toHex {
             UserDefaults.standard.set(hex, forKey: Self.storageKey)
+        }
+    }
+
+    private func transitionColor(for stage: AccentTransitionStage) -> Color {
+        guard let previousAccentColor,
+              let accentTransitionStage,
+              accentTransitionStage.rawValue < stage.rawValue
+        else {
+            return accentColor
+        }
+        return previousAccentColor
+    }
+
+    private func startAccentTransition(from oldColor: Color) {
+        guard oldColor.toHex != accentColor.toHex else { return }
+
+        accentTransitionGeneration &+= 1
+        let generation = accentTransitionGeneration
+        previousAccentColor = oldColor
+        accentTransitionStage = .cookbookTitle
+
+        scheduleAccentStage(.recipeList, generation: generation, after: 0.68)
+        scheduleAccentStage(.bottomNav, generation: generation, after: 1.36)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.18) { [weak self] in
+            guard let self, self.accentTransitionGeneration == generation else { return }
+            self.previousAccentColor = nil
+            self.accentTransitionStage = nil
+        }
+    }
+
+    private func scheduleAccentStage(
+        _ stage: AccentTransitionStage,
+        generation: Int,
+        after delay: TimeInterval
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.accentTransitionGeneration == generation else { return }
+            self.accentTransitionStage = stage
         }
     }
 

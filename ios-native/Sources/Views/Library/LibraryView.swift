@@ -80,7 +80,11 @@ struct LibraryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                CookbookHeader(title: cookbookTitle, accent: appearance.accentColor) {
+                CookbookHeader(
+                    title: cookbookTitle,
+                    accent: appearance.cookbookTitleAccentColor,
+                    glowActive: appearance.isAccentGlowActive(.cookbookTitle)
+                ) {
                     Button {
                         Haptics.selection()
                         showingAppearance = true
@@ -89,7 +93,7 @@ struct LibraryView: View {
                         // toolbar slot now coexists with a trailing
                         // profile button; the previous logo+title pair
                         // overflowed when the right side was occupied.
-                        LlamaLogo(size: 52, shadowColor: appearance.accentColor)
+                        LlamaLogo(size: 52, shadowColor: appearance.cookbookTitleAccentColor)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Customize accent color")
@@ -107,7 +111,7 @@ struct LibraryView: View {
                         .scaledToFit()
                         .frame(width: 52, height: 52)
                         .opacity(userAccount.status.isSignedIn ? 1.0 : 0.45)
-                        .shadow(color: appearance.accentColor.opacity(0.35), radius: 4, x: 0, y: 1)
+                        .shadow(color: appearance.cookbookTitleAccentColor.opacity(0.35), radius: 4, x: 0, y: 1)
                 }
                 .accessibilityLabel("Profile")
                 // The editor sheet is presented from RootView (parent
@@ -260,7 +264,7 @@ struct LibraryView: View {
                     LetterIndex(
                         letters: Self.allLetters,
                         populated: populatedLetters,
-                        accent: appearance.accentColor,
+                        accent: appearance.recipeListAccentColor,
                         externalHighlightLetter: highlightLetter
                     ) { letter in
                         guard let target = firstRecipe(atOrAfter: letter) else { return }
@@ -367,7 +371,8 @@ struct LibraryView: View {
                             label: "Favorites  ·  \(favoriteCount)",
                             isActive: filter == .favorites,
                             iconName: "heart.fill",
-                            accent: appearance.accentColor
+                            accent: appearance.recipeListAccentColor,
+                            glowActive: appearance.isAccentGlowActive(.recipeList)
                         ) {
                             filter = filter == .favorites ? .all : .favorites
                         }
@@ -379,7 +384,8 @@ struct LibraryView: View {
                             label: "\(StringCase.titleCase(tag))  ·  \(count)",
                             isActive: filter == .tag(tag),
                             iconName: nil,
-                            accent: appearance.accentColor
+                            accent: appearance.recipeListAccentColor,
+                            glowActive: appearance.isAccentGlowActive(.recipeList)
                         ) {
                             filter = filter == .tag(tag) ? .all : .tag(tag)
                         }
@@ -473,15 +479,20 @@ struct LibraryView: View {
             // already implies.
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(isActive ? AppColor.onAccent : appearance.accentColor)
+                .foregroundStyle(isActive ? AppColor.onAccent : appearance.recipeListAccentColor)
         }
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, AppSpacing.xs + 2)
-        .background(isActive ? appearance.accentColor : AppColor.surface)
+        .background(isActive ? appearance.recipeListAccentColor : AppColor.surface)
         .overlay(
-            Capsule().stroke(isActive ? appearance.accentColor : AppColor.divider, lineWidth: 1)
+            Capsule().stroke(isActive ? appearance.recipeListAccentColor : AppColor.divider, lineWidth: 1)
         )
         .clipShape(Capsule())
+        .shadow(
+            color: appearance.recipeListAccentColor.opacity(appearance.isAccentGlowActive(.recipeList) ? 0.10 : 0),
+            radius: appearance.isAccentGlowActive(.recipeList) ? 7 : 0
+        )
+        .animation(.easeInOut(duration: 0.28), value: appearance.isAccentGlowActive(.recipeList))
     }
 
     private var emptyFilterState: some View {
@@ -496,7 +507,7 @@ struct LibraryView: View {
             .padding(.horizontal, AppSpacing.lg)
             .padding(.vertical, AppSpacing.sm)
             .background(AppColor.surface)
-            .foregroundStyle(appearance.accentColor)
+            .foregroundStyle(appearance.recipeListAccentColor)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
                     .stroke(AppColor.divider, lineWidth: 1)
@@ -553,8 +564,8 @@ struct LibraryView: View {
                 .background(
                     LinearGradient(
                         colors: [
-                            appearance.accentColor.opacity(0.95),
-                            appearance.accentColor.opacity(0.80)
+                            appearance.recipeListAccentColor.opacity(0.95),
+                            appearance.recipeListAccentColor.opacity(0.80)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -574,7 +585,11 @@ struct LibraryView: View {
                 )
                 // Coloured ambient + neutral contact shadow → the disc
                 // looks like it's hovering above the cream background.
-                .shadow(color: appearance.accentColor.opacity(0.35), radius: 14, y: 6)
+                .shadow(color: appearance.recipeListAccentColor.opacity(0.35), radius: 14, y: 6)
+                .shadow(
+                    color: appearance.recipeListAccentColor.opacity(appearance.isAccentGlowActive(.recipeList) ? 0.14 : 0),
+                    radius: appearance.isAccentGlowActive(.recipeList) ? 16 : 0
+                )
                 .shadow(color: .black.opacity(0.10), radius: 4, y: 2)
         }
         .padding(AppSpacing.xl)
@@ -628,6 +643,7 @@ private struct FilterChip: View {
     let isActive: Bool
     let iconName: String?
     let accent: Color
+    let glowActive: Bool
     let action: () -> Void
 
     var body: some View {
@@ -652,6 +668,8 @@ private struct FilterChip: View {
                 Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
             )
             .clipShape(Capsule())
+            .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
+            .animation(.easeInOut(duration: 0.28), value: glowActive)
         }
     }
 }

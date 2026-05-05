@@ -4,6 +4,14 @@ struct RecipeCardView: View {
     @Environment(AppearanceSettings.self) private var appearance
     let recipe: Recipe
 
+    private var accent: Color {
+        appearance.recipeListAccentColor
+    }
+
+    private var glowActive: Bool {
+        appearance.isAccentGlowActive(.recipeList)
+    }
+
     var body: some View {
         // Two-column layout: textual content on the left, a square photo
         // thumbnail anchored top-right with the date stack pinned at the
@@ -15,7 +23,7 @@ struct RecipeCardView: View {
                 HStack(alignment: .top, spacing: AppSpacing.sm) {
                     Text(StringCase.titleCase(recipe.title))
                         .font(AppFont.sectionHeading)
-                        .foregroundStyle(appearance.accentColor)
+                        .foregroundStyle(accent)
                         .lineLimit(2)
                         // Subtle outline = four hard-edged shadows in
                         // cardinal directions, painted under the soft
@@ -26,12 +34,17 @@ struct RecipeCardView: View {
                         .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4,  y: 0)
                         .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: -0.4)
                         .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: 0.4)
+                        .shadow(color: accent.opacity(glowActive ? 0.16 : 0), radius: glowActive ? 7 : 0)
+                        .shadow(color: accent.opacity(glowActive ? 0.07 : 0), radius: glowActive ? 14 : 0)
                         .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
+                        .animation(.easeInOut(duration: 0.28), value: glowActive)
                     Spacer(minLength: 0)
                     if recipe.favorite && !showsHeartThumbnail {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(appearance.accentColor)
+                            .foregroundStyle(accent)
+                            .shadow(color: accent.opacity(glowActive ? 0.14 : 0), radius: glowActive ? 6 : 0)
+                            .animation(.easeInOut(duration: 0.28), value: glowActive)
                     }
                 }
 
@@ -97,7 +110,7 @@ struct RecipeCardView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: AppRadius.md)
                         .fill(AppColor.accentSoft.opacity(0.5))
-                    LlamaLogo(size: 56, shadowColor: appearance.accentColor)
+                    LlamaLogo(size: 56, shadowColor: accent)
                 }
             }
         }
