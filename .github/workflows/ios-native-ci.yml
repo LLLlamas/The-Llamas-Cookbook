@@ -231,7 +231,17 @@ jobs:
           set -euo pipefail
           if ! command -v ffmpeg >/dev/null 2>&1; then
             echo "Installing ffmpeg..."
-            brew install ffmpeg
+            for attempt in 1 2 3; do
+              if [ "$attempt" -lt 3 ]; then
+                brew install ffmpeg && break
+              else
+                echo "::warning::Bottle download failed twice; falling back to --build-from-source"
+                brew install --build-from-source ffmpeg && break
+              fi
+              wait_seconds=$((attempt * 30))
+              echo "::warning::brew install ffmpeg attempt $attempt failed; retrying in ${wait_seconds}s"
+              sleep "$wait_seconds"
+            done
           fi
           mkdir -p Resources
           # Three short beeps at 880 Hz with gaps, total ~1.9s.
