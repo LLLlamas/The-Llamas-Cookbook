@@ -15,6 +15,7 @@ struct LetterIndex: View {
     let letters: [String]
     let populated: Set<String>
     let accent: Color
+    let glowActive: Bool = false
     /// Letter to flash the magnify badge on when no scrub gesture is
     /// active — driven by external highlight signals (e.g. RootView's
     /// post-save library highlight). `nil` at all other times.
@@ -81,6 +82,7 @@ struct LetterIndex: View {
                 Text(letter)
                     .font(.system(size: 9, weight: .bold, design: .serif))
                     .foregroundStyle(letterColor(for: letter, isActive: index == displayedActiveIndex))
+                    .shadow(color: accent.opacity(glowActive ? 0.12 : 0), radius: glowActive ? 5 : 0)
                     .frame(maxWidth: .infinity)
                     .frame(height: rowHeight)
             }
@@ -88,6 +90,7 @@ struct LetterIndex: View {
         .frame(width: stripWidth)
         .padding(.vertical, verticalPadding)
         .background(Capsule().fill(AppColor.surface.opacity(0.35)))
+        .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
         .overlay(alignment: .topTrailing) {
             if let displayedActiveIndex, letters.indices.contains(displayedActiveIndex) {
                 magnifiedBadge(
@@ -120,6 +123,7 @@ struct LetterIndex: View {
                 .onEnded { _ in activeIndex = nil }
         )
         .animation(.easeOut(duration: 0.25), value: displayedActiveIndex)
+        .animation(.easeInOut(duration: 0.28), value: glowActive)
         .onChange(of: externalHighlightLetter) { old, new in
             if old != nil && new == nil {
                 // External highlight is ending — keep the badge alive in

@@ -70,7 +70,7 @@ struct FriendsTabView: View {
                 CookbookHeader(
                     title: friendsTitle,
                     accent: appearance.cookbookTitleAccentColor,
-                    glowActive: appearance.isAccentGlowActive(.cookbookTitle)
+                    glowActive: appearance.isAccentGlowActive(.header)
                 )
             }
             if !friendsStore.friends.isEmpty {

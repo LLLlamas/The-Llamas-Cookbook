@@ -11,9 +11,11 @@ import UIKit
 @Observable
 final class AppearanceSettings {
     enum AccentTransitionStage: Int, Equatable {
-        case cookbookTitle = 0
-        case recipeList = 1
-        case bottomNav = 2
+        case header = 0
+        case categories = 1
+        case recipeList = 2
+        case plusButton = 3
+        case bottomNav = 4
     }
 
     private static let storageKey = "userAccentHex"
@@ -30,11 +32,19 @@ final class AppearanceSettings {
     var accentTransitionStage: AccentTransitionStage?
 
     var cookbookTitleAccentColor: Color {
-        transitionColor(for: .cookbookTitle)
+        transitionColor(for: .header)
+    }
+
+    var categoryAccentColor: Color {
+        transitionColor(for: .categories)
     }
 
     var recipeListAccentColor: Color {
         transitionColor(for: .recipeList)
+    }
+
+    var plusButtonAccentColor: Color {
+        transitionColor(for: .plusButton)
     }
 
     var bottomNavAccentColor: Color {
@@ -113,11 +123,13 @@ final class AppearanceSettings {
         accentTransitionGeneration &+= 1
         let generation = accentTransitionGeneration
         previousAccentColor = oldColor
-        accentTransitionStage = .cookbookTitle
+        accentTransitionStage = .header
 
-        scheduleAccentStage(.recipeList, generation: generation, after: 0.68)
-        scheduleAccentStage(.bottomNav, generation: generation, after: 1.36)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.18) { [weak self] in
+        scheduleAccentStage(.categories, generation: generation, after: 0.68)
+        scheduleAccentStage(.recipeList, generation: generation, after: 1.36)
+        scheduleAccentStage(.plusButton, generation: generation, after: 2.04)
+        scheduleAccentStage(.bottomNav, generation: generation, after: 2.72)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.50) { [weak self] in
             guard let self, self.accentTransitionGeneration == generation else { return }
             self.previousAccentColor = nil
             self.accentTransitionStage = nil
