@@ -56,22 +56,93 @@ struct RootView: View {
         Self.configureTabBarAppearance()
     }
 
-    /// Bolds the title of the currently selected tab via UIKit's
-    /// appearance proxy. SwiftUI's `tabItem` doesn't expose a
-    /// per-state font hook, so we override the selected state's
-    /// font on `UITabBarAppearance` and let the system continue to
-    /// resolve the selected tint color via `.tint(...)`. Idempotent
+    /// Bolds the selected tab title and keeps bottom-nav labels in
+    /// the user accent. SwiftUI's `tabItem` doesn't expose a per-state
+    /// font hook, and once we customize title attributes UIKit no
+    /// longer reliably derives the label color from `.tint`. Idempotent
     /// — re-running on a re-init is harmless. Inheriting the rest
     /// of `UITabBarAppearance()`'s defaults preserves iOS 26 Liquid
     /// Glass background styling.
-    private static func configureTabBarAppearance() {
+    private static func configureTabBarAppearance(
+        accent: Color? = nil,
+        animated: Bool = false
+    ) {
         let appearance = UITabBarAppearance()
         let selectedFont = UIFont.systemFont(ofSize: 10, weight: .bold)
+        let accentColor = accent.map { UIColor($0) }
+
+        applyTitleColor(accentColor, to: appearance.stackedLayoutAppearance.normal)
+        applyTitleColor(accentColor, to: appearance.stackedLayoutAppearance.selected)
+        applyTitleColor(accentColor, to: appearance.inlineLayoutAppearance.normal)
+        applyTitleColor(accentColor, to: appearance.inlineLayoutAppearance.selected)
+        applyTitleColor(accentColor, to: appearance.compactInlineLayoutAppearance.normal)
+        applyTitleColor(accentColor, to: appearance.compactInlineLayoutAppearance.selected)
+
         appearance.stackedLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
         appearance.inlineLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
         appearance.compactInlineLayoutAppearance.selected.titleTextAttributes[.font] = selectedFont
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
+        if let accentColor {
+            UITabBar.appearance().tintColor = accentColor
+        }
+        applyToVisibleTabBars(appearance, tintColor: accentColor, animated: animated)
+    }
+
+    private static func applyTitleColor(
+        _ color: UIColor?,
+        to stateAppearance: UITabBarItemStateAppearance
+    ) {
+        guard let color else { return }
+        stateAppearance.titleTextAttributes[.foregroundColor] = color
+    }
+
+    private static func applyToVisibleTabBars(
+        _ appearance: UITabBarAppearance,
+        tintColor: UIColor?,
+        animated: Bool
+    ) {
+        for tabBar in visibleTabBars {
+            let update = {
+                tabBar.standardAppearance = appearance
+                tabBar.scrollEdgeAppearance = appearance
+                if let tintColor {
+                    tabBar.tintColor = tintColor
+                    tabBar.items?.forEach { item in
+                        item.setTitleTextAttributes(
+                            [.foregroundColor: tintColor],
+                            for: .normal
+                        )
+                        item.setTitleTextAttributes(
+                            [
+                                .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+                                .foregroundColor: tintColor
+                            ],
+                            for: .selected
+                        )
+                    }
+                }
+            }
+
+            if animated {
+                UIView.transition(
+                    with: tabBar,
+                    duration: 0.28,
+                    options: [.transitionCrossDissolve, .allowUserInteraction]
+                ) {
+                    update()
+                }
+            } else {
+                update()
+            }
+        }
+    }
+
+    private static var visibleTabBars: [UITabBar] {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .flatMap { $0.descendants(ofType: UITabBar.self) }
     }
 
     var body: some View {
@@ -156,11 +227,13 @@ struct RootView: View {
         .environment(navContext)
         .onAppear {
             tabBarAccent = appearance.accentColor
+            Self.configureTabBarAppearance(accent: appearance.accentColor)
         }
         .onChange(of: appearance.accentColor.toHex ?? "") { _, _ in
             withAnimation(.easeInOut(duration: 0.28)) {
                 tabBarAccent = appearance.accentColor
             }
+            Self.configureTabBarAppearance(accent: appearance.accentColor, animated: true)
         }
         .task {
             // Cold launch (or relaunch after iOS killed us) — pull any
@@ -1127,6 +1200,19 @@ private struct CookingPillsOverlay: ViewModifier {
                 }
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: session.isCookModeVisible)
+    }
+}
+
+private extension UIView {
+    func descendants<T: UIView>(ofType type: T.Type) -> [T] {
+        var matches: [T] = []
+        for subview in subviews {
+            if let typed = subview as? T {
+                matches.append(typed)
+            }
+            matches.append(contentsOf: subview.descendants(ofType: type))
+        }
+        return matches
     }
 }
 
