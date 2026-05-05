@@ -231,7 +231,7 @@ enum RecipeImporter {
     /// full links and domain-only mentions such as "smittenkitchen.com".
     static func extractCaptionURL(_ text: String) -> URL? {
         if let match = try? #/https?:\/\/[^\s<>"']+/#.firstMatch(in: text) {
-            let raw = String(match.output.0).trimmingCharacters(in: captionURLTrimCharacters)
+            let raw = String(match.output).trimmingCharacters(in: captionURLTrimCharacters)
             if let url = URL(string: raw) { return url }
         }
         let lower = text.lowercased()
