@@ -171,7 +171,6 @@ struct RecipeEditorView: View {
                     }
                 }
         }
-        .scrollDismissesKeyboard(.immediately)
         .llamaBackground()
         .navigationTitle(headerTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -329,14 +328,6 @@ struct RecipeEditorView: View {
                 editingIngredientId = nil
             }
         }
-        .simultaneousGesture(
-            DragGesture().onChanged { _ in
-                // Any scroll gesture also collapses inline edit modes so the
-                // keyboard isn't fighting the user's scroll.
-                if editingStepId != nil { editingStepId = nil }
-                if editingIngredientId != nil { editingIngredientId = nil }
-            }
-        )
     }
 
     /// Keep EditorCoordinator's dirty flag in sync with the live draft.
