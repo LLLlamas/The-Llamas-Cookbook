@@ -90,6 +90,7 @@ enum TimerNotifications {
         )
 
         Task {
+            guard #available(iOS 26.1, *) else { return }
             // Defensive: cancel any existing alarm under this cookID so
             // re-scheduling on extend / step transition doesn't stack.
             // AlarmKit's `schedule(...)` is documented to overwrite an
