@@ -46,12 +46,6 @@ struct RootView: View {
     /// Drives the ghost's spring source → destination on appear.
     /// Flipped from false to true immediately after mount.
     @State private var ghostFlying: Bool = false
-    /// Local tint proxy for the selected bottom-tab label/icon. Keeping
-    /// this as state lets the committed accent ease to its new color
-    /// when the color picker dismisses, without writing shared accent
-    /// state during the active picker session.
-    @State private var tabBarAccent: Color?
-
     init() {
         Self.configureTabBarAppearance()
     }
@@ -63,10 +57,7 @@ struct RootView: View {
     /// — re-running on a re-init is harmless. Inheriting the rest
     /// of `UITabBarAppearance()`'s defaults preserves iOS 26 Liquid
     /// Glass background styling.
-    private static func configureTabBarAppearance(
-        accent: Color? = nil,
-        animated: Bool = false
-    ) {
+    private static func configureTabBarAppearance(accent: Color? = nil) {
         let appearance = UITabBarAppearance()
         let selectedFont = UIFont.systemFont(ofSize: 10, weight: .bold)
         let accentColor = accent.map { UIColor($0) }
@@ -86,7 +77,7 @@ struct RootView: View {
         if let accentColor {
             UITabBar.appearance().tintColor = accentColor
         }
-        applyToVisibleTabBars(appearance, tintColor: accentColor, animated: animated)
+        applyToVisibleTabBars(appearance, tintColor: accentColor)
     }
 
     private static func applyTitleColor(
@@ -99,41 +90,26 @@ struct RootView: View {
 
     private static func applyToVisibleTabBars(
         _ appearance: UITabBarAppearance,
-        tintColor: UIColor?,
-        animated: Bool
+        tintColor: UIColor?
     ) {
         for tabBar in visibleTabBars {
-            let update = {
-                tabBar.standardAppearance = appearance
-                tabBar.scrollEdgeAppearance = appearance
-                if let tintColor {
-                    tabBar.tintColor = tintColor
-                    tabBar.items?.forEach { item in
-                        item.setTitleTextAttributes(
-                            [.foregroundColor: tintColor],
-                            for: .normal
-                        )
-                        item.setTitleTextAttributes(
-                            [
-                                .font: UIFont.systemFont(ofSize: 10, weight: .bold),
-                                .foregroundColor: tintColor
-                            ],
-                            for: .selected
-                        )
-                    }
+            tabBar.standardAppearance = appearance
+            tabBar.scrollEdgeAppearance = appearance
+            if let tintColor {
+                tabBar.tintColor = tintColor
+                tabBar.items?.forEach { item in
+                    item.setTitleTextAttributes(
+                        [.foregroundColor: tintColor],
+                        for: .normal
+                    )
+                    item.setTitleTextAttributes(
+                        [
+                            .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+                            .foregroundColor: tintColor
+                        ],
+                        for: .selected
+                    )
                 }
-            }
-
-            if animated {
-                UIView.transition(
-                    with: tabBar,
-                    duration: 0.28,
-                    options: [.transitionCrossDissolve, .allowUserInteraction]
-                ) {
-                    update()
-                }
-            } else {
-                update()
             }
         }
     }
@@ -221,19 +197,15 @@ struct RootView: View {
             }
             .tag(AppTab.me)
         }
-        .tint(tabBarAccent ?? appearance.accentColor)
+        .tint(appearance.accentColor)
         .environment(session)
         .environment(editor)
         .environment(navContext)
         .onAppear {
-            tabBarAccent = appearance.accentColor
             Self.configureTabBarAppearance(accent: appearance.accentColor)
         }
         .onChange(of: appearance.accentColor.toHex ?? "") { _, _ in
-            withAnimation(.easeInOut(duration: 0.28)) {
-                tabBarAccent = appearance.accentColor
-            }
-            Self.configureTabBarAppearance(accent: appearance.accentColor, animated: true)
+            Self.configureTabBarAppearance(accent: appearance.accentColor)
         }
         .task {
             // Cold launch (or relaunch after iOS killed us) — pull any
