@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Llamas Cookbook</title>
+  <meta name="description" content="How Llamas Cookbook handles your data. The short version: it stays on your device or in your own iCloud.">
+  <meta property="og:title" content="Privacy Policy — Llamas Cookbook">
+  <meta property="og:description" content="How Llamas Cookbook handles your data. The short version: it stays on your device or in your own iCloud.">
+  <meta property="og:image" content="/llama-icon.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="/llama-icon.png">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #faf7f2;
+      --bg-alt: #f3eee5;
+      --text: #3a2d1e;
+      --text-soft: #6b5d4a;
+      --accent: #c2755d;
+      --accent-deep: #9f5a3f;
+      --rule: #e8e1d6;
+      --shadow: rgba(58, 45, 30, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1f1a14;
+        --bg-alt: #29221b;
+        --text: #f3eee5;
+        --text-soft: #b8a892;
+        --accent: #e89379;
+        --accent-deep: #c2755d;
+        --rule: #3a2f24;
+        --shadow: rgba(0, 0, 0, 0.5);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .header img {
+      width: 64px;
+      height: 64px;
+      border-radius: 14px;
+      box-shadow: 0 8px 24px var(--shadow);
+    }
+    .header .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .header a {
+      color: var(--text-soft);
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .header a:hover { color: var(--accent); }
+    h1 {
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 40px;
+      margin: 0;
+      color: var(--accent);
+      line-height: 1.15;
+    }
+    .updated {
+      color: var(--text-soft);
+      font-size: 14px;
+      margin: 4px 0 32px;
+    }
+    .summary {
+      background: var(--bg-alt);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin: 24px 0 40px;
+      border-left: 3px solid var(--accent);
+    }
+    .summary strong { color: var(--accent-deep); }
+    h2 {
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 24px;
+      color: var(--accent-deep);
+      margin: 40px 0 12px;
+      line-height: 1.25;
+    }
+    h3 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 24px 0 8px;
+    }
+    p { color: var(--text-soft); margin: 0 0 16px; }
+    ul { color: var(--text-soft); padding-left: 22px; margin: 0 0 16px; }
+    li { margin-bottom: 8px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-deep); text-decoration: underline; }
+    code {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      background: var(--bg-alt);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text);
+    }
+    hr {
+      border: 0;
+      border-top: 1px solid var(--rule);
+      margin: 48px 0 32px;
+    }
+    .footer {
+      color: var(--text-soft);
+      font-size: 13px;
+      text-align: center;
+      margin-top: 48px;
+    }
+    .footer a { color: var(--text-soft); }
+    .footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="header">
+      <img src="/llama-icon.png" alt="Llamas Cookbook">
+      <div class="stack">
+        <a href="/">← Llamas Cookbook</a>
+      </div>
+    </div>
+
+    <h1>Privacy Policy</h1>
+    <p class="updated">Effective May 4, 2026</p>
+
+    <div class="summary">
+      <p><strong>The short version.</strong> Llamas Cookbook keeps your recipes on your device. When you sign in, your account identity is stored locally on your iPhone. When you share a recipe with a friend, the recipe is uploaded to <em>your</em> iCloud account using Apple's CloudKit, never to a server we run. We don't track you, don't run analytics, don't sell your data, and don't share it with anyone. There is nothing for us to leak because we don't collect anything.</p>
+    </div>
+
+    <h2>Who we are</h2>
+    <p>Llamas Cookbook is an iOS app published by Lorenzo ("we", "us"). This policy explains what happens to your data when you use the app, in plain language. If anything below is unclear, email <a href="mailto:ltlasian@gmail.com">ltlasian@gmail.com</a> and we'll fix the wording.</p>
+
+    <h2>What data the app handles</h2>
+
+    <h3>Your recipes, photos, and cooking history</h3>
+    <p>Every recipe you create or import lives in a database on your iPhone (Apple's SwiftData). Recipe photos are stored alongside it on your device. We never see this data. Apple never sees this data. If you delete the app, this data is deleted too.</p>
+
+    <h3>Sign in with Apple</h3>
+    <p>When you sign in, Apple gives the app a stable opaque identifier (the "sub") and, on first sign-in only, the first name you chose to share. The identifier and name are stored in your iPhone's Keychain so they survive reinstalls. We never send these to any server we run. We use Apple's revocation check on app launch so that if you revoke our app's access from iOS Settings, the app drops back to signed-out automatically.</p>
+
+    <h3>Your iCloud account (CloudKit)</h3>
+    <p>When you share a recipe with a friend or your friends look at your library, the data is stored in Apple's CloudKit using your own iCloud account. This means:</p>
+    <ul>
+      <li>Your recipe shares, friend connections, and friends' library mirror live in <em>your</em> iCloud — under Apple's privacy policy and inside Apple's infrastructure.</li>
+      <li>We can read public records you create (recipe shares, your public profile, friendship records) only because they're public to anyone who knows the record ID. We don't compile, mine, or aggregate them.</li>
+      <li>If you delete your account in the app, we delete every record we can find that you created in CloudKit — friend connections, published recipes, recipe shares, import audit rows, and your public profile.</li>
+    </ul>
+
+    <h3>Camera</h3>
+    <p>The app uses your iPhone's camera only when you tap "Import from Photo" to scan a recipe page. The captured image stays on your device — it isn't uploaded to us or anyone else. Image text recognition runs on-device using Apple's Vision framework.</p>
+
+    <h3>Notifications and alarms</h3>
+    <p>Cooking timers ring through Apple's AlarmKit, which lets the alert reach your lock screen and through Silent mode. The alarm content stays on your device. We use silent CloudKit push notifications to know when a friend sends you a friend request or imports one of your recipes — these are routed through Apple's APNs and don't carry message text.</p>
+
+    <h3>Recipe imports from the web</h3>
+    <p>When you paste a recipe URL, the app fetches the page directly from your iPhone (Safari user agent) to read its public structured data and OpenGraph tags. We don't proxy these fetches through our servers. If you import from TikTok, the app calls TikTok's public oEmbed endpoint — same direct connection. The fetched bytes are processed on-device and discarded once the recipe draft is ready.</p>
+
+    <h3>Recipe share preview pages</h3>
+    <p>When someone taps a Llamas Cookbook recipe link in a chat app, the chat app's link-preview scraper visits a small page hosted on Cloudflare Pages (<code>llamascookbook.pages.dev</code>). That page reads the recipe title and first photo from CloudKit so the chat bubble can show a preview. The preview pages are cached at the edge for an hour. We don't log who visits them beyond the standard Cloudflare request logs Cloudflare maintains for any site they host.</p>
+
+    <h2>What we don't do</h2>
+    <ul>
+      <li>No third-party analytics SDKs (no Firebase, Mixpanel, Sentry, Amplitude, etc.).</li>
+      <li>No advertising. No ad networks. No ad identifiers.</li>
+      <li>No tracking across apps or websites.</li>
+      <li>No selling or sharing of your data with third parties for marketing.</li>
+      <li>No location services. No contacts access. No microphone. No health data.</li>
+      <li>No background data collection.</li>
+      <li>No user accounts on a server we operate. There is no "Llamas Cookbook server" holding your data.</li>
+    </ul>
+
+    <h2>Friend features and what's visible to others</h2>
+    <p>When you accept a friend request, your friend can see what's visible by design: your display name, accent color, recipes published from your library, and a small "currently cooking" indicator while you have an active cook. They cannot see your private notes, the recipes you haven't published, or your cooking history beyond the most recent item. You can remove a friend at any time, which deletes the friendship record from CloudKit.</p>
+
+    <h2>Children's privacy</h2>
+    <p>Llamas Cookbook is rated 4+ and does not knowingly collect personal information from anyone, including children under 13. The app is suitable for all ages. If you believe a child has used the app and you'd like their local data deleted, simply delete the app from the device.</p>
+
+    <h2>Account deletion</h2>
+    <p>To delete your account:</p>
+    <ul>
+      <li>Open the app, tap the profile button, then tap "Delete Account."</li>
+      <li>The app immediately wipes your local identity (Apple sub, display name, friend list cache, etc.).</li>
+      <li>The app then deletes every CloudKit record we can find that you created — friend connections, published recipes, recipe shares, import audit rows, and your public profile.</li>
+      <li>If your network is unreliable during deletion, the app retries the cleanup on every subsequent launch until your records are gone.</li>
+      <li>If you also delete the app from your device, all local data goes with it.</li>
+    </ul>
+    <p>You can also revoke Sign in with Apple from your iPhone's Settings → Apple Account → Sign in with Apple → Llamas Cookbook → Stop Using Apple ID. The app will drop you back to signed-out the next time you launch it.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>If we change this policy in a way that affects what happens to your data, we'll update the "Effective" date above and call out the change in the app's release notes for the version that ships with the change. Past versions of this policy will be available on request.</p>
+
+    <h2>Contact</h2>
+    <p>Privacy questions, deletion requests, or anything else about this policy: <a href="mailto:ltlasian@gmail.com">ltlasian@gmail.com</a>.</p>
+
+    <hr>
+
+    <div class="footer">
+      <a href="/">Home</a> · <a href="/support">Support</a> · <a href="/privacy">Privacy</a>
+    </div>
+  </main>
+</body>
+</html>

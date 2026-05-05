@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Small modal sheet for choosing the app's accent color. Tapping the
-/// inline `ColorPicker` opens iOS's system color UI — the hexagon Grid,
-/// Spectrum, Sliders, and Eyedropper tabs — so the user can pick from
+/// inline `ColorPicker` opens iOS's system color UI: the hexagon Grid,
+/// Spectrum, Sliders, and Eyedropper tabs, so the user can pick from
 /// any color including the standard hex grid.
 ///
 /// Live preview at the top updates as they pick: the llama mascot, a
@@ -12,10 +12,7 @@ struct AccentColorPicker: View {
     // settings is passed explicitly by callers AND injected via
     // .environment(appearance) at every call site. We read from
     // @Environment here so that iOS 26's @Observable environment
-    // re-injection actually takes effect for the preview section —
-    // without this, the observation subscription can drop when the
-    // system UIColorPickerViewController is presented on top of this
-    // sheet, causing the preview to stop updating after the first pick.
+    // re-injection actually takes effect for the preview section.
     @Environment(AppearanceSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
@@ -25,7 +22,8 @@ struct AccentColorPicker: View {
     // the parent body (which reads settings.accentColor in tint/preview),
     // which rebuilds the ColorPicker subtree, which can desync the system
     // UIColorPickerViewController so only the first pick registers.
-    // Commit happens once in .onDisappear.
+    // The preview llama follows pickerColor continuously; the app-wide
+    // accent commits once in .onDisappear.
     @State private var pickerColor: Color = AppColor.accent
 
     var body: some View {
@@ -76,29 +74,27 @@ struct AccentColorPicker: View {
             .onAppear {
                 pickerColor = settings.accentColor
             }
-            .onChange(of: pickerColor) { _, newValue in
-                // Live-write to the @Observable so chrome outside this
-                // sheet (TabView .tint → bottom tab bar selected font
-                // color, NavigationStack tints, FAB, hearts) follows
-                // the drag in real time. Safe because nothing in this
-                // view's body reads settings.accentColor reactively
-                // (everything renders from pickerColor), so the
-                // @Observable fire does NOT re-render this sheet's
-                // ColorPicker subtree — the original desync trap.
-                // UserProfileMirror.updateAccent is debounced inside
-                // the mirror, so a drag through 100 colors collapses
-                // to a single CloudKit push.
-                settings.accentColor = newValue
-            }
             .onDisappear {
-                // Final UIKit chrome sync (UIView.appearance().tintColor)
-                // — done once after dismiss to avoid mutating the
-                // appearance proxy mid-picker-session, which would
-                // re-snapshot UIColorPickerViewController.selectedColor
-                // back onto the binding (see AppearanceSettings docs).
-                settings.syncToUIKit()
+                commitSelection()
             }
         }
+    }
+
+    private func commitSelection() {
+        let selectedHex = pickerColor.toHex
+        let currentHex = settings.accentColor.toHex
+        if selectedHex != nil, selectedHex == currentHex {
+            settings.syncToUIKit()
+            return
+        }
+
+        settings.accentColor = pickerColor
+        // Final UIKit chrome sync (UIView.appearance().tintColor) is
+        // done once after dismiss to avoid mutating the appearance
+        // proxy mid-picker-session, which would re-snapshot
+        // UIColorPickerViewController.selectedColor back onto the
+        // binding (see AppearanceSettings docs).
+        settings.syncToUIKit()
     }
 
     private var preview: some View {

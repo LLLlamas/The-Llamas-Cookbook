@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Llamas Cookbook</title>
-  <meta name="description" content="A recipe app for keeping your favorites organized, sharing them with friends, and cooking them step-by-step.">
+  <title>Llamas Cookbook — Save, share, and cook. Friends & Family invited.</title>
+  <meta name="description" content="An iPhone recipe app that keeps your favorites organized, lets you share with anyone (no app required), and brings your friends and family along for the cooking.">
   <meta property="og:title" content="Llamas Cookbook">
-  <meta property="og:description" content="A recipe app for keeping your favorites organized.">
+  <meta property="og:description" content="Save, share, and cook. Friends & Family invited.">
   <meta property="og:image" content="/llama-icon.png">
   <meta property="og:type" content="website">
   <link rel="icon" type="image/png" href="/llama-icon.png">
@@ -15,19 +15,31 @@
       color-scheme: light dark;
       --bg: #faf7f2;
       --bg-alt: #f3eee5;
+      --bg-raised: #fffdf8;
       --text: #3a2d1e;
       --text-soft: #6b5d4a;
+      --text-faint: #9e948a;
       --accent: #c2755d;
+      --accent-deep: #9f5a3f;
+      --accent-soft: #f7e3d8;
+      --rule: #e8e1d6;
       --shadow: rgba(58, 45, 30, 0.08);
+      --shadow-lift: rgba(58, 45, 30, 0.16);
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #1f1a14;
         --bg-alt: #29221b;
+        --bg-raised: #2f261d;
         --text: #f3eee5;
         --text-soft: #b8a892;
+        --text-faint: #8a7c6a;
         --accent: #e89379;
+        --accent-deep: #c2755d;
+        --accent-soft: #3a2820;
+        --rule: #3a2f24;
         --shadow: rgba(0, 0, 0, 0.5);
+        --shadow-lift: rgba(0, 0, 0, 0.7);
       }
     }
     * { box-sizing: border-box; }
@@ -37,26 +49,294 @@
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 32px 20px;
-      text-align: center;
+      line-height: 1.6;
     }
-    img { width: 160px; height: 160px; border-radius: 32px; margin-bottom: 24px; box-shadow: 0 16px 50px var(--shadow); }
-    h1 {
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 48px 16px 56px;
+    }
+    .hero img {
+      width: 144px;
+      height: 144px;
+      border-radius: 32px;
+      box-shadow: 0 16px 50px var(--shadow-lift);
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 56px;
+      line-height: 1.05;
+      margin: 0 0 16px;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+    .hero .lead {
+      font-size: 22px;
+      color: var(--text);
+      max-width: 580px;
+      margin: 0 auto 36px;
+      line-height: 1.4;
+    }
+    .hero .lead strong {
+      color: var(--accent-deep);
+      font-weight: 600;
+    }
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--text);
+      color: var(--bg-raised);
+      padding: 14px 26px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 16px;
+      box-shadow: 0 8px 24px var(--shadow);
+      transition: transform 0.15s ease;
+    }
+    .cta:hover {
+      transform: translateY(-2px);
+    }
+    .cta-meta {
+      display: block;
+      color: var(--text-faint);
+      font-size: 14px;
+      margin-top: 14px;
+    }
+
+    /* Section heading */
+    h2 {
       font-family: "New York", "Iowan Old Style", Georgia, serif;
       font-size: 32px;
+      color: var(--accent-deep);
       margin: 0 0 12px;
-      color: var(--accent);
+      line-height: 1.2;
     }
-    p { color: var(--text-soft); max-width: 420px; line-height: 1.6; margin: 0 0 24px; }
+    .section-lede {
+      color: var(--text-soft);
+      font-size: 17px;
+      margin: 0 0 32px;
+      max-width: 620px;
+    }
+    section { padding: 56px 0; border-top: 1px solid var(--rule); }
+    section:first-of-type { border-top: 0; }
+
+    /* Differentiator grid */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .feature {
+      background: var(--bg-raised);
+      border-radius: 18px;
+      padding: 28px 24px;
+      box-shadow: 0 4px 14px var(--shadow);
+    }
+    .feature .glyph {
+      font-size: 28px;
+      line-height: 1;
+      margin-bottom: 14px;
+    }
+    .feature h3 {
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 20px;
+      color: var(--accent-deep);
+      margin: 0 0 8px;
+      line-height: 1.25;
+    }
+    .feature p {
+      color: var(--text-soft);
+      font-size: 15px;
+      margin: 0;
+    }
+    @media (max-width: 720px) {
+      .features { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 40px; }
+      .hero .lead { font-size: 19px; }
+      main { padding: 16px 20px 48px; }
+    }
+
+    /* Free section */
+    .free-card {
+      background: var(--accent-soft);
+      border-radius: 18px;
+      padding: 36px 32px;
+      text-align: center;
+    }
+    .free-card h2 {
+      color: var(--accent-deep);
+      margin-bottom: 16px;
+    }
+    .free-list {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px 14px;
+      list-style: none;
+      padding: 0;
+      margin: 16px 0 12px;
+    }
+    .free-list li {
+      background: var(--bg-raised);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      box-shadow: 0 2px 6px var(--shadow);
+    }
+    .free-card .footnote {
+      color: var(--accent-deep);
+      font-size: 14px;
+      margin: 14px 0 0;
+      opacity: 0.85;
+    }
+
+    /* About */
+    .about p {
+      color: var(--text-soft);
+      max-width: 620px;
+      font-size: 17px;
+    }
+    .about .signature {
+      margin-top: 24px;
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 18px;
+      color: var(--text);
+    }
+    .about .signature span {
+      color: var(--text-soft);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro", sans-serif;
+      font-size: 14px;
+      display: block;
+      margin-top: 2px;
+    }
+
+    /* Footer */
+    .footer {
+      color: var(--text-faint);
+      font-size: 13px;
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid var(--rule);
+    }
+    .footer a {
+      color: var(--text-soft);
+      text-decoration: none;
+      margin: 0 6px;
+    }
+    .footer a:hover { color: var(--accent); }
+    .footer .copyright {
+      display: block;
+      margin-top: 12px;
+      color: var(--text-faint);
+    }
   </style>
 </head>
 <body>
-  <img src="/llama-icon.png" alt="Llamas Cookbook">
-  <h1>Llamas Cookbook</h1>
-  <p>A recipe app for keeping your favorites organized, sharing them with friends, and cooking them step-by-step.</p>
+  <main>
+
+    <section class="hero">
+      <img src="/llama-icon.png" alt="Llamas Cookbook">
+      <h1>Llamas Cookbook</h1>
+      <p class="lead"><strong>Save, share, and cook.</strong> Friends &amp; family invited.</p>
+      <a class="cta" href="#about">
+        <span>Coming soon to the App Store</span>
+      </a>
+      <span class="cta-meta">iPhone · iOS 26+ · Free at launch · No subscription</span>
+    </section>
+
+    <section>
+      <h2>What it does</h2>
+      <p class="section-lede">An iPhone recipe app built around three small ideas the rest of the category mostly skips.</p>
+
+      <div class="features">
+
+        <div class="feature">
+          <div class="glyph">🍲🍞</div>
+          <h3>Two recipes. One stove.</h3>
+          <p>Cook two different recipes at the same time, each with its own steps, ingredients, and timer. Both run in the Dynamic Island so you don't have to put your phone down.</p>
+        </div>
+
+        <div class="feature">
+          <div class="glyph">📨</div>
+          <h3>Send it to anyone.</h3>
+          <p>Share a recipe over Messages and the recipient opens a clean web page — photos, ingredients, steps. No app to install. No account to make.</p>
+        </div>
+
+        <div class="feature">
+          <div class="glyph">👋</div>
+          <h3>Friends &amp; family included.</h3>
+          <p>Add friends, browse their cookbooks, import the recipes you'd actually cook. Your grandma's lasagna keeps her name on it, even three friends down the chain.</p>
+        </div>
+
+      </div>
+    </section>
+
+    <section>
+      <h2>Other things it does</h2>
+      <p class="section-lede">Because cooking is more than ingredients and steps.</p>
+      <div class="features">
+
+        <div class="feature">
+          <div class="glyph">🪄</div>
+          <h3>Save from anywhere.</h3>
+          <p>Paste a TikTok caption, a recipe blog URL, or scan a cookbook page. On-device AI does the parsing — your recipes never leave your phone.</p>
+        </div>
+
+        <div class="feature">
+          <div class="glyph">⏰</div>
+          <h3>Timers that actually ring.</h3>
+          <p>Cooking timers ring on the lock screen, in another app, and through Silent mode. Built on Apple's AlarmKit — no fragile notifications.</p>
+        </div>
+
+        <div class="feature">
+          <div class="glyph">🍞</div>
+          <h3>Built for craft.</h3>
+          <p>A sourdough hydration calculator. Conversions between cups, grams, and ounces. Per-step photos and notes. The details cooks notice.</p>
+        </div>
+
+      </div>
+    </section>
+
+    <section>
+      <div class="free-card">
+        <h2>Free at launch. No paywalls on cooking.</h2>
+        <ul class="free-list">
+          <li>Cook Mode</li>
+          <li>Friends</li>
+          <li>AI parser</li>
+          <li>Sharing</li>
+          <li>Sourdough calculator</li>
+          <li>iCloud sync</li>
+          <li>Timers</li>
+        </ul>
+        <p class="footnote">No ads. No tracking. No subscription. We don't paywall cooking.</p>
+      </div>
+    </section>
+
+    <section class="about" id="about">
+      <h2>About</h2>
+      <p>Llamas Cookbook is built by Lorenzo, a solo developer who got tired of recipes scattered across screenshots, browser tabs, and the Notes app. The app ships small improvements every week or two — what's in your hands today won't be the same app a month from now.</p>
+      <p>The llama lives here because every other recipe app is faceless. This one isn't.</p>
+      <p class="signature">— Lorenzo<span>Solo dev · ships weekly · ltlasian@gmail.com</span></p>
+    </section>
+
+    <div class="footer">
+      <a href="/">Home</a> · <a href="/support">Support</a> · <a href="/privacy">Privacy</a>
+      <span class="copyright">© 2026 Lorenzo</span>
+    </div>
+
+  </main>
 </body>
 </html>

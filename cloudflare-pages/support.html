@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support — Llamas Cookbook</title>
+  <meta name="description" content="Get help with Llamas Cookbook. Common questions about sharing, signing in, timers, and friends.">
+  <meta property="og:title" content="Support — Llamas Cookbook">
+  <meta property="og:description" content="Get help with Llamas Cookbook. Common questions about sharing, signing in, timers, and friends.">
+  <meta property="og:image" content="/llama-icon.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="/llama-icon.png">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #faf7f2;
+      --bg-alt: #f3eee5;
+      --text: #3a2d1e;
+      --text-soft: #6b5d4a;
+      --accent: #c2755d;
+      --accent-deep: #9f5a3f;
+      --rule: #e8e1d6;
+      --shadow: rgba(58, 45, 30, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1f1a14;
+        --bg-alt: #29221b;
+        --text: #f3eee5;
+        --text-soft: #b8a892;
+        --accent: #e89379;
+        --accent-deep: #c2755d;
+        --rule: #3a2f24;
+        --shadow: rgba(0, 0, 0, 0.5);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .header img {
+      width: 64px;
+      height: 64px;
+      border-radius: 14px;
+      box-shadow: 0 8px 24px var(--shadow);
+    }
+    .header .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .header a {
+      color: var(--text-soft);
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .header a:hover { color: var(--accent); }
+    h1 {
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 40px;
+      margin: 0;
+      color: var(--accent);
+      line-height: 1.15;
+    }
+    .lede {
+      color: var(--text-soft);
+      font-size: 18px;
+      margin: 8px 0 32px;
+    }
+    .contact-card {
+      background: var(--bg-alt);
+      border-radius: 14px;
+      padding: 24px 28px;
+      margin: 24px 0 48px;
+      border-left: 3px solid var(--accent);
+    }
+    .contact-card .label {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent-deep);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .contact-card .email {
+      font-size: 22px;
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+    }
+    .contact-card .email a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .contact-card .email a:hover {
+      color: var(--accent-deep);
+      text-decoration: underline;
+    }
+    .contact-card .meta {
+      color: var(--text-soft);
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    h2 {
+      font-family: "New York", "Iowan Old Style", Georgia, serif;
+      font-size: 26px;
+      color: var(--accent-deep);
+      margin: 48px 0 16px;
+      line-height: 1.25;
+    }
+    details {
+      border-bottom: 1px solid var(--rule);
+      padding: 16px 0;
+    }
+    details:first-of-type { border-top: 1px solid var(--rule); }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text);
+      font-size: 16px;
+      list-style: none;
+      position: relative;
+      padding-right: 28px;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after {
+      content: "+";
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-size: 22px;
+      font-weight: 300;
+      transition: transform 0.2s;
+    }
+    details[open] summary::after {
+      content: "−";
+    }
+    details p, details ul {
+      color: var(--text-soft);
+      margin-top: 12px;
+    }
+    details ul { padding-left: 22px; }
+    details li { margin-bottom: 6px; }
+    p { color: var(--text-soft); margin: 0 0 16px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-deep); text-decoration: underline; }
+    code {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      background: var(--bg-alt);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text);
+    }
+    .footer {
+      color: var(--text-soft);
+      font-size: 13px;
+      text-align: center;
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--rule);
+    }
+    .footer a { color: var(--text-soft); }
+    .footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="header">
+      <img src="/llama-icon.png" alt="Llamas Cookbook">
+      <div class="stack">
+        <a href="/">← Llamas Cookbook</a>
+      </div>
+    </div>
+
+    <h1>Support</h1>
+    <p class="lede">Help, questions, bug reports, recipes you wish the app handled better — we read every email.</p>
+
+    <div class="contact-card">
+      <div class="label">Email us</div>
+      <div class="email"><a href="mailto:ltlasian@gmail.com">ltlasian@gmail.com</a></div>
+      <div class="meta">We aim to reply within two business days. If you're reporting a crash or a sync issue, please mention your iPhone model and iOS version.</div>
+    </div>
+
+    <h2>Common questions</h2>
+
+    <details>
+      <summary>I shared a recipe with a friend but they can't open it.</summary>
+      <p>Tap-to-open requires the recipient to have Llamas Cookbook installed. If they don't, the link opens a small preview page and they can install the app from there.</p>
+      <p>If they <em>do</em> have it installed and the link still opens in Safari instead of the app, give it 30 seconds — iOS validates app-link associations after install and may need a moment. If it still doesn't work, both of you can try restarting your iPhones; this forces iOS to re-check the association.</p>
+    </details>
+
+    <details>
+      <summary>My cooking timer didn't ring on the lock screen.</summary>
+      <p>Cooking timers use Apple's AlarmKit so they ring even on Silent and through Focus modes. For timers to fire on the lock screen, two things must be true:</p>
+      <ul>
+        <li>You granted alarm permission the first time you opened Cook Mode. If you tapped "Don't Allow," go to Settings → Llamas Cookbook → Alarms and turn it back on.</li>
+        <li>You haven't force-quit the app from the App Switcher. Force-quitting cancels any scheduled alarms.</li>
+      </ul>
+      <p>The in-app ring still works while the app is foregrounded regardless of permissions.</p>
+    </details>
+
+    <details>
+      <summary>Sign in with Apple isn't working.</summary>
+      <p>The most common cause is that your iPhone isn't signed into iCloud. Check Settings → Apple Account at the top — if it says "Sign in to your iPhone," sign in there first.</p>
+      <p>If you previously revoked Llamas Cookbook from Settings → Apple Account → Sign in with Apple, you'll need to allow it again. The app will drop you back to a fresh sign-in flow on next launch.</p>
+    </details>
+
+    <details>
+      <summary>My friend list is empty even though I sent requests.</summary>
+      <p>The friends feature relies on iCloud being signed in on your device. Settings → Apple Account → iCloud → Llamas Cookbook should show iCloud Drive turned on for the app.</p>
+      <p>If iCloud is on and you still see nothing, pull-to-refresh on the Friends tab. Friend requests sometimes take a moment to propagate; the app refreshes them in the background, but a manual refresh forces an immediate sync.</p>
+    </details>
+
+    <details>
+      <summary>I imported a recipe from a TikTok / Instagram / blog and it came back wrong.</summary>
+      <p>The app does its best to extract recipes from messy sources, but social media platforms vary in what they expose:</p>
+      <ul>
+        <li><strong>Recipe blogs</strong> usually have structured data — these import cleanly.</li>
+        <li><strong>TikTok</strong> exposes the caption text via its public oEmbed; if the caption isn't a recipe, the app drops it into the paste box for you to clean up.</li>
+        <li><strong>Pinterest</strong> works for pins with a description; image-only pins fall back to a paste workflow.</li>
+        <li><strong>Instagram and Facebook</strong> block link-based caption fetching. For these, copy the caption text and paste it into "From Text" instead.</li>
+      </ul>
+      <p>You can always edit any imported recipe afterward to fix what the parser missed.</p>
+    </details>
+
+    <details>
+      <summary>How do I delete my account?</summary>
+      <p>Open the app, tap the profile icon, scroll down, and tap "Delete Account." This wipes your identity from your device and removes every cloud record the app created on your behalf — friend connections, published recipes, recipe shares, and your public profile.</p>
+      <p>If you only want to remove the app from this device without deleting your account, just delete the app from your home screen — your account record stays in iCloud and you can sign back in on any device.</p>
+    </details>
+
+    <details>
+      <summary>Where is my data stored?</summary>
+      <p>Recipes, photos, and cooking history live on your iPhone in Apple's SwiftData. When you share recipes with friends or a friend imports one of your recipes, those records live in <em>your</em> iCloud (Apple's CloudKit), not on a server we run. We don't have a server holding your data.</p>
+      <p>Full details are in our <a href="/privacy">Privacy Policy</a>.</p>
+    </details>
+
+    <details>
+      <summary>Will Llamas Cookbook get an iPad version?</summary>
+      <p>Not in v1.0.0 — the app is designed for iPhone only. iPad support is planned but doesn't have a release date yet. If iPad support is the only thing keeping you from using the app, drop us a line and we'll let you know when it ships.</p>
+    </details>
+
+    <details>
+      <summary>Will Llamas Cookbook get a dark mode?</summary>
+      <p>Not yet. The cream-and-terracotta look is a deliberate v1 design choice — we wanted the app to feel like a warm cookbook on your kitchen counter rather than a tech tool. We're listening to feedback though; if dark mode matters to you, tell us.</p>
+    </details>
+
+    <details>
+      <summary>I found a bug. What information helps you fix it fastest?</summary>
+      <p>The best bug reports include:</p>
+      <ul>
+        <li>iPhone model (Settings → General → About → Model Name)</li>
+        <li>iOS version (Settings → General → About → iOS Version)</li>
+        <li>Llamas Cookbook version (in-app: Profile → scroll down)</li>
+        <li>What you were trying to do</li>
+        <li>What happened instead</li>
+        <li>Screenshot or screen recording if you can</li>
+      </ul>
+      <p>Send to <a href="mailto:ltlasian@gmail.com">ltlasian@gmail.com</a>.</p>
+    </details>
+
+    <h2>Other</h2>
+    <p>If you'd like to contribute a feature idea, request a parser improvement for a specific recipe site, or just tell us what works for you — we want to hear from you. Email <a href="mailto:ltlasian@gmail.com">ltlasian@gmail.com</a>.</p>
+
+    <div class="footer">
+      <a href="/">Home</a> · <a href="/support">Support</a> · <a href="/privacy">Privacy</a>
+    </div>
+  </main>
+</body>
+</html>
