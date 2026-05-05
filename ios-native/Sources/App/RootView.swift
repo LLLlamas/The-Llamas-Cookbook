@@ -46,6 +46,11 @@ struct RootView: View {
     /// Drives the ghost's spring source → destination on appear.
     /// Flipped from false to true immediately after mount.
     @State private var ghostFlying: Bool = false
+    /// Local tint proxy for the selected bottom-tab label/icon. Keeping
+    /// this as state lets the committed accent ease to its new color
+    /// when the color picker dismisses, without writing shared accent
+    /// state during the active picker session.
+    @State private var tabBarAccent: Color?
 
     init() {
         Self.configureTabBarAppearance()
@@ -145,10 +150,18 @@ struct RootView: View {
             }
             .tag(AppTab.me)
         }
-        .tint(appearance.accentColor)
+        .tint(tabBarAccent ?? appearance.accentColor)
         .environment(session)
         .environment(editor)
         .environment(navContext)
+        .onAppear {
+            tabBarAccent = appearance.accentColor
+        }
+        .onChange(of: appearance.accentColor.toHex ?? "") { _, _ in
+            withAnimation(.easeInOut(duration: 0.28)) {
+                tabBarAccent = appearance.accentColor
+            }
+        }
         .task {
             // Cold launch (or relaunch after iOS killed us) — pull any
             // saved cook session back into memory before the first frame
