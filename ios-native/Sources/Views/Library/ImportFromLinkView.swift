@@ -362,7 +362,11 @@ struct ImportFromLinkView: View {
             // tiny inline preview.
             Haptics.success()
             urlEnrichment = enrichment
-            parsedDraft = enrichment
+            parsedDraft = seedText.isEmpty
+                && enrichment.ingredients.isEmpty
+                && enrichment.steps.isEmpty
+                ? nil
+                : enrichment
             let combined = seedText.isEmpty
                 ? hint
                 : "\(hint)\n\nWe'll open the text editor with what we found."
@@ -382,6 +386,12 @@ struct ImportFromLinkView: View {
             Haptics.warning()
             urlEnrichment = enrichment
             parsedDraft = enrichment
+            urlBanner = URLBanner(kind: .warning, message: hint)
+
+        case .noRecipeInCaption(let enrichment, let hint):
+            Haptics.warning()
+            urlEnrichment = enrichment
+            parsedDraft = nil
             urlBanner = URLBanner(kind: .warning, message: hint)
 
         case .failed(let message):

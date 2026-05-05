@@ -2,7 +2,7 @@
 
 Source of truth for agents. Code wins when this disagrees.
 
-Last refreshed: 2026-05-04.
+Last refreshed: 2026-05-05.
 
 ## Status
 
@@ -10,6 +10,9 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 
 ## Open work
 
+- **Import parser improvements (queued for an implementer agent):**
+  - `link-import-improvements.md` — 13 findings against `RecipeURLImporter` / `RecipeSchemaParser` / `RecipeImporter`, validated on a 15-recipe corpus across BudgetBytes / AllRecipes / King Arthur Baking / HelloFresh / Serious Eats. High-impact fixes: prepTime extraction, parenthetical-lift orphan punctuation, range quantities (`1-3 tsp` and `1/2 to 1 tsp`), recursive step splitting, action-only parenthetical lift, and the compound-quantity comma-split bug (`"3/4 tsp salt, 3/4 tsp pepper"` over-splits today). Each finding has root-cause + proposed Swift code + line refs into `ios-native/Sources/Lib/`.
+  - `social-import-improvements.md` — 7 findings against the TikTok / Pinterest / Instagram caption path. Highest-impact fix: follow Pinterest's `SocialMediaPosting.sharedContent.url` to the source recipe blog (turns "junk import" into "perfect import" for ~half of pins). Also: a "no recipe in caption" detector + new `Outcome.noRecipeInCaption` case so empty-caption posts don't drop the user into an editor with hashtags as the title.
 - Verify Universal Links on real devices.
 - AlarmKit: Per-cook `TimerLiveActivityRegistry` not yet implemented.
 - Aesthetic/type pass; adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.

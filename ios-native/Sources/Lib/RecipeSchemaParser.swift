@@ -33,7 +33,7 @@ enum RecipeSchemaParser {
             draft.title = cleanTitle(title)
         }
         if let desc = ogContent(in: html, property: "og:description") {
-            draft.summary = decodeHTMLEntities(desc).trimmed
+            draft.summary = cleanSchemaText(desc)
         }
         return Result(draft: draft, recipeFound: false)
     }
@@ -92,7 +92,7 @@ enum RecipeSchemaParser {
             draft.title = cleanTitle(name)
         }
         if let desc = stringValue(recipe["description"]) {
-            draft.summary = decodeHTMLEntities(desc).trimmed
+            draft.summary = cleanSchemaText(desc)
         }
 
         // Ingredients — `recipeIngredient` is current; `ingredients` is
@@ -100,7 +100,7 @@ enum RecipeSchemaParser {
         let ingredientStrings = stringArray(recipe["recipeIngredient"])
             + stringArray(recipe["ingredients"])
         draft.ingredients = ingredientStrings
-            .map { decodeHTMLEntities($0).trimmed }
+            .map { cleanSchemaText($0) }
             .filter { !$0.isEmpty }
             .flatMap { RecipeImporter.parseIngredientLine($0) }
 
@@ -111,7 +111,7 @@ enum RecipeSchemaParser {
         // still ends up with separate steps in the editor.
         if let instr = recipe["recipeInstructions"] {
             draft.steps = extractInstructions(instr)
-                .map { decodeHTMLEntities($0).trimmed }
+                .map { cleanSchemaText($0) }
                 .filter { !$0.isEmpty }
                 .flatMap { RecipeImporter.parseStepLines($0) }
         }
@@ -126,6 +126,10 @@ enum RecipeSchemaParser {
             draft.cookTimeMinutes = String(mins)
         } else if let mins = isoDurationMinutes(stringValue(recipe["totalTime"])) {
             draft.cookTimeMinutes = String(mins)
+        }
+
+        if let mins = isoDurationMinutes(stringValue(recipe["prepTime"])) {
+            draft.prepTimeMinutes = String(mins)
         }
 
         // Keywords from the schema (often SEO terms like "easy", "quick",
@@ -195,6 +199,11 @@ enum RecipeSchemaParser {
                 if let s = extractServings(item) { return s }
             }
         }
+        if let dict = value as? [String: Any] {
+            if let v = dict["value"], let s = extractServings(v) { return s }
+            if let s = dict["name"] as? String { return extractServings(s) }
+            if let s = dict["text"] as? String { return extractServings(s) }
+        }
         return nil
     }
 
@@ -225,6 +234,45 @@ enum RecipeSchemaParser {
     }
 
     // MARK: - OpenGraph
+
+    /// Pinterest pins commonly publish a SocialMediaPosting JSON-LD node
+    /// whose sharedContent.url points to the original recipe blog.
+    static func extractPinterestSharedContent(from html: String) -> String? {
+        let scriptPattern = #/<script[^>]*type\s*=\s*["']application/ld\+json["'][^>]*>(.*?)</script>/#
+            .ignoresCase()
+            .dotMatchesNewlines()
+
+        for match in html.matches(of: scriptPattern) {
+            let raw = String(match.output.1)
+                .replacingOccurrences(of: "\u{2028}", with: " ")
+                .replacingOccurrences(of: "\u{2029}", with: " ")
+            guard let data = raw.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(
+                    with: data, options: [.allowFragments]
+                  ),
+                  let post = findSocialMediaPosting(in: parsed),
+                  let shared = post["sharedContent"] as? [String: Any],
+                  let url = stringValue(shared["url"])?.trimmed,
+                  !url.isEmpty
+            else { continue }
+            return url
+        }
+        return nil
+    }
+
+    private static func findSocialMediaPosting(in node: Any) -> [String: Any]? {
+        if let dict = node as? [String: Any] {
+            if isType(dict, named: "SocialMediaPosting") { return dict }
+            for value in dict.values {
+                if let r = findSocialMediaPosting(in: value) { return r }
+            }
+        } else if let arr = node as? [Any] {
+            for item in arr {
+                if let r = findSocialMediaPosting(in: item) { return r }
+            }
+        }
+        return nil
+    }
 
     private static func ogContent(in html: String, property: String) -> String? {
         // Match both attribute orderings and either property= or name=.
@@ -262,6 +310,29 @@ enum RecipeSchemaParser {
         // Strip a trailing hashtag run ("Cookies #baking #easy" → "Cookies").
         s = s.replacing(#/(?:\s*#[\p{L}\p{N}_]+)+\s*$/#, with: "").trimmed
         return s
+    }
+
+    private static func isType(_ dict: [String: Any], named typeName: String) -> Bool {
+        if let t = dict["@type"] as? String { return t == typeName }
+        if let arr = dict["@type"] as? [String] { return arr.contains(typeName) }
+        return false
+    }
+
+    private static func cleanSchemaText(_ raw: String) -> String {
+        stripMarkdownEmphasis(stripHTMLTags(decodeHTMLEntities(raw)))
+            .replacing(#/[ \t]{2,}/#, with: " ")
+            .trimmed
+    }
+
+    private static func stripHTMLTags(_ s: String) -> String {
+        s.replacing(#/<[^>]+>/#, with: " ")
+    }
+
+    private static func stripMarkdownEmphasis(_ s: String) -> String {
+        s
+            .replacing(#/\*\*([^*]+)\*\*/#, with: { String($0.output.1) })
+            .replacing(#/__([^_]+)__/#, with: { String($0.output.1) })
+            .replacing(#/\*([^*]+)\*/#, with: { String($0.output.1) })
     }
 
     private static func decodeHTMLEntities(_ s: String) -> String {

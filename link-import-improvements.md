@@ -73,13 +73,29 @@ maple-french-toast-muffins (KA)     ''           →  '35'
 + 5 BudgetBytes recipes (5–25 min range)
 ```
 
-**Root cause + Proposed fix**: see original doc — `RecipeSchemaParser.populate(_:from:)` reads cookTime/totalTime but never prepTime. Add 3 lines after the existing block.
+**Root cause:** `RecipeSchemaParser.populate(_:from:)` reads `cookTime` (then falls back to `totalTime`) into `cookTimeMinutes`, but never reads `prepTime` into `prepTimeMinutes`. The slot exists on `DraftRecipe` (`prepTimeMinutes: String`) and the editor surfaces it — only the schema bridge is missing.
+
+`ios-native/Sources/Lib/RecipeSchemaParser.swift:124-129`:
+
+```swift
+// Prefer cookTime; fall back to totalTime so a one-pot recipe
+// that only publishes "totalTime" still seeds the field.
+if let mins = isoDurationMinutes(stringValue(recipe["cookTime"])) {
+    draft.cookTimeMinutes = String(mins)
+} else if let mins = isoDurationMinutes(stringValue(recipe["totalTime"])) {
+    draft.cookTimeMinutes = String(mins)
+}
+```
+
+**Proposed fix:** Add a parallel block for prepTime, immediately after the cookTime block:
 
 ```swift
 if let mins = isoDurationMinutes(stringValue(recipe["prepTime"])) {
     draft.prepTimeMinutes = String(mins)
 }
 ```
+
+That's it. No regression risk — the field is currently always empty on this path, and the matching `RecipeImporter` text path already populates the same field from `Prep:` headers.
 
 ---
 
@@ -106,7 +122,35 @@ sloppy-joes (SE)                        1 → 0
 
 17 affected steps across 11 of 15 recipes — confirmed not a BudgetBytes-specific issue.
 
-**Root cause + Proposed fix:** see original doc.
+**Root cause:** `RecipeImporter.liftWhileClause(_:)` extracts a parenthetical, removes it from the text, and rejoins `before` and `after` with a literal `" "`:
+
+`ios-native/Sources/Lib/RecipeImporter.swift:1115-1121`:
+
+```swift
+let before = String(text[..<parens.range.lowerBound])
+    .trimmingCharacters(in: .whitespaces)
+let after = String(text[parens.range.upperBound...])
+    .trimmingCharacters(in: .whitespaces)
+let main = [before, after]
+    .filter { !$0.isEmpty }
+    .joined(separator: " ")
+```
+
+When `after` starts with sentence-terminator punctuation (the parenthetical was followed by `.` / `,` / `;` / `:` / `!` / `?`), the joiner inserts an unwanted space before the punctuation.
+
+**Proposed fix:** Don't insert the space when `after` leads with punctuation. Direct concatenation is correct in that case.
+
+```swift
+let punctLeaders: Set<Character> = [".", ",", ";", ":", "!", "?", ")"]
+let main: String
+if !before.isEmpty, let firstAfter = after.first, punctLeaders.contains(firstAfter) {
+    main = before + after
+} else {
+    main = [before, after]
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+}
+```
 
 ---
 
@@ -156,17 +200,118 @@ The new finding here (see Finding 12 below): the dash form is the easy case. **K
 
 Confirmed across the wider corpus. Same pattern as BudgetBytes: parentheticals that aren't reminders ("(I didn't need to)", "(see below)", "(microwaves vary)" in HelloFresh, "(should be gooey)" in AllRecipes peach-blondies, etc.) get lifted into specialNote.
 
-**Root cause + Proposed fix:** see original doc — gate `liftWhileClause`'s parenthetical branch on `actionParensRegex` matching the inside content.
+**Root cause:** `liftWhileClause(_:)` (`RecipeImporter.swift:1112`) uses the regex `\s*\(([^()]+)\)\s*` and lifts the content unconditionally — any non-empty parenthetical fires the lift. The function doc-comment makes clear the design intent (`"(start preheating while X)"`-style hints), but the implementation accepts every non-empty parenthetical.
+
+**Proposed fix:** Constrain the lift to action-shaped content. Anything else stays inline.
+
+```swift
+private static let actionParensRegex = #/(?i)^(?:while\b|start\b|begin\b|do not\b|don'?t\b|about\s+\d|after\s+\d|once\b)/#
+
+private static func liftWhileClause(_ step: DraftStep) -> DraftStep {
+    guard step.specialNote == nil else { return step }
+    let text = step.text
+
+    if let parens = try? #/\s*\(([^()]+)\)\s*/#.firstMatch(in: text) {
+        let inside = String(parens.output.1).trimmingCharacters(in: .whitespaces)
+        // Only lift if the parenthetical reads like an action / reminder.
+        if (try? actionParensRegex.firstMatch(in: inside)) != nil {
+            // ... existing lift logic, including the punctuation-leader fix from Finding 2
+        }
+    }
+
+    // Bare-while fallback (unchanged) — not gated on the actionParensRegex.
+    // ...
+}
+```
+
+This preserves the original "(start preheating while X)" / "(while dough is proofing)" lift the parser was designed for, and stops molesting plain inline asides. Bare-while suffix outside parens still lifts.
 
 ---
 
-### 6, 7, 8: confirmed-but-unencountered + dimensional measurements
+### 6. `recipeYield` as `QuantitativeValue` returns nil
 
-**6 (`recipeYield` as `QuantitativeValue`)** — defensive; no instances in the new corpus either. Schema.org-compliant variant; cheap to handle.
+**Severity:** Medium. Schema.org allows `recipeYield` to be a `QuantitativeValue` object (`{"@type": "QuantitativeValue", "value": 6, "unitText": "servings"}`); some sites publish it that way (less common than the array/string forms but well-attested).
 
-**7 (Strip HTML tags from description / step text)** — defensive. The HelloFresh corpus contains `**Swap in beef for turkey.**` (markdown bold delimiters) inside a step. While not strictly HTML, the same hygiene pass should normalize markdown emphasis: strip `**...**`, `*...*`, `__...__`, `_..._` from step text bodies.
+**Evidence:** Not in corpus. Code-level analysis only.
 
-**8 (Comma-digit split fires on dimensional measurements)** — confirmed in BudgetBytes meatloaf (`4-inches wide, 8-inches long`). The proposed lookahead tightening composes cleanly with Finding 9 (compound-quantity exclusion).
+**Root cause:** `extractServings(_:)` (`RecipeSchemaParser.swift:182-198`) handles `Int`, `Double`, `String`, and `[Any]` — falls through to `nil` on `[String: Any]`.
+
+**Proposed fix:** Add a dict branch that pulls `value` and recurses:
+
+```swift
+private static func extractServings(_ value: Any?) -> String? {
+    guard let value else { return nil }
+    if let i = value as? Int { return String(i) }
+    if let d = value as? Double { return String(Int(d)) }
+    if let s = value as? String { /* existing */ }
+    if let arr = value as? [Any] { /* existing */ }
+    if let dict = value as? [String: Any] {
+        // schema.org QuantitativeValue
+        if let v = dict["value"] { return extractServings(v) }
+        // Fallback: pull from name/text if present
+        if let s = dict["name"] as? String { return extractServings(s) }
+        if let s = dict["text"] as? String { return extractServings(s) }
+    }
+    return nil
+}
+```
+
+Defensive and mechanical — no risk of regression on existing shapes.
+
+---
+
+### 7. HTML / markdown tags inside `description` and step `text`
+
+**Severity:** Medium. WP Recipe Maker, Tasty Recipes, and several other Recipe-card plugins occasionally publish `<p>`, `<br>`, `<a>`, `<strong>` tags inside `recipeInstructions[].text`. The HelloFresh corpus also surfaces markdown-bold delimiters (`**Swap in beef for turkey.**`).
+
+**Evidence:** No raw `<...>` HTML in the 15-recipe corpus. HelloFresh's `**...**` is the closest case — markdown emphasis surviving into rendered step text is visually wrong.
+
+**Root cause:** `decodeHTMLEntities(_:)` resolves `&amp;` etc. but leaves tags + markdown emphasis intact. There's no `stripHTMLTags` pass.
+
+**Proposed fix:** Add a tag-stripping helper and call it on every string that comes out of the schema:
+
+```swift
+private static func stripHTMLTags(_ s: String) -> String {
+    s.replacing(#/<[^>]+>/#, with: " ")
+        .replacing(#/[ \t]{2,}/#, with: " ")
+        .trimmingCharacters(in: .whitespaces)
+}
+
+private static func stripMarkdownEmphasis(_ s: String) -> String {
+    s.replacing(#/\*\*([^*]+)\*\*/#, with: { String($0.output.1) })
+        .replacing(#/__([^_]+)__/#, with: { String($0.output.1) })
+        .replacing(#/(?<![*\w])\*([^*]+)\*(?!\w)/#, with: { String($0.output.1) })
+}
+
+// In populate(_:from:), wrap each value extraction:
+if let desc = stringValue(recipe["description"]) {
+    let cleaned = stripMarkdownEmphasis(stripHTMLTags(decodeHTMLEntities(desc)))
+    draft.summary = cleaned.trimmed
+}
+// And similarly for ingredient strings + extracted instruction strings.
+```
+
+Conservative — `<[^>]+>` matches well-formed tags only; mismatched literal `<` / `>` in step text (rare, e.g. mathematical inequalities in baking ratios) would survive. The markdown-emphasis stripper preserves the inner text.
+
+---
+
+### 8. Comma-digit step splitter fires inside dimensional measurements
+
+**Severity:** Medium-low. Visible regression on recipes that describe pan / shape dimensions inline.
+
+**Evidence:** Meatloaf step 7-8 base output: `"Place the meat mixture on a rimmed baking dish and shape it into a loaf that is approximately 4-inches wide"` followed by `"8-inches long, and 2-inches tall."` — the `, 8-inches` triggers the comma-digit boundary split.
+
+**Root cause:** `splitIntoSteps(_:)` comma-boundary regex (`RecipeImporter.swift:998`):
+
+```swift
+let commaBoundaryRegex = #/,\s+(?=[Tt]hen\b|\d)/#
+```
+
+The lookahead is satisfied by any digit, including `8` in `"8-inches"`. The comment notes this is a "next-instruction" signal, but the heuristic doesn't distinguish "next instruction starts with `8 minutes`" from "the same dimension list continues with `8-inches long`".
+
+**Proposed fix:** Tighten the lookahead so the digit must NOT be followed by a measurement-shape suffix. **Combine with Finding 9** — both fixes tighten the same lookahead, and the unit list and the dimension-suffix list go side-by-side in the negated alternation. See Finding 9 for the consolidated regex.
+
+The Finding 8 contribution to the combined regex: also negate when the digit is followed by `-inches` / `inches` / `cm` / `mm` / `ft` / `feet` / `"` / `°`. Example fragment: `(?!\s*-?\s*(?:inches?|cm|mm|ft|feet|"|°|x\d))` immediately after the digit run.
 
 ---
 

@@ -33,6 +33,10 @@ enum RecipeURLImporter {
         /// survives the paste flow.
         case blocked(enrichment: DraftRecipe, hint: String)
 
+        /// Caption/page was reachable, but did not contain usable
+        /// ingredient/step content.
+        case noRecipeInCaption(enrichment: DraftRecipe, hint: String)
+
         case failed(message: String)
     }
 
@@ -121,16 +125,22 @@ enum RecipeURLImporter {
             return .failed(message: "Couldn't reach Pinterest. Check the link and your connection.")
         }
         let result = RecipeSchemaParser.parse(html: html, sourceUrl: url.absoluteString)
-        if result.recipeFound {
+        if result.recipeFound, !result.draft.steps.isEmpty {
             return .full(result.draft)
+        }
+        if let followed = await followPinterestSharedContent(from: html, originalURL: url) {
+            return followed
+        }
+        if result.recipeFound {
+            return .partial(
+                enrichment: result.draft,
+                seedText: "",
+                hint: "Got the ingredients from this pin. For the steps, try the pin's Visit link to the original recipe."
+            )
         }
         var enrichment = result.draft
         enrichment.sourceUrl = url.absoluteString
-        let seed = enrichment.summary
-        if !seed.isEmpty,
-           let aiDraft = await RecipeAIParser.parseBestOf(seed, sourceUrl: url.absoluteString) {
-            return .full(aiDraft)
-        }
+        let seed = ""
         return .partial(
             enrichment: enrichment,
             seedText: seed,
@@ -138,6 +148,36 @@ enum RecipeURLImporter {
                 ? "Couldn't read this pin's text. If it links out to a recipe blog, try pasting that link instead."
                 : "Got the pin's description. Make sure line 1 is the title — leave a blank line between title, ingredients, and steps."
         )
+    }
+
+    private static func followPinterestSharedContent(from html: String, originalURL: URL) async -> Outcome? {
+        guard let shared = RecipeSchemaParser.extractPinterestSharedContent(from: html),
+              let destination = normalizeURL(shared),
+              !isPinterestHost(destination.host ?? "")
+        else { return nil }
+
+        let downstream = await fetch(destination.absoluteString)
+        switch downstream {
+        case .full(var draft):
+            draft.sourceUrl = originalURL.absoluteString
+            return .full(draft)
+        case .partial(var enrichment, let seedText, let hint):
+            enrichment.sourceUrl = originalURL.absoluteString
+            return .partial(enrichment: enrichment, seedText: seedText, hint: hint)
+        case .blocked(var enrichment, let hint):
+            enrichment.sourceUrl = originalURL.absoluteString
+            return .blocked(enrichment: enrichment, hint: hint)
+        case .noRecipeInCaption(var enrichment, let hint):
+            enrichment.sourceUrl = originalURL.absoluteString
+            return .noRecipeInCaption(enrichment: enrichment, hint: hint)
+        case .failed:
+            return nil
+        }
+    }
+
+    private static func isPinterestHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        return lower.contains("pinterest.") || lower == "pin.it" || lower.hasSuffix(".pin.it")
     }
 
     // MARK: - TikTok
@@ -165,13 +205,27 @@ enum RecipeURLImporter {
             // Tags are deliberately NOT auto-populated — categories are
             // the user's call, not the import path's.
             let (cleaned, _) = liftHashtags(from: caption)
+            let exploded = RecipeImporter.explodeSingleParagraph(cleaned)
+            let regexDraft = RecipeImporter.parse(exploded)
+            guard RecipeImporter.hasUsableRecipeContent(regexDraft) else {
+                if let outbound = RecipeImporter.extractCaptionURL(cleaned) {
+                    return .partial(
+                        enrichment: enrichment,
+                        seedText: "",
+                        hint: "This caption mentions \(outbound.host ?? outbound.absoluteString). Try importing that link instead."
+                    )
+                }
+                return .noRecipeInCaption(
+                    enrichment: enrichment,
+                    hint: "This caption doesn't seem to contain a recipe. Paste the recipe text when you have it and I'll import that."
+                )
+            }
             if let aiDraft = await RecipeAIParser.parseBestOf(cleaned, sourceUrl: url.absoluteString) {
                 return .full(aiDraft)
             }
             // TikTok ships captions as one long paragraph — pre-explode
             // before handing back as seed text so the user sees a
             // multi-line preview they can sanity-check, not a wall.
-            let exploded = RecipeImporter.explodeSingleParagraph(cleaned)
             return .partial(
                 enrichment: enrichment,
                 seedText: exploded,

@@ -214,6 +214,38 @@ enum RecipeImporter {
         stripTitleLabel(s)
     }
 
+    /// Returns true when a parsed caption has enough content to be a
+    /// recipe, not just a social blurb that happened to mention food.
+    static func hasUsableRecipeContent(_ draft: DraftRecipe) -> Bool {
+        let realIngredientCount = draft.ingredients.filter { ing in
+            !ing.name.trimmed.isEmpty
+                && (!ing.quantity.trimmed.isEmpty || !ing.unit.trimmed.isEmpty)
+        }.count
+        if realIngredientCount >= 1 { return true }
+
+        let realSteps = draft.steps.filter { hasCookingActionOrDuration($0.text) }
+        return realSteps.count >= 2
+    }
+
+    /// Extract a likely source URL from social captions. Supports both
+    /// full links and domain-only mentions such as "smittenkitchen.com".
+    static func extractCaptionURL(_ text: String) -> URL? {
+        if let match = try? #/https?:\/\/[^\s<>"']+/#.firstMatch(in: text) {
+            let raw = String(match.output.0).trimmingCharacters(in: captionURLTrimCharacters)
+            if let url = URL(string: raw) { return url }
+        }
+        let lower = text.lowercased()
+        if let match = try? #/\b([a-z0-9-]+\.(?:com|net|org|io|co|us|blog|food|recipe|kitchen)(?:\/[^\s<>"']*)?)\b/#.firstMatch(in: lower) {
+            if match.range.lowerBound > lower.startIndex {
+                let previous = lower[lower.index(before: match.range.lowerBound)]
+                if previous == "@" || previous == "." { return nil }
+            }
+            let raw = String(match.output.1).trimmingCharacters(in: captionURLTrimCharacters)
+            return URL(string: "https://" + raw)
+        }
+        return nil
+    }
+
     /// Post-process an AI-parsed step. Runs the parenthetical / "while X"
     /// lift, then **overrides** `needsTimer` from `hasTimerSignal` rather
     /// than trusting the model's flag. Rationale: the compound-noun
@@ -472,6 +504,18 @@ enum RecipeImporter {
         // falling through to the step list.
         let pattern = #/(?i)^\d+(?:[.\u{00BC}-\u{215E}]\d*)?(?:(?:\s+|\s*&\s*)(?:\d+/\d+|[\u{00BC}-\u{215E}]))?(?:/\d+)?\s*(cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|teaspoons|oz|ounce|ounces|lb|lbs|pound|pounds|g|gram|grams|kg|kilogram|kilograms|mg|ml|milliliter|milliliters|l|liter|liters|litre|litres|pint|pints|quart|quarts|gallon|gallons|clove|cloves|pinch|pinches|dash|dashes|slice|slices|piece|pieces|can|cans|stick|sticks|sprig|sprigs|head|heads|bunch|bunches|handful|handfuls)\b/#
         return (try? pattern.firstMatch(in: stripped)) != nil
+            || looksLikeBareCountIngredient(stripped)
+    }
+
+    private static func looksLikeBareCountIngredient(_ line: String) -> Bool {
+        let words = line.split(separator: " ")
+        guard words.count <= 6,
+              let match = try? #/^(\d+(?:[.,\/]\d+)?)\s+(?:[\p{L}'-]+\s+){0,4}([\p{L}'-]+)\s*$/#.wholeMatch(in: line)
+        else { return false }
+        let lastWord = String(match.output.2)
+            .lowercased()
+            .trimmingCharacters(in: .punctuationCharacters)
+        return bareCountFoods.contains(lastWord)
     }
 
     /// Split into trimmed-line blocks separated by one or more blank
@@ -525,6 +569,8 @@ enum RecipeImporter {
             let candidate = String(match.output.1).trimmingCharacters(in: .whitespaces)
             if !candidate.isEmpty { s = candidate }
         }
+        s = stripLeadingDecoration(s)
+        s = stripBioMarker(s)
         while let last = s.last,
               !last.isLetter,
               !last.isNumber,
@@ -532,6 +578,31 @@ enum RecipeImporter {
             s = String(s.dropLast())
         }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func stripLeadingDecoration(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let first = s.first,
+              !first.isLetter,
+              !first.isNumber {
+            s.removeFirst()
+            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let match = try? #/^(?i)(?:best\s+ever|easy|viral|famous)\s+[\p{P}\p{S}\p{Z}]+(.+)$/#.wholeMatch(in: s) {
+            let candidate = String(match.output.1).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !candidate.isEmpty { s = candidate }
+        }
+        return s
+    }
+
+    private static func stripBioMarker(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = try? #/(?i)\s*(?:[-–—]\s*)?(?:full\s+recipe\s+(?:in|on|at)|recipe\s+(?:in|on|at)|links?\s+in\s+(?:bio|profile)|linked\s+in\s+(?:bio|profile)|comment\s+\w+\s+for\s+the\s+link|see\s+(?:bio|profile|comments)).*$/#.firstMatch(in: s) else {
+            return s
+        }
+        let head = s[..<match.range.lowerBound]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return head.isEmpty ? s : String(head)
     }
 
     /// Try to interpret `line` as a header-style metadata row (Source:,
@@ -728,6 +799,7 @@ enum RecipeImporter {
         // "1 1/2 cup" before the fused-unit splitter looks at it.
         s = normalizeUnicodeFractions(s)
         s = s.replacingOccurrences(of: "&", with: " & ")
+        s = normalizeQuantityRanges(s)
         s = splitFusedNumberUnit(s)
         s = repairCollapsedMixedFractionQuantities(s)
         // Repair broken fractions — "1 /3", "1/ 3", "1 / 3" all become "1/3".
@@ -757,6 +829,8 @@ enum RecipeImporter {
                 // Canonicalize plural → singular so display pluralization
                 // via `Plural.unit(_, for:)` stays internally consistent.
                 unit = unitSingularMap[candidate] ?? candidate
+                idx += 1
+            } else if discreteCountWords.contains(candidate) {
                 idx += 1
             }
         }
@@ -847,7 +921,7 @@ enum RecipeImporter {
 
     private static func isConjunctionToken(_ s: String) -> Bool {
         let t = s.lowercased()
-        return t == "+" || t == "&" || t == "and" || t == "or"
+        return t == "+" || t == "&" || t == "and" || t == "or" || t == "plus"
     }
 
     /// Replaces vulgar-fraction characters (½, ⅓, …) with ASCII fractions,
@@ -864,6 +938,21 @@ enum RecipeImporter {
                 result.append(ch)
             }
         }
+        return result
+    }
+
+    private static func normalizeQuantityRanges(_ s: String) -> String {
+        var result = s
+        result = result.replacingOccurrences(
+            of: #"(?i)(\d+(?:[./]\d+)?)\s+to\s+(\d+(?:[./]\d+)?)"#,
+            with: "$1-$2",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"(\d+(?:[./]\d+)?)\s*[-–—]\s*(\d+(?:[./]\d+)?)"#,
+            with: "$1-$2",
+            options: .regularExpression
+        )
         return result
     }
 
@@ -967,7 +1056,7 @@ enum RecipeImporter {
             .split(whereSeparator: { $0.isNewline })
             .map { String($0).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        if byNewline.count > 1 { return byNewline }
+        if byNewline.count > 1 { return recursivelySplitSteps(byNewline) }
 
         // 2. Numbered step markers — drop the marker entirely.
         let markerRegex = #/\b(?:[Ss]tep\s+\d+\s*[:.)]|\d+\s*[.)])\s+/#
@@ -983,7 +1072,7 @@ enum RecipeImporter {
             }
             let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
             if !tail.isEmpty { pieces.append(tail) }
-            if pieces.count >= 2 { return pieces }
+            if pieces.count >= 2 { return recursivelySplitSteps(pieces) }
         }
 
         // 3. Comma-then / comma-digit boundary. Caption authors very
@@ -995,7 +1084,7 @@ enum RecipeImporter {
         // word "then" or a digit — both strong "next instruction"
         // signals in caption prose. Lookahead keeps the trigger word
         // with the second piece so it reads naturally.
-        let commaBoundaryRegex = #/,\s+(?=[Tt]hen\b|\d)/#
+        let commaBoundaryRegex = #/,\s+(?=[Tt]hen\b|\d+(?:[./]\d+)?\s+(?!(?:tsp|tbsp|teaspoons?|tablespoons?|cups?|ounces?|oz|grams?|g|kg|ml|milliliters?|liters?|litres?|pounds?|lbs?|cloves?|pinches?|dashes?|slices?|pieces?|cans?|sticks?|sprigs?|heads?|bunches?|handfuls?|pints?|quarts?|gallons?|inches?|inch|cm|mm|ft|feet)\b))/#
         let allCommas = Array(s.matches(of: commaBoundaryRegex))
 
         // Filter out splits where the trailing fragment is just a
@@ -1027,7 +1116,7 @@ enum RecipeImporter {
             }
             let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
             if !tail.isEmpty { pieces.append(tail) }
-            if pieces.count >= 2 { return pieces }
+            if pieces.count >= 2 { return recursivelySplitSteps(pieces) }
         }
 
         // 4. Sentence boundary fallback. Match consumes the letter
@@ -1056,10 +1145,14 @@ enum RecipeImporter {
             }
             let tail = s[cursor...].trimmingCharacters(in: .whitespacesAndNewlines)
             if !tail.isEmpty { pieces.append(tail) }
-            if pieces.count >= 2 { return pieces }
+            if pieces.count >= 2 { return recursivelySplitSteps(pieces) }
         }
 
         return [s]
+    }
+
+    private static func recursivelySplitSteps(_ pieces: [String]) -> [String] {
+        pieces.flatMap { splitIntoSteps($0) }
     }
 
     /// True when the input is *only* a duration annotation, with no
@@ -1068,8 +1161,9 @@ enum RecipeImporter {
     /// glued to their preceding action ("Bake 425 degrees, 10 mins"
     /// is one step, not two).
     private static func isPureDuration(_ s: String) -> Bool {
+        let trimmed = s.trimmingCharacters(in: CharacterSet(charactersIn: " .!?;"))
         let pattern = #/^\d+(?:\s*[-–—]\s*\d+)?\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|sec|secs|second|seconds)\s*$/#
-        return (try? pattern.wholeMatch(in: s)) != nil
+        return (try? pattern.wholeMatch(in: trimmed)) != nil
     }
 
     /// Layer the post-parse enrichments onto a freshly-parsed step:
@@ -1112,14 +1206,14 @@ enum RecipeImporter {
         if let parens = try? #/\s*\(([^()]+)\)\s*/#.firstMatch(in: text) {
             let inside = String(parens.output.1)
                 .trimmingCharacters(in: .whitespaces)
-            let before = String(text[..<parens.range.lowerBound])
-                .trimmingCharacters(in: .whitespaces)
-            let after = String(text[parens.range.upperBound...])
-                .trimmingCharacters(in: .whitespaces)
-            let main = [before, after]
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-            if !main.isEmpty, !inside.isEmpty {
+            if !inside.isEmpty, parentheticalLooksActionable(inside) {
+                let before = String(text[..<parens.range.lowerBound])
+                    .trimmingCharacters(in: .whitespaces)
+                let after = String(text[parens.range.upperBound...])
+                    .trimmingCharacters(in: .whitespaces)
+                let main = joinedAfterRemovingParenthetical(before: before, after: after)
+                    .trimmingCharacters(in: .whitespaces)
+                guard !main.isEmpty else { return step }
                 var copy = step
                 copy.text = main
                 copy.specialNote = capitalizingFirst(inside)
@@ -1144,12 +1238,39 @@ enum RecipeImporter {
         return copy
     }
 
+    private static func parentheticalLooksActionable(_ text: String) -> Bool {
+        (try? #/^(?i)(?:while\b|start\b|begin\b|do not\b|don't\b|dont\b|about\s+\d|after\s+\d|once\b)/#
+            .firstMatch(in: text)) != nil
+    }
+
+    private static func joinedAfterRemovingParenthetical(before: String, after: String) -> String {
+        let punctLeaders: Set<Character> = [".", ",", ";", ":", "!", "?", ")"]
+        if !before.isEmpty,
+           let firstAfter = after.first,
+           punctLeaders.contains(firstAfter) {
+            return before + after
+        }
+        return [before, after]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
     /// Capitalize the first letter without touching the rest. Used on
     /// lifted parenthetical content so `"start preheating …"` reads as
     /// `"Start preheating …"` in the special-note callout.
     private static func capitalizingFirst(_ s: String) -> String {
         guard let first = s.first else { return s }
         return String(first).uppercased() + s.dropFirst()
+    }
+
+    private static func hasCookingActionOrDuration(_ text: String) -> Bool {
+        if hasTimerSignal(text) { return true }
+        let firstWord = text
+            .lowercased()
+            .split(whereSeparator: { !$0.isLetter })
+            .first
+            .map(String.init) ?? ""
+        return cookingActionVerbs.contains(firstWord)
     }
 
     /// Quick check for "this step mentions a timer-shaped duration":
@@ -1181,8 +1302,39 @@ enum RecipeImporter {
         if s == "&" { return true }
         if Double(s) != nil { return true }
         if s.contains("/"), s.split(separator: "/").allSatisfy({ Int($0) != nil }) { return true }
+        if (try? #/^\d+(?:[./]\d+)?-\d+(?:[./]\d+)?$/.wholeMatch(in: s)) != nil { return true }
         return false
     }
+
+    private static let captionURLTrimCharacters =
+        CharacterSet(charactersIn: ".,!?;:)]}\"'")
+
+    private static let discreteCountWords: Set<String> = [
+        "unit", "units"
+    ]
+
+    private static let bareCountFoods: Set<String> = [
+        "egg", "eggs", "tomato", "tomatoes", "onion", "onions",
+        "cucumber", "cucumbers", "apple", "apples", "lemon", "lemons",
+        "lime", "limes", "banana", "bananas", "pepper", "peppers",
+        "potato", "potatoes", "avocado", "avocados", "carrot", "carrots",
+        "clove", "cloves", "stalk", "stalks", "rib", "ribs",
+        "leaf", "leaves", "sprig", "sprigs", "head", "heads",
+        "scallion", "scallions", "shallot", "shallots",
+        "chicken", "thigh", "thighs", "breast", "breasts",
+        "drumstick", "drumsticks", "fillet", "fillets",
+        "steak", "steaks"
+    ]
+
+    private static let cookingActionVerbs: Set<String> = [
+        "preheat", "combine", "mix", "whisk", "stir", "beat", "fold",
+        "knead", "shape", "bake", "roast", "fry", "sear", "sauté",
+        "saute", "simmer", "boil", "steam", "chill", "cool", "rest",
+        "freeze", "melt", "heat", "pour", "spread", "drizzle",
+        "sprinkle", "place", "cover", "remove", "cook", "serve",
+        "cut", "slice", "chop", "mince", "dice", "brush", "dust",
+        "coat", "season", "transfer", "roll", "form"
+    ]
 
     private static let knownUnits: Set<String> = [
         // Volume
