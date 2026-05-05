@@ -132,6 +132,7 @@ private struct ConversionCalculator: View {
     @State private var inputText: String = "1"
     @State private var fromUnit: ConvertibleUnit = .cup
     @State private var toUnit: ConvertibleUnit = .ml
+    @State private var selectedIngredient: LiquidIngredient? = nil
 
     private var inputValue: Double? {
         let cleaned = inputText
@@ -142,12 +143,17 @@ private struct ConversionCalculator: View {
 
     private var convertedValue: Double? {
         guard let v = inputValue else { return nil }
-        return ConversionEngine.convert(v, from: fromUnit, to: toUnit)
+        if fromUnit.category == toUnit.category {
+            return ConversionEngine.convert(v, from: fromUnit, to: toUnit)
+        }
+        guard let ingredient = selectedIngredient else { return nil }
+        return ConversionEngine.convertWithDensity(v, from: fromUnit, to: toUnit, densityGPerMl: ingredient.densityGPerMl)
     }
 
     private var crossCategoryNote: String? {
         guard fromUnit.category != toUnit.category else { return nil }
-        return "Having trouble with this one — \(fromUnit.category.rawValue) and \(toUnit.category.rawValue) don't convert directly without an ingredient. Try Common Ingredients below."
+        guard selectedIngredient == nil else { return nil }
+        return "Having trouble with this one — \(fromUnit.category.rawValue) and \(toUnit.category.rawValue) don't convert directly without an ingredient. Select one above."
     }
 
     var body: some View {
@@ -201,12 +207,57 @@ private struct ConversionCalculator: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            unitMenu(selection: $fromUnit)
+            HStack(spacing: AppSpacing.xs) {
+                unitMenu(selection: $fromUnit)
+                ingredientMenu
+            }
         }
         .padding(AppSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColor.background)
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private var ingredientMenu: some View {
+        Menu {
+            Button {
+                Haptics.selection()
+                selectedIngredient = nil
+            } label: {
+                HStack {
+                    Text("None")
+                    if selectedIngredient == nil {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+            Divider()
+            ForEach(LiquidIngredient.allCases) { ingredient in
+                Button {
+                    Haptics.selection()
+                    selectedIngredient = ingredient
+                } label: {
+                    HStack {
+                        Text(ingredient.label)
+                        if selectedIngredient == ingredient {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(selectedIngredient?.label ?? "--")
+                    .font(.system(size: 14, weight: .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+            }
+            .foregroundStyle(appearance.accentColor)
+            .padding(.horizontal, AppSpacing.sm + 2)
+            .padding(.vertical, 4)
+            .background(AppColor.accentSoft.opacity(0.6))
+            .clipShape(Capsule())
+        }
     }
 
     private var outputCard: some View {

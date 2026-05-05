@@ -88,6 +88,76 @@ enum ConversionEngine {
         if from == .celsius && to == .fahrenheit { return value * 9 / 5 + 32 }
         return value
     }
+
+    /// Converts value using a liquid density when from/to are volume ↔ weight.
+    /// Falls through to the same-category path when categories match.
+    static func convertWithDensity(
+        _ value: Double,
+        from: ConvertibleUnit,
+        to: ConvertibleUnit,
+        densityGPerMl: Double
+    ) -> Double? {
+        if from.category == to.category {
+            return convert(value, from: from, to: to)
+        }
+        if from.category == .volume && to.category == .weight {
+            let ml = value * from.toBase
+            let grams = ml * densityGPerMl
+            return grams / to.toBase
+        }
+        if from.category == .weight && to.category == .volume {
+            let grams = value * from.toBase
+            let ml = grams / densityGPerMl
+            return ml / to.toBase
+        }
+        return nil
+    }
+}
+
+enum LiquidIngredient: String, CaseIterable, Identifiable {
+    case water, milk, heavyCream, buttermilk
+    case oliveOil, vegetableOil, coconutOil
+    case honey, mapleSymrup, soySauce, appleCiderVinegar, lemonJuice
+    case eggWhite
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .water:             return "Water"
+        case .milk:              return "Milk"
+        case .heavyCream:        return "Heavy Cream"
+        case .buttermilk:        return "Buttermilk"
+        case .oliveOil:          return "Olive Oil"
+        case .vegetableOil:      return "Vegetable Oil"
+        case .coconutOil:        return "Coconut Oil"
+        case .honey:             return "Honey"
+        case .mapleSymrup:       return "Maple Syrup"
+        case .soySauce:          return "Soy Sauce"
+        case .appleCiderVinegar: return "Apple Cider Vinegar"
+        case .lemonJuice:        return "Lemon Juice"
+        case .eggWhite:          return "Egg White"
+        }
+    }
+
+    /// Density in g/ml — used to bridge volume ↔ weight conversions.
+    var densityGPerMl: Double {
+        switch self {
+        case .water:             return 1.000
+        case .milk:              return 1.030
+        case .heavyCream:        return 0.994
+        case .buttermilk:        return 1.030
+        case .oliveOil:          return 0.911
+        case .vegetableOil:      return 0.920
+        case .coconutOil:        return 0.924
+        case .honey:             return 1.420
+        case .mapleSymrup:       return 1.320
+        case .soySauce:          return 1.070
+        case .appleCiderVinegar: return 1.005
+        case .lemonJuice:        return 1.020
+        case .eggWhite:          return 1.033
+        }
+    }
 }
 
 // MARK: - Static reference tables
