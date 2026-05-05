@@ -390,6 +390,18 @@ struct RootView: View {
             guard let url = activity.webpageURL else { return }
             routeUniversalLink(url)
         }
+        .onReceive(NotificationCenter.default.publisher(
+            for: ResumeCookModeIntent.didRequestNotification
+        )) { note in
+            // User tapped the "Open" secondary button on a fired cook
+            // alarm (lock screen / Dynamic Island). The intent already
+            // foregrounded the app; route through the same cook deep-link
+            // path Live Activity taps use so cold-launch restore +
+            // multi-cook foregrounding logic stays in one place.
+            guard let recipeID = note.userInfo?[ResumeCookModeIntent.recipeIDUserInfoKey] as? UUID
+            else { return }
+            routeCookDeepLink(recipeID)
+        }
         .onChange(of: scenePhase) { _, newPhase in
             // Foreground-refresh hook for friend presence. The
             // `cookingStartedAt` / `lastCookedTitle` fields on

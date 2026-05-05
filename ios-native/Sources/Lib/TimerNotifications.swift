@@ -1,5 +1,6 @@
 import ActivityKit
 import AlarmKit
+import AppIntents
 import Foundation
 import SwiftUI
 
@@ -101,9 +102,31 @@ enum TimerNotifications {
             let alertTitle = formatTitle(recipeTitle: recipeTitle, stepNumber: stepNumber)
             let alertBody = formatBody(label: label, stepText: stepText)
 
+            // AlarmKit's primary Stop button is system-controlled (dismiss
+            // only, no intent hook). To get "tap-the-alarm-to-resume-cooking"
+            // UX we add a secondary "Open" button with
+            // `secondaryButtonBehavior: .custom` and wire `ResumeCookModeIntent`
+            // through `AlarmConfiguration.secondaryIntent`. The intent's
+            // `openAppWhenRun = true` foregrounds the app, and its
+            // `perform()` posts a notification that `RootView` translates
+            // back into the existing `routeCookDeepLink` path.
+            let stopButton = AlarmButton(
+                text: "Stop",
+                textColor: .white,
+                systemImageName: "stop.circle"
+            )
+            let openButton = AlarmButton(
+                text: "Open",
+                textColor: .white,
+                systemImageName: "fork.knife"
+            )
+
             let presentation = AlarmPresentation(
                 alert: AlarmPresentation.Alert(
-                    title: LocalizedStringResource(stringLiteral: alertTitle)
+                    title: LocalizedStringResource(stringLiteral: alertTitle),
+                    stopButton: stopButton,
+                    secondaryButton: openButton,
+                    secondaryButtonBehavior: .custom
                 ),
                 countdown: AlarmPresentation.Countdown(
                     title: LocalizedStringResource(stringLiteral: alertBody),
@@ -117,9 +140,12 @@ enum TimerNotifications {
                 tintColor: Color(red: 0.788, green: 0.486, blue: 0.365)
             )
 
+            let resumeIntent = ResumeCookModeIntent(recipeID: recipeID.uuidString)
+
             let configuration = AlarmManager.AlarmConfiguration<TimerAlarmMetadata>(
                 countdownDuration: .init(preAlert: seconds, postAlert: nil),
                 attributes: attributes,
+                secondaryIntent: resumeIntent,
                 sound: .default
             )
 
