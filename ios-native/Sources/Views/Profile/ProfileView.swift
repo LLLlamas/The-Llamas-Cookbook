@@ -51,7 +51,6 @@ struct ProfileView: View {
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(FriendsStore.self) private var friendsStore
-    @Environment(TimerSettings.self) private var timerSettings
     @Environment(\.dismiss) private var dismiss
 
     /// All recipes — used only to derive `lastCookedRecipe` for the
@@ -88,11 +87,6 @@ struct ProfileView: View {
     @State private var isRepublishingLibrary: Bool = false
     @State private var republishResultMessage: String? = nil
     @State private var republishSucceeded: Bool = false
-
-    /// One-shot preview for the Cook Mode sound row in settings.
-    /// Held at the view level so the auto-stop task survives picker
-    /// interactions; `.onDisappear` of the settings sheet stops it.
-    @State private var previewPlayer = AlarmPlayer()
 
     var body: some View {
         // When presented as a sheet from LibraryView's toolbar, we own
@@ -930,8 +924,6 @@ struct ProfileView: View {
                 VStack(spacing: AppSpacing.lg) {
                     Spacer().frame(height: AppSpacing.sm)
 
-                    cookModeSettingsSection
-
                     VStack(spacing: AppSpacing.md) {
                         Button {
                             Haptics.selection()
@@ -967,111 +959,8 @@ struct ProfileView: View {
                         .foregroundStyle(appearance.accentColor)
                 }
             }
-            .onDisappear {
-                // Don't leave a preview tone ringing if the user
-                // dismisses while the 3 s auto-stop is still pending.
-                previewPlayer.stop()
-            }
         }
         .presentationDetents([.medium, .large])
-    }
-
-    // MARK: - Cook Mode settings
-
-    /// Per-user timer alert preferences. Three inline `.menu` pickers
-    /// mirror the iOS Clock app's alarm-edit row treatment — current
-    /// selection on the trailing edge, tap pops a menu of options.
-    /// Picking a sound also fires a 3 s preview through `previewPlayer`
-    /// so the user hears the choice before backing out.
-    private var cookModeSettingsSection: some View {
-        @Bindable var bindable = timerSettings
-        return VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text("COOK MODE")
-                .eyebrowStyle(AppColor.textTertiary)
-
-            VStack(spacing: 0) {
-                cookModeRow(label: "Timer Sound") {
-                    // Picker is intentionally a subset of `TimerSound.allCases`:
-                    // chime/ping rely on `SystemSoundID`-loop hacks that don't
-                    // translate to AlarmKit's lock-screen alert today (no
-                    // bundled `.caf` for either). Hidden from the picker until
-                    // we ship audio assets for them; the enum cases stay so
-                    // re-enabling is a one-line change here.
-                    Picker("Timer Sound", selection: $bindable.sound) {
-                        ForEach(TimerSound.pickerOptions) { sound in
-                            Text(sound.displayName).tag(sound)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .tint(appearance.accentColor)
-                    .labelsHidden()
-                    .onChange(of: timerSettings.sound) { _, newSound in
-                        Haptics.selection()
-                        previewPlayer.previewOnce(sound: newSound, volume: timerSettings.volume)
-                    }
-                }
-
-                Divider().padding(.leading, AppSpacing.md)
-
-                cookModeRow(label: "Alarm Volume") {
-                    Picker("Alarm Volume", selection: $bindable.volume) {
-                        ForEach(TimerVolume.allCases) { volume in
-                            Text(volume.displayName).tag(volume)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .tint(appearance.accentColor)
-                    .labelsHidden()
-                    .onChange(of: timerSettings.volume) { _, _ in
-                        Haptics.selection()
-                    }
-                }
-
-                Divider().padding(.leading, AppSpacing.md)
-
-                cookModeRow(label: "Vibration") {
-                    Picker("Vibration", selection: $bindable.haptic) {
-                        ForEach(TimerHaptic.allCases) { haptic in
-                            Text(haptic.displayName).tag(haptic)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .tint(appearance.accentColor)
-                    .labelsHidden()
-                    .onChange(of: timerSettings.haptic) { _, _ in
-                        Haptics.selection()
-                    }
-                }
-            }
-            .background(AppColor.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(AppColor.divider, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-
-            Text("Volume only affects the in-app alert. Lock-screen alarm volume follows your phone's alarm volume — Silent mode does not mute it.")
-                .font(AppFont.caption)
-                .foregroundStyle(AppColor.textTertiary)
-                .padding(.horizontal, AppSpacing.xs)
-                .padding(.top, AppSpacing.xs)
-        }
-    }
-
-    private func cookModeRow<Trailing: View>(
-        label: String,
-        @ViewBuilder trailing: () -> Trailing
-    ) -> some View {
-        HStack(spacing: AppSpacing.sm) {
-            Text(label)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(AppColor.textPrimary)
-            Spacer(minLength: AppSpacing.sm)
-            trailing()
-        }
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.sm + 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func settingsButtonLabel(title: String, role: SettingsButtonRole) -> some View {

@@ -23,12 +23,6 @@ struct LlamasCookbookApp: App {
     /// availability — silently no-ops when iCloud is unavailable.
     /// See `FriendsStore` and `implement-social.md` slices 2+.
     @State private var friendsStore = FriendsStore()
-    /// Cook-timer alert preferences (sound, in-app volume, vibration
-    /// cadence). Sibling pattern to `appearance` — UserDefaults-backed
-    /// `@Observable` injected at the top of the view tree so
-    /// `CookModeView` (alarm + scheduled notification) and `ProfileView`
-    /// (settings sheet) read from the same source.
-    @State private var timerSettings = TimerSettings()
     /// Owns the UNUserNotificationCenter delegate. SwiftUI keeps this
     /// alive for the app lifetime so foreground notification handling
     /// (sound + banner while Cook Mode is minimized) keeps working.
@@ -55,7 +49,6 @@ struct LlamasCookbookApp: App {
                 .environment(ownerProfile)
                 .environment(userAccount)
                 .environment(friendsStore)
-                .environment(timerSettings)
                 // The cream + terracotta palette has no dark-mode variant
                 // (AppColor values are hard sRGB, not asset-catalog system
                 // colors). Locking to light keeps SwiftUI's default fills

@@ -35,15 +35,16 @@ enum TimerNotifications {
     /// after the user's first decision return the cached state without
     /// re-prompting. Fire-and-forget — caller doesn't await; the
     /// schedule call below silently no-ops when authorization is
-    /// missing so a denied user still sees the in-app ready overlay.
+    /// missing.
     static func requestPermission() {
         Task {
             do {
                 _ = try await AlarmManager.shared.requestAuthorization()
             } catch {
-                // Auth failures degrade to the in-app `AlarmPlayer`
-                // path — Cook Mode still rings while foregrounded, the
-                // lock-screen alert just won't fire.
+                // Auth failures mean no alarm fires at all — AlarmKit
+                // owns the alert in both foreground and lock-screen
+                // states, so a denied user only sees the in-app ready
+                // overlay's visual feedback.
             }
         }
     }
@@ -63,10 +64,9 @@ enum TimerNotifications {
     /// get their own alarm keyed by `cookID`, so neither overwrites
     /// the other.
     ///
-    /// `timerSound` mapping: `bell` → bundled `timer-alarm.caf`,
-    /// `system` → AlarmKit's default tone, `silent` → no sound. The
-    /// in-app `AlarmPlayer` continues to ring the foregrounded ready
-    /// overlay independently using the same `TimerSettings` pick.
+    /// Sound is not configurable: AlarmKit always uses the system
+    /// default alarm tone, which on iOS 26 fires whether the app is
+    /// foregrounded, backgrounded, or the device is locked.
     static func schedule(
         cookID: UUID,
         endDate date: Date,
@@ -74,8 +74,7 @@ enum TimerNotifications {
         recipeID: UUID,
         recipeTitle: String,
         stepNumber: Int,
-        stepText: String?,
-        timerSound: TimerSound
+        stepText: String?
     ) {
         let seconds = date.timeIntervalSinceNow
         guard seconds > 0 else { return }
@@ -103,12 +102,7 @@ enum TimerNotifications {
 
             let presentation = AlarmPresentation(
                 alert: AlarmPresentation.Alert(
-                    title: LocalizedStringResource(stringLiteral: alertTitle),
-                    stopButton: AlarmButton(
-                        text: LocalizedStringResource(stringLiteral: "Stop"),
-                        textColor: .white,
-                        systemImageName: "stop.fill"
-                    )
+                    title: LocalizedStringResource(stringLiteral: alertTitle)
                 ),
                 countdown: AlarmPresentation.Countdown(
                     title: LocalizedStringResource(stringLiteral: alertBody),
@@ -125,32 +119,18 @@ enum TimerNotifications {
             let configuration = AlarmManager.AlarmConfiguration<TimerAlarmMetadata>(
                 countdownDuration: .init(preAlert: seconds, postAlert: nil),
                 attributes: attributes,
-                sound: alarmSound(for: timerSound)
+                sound: .default
             )
 
             do {
                 _ = try await AlarmManager.shared.schedule(id: id, configuration: configuration)
             } catch {
-                // Authorization missing or scheduling rejected.
-                // Foregrounded ready overlay still rings via AlarmPlayer.
+                // AlarmKit fires the alert on the lock screen and in
+                // foreground regardless of app state. If scheduling
+                // fails (auth missing, rejected), the in-app ready
+                // overlay's visual UI is the only feedback the user gets.
             }
         }
-    }
-
-    /// Resolve the lock-screen alert sound. Unified on the bundled
-    /// `timer-alarm.caf` regardless of `TimerSound` so the foreground
-    /// `AlarmPlayer` and the AlarmKit lock-screen alert ring with the
-    /// exact same tone — there is no other way to reference AlarmKit's
-    /// internal `.default` tone from the in-app player, so we route
-    /// both surfaces through our own `.caf`. Falls back to `.default`
-    /// only when the bundled file is missing (e.g., local dev builds
-    /// without the CI-generated asset). The `sound` parameter is kept
-    /// on the signature for call-site stability.
-    private static func alarmSound(for sound: TimerSound) -> AlertConfiguration.AlertSound {
-        if Bundle.main.url(forResource: "timer-alarm", withExtension: "caf") != nil {
-            return .named("timer-alarm")
-        }
-        return .default
     }
 
     private static func formatTitle(recipeTitle: String, stepNumber: Int) -> String {

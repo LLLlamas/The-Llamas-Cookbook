@@ -66,9 +66,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 **Cook mode / timers**
 - `ios-native/Sources/Views/Cook/CookModeView.swift`
 - `ios-native/Sources/App/CookingSession.swift`, `CookingSessionState.swift`
-- `ios-native/Sources/Lib/TimerNotifications.swift` — AlarmKit wrapper (`AlarmManager.shared`)
-- `ios-native/Sources/Lib/AlarmPlayer.swift` — in-app foreground alarm loop
-- `ios-native/Sources/App/TimerSettings.swift` — sound/haptic/volume prefs (`TimerSound`, `TimerHaptic`, `TimerVolume`)
+- `ios-native/Sources/Lib/TimerNotifications.swift` — AlarmKit wrapper (`AlarmManager.shared`); always uses `AlertConfiguration.AlertSound.default` (system alarm tone) — sound is no longer user-configurable
 - `ios-native/Sources/Shared/TimerAlarmMetadata.swift` — shared between app + widget
 - `ios-native/WidgetExtension/TimerLiveActivity.swift` — AlarmKit Live Activity widget
 

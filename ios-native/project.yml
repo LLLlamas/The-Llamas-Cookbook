@@ -26,12 +26,6 @@ targets:
       # App Store Connect auto-rejects the upload. See
       # Resources/PrivacyInfo.xcprivacy for the full declaration.
       - path: Resources/PrivacyInfo.xcprivacy
-      # Timer alarm sound — generated at CI time via ffmpeg + afconvert
-      # (see .github/workflows/ios-native-ci.yml "Generate timer alarm
-      # sound" step). Not committed to git. If missing locally, the app
-      # falls back to the system default notification ding.
-      - path: Resources/timer-alarm.caf
-        optional: true
     dependencies:
       - target: LlamasCookbookTimerWidget
         embed: true

@@ -1,12 +1,10 @@
 import SwiftUI
 import SwiftData
 import UIKit
-import AudioToolbox
 
 struct CookModeView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
-    @Environment(TimerSettings.self) private var timerSettings
 
     let recipe: Recipe
     /// Identity of the cook this view is rendering. Captured at init
@@ -38,9 +36,6 @@ struct CookModeView: View {
     /// bound of the running-timer adjust picker so the user can subtract
     /// the full original duration even on long timers (>60 min).
     @State private var timerOriginalMinutes: Int
-
-    @State private var alarmTask: Task<Void, Never>?
-    @State private var alarmPlayer = AlarmPlayer()
 
     @State private var showingExitConfirm = false
     @State private var showingTimerSheet = false
@@ -181,14 +176,9 @@ struct CookModeView: View {
         .onChange(of: timerExpired) { _, expired in
             if expired {
                 showingTimerSheet = false
-                // Cancel the AlarmKit alarm — its alert presentation
-                // would otherwise stack on top of our in-app ready
-                // overlay (which is the foregrounded equivalent and
-                // takes precedence while the user is in the app).
-                TimerNotifications.cancel(cookID: cookID)
-                startAlarm()
-            } else {
-                stopAlarm()
+                // AlarmKit fires the alert (sound + haptic) on its own
+                // in foreground and on the lock screen — we only flip
+                // the in-app `TimerReadyOverlay` for visual feedback.
             }
         }
         // Persist on every meaningful change so a kill / crash / forced
@@ -234,9 +224,6 @@ struct CookModeView: View {
             UIApplication.shared.isIdleTimerDisabled = true
         }
         .onDisappear {
-            // The in-app alarm task uses local @State that's destroyed
-            // either way; stop it on every disappear so it doesn't leak.
-            stopAlarm()
             UIApplication.shared.isIdleTimerDisabled = false
             // Live Activity + notification cleanup is owned by
             // `CookingSession.remove(cookID:)` (and `endAll()`), so the
@@ -896,8 +883,7 @@ struct CookModeView: View {
             recipeID: recipe.id,
             recipeTitle: recipe.title,
             stepNumber: stepNumber,
-            stepText: stepText,
-            timerSound: timerSettings.sound
+            stepText: stepText
         )
     }
 
@@ -967,8 +953,7 @@ struct CookModeView: View {
                 recipeID: recipe.id,
                 recipeTitle: recipe.title,
                 stepNumber: stepNumber,
-                stepText: stepText,
-                timerSound: timerSettings.sound
+                stepText: stepText
             )
         }
     }
@@ -985,27 +970,6 @@ struct CookModeView: View {
             timerEndsAt = nil
             timerExpired = true
         }
-    }
-
-    private func startAlarm() {
-        alarmPlayer.start(sound: timerSettings.sound, volume: timerSettings.volume)
-        alarmTask?.cancel()
-        let haptic = timerSettings.haptic
-        alarmTask = Task { @MainActor in
-            while !Task.isCancelled {
-                if haptic != .off {
-                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-                    Haptics.warning()
-                }
-                try? await Task.sleep(for: .milliseconds(haptic.intervalMilliseconds))
-            }
-        }
-    }
-
-    private func stopAlarm() {
-        alarmPlayer.stop()
-        alarmTask?.cancel()
-        alarmTask = nil
     }
 
     // MARK: Timer keyword detection
