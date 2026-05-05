@@ -1084,7 +1084,7 @@ enum RecipeImporter {
         // word "then" or a digit — both strong "next instruction"
         // signals in caption prose. Lookahead keeps the trigger word
         // with the second piece so it reads naturally.
-        let commaBoundaryRegex = #/,\s+(?=[Tt]hen\b|\d+(?:[./]\d+)?\s+(?!(?:tsp|tbsp|teaspoons?|tablespoons?|cups?|ounces?|oz|grams?|g|kg|ml|milliliters?|liters?|litres?|pounds?|lbs?|cloves?|pinches?|dashes?|slices?|pieces?|cans?|sticks?|sprigs?|heads?|bunches?|handfuls?|pints?|quarts?|gallons?|inches?|inch|cm|mm|ft|feet)\b))/#
+        let commaBoundaryRegex = #/,\s+(?=[Tt]hen\b|\d+(?:[.\/]\d+)?\s+(?!(?:tsp|tbsp|teaspoons?|tablespoons?|cups?|ounces?|oz|grams?|g|kg|ml|milliliters?|liters?|litres?|pounds?|lbs?|cloves?|pinches?|dashes?|slices?|pieces?|cans?|sticks?|sprigs?|heads?|bunches?|handfuls?|pints?|quarts?|gallons?|inches?|inch|cm|mm|ft|feet)\b))/#
         let allCommas = Array(s.matches(of: commaBoundaryRegex))
 
         // Filter out splits where the trailing fragment is just a
@@ -1302,7 +1302,12 @@ enum RecipeImporter {
         if s == "&" { return true }
         if Double(s) != nil { return true }
         if s.contains("/"), s.split(separator: "/").allSatisfy({ Int($0) != nil }) { return true }
-        if (try? #/^\d+(?:[./]\d+)?-\d+(?:[./]\d+)?$/.wholeMatch(in: s)) != nil { return true }
+        if s.range(
+            of: #"^\d+(?:[./]\d+)?-\d+(?:[./]\d+)?$"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
         return false
     }
 
