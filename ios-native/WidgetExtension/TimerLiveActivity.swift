@@ -33,12 +33,17 @@ struct TimerLiveActivity: Widget {
                 .activitySystemActionForegroundColor(TimerWidgetColor.accentDeep)
         } dynamicIsland: { context in
             DynamicIsland {
+                // Dynamic Island background is system-controlled black —
+                // text colors here use cream / accent variants so they
+                // remain legible. The dark `textPrimary` / `textSecondary`
+                // values used on the cream lock-screen pill would
+                // disappear into the notch.
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack(spacing: 6) {
-                        profileLlamaMark(size: 22)
+                    HStack(spacing: 8) {
+                        profileLlamaMark(size: 32)
                         Text((context.attributes.metadata?.label ?? "timer").capitalized)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(TimerWidgetColor.textPrimary)
+                            .foregroundStyle(TimerWidgetColor.cream)
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -51,24 +56,24 @@ struct TimerLiveActivity: Widget {
                         Text("Step \(context.attributes.metadata?.stepNumber ?? 0)")
                             .font(.system(size: 12, weight: .heavy))
                             .tracking(0.4)
-                            .foregroundStyle(TimerWidgetColor.accentDeep)
+                            .foregroundStyle(TimerWidgetColor.accent)
                         Text("·")
-                            .foregroundStyle(TimerWidgetColor.textSecondary)
+                            .foregroundStyle(TimerWidgetColor.cream.opacity(0.6))
                         Text(context.attributes.metadata?.recipeTitle ?? "")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(TimerWidgetColor.textSecondary)
+                            .foregroundStyle(TimerWidgetColor.cream.opacity(0.85))
                             .lineLimit(1)
                     }
                 }
             } compactLeading: {
-                profileLlamaMark(size: 18)
+                profileLlamaMark(size: 20)
             } compactTrailing: {
                 countdownText(for: context, font: .system(size: 13, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(TimerWidgetColor.accent)
                     .frame(maxWidth: 50)
             } minimal: {
-                profileLlamaMark(size: 18)
+                profileLlamaMark(size: 20)
             }
             .keylineTint(TimerWidgetColor.accent)
         }
@@ -82,22 +87,6 @@ struct TimerLiveActivity: Widget {
             // lock screen alarm state where activityBackgroundTint alone
             // is not sufficient to override the system dark background.
             TimerWidgetColor.background
-
-            // Large llama watermark: template rendering eliminates any
-            // background-pixel color mismatch that would show as a gray
-            // band against the cream. Bleeds off the trailing edge for a
-            // natural crop. Height matched to the view's content height
-            // so it fills without distorting.
-            Image("LlamaLogo")
-                .renderingMode(.template)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .foregroundStyle(TimerWidgetColor.accent.opacity(0.16))
-                .frame(height: 86)
-                .padding(.trailing, -20)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
 
             // Foreground content row
             HStack(alignment: .center, spacing: 14) {
