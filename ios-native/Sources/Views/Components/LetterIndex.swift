@@ -15,7 +15,7 @@ struct LetterIndex: View {
     let letters: [String]
     let populated: Set<String>
     let accent: Color
-    let glowActive: Bool = false
+    let glowActive: Bool
     /// Letter to flash the magnify badge on when no scrub gesture is
     /// active — driven by external highlight signals (e.g. RootView's
     /// post-save library highlight). `nil` at all other times.
@@ -27,6 +27,22 @@ struct LetterIndex: View {
     /// clears, keeping the badge in the view tree while opacity → 0.
     @State private var fadingHighlightLetter: String? = nil
     @State private var highlightBadgeOpacity: Double = 1.0
+
+    init(
+        letters: [String],
+        populated: Set<String>,
+        accent: Color,
+        glowActive: Bool = false,
+        externalHighlightLetter: String?,
+        onSelect: @escaping (String) -> Void
+    ) {
+        self.letters = letters
+        self.populated = populated
+        self.accent = accent
+        self.glowActive = glowActive
+        self.externalHighlightLetter = externalHighlightLetter
+        self.onSelect = onSelect
+    }
 
     private let rowHeight: CGFloat = 11
     private let stripWidth: CGFloat = 14
