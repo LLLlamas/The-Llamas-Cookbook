@@ -77,54 +77,58 @@ struct TimerLiveActivity: Widget {
     // MARK: - Lock Screen / Notification-Center layout
 
     private func lockScreen(for context: ActivityViewContext<AlarmAttributes<TimerAlarmMetadata>>) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(TimerWidgetColor.accent.opacity(0.18))
-                    .frame(width: 44, height: 44)
-                profileLlamaMark(size: 36)
-            }
+        ZStack(alignment: .trailing) {
+            // Explicit cream fill — ensures the background is warm on the
+            // lock screen alarm state where activityBackgroundTint alone
+            // is not sufficient to override the system dark background.
+            TimerWidgetColor.background
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Step \(context.attributes.metadata?.stepNumber ?? 0) · \((context.attributes.metadata?.label ?? "timer").capitalized)")
-                    .font(.system(size: 11, weight: .heavy))
-                    .tracking(0.6)
-                    .foregroundStyle(TimerWidgetColor.accentDeep)
-                Text(context.attributes.metadata?.recipeTitle ?? "")
-                    .font(.system(size: 15, weight: .semibold, design: .serif))
-                    .foregroundStyle(TimerWidgetColor.textPrimary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 6)
-
-            countdownText(for: context, font: .system(size: 28, weight: .bold, design: .serif))
-                .monospacedDigit()
-                .foregroundStyle(TimerWidgetColor.accent)
-                .frame(maxWidth: 110, alignment: .trailing)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        // Branded watermark: the full-body llama logo bleeds off the
-        // trailing edge behind the countdown so the activity reads as
-        // a Llamas Cookbook surface at a glance, while leaving the
-        // foreground text legible. Cream `activityBackgroundTint` on
-        // the configuration sits underneath this image.
-        .background(alignment: .trailing) {
+            // Large llama watermark: template rendering eliminates any
+            // background-pixel color mismatch that would show as a gray
+            // band against the cream. Bleeds off the trailing edge for a
+            // natural crop. Height matched to the view's content height
+            // so it fills without distorting.
             Image("LlamaLogo")
-                .renderingMode(.original)
+                .renderingMode(.template)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
-                .opacity(0.22)
-                .padding(.trailing, -28)
+                .foregroundStyle(TimerWidgetColor.accent.opacity(0.16))
+                .frame(height: 86)
+                .padding(.trailing, -20)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+
+            // Foreground content row
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(TimerWidgetColor.accent.opacity(0.18))
+                        .frame(width: 48, height: 48)
+                    profileLlamaMark(size: 38)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Step \(context.attributes.metadata?.stepNumber ?? 0) · \((context.attributes.metadata?.label ?? "timer").capitalized)")
+                        .font(.system(size: 11, weight: .heavy))
+                        .tracking(0.6)
+                        .foregroundStyle(TimerWidgetColor.accentDeep)
+                    Text(context.attributes.metadata?.recipeTitle ?? "")
+                        .font(.system(size: 15, weight: .semibold, design: .serif))
+                        .foregroundStyle(TimerWidgetColor.textPrimary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                countdownText(for: context, font: .system(size: 28, weight: .bold, design: .serif))
+                    .monospacedDigit()
+                    .foregroundStyle(TimerWidgetColor.accent)
+                    .frame(maxWidth: 110, alignment: .trailing)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        // Tap deep-links into Cook Mode for this recipe via the
-        // `llamascookbook://cook/<uuid>` scheme registered in the main
-        // app's Info.plist; the app's `onOpenURL` handler resolves the
-        // recipe and re-presents Cook Mode.
         .widgetURL(context.attributes.metadata.flatMap { URL(string: "llamascookbook://cook/\($0.recipeID.uuidString)") })
     }
 
