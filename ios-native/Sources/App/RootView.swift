@@ -80,7 +80,7 @@ struct RootView: View {
         if let accentColor {
             UITabBar.appearance().tintColor = accentColor
         }
-        applyToVisibleTabBars(appearance, tintColor: accentColor)
+        applyToVisibleTabBars(appearance, tintColor: accentColor, glow: glow)
     }
 
     private static func applyTitleColor(
@@ -101,7 +101,8 @@ struct RootView: View {
 
     private static func applyToVisibleTabBars(
         _ appearance: UITabBarAppearance,
-        tintColor: UIColor?
+        tintColor: UIColor?,
+        glow: Bool
     ) {
         for tabBar in visibleTabBars {
             tabBar.standardAppearance = appearance
