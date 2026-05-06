@@ -54,13 +54,8 @@ struct RecipeCardView: View {
                         .foregroundStyle(AppColor.textSecondary)
                         .lineLimit(2)
                         .textRenderer(TrailingShrinkRenderer(source: summary))
-                        // Pin the row to a single line of the same font so
-                        // the card height is identical whether the
-                        // description fits or has a tapered overflow — the
-                        // renderer paints the wrapped first word of line 2
-                        // back onto line 1, so we never want SwiftUI to
-                        // reserve a second line of vertical space.
-                        .frame(maxHeight: Self.summaryLineHeight, alignment: .top)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(height: Self.summaryLineHeight, alignment: .top)
                         .clipped()
                 }
 
