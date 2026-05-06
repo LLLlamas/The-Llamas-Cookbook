@@ -31,6 +31,11 @@ struct FriendLibraryView: View {
     @State private var isLoading: Bool = false
     @State private var loadError: String? = nil
     @State private var hasLoadedOnce: Bool = false
+    /// Active category filter — `nil` means "All". Tag pills come from
+    /// the `tags` denormalized onto each `PublishedRecipeSummary`
+    /// (Part 1 of the friend-parity work); same convention as the home
+    /// library's tag filter.
+    @State private var categoryFilter: String? = nil
 
     private var friendAccent: Color {
         if let hex = friend.accentHex, let color = Color(hex: hex) {
@@ -40,18 +45,29 @@ struct FriendLibraryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AppSpacing.md) {
-                friendHeader
+        VStack(alignment: .leading, spacing: 0) {
+            friendHeader
+                .padding(.horizontal, AppSpacing.lg)
+                .padding(.top, AppSpacing.xs)
+                .padding(.bottom, AppSpacing.sm)
 
-                content
+            if !allCategories.isEmpty {
+                CategoryFilterStrip(
+                    categories: allCategories,
+                    totalCount: summaries.count,
+                    countFor: { tag in summaries.filter { $0.tags.contains(tag) }.count },
+                    selection: $categoryFilter,
+                    accent: friendAccent
+                )
+                .background(AppColor.background)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(AppColor.divider)
+                        .frame(height: 1)
+                }
             }
-            .padding(.horizontal, AppSpacing.lg)
-            // Tight top inset so the friend-header sits close
-            // under the navigation title rather than floating
-            // an obvious gap below it.
-            .padding(.top, AppSpacing.xs)
-            .padding(.bottom, AppSpacing.xxl)
+
+            content
         }
         .llamaBackground()
         .navigationTitle(StringCase.cookbookTitle(displayName: friend.displayName))
@@ -76,9 +92,6 @@ struct FriendLibraryView: View {
             if !hasLoadedOnce {
                 await loadLibrary()
             }
-        }
-        .refreshable {
-            await loadLibrary()
         }
     }
 
@@ -181,25 +194,112 @@ struct FriendLibraryView: View {
             errorState(message: loadError)
         } else if summaries.isEmpty {
             emptyState
+        } else if filteredSummaries.isEmpty {
+            emptyFilterState
         } else {
             recipeList
         }
     }
 
     private var recipeList: some View {
-        LazyVStack(spacing: AppSpacing.md) {
-            ForEach(summaries) { summary in
-                NavigationLink {
-                    FriendRecipeDetailView(friend: friend, summary: summary)
-                } label: {
-                    FriendRecipeCard(
-                        summary: summary,
-                        accent: friendAccent
-                    )
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    LazyVStack(spacing: AppSpacing.md) {
+                        ForEach(filteredSummaries) { summary in
+                            NavigationLink {
+                                FriendRecipeDetailView(friend: friend, summary: summary)
+                            } label: {
+                                FriendRecipeCard(
+                                    summary: summary,
+                                    accent: friendAccent
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .id(summary.id)
+                        }
+                    }
+                    // Right padding leaves room for the letter index so
+                    // it doesn't overlap card content — mirrors the
+                    // home library's recipeList paddings.
+                    .padding(.leading, AppSpacing.lg)
+                    .padding(.trailing, AppSpacing.lg + 16)
+                    .padding(.top, AppSpacing.lg)
+                    .padding(.bottom, AppSpacing.xxl)
                 }
-                .buttonStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .refreshable {
+                    await loadLibrary()
+                }
+
+                LetterIndex(
+                    letters: LetterIndex.allLetters,
+                    populated: populatedLetters,
+                    accent: friendAccent,
+                    externalHighlightLetter: nil
+                ) { letter in
+                    guard let target = firstSummary(atOrAfter: letter) else { return }
+                    Haptics.selection()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(target.id, anchor: .top)
+                    }
+                }
+                .padding(.trailing, 2)
             }
         }
+    }
+
+    private var emptyFilterState: some View {
+        VStack(spacing: AppSpacing.md) {
+            Text("No recipes tagged \"\(StringCase.titleCase(categoryFilter ?? ""))\"")
+                .font(AppFont.sectionHeading)
+                .foregroundStyle(AppColor.textPrimary)
+                .multilineTextAlignment(.center)
+            Button("Clear filter") {
+                categoryFilter = nil
+            }
+            .padding(.horizontal, AppSpacing.lg)
+            .padding(.vertical, AppSpacing.sm)
+            .background(AppColor.surface)
+            .foregroundStyle(friendAccent)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.divider, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        }
+        .padding(AppSpacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Derived
+
+    private var allCategories: [String] {
+        var set = Set<String>()
+        for s in summaries { for t in s.tags { set.insert(t) } }
+        return set.sorted()
+    }
+
+    private var filteredSummaries: [PublishedRecipeSummary] {
+        guard let tag = categoryFilter else { return summaries }
+        return summaries.filter { $0.tags.contains(tag) }
+    }
+
+    private var populatedLetters: Set<String> {
+        Set(filteredSummaries.map { LetterIndex.bucket(for: $0.recipeTitle) })
+    }
+
+    /// Walk the alphabet from `letter` forward and return the first
+    /// summary whose bucket matches a populated letter. Same fall-
+    /// through behaviour as the home library — tapping `#` with no
+    /// non-letter recipes scrolls to A.
+    private func firstSummary(atOrAfter letter: String) -> PublishedRecipeSummary? {
+        guard let startIndex = LetterIndex.allLetters.firstIndex(of: letter) else { return nil }
+        let populated = populatedLetters
+        for candidate in LetterIndex.allLetters[startIndex...] where populated.contains(candidate) {
+            return filteredSummaries.first { LetterIndex.bucket(for: $0.recipeTitle) == candidate }
+        }
+        return nil
     }
 
     private var emptyState: some View {
@@ -285,6 +385,16 @@ private struct FriendRecipeCard: View {
         return f
     }()
 
+    /// One-line height of the description font (10.5pt medium).
+    /// Mirrors `RecipeCardView.summaryLineHeight` so the friend card
+    /// clamps the description row identically — the trailing-shrink
+    /// renderer paints the wrapped first word back onto line 1, so
+    /// visible content is always exactly one line.
+    private static let summaryLineHeight: CGFloat = {
+        let font = UIFont.systemFont(ofSize: 10.5, weight: .medium)
+        return ceil(font.lineHeight)
+    }()
+
     var body: some View {
         HStack(alignment: .top, spacing: AppSpacing.md) {
             VStack(alignment: .leading, spacing: AppSpacing.xs + 2) {
@@ -303,18 +413,33 @@ private struct FriendRecipeCard: View {
                     .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
                     .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
 
+                if !summary.tags.isEmpty {
+                    TagChipsRow(tags: summary.tags, accent: accent)
+                        .padding(.top, 2)
+                }
+
+                if let description = summary.summary, !description.isEmpty {
+                    Text(description)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(2)
+                        .textRenderer(TrailingShrinkRenderer(source: description))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(height: Self.summaryLineHeight, alignment: .top)
+                        .clipped()
+                }
+
+                Spacer(minLength: AppSpacing.xs)
+
                 Text("Updated \(Self.shortDate.string(from: summary.updatedAt))")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(AppColor.textTertiary)
                     .monospacedDigit()
             }
+            .frame(maxHeight: .infinity, alignment: .leading)
 
-            Spacer(minLength: 0)
-
-            VStack(alignment: .trailing, spacing: AppSpacing.sm) {
-                thumbnail
-                Spacer(minLength: 0)
-            }
+            thumbnail
+                .frame(maxHeight: .infinity, alignment: .center)
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)

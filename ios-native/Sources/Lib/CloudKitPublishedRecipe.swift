@@ -15,6 +15,16 @@ struct PublishedRecipeSummary: Identifiable, Hashable {
     let localRecipeID: UUID
     let recipeTitle: String
     let updatedAt: Date
+    /// Denormalized description (`Recipe.summary`) — surfaced on the
+    /// friend-library card so a friend's cookbook reads with the same
+    /// information density as the home library. Nil/empty when the
+    /// publisher hasn't filled one in. Older `PublishedRecipe` records
+    /// written before this field was added decode as nil.
+    let summary: String?
+    /// Denormalized tag list (`Recipe.tags`) — drives the tag chips +
+    /// category filter on `FriendLibraryView`. Empty for older records
+    /// or recipes with no tags.
+    let tags: [String]
     /// First gallery photo bytes (`photo0`), capped via
     /// `readCappedAsset`. Lets `FriendLibraryView`'s card list render
     /// a thumbnail without a per-card round-trip — same visual rhythm
@@ -73,6 +83,12 @@ extension CloudKitService {
     /// - `originalCreatorID` — String, optional, queryable. Slice 5
     ///   chain attribution. Nil for everyone's own original recipes.
     /// - `originalRecipeID` — String, optional. Slice 5 chain root.
+    /// - `summary` — String, optional. Denormalized `Recipe.summary`
+    ///   so `FriendLibraryView` cards can render the description
+    ///   without downloading the envelope. Not queryable, not sortable.
+    /// - `tags` — String List, optional. Denormalized `Recipe.tags` so
+    ///   the friend library can build a category filter strip and
+    ///   render tag chips per-card. Not queryable.
     /// - `photo0` … `photo<maxCloudPhotoCount-1>` — Asset, optional.
     ///
     /// Record name strategy: `recipe.id.uuidString` (the local
@@ -161,6 +177,8 @@ extension CloudKitService {
         // crossing the suspend boundary.
         let recordName = recipe.id.uuidString
         let recipeTitle = recipe.title
+        let recipeSummary = recipe.summary
+        let recipeTags = recipe.tags
 
         let recordID = CKRecord.ID(recordName: recordName)
         let record: CKRecord
@@ -185,6 +203,17 @@ extension CloudKitService {
         // imported, then locally re-authored, → field should clear).
         record["originalCreatorID"] = originalCreatorID as NSString?
         record["originalRecipeID"] = originalRecipeID as NSString?
+
+        // Denormalized fields for friend-library card rendering. Same
+        // nil-clears-field convention as the chain-attribution fields
+        // above so a publisher who removes their description / clears
+        // every tag rolls forward into a record without stale values.
+        record["summary"] = recipeSummary as NSString?
+        if recipeTags.isEmpty {
+            record["tags"] = nil
+        } else {
+            record["tags"] = recipeTags as NSArray
+        }
 
         // Clear stale photo slots first — a recipe that lost a photo
         // since last publish would otherwise have the old asset
@@ -270,12 +299,20 @@ extension CloudKitService {
                !bytes.isEmpty {
                 thumbnailData = bytes
             }
+            // Tolerate older records written before these denormalized
+            // fields existed — both decode as nil/empty and the card
+            // simply omits the description / chips / category filter
+            // entry until that recipe is republished.
+            let summary = record["summary"] as? String
+            let tags = (record["tags"] as? [String]) ?? []
             results.append(PublishedRecipeSummary(
                 recordName: id.recordName,
                 ownerID: ownerID,
                 localRecipeID: localRecipeID,
                 recipeTitle: recipeTitle,
                 updatedAt: updatedAt,
+                summary: summary,
+                tags: tags,
                 thumbnailData: thumbnailData
             ))
         }

@@ -141,7 +141,7 @@ All record types on the **public DB**. Privacy: world-readable, world-writable (
 | `RecipeShare` | `envelope` (Asset), `senderDisplayName`, `recipeTitle`, `createdAt` (queryable+sortable), `photo0`–`photo19` (Asset, optional); system `___createdBy` queryable for deleteAccount cascade | 12-char random recordName; Cloudflare still routes legacy 6-char IDs |
 | `UserProfile` | `displayName`, `accentHex`, `createdAt`, `lastCookedAt`, `lastCookedRecipeID`, `lastCookedTitle`, `cookingStartedAt` | recordName = `profile_<iCloudUserRecordName>` |
 | `Friendship` | `userA`, `userB` (queryable, lexicographic pair), `requesterID`, `status` (queryable), `acceptedAt` | One record per pair; deny is destructive |
-| `PublishedRecipe` | `ownerID`, `localRecipeID`, `recipeTitle`, `updatedAt`, `originalCreatorID`, `originalRecipeID`, `photo0`–`photo19` | recordName = `Recipe.id.uuidString` |
+| `PublishedRecipe` | `ownerID`, `localRecipeID`, `recipeTitle`, `updatedAt`, `originalCreatorID`, `originalRecipeID`, `summary`, `tags` (String List), `photo0`–`photo19` | recordName = `Recipe.id.uuidString`; `summary`+`tags` denormalized for friend-library card rendering, neither queryable |
 | `RecipeImport` | `originalCreatorID`, `originalRecipeID`, `importerID`, `importerDisplayName`, `sourceUserID`, `importedAt` | Append-only audit log |
 
 Photo cap: 10 MB per photo (`maxCloudPhotoBytes`), 40 MB total (`maxCloudTotalPhotoBytes`). `photo0`–`photo19` fields must be added manually in CloudKit Console (auto-discovery misses optional `CKAsset` slots).
