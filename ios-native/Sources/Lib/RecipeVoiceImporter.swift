@@ -417,8 +417,6 @@ final class ModernTranscribeSession {
             reportingOptions: [.volatileResults],
             attributeOptions: [.audioTimeRange]
         )
-        transcriber.contextualStrings = RecipeVoiceImporter.contextualStrings
-
         // Make sure the speech asset is installed before we start
         // streaming audio — without this, the first analyzer call
         // throws on a clean install.
