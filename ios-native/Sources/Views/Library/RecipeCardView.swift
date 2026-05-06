@@ -67,7 +67,7 @@ struct RecipeCardView: View {
                 Spacer(minLength: AppSpacing.xs)
                 dateStack
             }
-            .frame(maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
             thumbnail
                 .frame(maxHeight: .infinity, alignment: .center)

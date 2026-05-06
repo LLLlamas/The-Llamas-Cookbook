@@ -434,7 +434,7 @@ private struct FriendRecipeCard: View {
                     .foregroundStyle(AppColor.textTertiary)
                     .monospacedDigit()
             }
-            .frame(maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
             thumbnail
                 .frame(maxHeight: .infinity, alignment: .center)
