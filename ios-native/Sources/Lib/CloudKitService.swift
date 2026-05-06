@@ -167,10 +167,7 @@ enum CloudKitService {
     ) async throws -> String {
         // 1. Strip photo bytes from the envelope JSON so it stays a
         //    few KB; the bytes travel as separate CKAsset fields.
-        let strippedJSON = try makeEncoder().encode(envelope.withClearedPhotoBytes())
-        let envelopeURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("share-envelope-\(UUID().uuidString).json")
-        try strippedJSON.write(to: envelopeURL, options: .atomic)
+        let envelopeURL = try writeStrippedEnvelopeToTempFile(envelope, prefix: "share")
 
         // 2. Flatten photo bytes (recipe gallery first, then each
         //    step's photos in canonical order). The position in this
@@ -193,9 +190,7 @@ enum CloudKitService {
             // unfurlers (WhatsApp, Slack, Discord, Chrome) can render
             // the og:image preview. Local storage stays HEIC.
             let shareBytes = ImageProcessing.transcodeHEICToJPEGForSharing(bytes)
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("share-photo\(i)-\(UUID().uuidString).bin")
-            try shareBytes.write(to: url, options: .atomic)
+            let url = try writePhotoBytesToTempFile(shareBytes, prefix: "share", index: i)
             photoURLs.append(url)
         }
 
@@ -472,6 +467,46 @@ enum CloudKitService {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         return e
+    }
+
+    /// Writes the photo-less form of `envelope` to a unique temp file
+    /// and returns the URL. Both upload paths (file/link share via
+    /// `uploadShare` and friend-cookbook mirror via
+    /// `upsertPublishedRecipe`) use this — photos always travel as
+    /// sibling `CKAsset` fields, never inside the envelope JSON, to
+    /// avoid base64 inflation. `prefix` differentiates the temp file
+    /// in the system tmpdir for diagnostics; e.g. `share` vs `publish`.
+    /// Caller is responsible for `try? FileManager.default.removeItem`
+    /// in a `defer` block — the helper does not own cleanup.
+    static func writeStrippedEnvelopeToTempFile(
+        _ envelope: LCRecipeShareV1,
+        prefix: String
+    ) throws -> URL {
+        let strippedJSON = try makeEncoder().encode(envelope.withClearedPhotoBytes())
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-envelope-\(UUID().uuidString).json")
+        try strippedJSON.write(to: url, options: .atomic)
+        return url
+    }
+
+    /// Writes raw photo bytes to a unique temp file and returns the
+    /// URL — paired with `writeStrippedEnvelopeToTempFile`. `prefix`
+    /// + `index` keep the resulting filename diagnostic-friendly
+    /// (`share-photo3-<uuid>.bin`). Bytes are NOT transcoded here —
+    /// callers that need HEIC→JPEG transcoding (the file/link share
+    /// path, per the CLAUDE.md hard invariant) handle that before
+    /// passing bytes in. Callers that enforce per-photo / total
+    /// budget caps (the friend-cookbook mirror path) likewise gate
+    /// before the call.
+    static func writePhotoBytesToTempFile(
+        _ bytes: Data,
+        prefix: String,
+        index: Int
+    ) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-photo\(index)-\(UUID().uuidString).bin")
+        try bytes.write(to: url, options: .atomic)
+        return url
     }
 }
 

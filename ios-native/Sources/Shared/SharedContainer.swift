@@ -67,5 +67,73 @@ enum SharedContainer {
                 try? fm.removeItem(at: entry)
             }
         }
+        sweepStaleShareInboxMarkers(olderThan: maxAge)
+    }
+
+    // MARK: - Share-inbox provenance markers
+
+    /// Per-handoff sentinel store. Defense-in-depth so the main app
+    /// can verify that a `share-incoming/<uuid>` deep link refers to
+    /// a UUID this team's own share extension actually issued — not
+    /// (for instance) a future second extension that also writes to
+    /// the same App Group container, or any other code path that
+    /// drops a UUID-named file in `share-inbox/`. The App Group
+    /// itself gates filesystem access (only this team's signed
+    /// targets can write here), but pinning the contract explicitly
+    /// keeps a future "another extension parks data in the inbox
+    /// shape" change from silently triggering an import.
+    ///
+    /// Format: a single dictionary in the shared `UserDefaults` suite
+    /// keyed by `markersKey`, mapping `uuid (String) -> issuedAt (Double,
+    /// secondsSince1970)`. We use one parent key (rather than a
+    /// separate UserDefaults entry per UUID) so the GC sweep below
+    /// can mutate it atomically.
+    private static let markersKey = "shareInbox.issuedMarkers.v1"
+
+    private static func sharedDefaults() -> UserDefaults? {
+        UserDefaults(suiteName: appGroupID)
+    }
+
+    /// Called by the share extension immediately before / after
+    /// writing the file. Marks the UUID as one we issued so the
+    /// main app's `routeShareExtensionFile` can verify provenance
+    /// before reading the file.
+    static func markShareInboxIssued(uuid: String) {
+        guard let defaults = sharedDefaults() else { return }
+        var map = (defaults.dictionary(forKey: markersKey) as? [String: Double]) ?? [:]
+        map[uuid] = Date().timeIntervalSince1970
+        defaults.set(map, forKey: markersKey)
+    }
+
+    /// Called by the main app after consuming a share handoff. Returns
+    /// `true` if the UUID was present (proving our own extension
+    /// issued it) and removes it; returns `false` if the UUID was
+    /// never marked. The boolean lets the caller decide whether to
+    /// trust the file. Markers from a previous app version that pre-
+    /// dates this check are absent, so existing in-flight handoffs
+    /// during the upgrade window degrade to "treat as foreign" — a
+    /// one-time edge case bounded by the 24-hour sweep.
+    @discardableResult
+    static func consumeShareInboxMarker(uuid: String) -> Bool {
+        guard let defaults = sharedDefaults() else { return false }
+        var map = (defaults.dictionary(forKey: markersKey) as? [String: Double]) ?? [:]
+        let present = map.removeValue(forKey: uuid) != nil
+        defaults.set(map, forKey: markersKey)
+        return present
+    }
+
+    /// Drop markers older than `maxAge`. Pairs with the file sweep
+    /// above so a stale marker can't survive forever after its file
+    /// gets pruned (e.g. user invoked the extension, never opened the
+    /// app, then 25 hours later opened the app — the file is GC'd by
+    /// the file sweep, the marker by this one).
+    private static func sweepStaleShareInboxMarkers(olderThan maxAge: TimeInterval) {
+        guard let defaults = sharedDefaults() else { return }
+        guard let map = defaults.dictionary(forKey: markersKey) as? [String: Double] else { return }
+        let cutoff = Date().addingTimeInterval(-maxAge).timeIntervalSince1970
+        let trimmed = map.filter { $0.value >= cutoff }
+        if trimmed.count != map.count {
+            defaults.set(trimmed, forKey: markersKey)
+        }
     }
 }

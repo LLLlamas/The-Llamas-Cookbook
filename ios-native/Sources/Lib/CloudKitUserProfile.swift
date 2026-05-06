@@ -218,4 +218,19 @@ extension CloudKitService {
             return
         }
     }
+
+    /// Account-deletion cascade variant — enqueues the UserProfile
+    /// record into `CloudPendingDeleteQueue` (with the right
+    /// `profile_` prefixed recordName) and drains. Lets the cascade
+    /// in `UserAccount.deleteAccount` route through the same
+    /// retry-on-launch path as the other cloud cleanups, so a
+    /// network blip mid-delete doesn't strand the row.
+    static func enqueueUserProfileDeletion(userRecordName: String) async {
+        let recordID = userProfileRecordID(for: userRecordName)
+        CloudPendingDeleteQueue.enqueue(
+            recordType: userProfileRecordType,
+            recordName: recordID.recordName
+        )
+        await CloudPendingDeleteQueue.drain()
+    }
 }

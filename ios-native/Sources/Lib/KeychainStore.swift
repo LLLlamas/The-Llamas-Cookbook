@@ -39,11 +39,30 @@ enum KeychainStore {
         case displayName
     }
 
-    /// Reads the value at `account`, returning nil if missing or if any
-    /// keychain error fires. Errors are intentionally swallowed — on a
-    /// fresh install the read will miss, and surfacing that as a thrown
-    /// error would force every callsite to wrap a try? around it.
-    static func read(_ account: Account) -> String? {
+    /// Distinguishes the three states a Keychain read can return.
+    /// Most call sites only care about `.found(_)`; the
+    /// `rehydrate()` path on `UserAccount` cares about the
+    /// `notFound` vs `unavailable` distinction so a transient
+    /// `errSecAuthFailed` / `errSecInteractionNotAllowed` doesn't
+    /// flip the user to signed-out and force an unnecessary
+    /// re-sign-in on the next cold launch.
+    enum ReadResult {
+        /// The row exists and decoded cleanly.
+        case found(String)
+        /// The row is genuinely absent (`errSecItemNotFound`). Treat
+        /// as legitimate signed-out state.
+        case notFound
+        /// Keychain returned some other status (locked, auth failed,
+        /// entitlement issue, decode failure). The row may still
+        /// exist; the caller should NOT assume signed-out.
+        case unavailable(OSStatus)
+    }
+
+    /// Typed read used by load-bearing call sites that need to
+    /// distinguish "no row" from "Keychain temporarily unreachable."
+    /// Other call sites can continue to use the convenience
+    /// `read(_:) -> String?` overload below.
+    static func readResult(_ account: Account) -> ReadResult {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -53,13 +72,29 @@ enum KeychainStore {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let string = String(data: data, encoding: .utf8)
-        else {
-            return nil
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data,
+                  let string = String(data: data, encoding: .utf8) else {
+                return .unavailable(status)
+            }
+            return .found(string)
+        case errSecItemNotFound:
+            return .notFound
+        default:
+            return .unavailable(status)
         }
-        return string
+    }
+
+    /// Reads the value at `account`, returning nil if missing or if any
+    /// keychain error fires. Errors are intentionally swallowed — on a
+    /// fresh install the read will miss, and surfacing that as a thrown
+    /// error would force every callsite to wrap a try? around it.
+    /// Use `readResult(_:)` when the call site cares whether the
+    /// nil-return reflects a true absence or a transient error.
+    static func read(_ account: Account) -> String? {
+        if case .found(let string) = readResult(account) { return string }
+        return nil
     }
 
     /// Writes (or replaces) the value at `account`. Returns true on

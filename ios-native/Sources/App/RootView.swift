@@ -295,9 +295,14 @@ struct RootView: View {
             // to launches that don't need it. Apple App Review
             // tests Delete Account, and we can't have records
             // stranded in CloudKit just because the cascade hit a
-            // blip — `CloudKitService.drainPendingDeletes` keeps
-            // retrying until the cloud confirms gone.
+            // blip. Two queues drain in parallel:
+            //   - `CloudKitService.retryPendingDeletes` handles
+            //     RecipeShare records (the legacy outbox).
+            //   - `CloudPendingDeleteQueue.drain` handles Friendship,
+            //     PublishedRecipe, RecipeImport, and UserProfile
+            //     records added by slices 2-6.
             await CloudKitService.retryPendingDeletes()
+            await CloudPendingDeleteQueue.drain()
             // Slice 6 — register CKQuerySubscriptions for friend
             // events + recipe-import events. Idempotent + locally
             // gated by a UserDefaults flag so this is a fast
@@ -919,6 +924,25 @@ struct RootView: View {
         // sneak `..` past the pathComponents normalizer.
         guard let id = parts.first, !id.isEmpty, UUID(uuidString: id) != nil else {
             shareImportError = "Malformed share handoff."
+            return
+        }
+        // Provenance check — the share extension stamps a sentinel
+        // marker for every UUID it issues. If the marker is absent,
+        // some other code path landed a UUID-named file in the App
+        // Group inbox and we refuse to import it. The App Group
+        // entitlement already gates filesystem access (only this
+        // team's signed targets can write here), so this is defense-
+        // in-depth rather than a live vulnerability today, but
+        // pinning the contract here keeps a future second extension
+        // (or a similar code path) from silently inheriting the
+        // import path.
+        guard SharedContainer.consumeShareInboxMarker(uuid: id) else {
+            // Still clean up the file so a stale orphan doesn't
+            // survive forever; the 24-hour file sweep would also
+            // catch it.
+            let orphan = SharedContainer.shareInboxURL().appendingPathComponent("\(id).llamarecipe")
+            try? FileManager.default.removeItem(at: orphan)
+            shareImportError = "Couldn't verify this share handoff. Try sharing again from the source app."
             return
         }
         let fileURL = SharedContainer.shareInboxURL().appendingPathComponent("\(id).llamarecipe")

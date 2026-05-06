@@ -110,10 +110,7 @@ extension CloudKitService {
 
         // Strip photo bytes so the envelope JSON stays a few KB —
         // photos travel as sibling CKAssets (no base64 inflation).
-        let strippedJSON = try makeEncoder().encode(envelope.withClearedPhotoBytes())
-        let envelopeURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("publish-envelope-\(UUID().uuidString).json")
-        try strippedJSON.write(to: envelopeURL, options: .atomic)
+        let envelopeURL = try writeStrippedEnvelopeToTempFile(envelope, prefix: "publish")
 
         let photoBytes = envelope.flattenedPhotoBytes()
         let attachedCount = min(photoBytes.count, maxCloudPhotoCount)
@@ -147,9 +144,7 @@ extension CloudKitService {
                 photoURLs.append(nil)
                 continue
             }
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("publish-photo\(i)-\(UUID().uuidString).bin")
-            try bytes.write(to: url, options: .atomic)
+            let url = try writePhotoBytesToTempFile(bytes, prefix: "publish", index: i)
             photoURLs.append(url)
             totalBytesQueued += bytes.count
         }
@@ -221,21 +216,24 @@ extension CloudKitService {
     }
 
     /// Cascade — delete every PublishedRecipe owned by `ownerID`.
-    /// Called from `UserAccount.deleteAccount`. Best-effort:
-    /// individual delete failures are swallowed; reviewers testing
-    /// account deletion should still see records gone within one
-    /// retry of the cascade. (If failures pile up, mirror this
-    /// pattern after `cloudShareOutbox` and add a pending-delete
-    /// queue.)
+    /// Called from `UserAccount.deleteAccount`. Routes through
+    /// `CloudPendingDeleteQueue` so that any records whose deletion
+    /// fails on the first cascade attempt (network blip, throttling,
+    /// account-state error) stay queued for the next launch's drain.
+    /// Without persistent retry, App Review's flaky-network test
+    /// catches stranded records and rejects under Guideline 5.1.1(v).
     static func deleteAllPublishedRecipes(ownerID: String) async {
         let predicate = NSPredicate(format: "ownerID == %@", ownerID)
         let query = CKQuery(recordType: publishedRecipeRecordType, predicate: predicate)
         guard let matchResults = try? await queryAllRecords(matching: query) else {
             return
         }
-        for (id, _) in matchResults {
-            _ = try? await publicDB.deleteRecord(withID: id)
-        }
+        let names = matchResults.map { $0.0.recordName }
+        CloudPendingDeleteQueue.enqueueMany(
+            recordType: publishedRecipeRecordType,
+            recordNames: names
+        )
+        await CloudPendingDeleteQueue.drain()
     }
 
     // MARK: Fetch

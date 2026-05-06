@@ -1,15 +1,20 @@
 import Foundation
 import Observation
 
-/// Sender display name for app-to-app recipe sharing — surfaced to
-/// recipients as "Originally shared by {name}" on imported recipes.
-/// Persisted to UserDefaults (parallel pattern to `AppearanceSettings`).
+/// **Pre-SIWA fallback** for the sender display name in app-to-app
+/// recipe sharing. The canonical source post-sign-in is
+/// `UserAccount.status.identity?.displayName`; envelope-build code
+/// (`RecipeDetailView.resolvedSenderDisplayName`) prefers that and
+/// falls back to `OwnerProfile.userName` only when the user hasn't
+/// signed in yet (the app is usable signed-out for local-only flows).
 ///
-/// Read directly at envelope-build time. Empty string == not set;
-/// share envelopes ship with `sharedBy: nil` and the receiver's Detail
-/// hides the provenance line entirely. There is no first-share prompt —
-/// users who care about provenance set their name in Profile (or via
-/// Sign-in-with-Apple, which auto-populates this field).
+/// Persisted to UserDefaults (parallel pattern to `AppearanceSettings`).
+/// `UserAccount.completeSignIn` writes the resolved SIWA name back here
+/// once on first sign-in so the value stays in sync; subsequent edits
+/// happen through `ProfileView` which writes both surfaces.
+///
+/// Empty string == not set; share envelopes ship with `sharedBy: nil`
+/// and the receiver's Detail hides the provenance line entirely.
 @Observable
 final class OwnerProfile {
     private static let nameKey = "ownerUserName"

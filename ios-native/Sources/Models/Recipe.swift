@@ -9,6 +9,13 @@ final class Recipe {
     var title: String
     var summary: String?
     var sourceUrl: String?
+    /// **Deprecated** unused schema slot. Mirrors `RecipeStep.image` —
+    /// declared so SwiftData's lightweight migration doesn't drop the
+    /// attribute on existing TestFlight installs (which never wrote
+    /// to it, but the model column still exists in the persistent
+    /// store). No code path reads or writes this; new image data lives
+    /// on the `photos` relationship below. Will be removed in a future
+    /// cleanup migration; do NOT repurpose the name in the meantime.
     var imageUri: String?
     var servings: Int?
     var cookTimeMinutes: Int?

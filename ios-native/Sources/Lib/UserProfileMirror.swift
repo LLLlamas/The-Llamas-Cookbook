@@ -178,7 +178,9 @@ enum UserProfileMirror {
         let recordID = cachedRecordID()
         setCachedRecordID(nil)
         guard let recordID = recordID else { return }
-        try? await CloudKitService.deleteUserProfile(userRecordName: recordID)
+        // Route through `CloudPendingDeleteQueue` so a network blip
+        // during the cascade doesn't strand the UserProfile record.
+        await CloudKitService.enqueueUserProfileDeletion(userRecordName: recordID)
     }
 
     // MARK: - Field updates

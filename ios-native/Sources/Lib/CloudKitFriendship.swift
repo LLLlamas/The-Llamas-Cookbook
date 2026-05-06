@@ -201,12 +201,17 @@ extension CloudKitService {
         guard let records = try? await fetchFriendships(for: userRecordName) else {
             return
         }
-        for friendship in records {
-            try? await deleteFriendship(
-                recordName: friendship.recordName,
-                currentUserID: userRecordName
-            )
-        }
+        // Route through `CloudPendingDeleteQueue` so a network blip
+        // mid-cascade doesn't strand records. The per-record
+        // authorization check in `deleteFriendship` is bypassed —
+        // the fetch above already filters to records where
+        // `userA == userRecordName OR userB == userRecordName`, so
+        // every queued recordName is one this user belongs to.
+        CloudPendingDeleteQueue.enqueueMany(
+            recordType: friendshipRecordType,
+            recordNames: records.map(\.recordName)
+        )
+        await CloudPendingDeleteQueue.drain()
     }
 
     /// Delete every `Friendship` record between two users — used as

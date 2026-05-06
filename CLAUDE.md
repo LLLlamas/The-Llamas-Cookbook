@@ -13,7 +13,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - Verify Universal Links on real devices.
 - Aesthetic/type pass; adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.
 - Server-side uniqueness for `Friendship(userA,userB)` — currently client-side dedup only.
-- Account-deletion cascade: extend the persistent pending-delete queue (currently only on authored `RecipeShare`) to `Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile`, and CKQuerySubscriptions. Today those are single-shot best-effort and can strand records on a flaky network mid-cascade — App Review tests this path.
+- Account-deletion cascade: CKQuerySubscriptions still single-shot best-effort (orphaned subscriptions are cheap server-side state, CloudKit GCs them). Record cascades for `Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile` route through `CloudPendingDeleteQueue` for persistent retry; `RecipeShare` routes through the legacy `cloudShareOutbox` pair on `CloudKitService`. Both queues drain on launch from `RootView.task`. Future cleanup: migrate the legacy outbox to the generic queue.
 - Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision` from dev box (currently gitignored, not committed, but still present on disk).
 - App Store privacy labels need a once-over against CloudKit/Cloudflare sharing.
 
@@ -79,6 +79,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - `ios-native/Sources/Lib/CloudKitPublishedRecipe.swift` — `PublishedRecipeSummary`, `PublishedRecipeDetail`, library mirror ops
 - `ios-native/Sources/Lib/CloudKitRecipeImport.swift` — `RecipeImportRecord`, import audit log ops
 - `ios-native/Sources/Lib/CloudKitSubscriptions.swift` — CKQuerySubscription registration + `dispatchRemoteNotification`
+- `ios-native/Sources/Lib/CloudPendingDeleteQueue.swift` — generic UserDefaults-backed retry queue for cascade record deletes (`Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile`); drains on launch from `RootView.task`
 - `ios-native/Sources/Lib/UserProfileMirror.swift` — iCloud user record name cache; canonical "is iCloud bound?" check
 - `ios-native/Sources/Lib/LibraryMirrorService.swift` — `@MainActor` singleton, 5s per-recipe debounce for `PublishedRecipe` upserts
 - `ios-native/Sources/Views/Friends/FriendsTabView.swift` — friends tab card grid
@@ -88,7 +89,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 **Auth / identity**
 - `ios-native/Sources/Lib/SignInWithAppleService.swift`
 - `ios-native/Sources/Lib/KeychainStore.swift` — Apple `sub` + display name, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
-- `ios-native/Sources/App/OwnerProfile.swift` — sender display name for share envelopes (UserDefaults)
+- `ios-native/Sources/App/OwnerProfile.swift` — pre-SIWA fallback for sender display name (UserDefaults); envelope-build code prefers `UserAccount.status.identity?.displayName` and falls back here for signed-out sessions
 - `ios-native/Sources/App/AppearanceSettings.swift` — accent color (UserDefaults + UIKit tint sync)
 
 **Share extension**
@@ -112,7 +113,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 
 - **SwiftData: `cloudKitDatabase: .none`** — do not switch to `.automatic`. The schema uses `.cascade` delete rules and non-optional properties; auto-opt-in silently degrades to in-memory storage.
 - **`Recipe.apply(_:)` must NOT touch** `sharedBy`/`sharedAt`/`sourceShareID` or `originalCreator*`/`originalSharer*`/`originalRecipeID`/`importedAt`. Edits preserve the chain.
-- **`RecipeStep.image` is deprecated** migration baggage — kept so lightweight migration doesn't drop the attribute on existing installs. New step photos use `RecipeStepPhoto`.
+- **`RecipeStep.image` and `Recipe.imageUri` are deprecated** migration baggage — kept so lightweight migration doesn't drop the attributes on existing installs. New step photos use `RecipeStepPhoto`; new gallery photos use `RecipePhoto`. Don't repurpose either name.
 - **`UserProfile` recordName uses `profile_` prefix** — prevents collision with CloudKit's system `Users` record type. Prefix applied/stripped in `CloudKitUserProfile.swift`; callers pass raw iCloud user record names.
 - **`PublishedRecipe.recordName == Recipe.id.uuidString`** — upsert fetches by recordName without a query.
 - **`queryAllRecords` follows cursors** — never reintroduce first-page-only social queries.

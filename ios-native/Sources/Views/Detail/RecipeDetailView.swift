@@ -1243,11 +1243,11 @@ struct RecipeDetailView: View {
     @MainActor
     private func tryShareViaCloud() async -> Bool {
         let envelope = makeShareEnvelope()
-        let trimmedName = ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName = resolvedSenderDisplayName()
         do {
             let recordName = try await CloudKitService.uploadShare(
                 envelope,
-                senderDisplayName: trimmedName.isEmpty ? nil : trimmedName
+                senderDisplayName: resolvedName
             )
             // HTTPS Universal Link — the matching AASA file at the
             // `applinks:` host opens the URL directly in the app on
@@ -1323,12 +1323,26 @@ struct RecipeDetailView: View {
     }
 
     private func makeShareEnvelope() -> LCRecipeShareV1 {
-        let trimmed = ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
         return RecipeShare.envelope(
             for: recipe,
-            sharedBy: trimmed.isEmpty ? nil : trimmed,
+            sharedBy: resolvedSenderDisplayName(),
             appVersion: currentAppVersion()
         )
+    }
+
+    /// Sender display name used for outgoing share envelopes. Prefers
+    /// the SIWA identity (`UserAccount.status.identity.displayName`)
+    /// since that's the canonical post-sign-in name; falls back to the
+    /// legacy `OwnerProfile.userName` for sessions that haven't gone
+    /// through SIWA yet (Apple keeps the entitlement optional and the
+    /// app can be used signed-out for local-only flows). Returns nil
+    /// for empty/whitespace so the envelope omits the sharedBy field
+    /// rather than emitting an empty string.
+    private func resolvedSenderDisplayName() -> String? {
+        let candidate = userAccount.status.identity?.displayName
+            ?? ownerProfile.userName
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func currentAppVersion() -> String {

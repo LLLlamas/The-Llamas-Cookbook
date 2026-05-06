@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Source of truth for "who am I" in the cloud-recipe-delivery flow.
 /// Sibling pattern to `AppearanceSettings` and `OwnerProfile` —
@@ -324,10 +325,47 @@ final class UserAccount {
     /// (paranoia against the Keychain being wiped without us being
     /// notified, e.g. by a passcode reset on iOS < 14 — which we
     /// don't support, but cheap belt-and-suspenders).
+    ///
+    /// **Transient Keychain unavailability.** When `readResult`
+    /// returns `.unavailable` (auth failed, locked, entitlement
+    /// glitch — distinct from a genuine `.notFound`), retry once
+    /// before falling back to signed-out. On a botched device
+    /// migration where Keychain returns transient `errSecAuthFailed`
+    /// for a moment, a single retry is usually enough to land the
+    /// row; if the second attempt still fails we degrade to the
+    /// existing behavior (treat as signed-out and let the user
+    /// re-sign-in) and log so the failure is visible in
+    /// `log stream` post-mortem.
     private static func rehydrate() -> Status {
-        guard let appleSub = KeychainStore.read(.appleSub), !appleSub.isEmpty else {
+        let subResult = readAppleSubWithRetry()
+        switch subResult {
+        case .found(let appleSub) where !appleSub.isEmpty:
+            return rehydrateSignedIn(appleSub: appleSub)
+        case .found, .notFound:
+            return .signedOut
+        case .unavailable(let status):
+            Self.logger.error("Keychain unavailable on rehydrate (status=\(status, privacy: .public)) — degrading to signed-out; user may need to re-sign-in.")
             return .signedOut
         }
+    }
+
+    private static let logger = Logger(
+        subsystem: "com.llamascookbook.app",
+        category: "UserAccount"
+    )
+
+    /// Two-shot Keychain read for `appleSub`. `.notFound` returns
+    /// immediately (legitimate signed-out state); `.unavailable`
+    /// gets one retry before propagating. Bounded — never spins.
+    private static func readAppleSubWithRetry() -> KeychainStore.ReadResult {
+        let first = KeychainStore.readResult(.appleSub)
+        if case .unavailable = first {
+            return KeychainStore.readResult(.appleSub)
+        }
+        return first
+    }
+
+    private static func rehydrateSignedIn(appleSub: String) -> Status {
         let displayName = KeychainStore.read(.displayName) ?? "Cook"
         let createdAtInterval = UserDefaults.standard.double(forKey: Self.createdAtKey)
         let createdAt = createdAtInterval > 0

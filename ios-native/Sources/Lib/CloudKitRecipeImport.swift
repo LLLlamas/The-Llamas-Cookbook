@@ -245,24 +245,30 @@ extension CloudKitService {
         // skip the entire cascade. Splitting also makes each leg fail
         // independently — a transient failure on one query no longer
         // strands rows that the other would have caught.
+        //
+        // Records from both legs flow through `CloudPendingDeleteQueue`
+        // so any individual delete that fails (network blip, throttle)
+        // stays queued for the next launch's drain.
+        var collected: [String] = []
         let importerQuery = CKQuery(
             recordType: recipeImportRecordType,
             predicate: NSPredicate(format: "importerID == %@", userRecordName)
         )
         if let matchResults = try? await queryAllRecords(matching: importerQuery) {
-            for (id, _) in matchResults {
-                _ = try? await publicDB.deleteRecord(withID: id)
-            }
+            collected.append(contentsOf: matchResults.map { $0.0.recordName })
         }
         let creatorQuery = CKQuery(
             recordType: recipeImportRecordType,
             predicate: NSPredicate(format: "originalCreatorID == %@", userRecordName)
         )
         if let matchResults = try? await queryAllRecords(matching: creatorQuery) {
-            for (id, _) in matchResults {
-                _ = try? await publicDB.deleteRecord(withID: id)
-            }
+            collected.append(contentsOf: matchResults.map { $0.0.recordName })
         }
+        CloudPendingDeleteQueue.enqueueMany(
+            recordType: recipeImportRecordType,
+            recordNames: collected
+        )
+        await CloudPendingDeleteQueue.drain()
     }
 
     // MARK: - Helpers

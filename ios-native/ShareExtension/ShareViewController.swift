@@ -120,6 +120,14 @@ final class ShareViewController: UIViewController {
             )
             let fileURL = inbox.appendingPathComponent("\(id).llamarecipe")
             try data.write(to: fileURL)
+            // Stamp a sentinel marker keyed by this UUID in the shared
+            // UserDefaults suite. The main app's
+            // `routeShareExtensionFile` consumes the marker before
+            // reading the file — defense-in-depth so a foreign code
+            // path that lands a UUID-named file in the same App Group
+            // inbox can't trigger an import without going through this
+            // extension first.
+            SharedContainer.markShareInboxIssued(uuid: id)
 
             guard let deepLink = URL(string: "llamascookbook://share-incoming/\(id)") else {
                 await complete(); return
