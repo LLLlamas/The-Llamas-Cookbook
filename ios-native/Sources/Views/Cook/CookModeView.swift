@@ -340,8 +340,9 @@ struct CookModeView: View {
                 .shadow(color: appearance.accentColor.opacity(titleGlow * 0.65), radius: 14 * titleGlow)
                 .shadow(color: appearance.accentColor.opacity(titleGlow * 0.35), radius: 26 * titleGlow)
                 .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
 
             LlamaLogo(size: 72, shadowColor: appearance.accentColor)

@@ -1143,15 +1143,17 @@ private struct CookPill: View {
                 if compact {
                     Text(displayTitle)
                         .font(.system(size: 12, weight: .semibold, design: .serif))
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 } else {
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .center, spacing: 0) {
                         Text(displayTitle)
                             .font(.system(size: 13, weight: .semibold, design: .serif))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.75)
+                            .multilineTextAlignment(.center)
                         // Always reserve space for the timer line so
                         // pills stay the same height whether or not a
                         // timer is running. The "0:00" placeholder
@@ -1170,7 +1172,7 @@ private struct CookPill: View {
                         .font(.system(size: 11, weight: .bold, design: .serif))
                         .monospacedDigit()
                     }
-                    Spacer(minLength: 4)
+                    .frame(maxWidth: .infinity)
                     Image(systemName: "chevron.up")
                         .font(.system(size: 11, weight: .bold))
                 }
