@@ -346,6 +346,8 @@ final class AudioEngineHolder {
 
         let engine = AVAudioEngine()
         let format = engine.inputNode.outputFormat(forBus: 0)
+        self.engine = engine
+        self.inputFormat = format
         engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, when in
             guard let self else { return }
             let handlers = self.handlerQueue.sync { self.bufferHandlers }
@@ -355,8 +357,6 @@ final class AudioEngineHolder {
         }
         engine.prepare()
         try engine.start()
-        self.engine = engine
-        self.inputFormat = format
     }
 
     func addHandler(_ handler: @escaping (AVAudioPCMBuffer, AVAudioTime) -> Void) {
