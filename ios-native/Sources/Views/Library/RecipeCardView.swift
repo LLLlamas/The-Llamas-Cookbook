@@ -59,13 +59,13 @@ struct RecipeCardView: View {
                     tagChips
                         .padding(.top, 2)
                 }
-            }
 
-            VStack(alignment: .trailing, spacing: AppSpacing.sm) {
-                thumbnail
                 Spacer(minLength: AppSpacing.xs)
                 dateStack
             }
+            .frame(maxHeight: .infinity, alignment: .leading)
+
+            thumbnail
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -163,7 +163,7 @@ struct RecipeCardView: View {
     }
 
     private var dateStack: some View {
-        VStack(alignment: .trailing, spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             Text("Added \(Self.shortDate.string(from: recipe.createdAt))")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(AppColor.textSecondary)
