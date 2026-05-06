@@ -401,7 +401,9 @@ struct LibraryView: View {
                     }
                 }
                 .padding(.trailing, AppSpacing.lg)
+                .scrollTargetLayout()
             }
+            .scrollTargetBehavior(.viewAligned)
         }
         .padding(.leading, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)
