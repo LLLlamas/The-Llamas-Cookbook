@@ -51,20 +51,18 @@ struct FriendLibraryView: View {
                 .padding(.top, AppSpacing.xs)
                 .padding(.bottom, AppSpacing.sm)
 
-            if !allCategories.isEmpty {
-                CategoryFilterStrip(
-                    categories: allCategories,
-                    totalCount: summaries.count,
-                    countFor: { tag in summaries.filter { $0.tags.contains(tag) }.count },
-                    selection: $categoryFilter,
-                    accent: friendAccent
-                )
-                .background(AppColor.background)
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(AppColor.divider)
-                        .frame(height: 1)
-                }
+            CategoryFilterStrip(
+                categories: allCategories,
+                totalCount: summaries.count,
+                countFor: { tag in summaries.filter { $0.tags.contains(tag) }.count },
+                selection: $categoryFilter,
+                accent: friendAccent
+            )
+            .background(AppColor.background)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AppColor.divider)
+                    .frame(height: 1)
             }
 
             content

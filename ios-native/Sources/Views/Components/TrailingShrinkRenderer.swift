@@ -47,38 +47,36 @@ struct TrailingShrinkRenderer: TextRenderer {
 
         let secondLine = lines[1]
 
-        // First pass: find the index of the first inter-word gap on
-        // line 1. The first wrapped word is everything from glyph 0 up
-        // to (but not including) that index. Detect gaps via x-deltas
-        // between consecutive glyph rects — intra-word gaps stay near
-        // zero, inter-word gaps span an actual space character's width.
+        // First pass: find the index of the first whitespace glyph on
+        // line 1 (after we've seen at least one non-whitespace). Glyph
+        // rects in a typeset line are flush against each other — the
+        // space character is itself a zero-ink glyph slot, not a gap
+        // between neighbors — so we detect the boundary by ink width:
+        // a glyph with rect.width near zero, following a real letter,
+        // is the inter-word space. The first word is glyphs [0, that
+        // space's index).
         var wordEndIndex = Int.max
         var totalGlyphs = 0
-        var prevMaxX: CGFloat? = nil
-        var prevHeight: CGFloat = 0
         var sawNonSpace = false
         var firstGlyphMinX: CGFloat = 0
         var lastWordGlyphMaxX: CGFloat = 0
         for run in secondLine {
             for glyph in run {
                 let rect = glyph.typographicBounds.rect
+                let isInk = rect.width > 0.5
                 if totalGlyphs == 0 {
                     firstGlyphMinX = rect.minX
-                    sawNonSpace = rect.width > 0.5
-                } else if wordEndIndex == Int.max, let pmx = prevMaxX {
-                    let gap = rect.minX - pmx
-                    let threshold = max(1.5, prevHeight * 0.25)
-                    if sawNonSpace && gap > threshold {
+                    sawNonSpace = isInk
+                } else if wordEndIndex == Int.max {
+                    if sawNonSpace && !isInk {
                         wordEndIndex = totalGlyphs
-                    } else if rect.width > 0.5 {
+                    } else if isInk {
                         sawNonSpace = true
                     }
                 }
-                if wordEndIndex == Int.max {
+                if wordEndIndex == Int.max && isInk {
                     lastWordGlyphMaxX = rect.maxX
                 }
-                prevMaxX = rect.maxX
-                prevHeight = rect.height
                 totalGlyphs += 1
             }
         }
