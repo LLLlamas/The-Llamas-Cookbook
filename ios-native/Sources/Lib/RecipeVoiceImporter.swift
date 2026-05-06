@@ -25,7 +25,7 @@ enum RecipeVoiceImporter {
     /// user's locale. Caller treats false as "show the unavailable
     /// banner" — same shape as `RecipeAIParser.isAvailable`.
     static var isAvailable: Bool {
-        SpeechTranscriber.isAvailable(locale: preferredLocale())
+        SpeechTranscriber.isAvailable
     }
 
     /// Locale-aware locale pick for the transcriber. Mirrors the
@@ -395,7 +395,7 @@ final class ModernTranscribeSession {
     static func prewarm(locale: Locale) async {
         let transcriber = SpeechTranscriber(
             locale: locale,
-            preset: .progressiveLiveTranscription
+            preset: .default
         )
         if let request = try? await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
             try? await request.downloadAndInstall()
@@ -409,7 +409,7 @@ final class ModernTranscribeSession {
         let locale = RecipeVoiceImporter.preferredLocale()
         let transcriber = SpeechTranscriber(
             locale: locale,
-            preset: .progressiveLiveTranscription
+            preset: .default
         )
         transcriber.contextualStrings = RecipeVoiceImporter.contextualStrings
 
@@ -445,7 +445,7 @@ final class ModernTranscribeSession {
 
         // Bridge the AVAudioEngine tap into the analyzer input stream.
         engine.addHandler { buffer, when in
-            let input = AnalyzerInput(buffer: buffer, presentationTime: when)
+            let input = AnalyzerInput(buffer: buffer)
             inputContinuation.yield(input)
         }
 
@@ -459,9 +459,9 @@ final class ModernTranscribeSession {
 
     func finalize() async throws -> String {
         inputBuilder.finish()
-        try await analyzer.finalizeAndFinish(through: .infinity)
+        try await analyzer.finalizeAndFinish(through: .positiveInfinity)
         var collected: [String] = []
-        for await result in transcriber.results where result.isFinal {
+        for try await result in transcriber.results where result.isFinal {
             collected.append(String(result.text.characters))
         }
         resultTask.cancel()
@@ -471,7 +471,7 @@ final class ModernTranscribeSession {
 
     func stop() async {
         inputBuilder.finish()
-        try? await analyzer.cancelAndFinishNow()
+        await analyzer.cancelAndFinishNow()
         resultTask.cancel()
     }
 }
