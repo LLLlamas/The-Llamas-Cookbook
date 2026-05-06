@@ -21,7 +21,7 @@ final class EditorCoordinator {
     private(set) var pendingSwitch: ActiveSheet?
 
     /// Fed from the active sheet content (RecipeEditorView /
-    /// ImportFromTextView / ImportFromLinkView / ImportFromPhotoView)
+    /// ImportFromTextLinkView / ImportFromPhotoView / ImportFromVoiceView)
     /// via onAppear / onChange / onDisappear. When false, switches happen
     /// immediately; when true, they get queued behind a discard alert.
     var hasUnsavedChanges: Bool = false
@@ -36,36 +36,31 @@ final class EditorCoordinator {
         /// the dirty-state discard alert.
         case new(seed: DraftRecipe? = nil)
         case edit(Recipe)
-        /// Plain text-paste import. The optional `seedText` carries
-        /// OCR'd text from the partial-OCR fallback in the photo
-        /// import path — when set, the text editor pre-populates so
-        /// the user can clean it up by hand. Identity / equality
-        /// ignores the seed so swapping between FAB-no-seed and
-        /// photo-handoff-with-seed forms doesn't trip the dirty-state
-        /// discard alert.
-        case importFromText(seedText: String? = nil)
-        /// URL import sheet. The optional `prefilledURL` carries a
-        /// URL string the share extension extracted from another app's
-        /// Share menu (Safari, Reddit, etc.) so the URL field opens
-        /// with the URL already in place. Nil for the plain "Import
-        /// From Link" entry from the Library FAB. Identity / equality
-        /// ignores the prefill — switching from a manual import to a
-        /// share-extension import shouldn't trip the dirty-state
-        /// discard alert.
-        case importFromLink(prefilledURL: String? = nil)
+        /// Merged text-paste + URL-fetch import sheet. Both inputs
+        /// live on one screen — `seedText` carries OCR/voice fallback
+        /// text into the paste area, `prefilledURL` carries the
+        /// share-extension URL handoff into the URL field. Identity /
+        /// equality ignores both seeds so switching between FAB,
+        /// photo-handoff, voice-handoff, and share-extension entries
+        /// doesn't trip the dirty-state discard alert.
+        case importFromTextLink(seedText: String? = nil, prefilledURL: String? = nil)
         /// Photo import sheet. Camera + library picker live inside
         /// the sheet; on success the OCR'd draft surfaces in a
         /// separate read-only preview view (modeled on the share-
         /// recipient preview).
         case importFromPhoto
+        /// Voice import sheet. Mic recording + on-device speech
+        /// transcription, then the same `parseBestOf` path the photo
+        /// flow runs.
+        case importFromVoice
 
         var id: String {
             switch self {
-            case .new:                return "new"
-            case .edit(let recipe):   return "edit-\(recipe.id.uuidString)"
-            case .importFromText:     return "import-text"
-            case .importFromLink:     return "import-link"
-            case .importFromPhoto:    return "import-photo"
+            case .new:                  return "new"
+            case .edit(let recipe):     return "edit-\(recipe.id.uuidString)"
+            case .importFromTextLink:   return "import-text-link"
+            case .importFromPhoto:      return "import-photo"
+            case .importFromVoice:      return "import-voice"
             }
         }
 
@@ -83,13 +78,19 @@ final class EditorCoordinator {
     }
     func startEdit(_ recipe: Recipe) { attemptSwitch(to: .edit(recipe)) }
     func startImportFromText(seedText: String? = nil) {
-        attemptSwitch(to: .importFromText(seedText: seedText))
+        attemptSwitch(to: .importFromTextLink(seedText: seedText, prefilledURL: nil))
     }
     func startImportFromLink(url: String? = nil) {
-        attemptSwitch(to: .importFromLink(prefilledURL: url))
+        attemptSwitch(to: .importFromTextLink(seedText: nil, prefilledURL: url))
+    }
+    func startImportFromTextLink(seedText: String? = nil, url: String? = nil) {
+        attemptSwitch(to: .importFromTextLink(seedText: seedText, prefilledURL: url))
     }
     func startImportFromPhoto() {
         attemptSwitch(to: .importFromPhoto)
+    }
+    func startImportFromVoice() {
+        attemptSwitch(to: .importFromVoice)
     }
 
     /// Explicit close (after Save or Cancel-with-no-changes). Skips the

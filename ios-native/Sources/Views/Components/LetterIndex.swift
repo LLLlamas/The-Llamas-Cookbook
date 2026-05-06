@@ -139,7 +139,7 @@ struct LetterIndex: View {
                 .onEnded { _ in activeIndex = nil }
         )
         .animation(.easeOut(duration: 0.25), value: displayedActiveIndex)
-        .animation(.easeInOut(duration: 0.28), value: glowActive)
+        .animation(.easeInOut(duration: 0.14), value: glowActive)
         .onChange(of: externalHighlightLetter) { old, new in
             if old != nil && new == nil {
                 // External highlight is ending — keep the badge alive in

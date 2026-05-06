@@ -22,18 +22,14 @@ enum LlamaTourTarget: Hashable {
     case specialNotesEditor
     case saveButton
 
-    // Text-import tour
-    case textImportHero
+    // Text/Link-import tour (merged sheet)
+    case textLinkImportHero
+    case urlField
+    case fetchButton
     case formatHint
     case pasteEditor
     case previewButton
-    case textImportHelpIcon
-
-    // Link-import tour
-    case linkImportHero
-    case urlField
-    case fetchButton
-    case linkImportHelpIcon
+    case textLinkImportHelpIcon
 }
 
 struct LlamaTourTargetKey: PreferenceKey {

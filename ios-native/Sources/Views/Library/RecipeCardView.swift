@@ -37,14 +37,14 @@ struct RecipeCardView: View {
                         .shadow(color: accent.opacity(glowActive ? 0.16 : 0), radius: glowActive ? 7 : 0)
                         .shadow(color: accent.opacity(glowActive ? 0.07 : 0), radius: glowActive ? 14 : 0)
                         .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
-                        .animation(.easeInOut(duration: 0.28), value: glowActive)
+                        .animation(.easeInOut(duration: 0.14), value: glowActive)
                     Spacer(minLength: 0)
                     if recipe.favorite && !showsHeartThumbnail {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(accent)
                             .shadow(color: accent.opacity(glowActive ? 0.14 : 0), radius: glowActive ? 6 : 0)
-                            .animation(.easeInOut(duration: 0.28), value: glowActive)
+                            .animation(.easeInOut(duration: 0.14), value: glowActive)
                     }
                 }
 
@@ -52,8 +52,10 @@ struct RecipeCardView: View {
                     Text(summary)
                         .font(AppFont.body)
                         .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(4)
-                        .minimumScaleFactor(0.8)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .minimumScaleFactor(0.4)
+                        .textRenderer(TrailingShrinkRenderer())
                 }
 
                 if !recipe.tags.isEmpty {
@@ -185,6 +187,49 @@ struct RecipeCardView: View {
         f.dateFormat = "M/d/yy"
         return f
     }()
+}
+
+/// Per-glyph scale taper that ramps the trailing portion of a single
+/// line of text from full size down to `minScale`, replacing what would
+/// otherwise read as ellipsis-style truncation. Combined with
+/// `lineLimit(1)` + `minimumScaleFactor`, the layout first shrinks the
+/// whole string to fit on one line, then this renderer shrinks the
+/// last `taperFraction` of the line further so the tail visibly fades
+/// to "incredibly small" rather than ending in `...`.
+private struct TrailingShrinkRenderer: TextRenderer {
+    /// Fraction of the line width over which the taper runs, measured
+    /// from the trailing edge. 0.40 = the last 40% of the line shrinks.
+    var taperFraction: CGFloat = 0.40
+    /// Scale applied to glyphs sitting at the very trailing edge.
+    var minScale: CGFloat = 0.30
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        guard let line = layout.first else { return }
+        let bounds = line.typographicBounds.rect
+        let trailing = bounds.maxX
+        let taperStart = trailing - bounds.width * taperFraction
+        let taperWidth = max(0.001, trailing - taperStart)
+
+        for run in line {
+            for glyph in run {
+                let glyphRect = glyph.typographicBounds.rect
+                let glyphCenterX = glyphRect.midX
+                let scale: CGFloat
+                if glyphCenterX <= taperStart {
+                    scale = 1
+                } else {
+                    let t = min(1, max(0, (glyphCenterX - taperStart) / taperWidth))
+                    scale = 1 - (1 - minScale) * t
+                }
+                var glyphContext = context
+                let anchor = CGPoint(x: glyphCenterX, y: glyphRect.maxY)
+                glyphContext.translateBy(x: anchor.x, y: anchor.y)
+                glyphContext.scaleBy(x: scale, y: scale)
+                glyphContext.translateBy(x: -anchor.x, y: -anchor.y)
+                glyphContext.draw(glyph)
+            }
+        }
+    }
 }
 
 /// Heart silhouette for favorited-recipe thumbnails. Built from four

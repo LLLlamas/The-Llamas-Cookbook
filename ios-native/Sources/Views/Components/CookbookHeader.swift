@@ -47,7 +47,7 @@ struct CookbookHeader<Leading: View>: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .truncationMode(.tail)
-                .animation(.easeInOut(duration: 0.28), value: glowActive)
+                .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
         // Trailing breathing room before any topBarTrailing glyph —
         // without this, long possessives run flush against the

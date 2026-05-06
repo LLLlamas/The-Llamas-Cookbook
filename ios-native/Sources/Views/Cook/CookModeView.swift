@@ -337,8 +337,8 @@ struct CookModeView: View {
                 // with `titleGlow`, producing a soft halo when the view
                 // appears. The base contact shadow is still drawn last
                 // so the title keeps its grounding regardless of glow.
-                .shadow(color: appearance.accentColor.opacity(titleGlow * 0.65), radius: 14 * titleGlow)
-                .shadow(color: appearance.accentColor.opacity(titleGlow * 0.35), radius: 26 * titleGlow)
+                .shadow(color: appearance.accentColor.opacity(titleGlow * 0.32), radius: 7 * titleGlow)
+                .shadow(color: appearance.accentColor.opacity(titleGlow * 0.18), radius: 13 * titleGlow)
                 .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)

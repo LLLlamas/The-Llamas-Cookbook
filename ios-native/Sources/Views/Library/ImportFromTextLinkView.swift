@@ -1,34 +1,48 @@
 import SwiftUI
 import UIKit
 
-/// Text-paste import path. The user pastes recipe text, the parser
-/// produces a `DraftRecipe`, and the user lands on the existing
-/// editor with the parsed result pre-populated. The link path lives
-/// in `ImportFromLinkView` (split out so each FAB entry maps to one
-/// dedicated screen — see CLAUDE.md "Four-way FAB import split").
+/// Merged text-paste + URL-fetch import path. A single sheet with
+/// two affordances:
+///   • A URL field at the top for "Paste a recipe link".
+///   • Below it, a freeform paste area for raw recipe text.
 ///
-/// `seedText` is set when the photo-import path's quality gate fails
-/// — OCR pulled text but the parser couldn't separate ingredients
-/// from steps. The user gets a "Continue in text editor" handoff
-/// with the OCR text already in the paste box, ready to clean up.
-struct ImportFromTextView: View {
-    /// OCR-derived text seed from the photo-import partial-fallback
-    /// path. When non-nil, populates the paste editor on appear so
-    /// the user lands on a pre-filled box with the OCR result rather
-    /// than a blank one. Nil for the plain "Import From Text" entry
-    /// from the Library FAB.
+/// Routing rules when the user taps Preview:
+///   • Link filled, text empty → URL fetch path (`RecipeURLImporter`).
+///   • Text filled, link empty → text parse path (`RecipeImporter` +
+///     `RecipeAIParser`).
+///   • Both filled → link wins (cleanest signal; if the user pasted a
+///     URL inside the text body, we also auto-route to link).
+///
+/// `seedText` carries OCR / voice fallback text. `prefilledURL`
+/// carries the share-extension URL handoff. Both seeds set
+/// pastedText / urlText on appear and (for the URL case) auto-fetch
+/// so the user lands on the parsed preview.
+struct ImportFromTextLinkView: View {
+    /// OCR / voice-derived text seed from the photo or voice import
+    /// partial-fallback path. When non-nil, populates the paste area
+    /// on appear so the user lands on a pre-filled box ready to clean
+    /// up. Nil for the plain "Import From Text/Link" entry from the
+    /// Library FAB.
     let seedText: String?
 
-    /// Called by the inner `RecipeEditorView` after a successful
-    /// Save with the freshly-persisted `Recipe`. RootView wires this
-    /// to dismiss the editor sheet and push Detail via
-    /// `libraryPath.append` after a 350ms delay (so the dismiss
-    /// animation doesn't race the navigation push). Defaults to a
-    /// no-op for previews / standalone usage.
+    /// URL string from the share-extension URL handoff (Safari /
+    /// Reddit / blog reader). When non-nil, populates the URL field
+    /// and kicks off the fetch on appear so the user lands on the
+    /// parsed preview instead of an empty form.
+    let prefilledURL: String?
+
+    /// Called by the inner `RecipeEditorView` after a successful Save
+    /// with the freshly-persisted `Recipe`. RootView dismisses the
+    /// editor sheet and pushes Detail. Defaults to a no-op.
     var onSaved: (Recipe) -> Void = { _ in }
 
-    init(seedText: String? = nil, onSaved: @escaping (Recipe) -> Void = { _ in }) {
+    init(
+        seedText: String? = nil,
+        prefilledURL: String? = nil,
+        onSaved: @escaping (Recipe) -> Void = { _ in }
+    ) {
         self.seedText = seedText
+        self.prefilledURL = prefilledURL
         self.onSaved = onSaved
     }
 
@@ -36,35 +50,35 @@ struct ImportFromTextView: View {
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
 
+    @State private var urlText = ""
     @State private var pastedText = ""
+    @State private var urlFetchState: URLFetchState = .idle
+    @State private var banner: ImportBanner?
     @State private var parsedDraft: DraftRecipe?
     @State private var showEditor = false
     @State private var showTour = false
+    @FocusState private var urlFocused: Bool
     @FocusState private var pasteFocused: Bool
     @AppStorage("hasSeenImportHelp") private var hasSeenImportHelp = false
-    @AppStorage("hasSeenTextImportTour") private var hasSeenTextImportTour = false
+    @AppStorage("hasSeenTextLinkImportTour") private var hasSeenTextLinkImportTour = false
 
     var body: some View {
-        let parsed = RecipeImporter.parse(pastedText)
-        let canPreview =
-            !parsed.title.trimmed.isEmpty
-            || !parsed.ingredients.isEmpty
-            || !parsed.steps.isEmpty
+        let parsedFromText = RecipeImporter.parse(pastedText)
+        let canPreview = computeCanPreview(parsedFromText: parsedFromText)
 
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: AppSpacing.lg) {
                     heroRow
                         .padding(.top, AppSpacing.md)
-                        .tourTarget(.textImportHero)
+                        .tourTarget(.textLinkImportHero)
 
-                    pasteImportSection(parsed: parsed)
+                    linkSection
+
+                    pasteSection(parsed: parsedFromText)
 
                     actionRow(canPreview: canPreview)
 
-                    // Modest buffer so the action row clears the home
-                    // indicator. Don't grow this when focused — the
-                    // editor itself is the scroll anchor, not the buffer.
                     Color.clear.frame(height: 32)
                 }
                 .padding(AppSpacing.lg)
@@ -74,14 +88,6 @@ struct ImportFromTextView: View {
             .scrollDismissesKeyboard(.never)
             .onChange(of: pasteFocused) { _, focused in
                 if focused {
-                    // One scroll, on focus only. Anchor the editor's
-                    // bottom edge to the bottom of the visible area
-                    // (which already accounts for the keyboard via
-                    // safe-area insets) — the editor's full 280pt
-                    // frame ends up right above the keyboard. From
-                    // there, TextEditor's internal scroll handles
-                    // cursor visibility as the user types, so we
-                    // don't re-scroll on every keystroke.
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                         proxy.scrollTo(LlamaTourTarget.pasteEditor, anchor: .bottom)
                     }
@@ -102,12 +108,8 @@ struct ImportFromTextView: View {
                             .foregroundStyle(appearance.accentColor)
                     }
                     .accessibilityLabel("Replay walkthrough")
-                    .tourTarget(.textImportHelpIcon)
+                    .tourTarget(.textLinkImportHelpIcon)
                 }
-                // Done button above the keyboard — explicit dismiss
-                // now that scroll-to-dismiss is off. Themed with the
-                // user's accent so it pairs with the other primary
-                // actions.
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button {
@@ -123,34 +125,30 @@ struct ImportFromTextView: View {
             .navigationDestination(isPresented: $showEditor) {
                 if let draft = parsedDraft {
                     RecipeEditorView(recipe: nil, initialDraft: draft) { savedRecipe in
-                        // Hand the new recipe up to RootView so it
-                        // can close the editor sheet AND push Detail.
-                        // No local dismiss() call — the import sheet
-                        // closes via `editor.end()` triggered by
-                        // RootView.
                         onSaved(savedRecipe)
                     }
                 }
             }
             .onAppear {
-                // Migration: legacy `hasSeenImportHelp` users have
-                // seen the static help once — treat as having seen
-                // the walkthrough too so an update doesn't re-trigger
-                // first-time chrome.
-                if hasSeenImportHelp && !hasSeenTextImportTour {
-                    hasSeenTextImportTour = true
+                if hasSeenImportHelp && !hasSeenTextLinkImportTour {
+                    hasSeenTextLinkImportTour = true
                 }
 
-                // Photo-import fallback: pre-fill the editor with
-                // OCR'd text so the user can clean it up by hand
-                // instead of retyping. Skip auto-tour on this entry
-                // — the user has already been through one parser,
-                // no need to overlay a walkthrough on top.
+                // Share-extension URL handoff — auto-fetch on appear.
+                if let prefill = prefilledURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !prefill.isEmpty,
+                   urlText.isEmpty {
+                    urlText = prefill
+                    hasSeenTextLinkImportTour = true
+                    Task { await fetchURL() }
+                }
+                // OCR / voice fallback seed — pre-fill the paste area.
                 if let seed = seedText?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !seed.isEmpty,
                    pastedText.isEmpty {
                     pastedText = seed
-                } else if !hasSeenTextImportTour {
+                    hasSeenTextLinkImportTour = true
+                } else if prefilledURL == nil && !hasSeenTextLinkImportTour {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(500))
                         showTour = true
@@ -159,18 +157,19 @@ struct ImportFromTextView: View {
                 updateDirty()
             }
             .onChange(of: pastedText) { _, _ in updateDirty() }
+            .onChange(of: urlText) { _, _ in updateDirty() }
             .onDisappear {
                 editor.hasUnsavedChanges = false
             }
             .overlayPreferenceValue(LlamaTourTargetKey.self) { anchors in
                 if showTour {
                     LlamaIntroOverlay(
-                        steps: TextImportTour.steps,
+                        steps: TextLinkImportTour.steps,
                         anchors: anchors,
                         scrollProxy: proxy,
                         onFinish: {
                             showTour = false
-                            hasSeenTextImportTour = true
+                            hasSeenTextLinkImportTour = true
                         }
                     )
                     .transition(.opacity)
@@ -179,7 +178,7 @@ struct ImportFromTextView: View {
             }
         }
         .llamaBackground()
-        .navigationTitle("Import From Text")
+        .navigationTitle("Import From Text/Link")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(true)
         .tint(appearance.accentColor)
@@ -191,10 +190,10 @@ struct ImportFromTextView: View {
         HStack(spacing: AppSpacing.md) {
             LlamaLogo(size: 72, shadowColor: appearance.accentColor)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Import from text")
+                Text("Import from text or a link")
                     .font(.system(size: 20, weight: .bold, design: .serif))
                     .foregroundStyle(AppColor.textPrimary)
-                Text("Paste a recipe — I'll fill it in for you.")
+                Text("Paste a link, or paste plain text — I'll fill it in.")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -203,17 +202,93 @@ struct ImportFromTextView: View {
         }
     }
 
-    private func pasteImportSection(parsed: DraftRecipe) -> some View {
+    private var linkSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs) {
-                Text("From text").eyebrowStyle()
-                Spacer(minLength: 0)
+            Text("From a link").eyebrowStyle()
+
+            HStack(spacing: AppSpacing.sm) {
+                urlField.tourTarget(.urlField)
+                fetchButton.tourTarget(.fetchButton)
             }
 
-            // The check panel asks the user to verify what the parser
-            // interpreted — so they can catch the "title got merged
-            // into ingredients" failure mode before reaching the
-            // editor. Animates on every change to the parsed values.
+            if let banner {
+                bannerView(banner)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: banner)
+    }
+
+    private var urlField: some View {
+        HStack(spacing: AppSpacing.xs) {
+            Image(systemName: "link")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AppColor.textTertiary)
+            TextField("Paste a recipe link…", text: $urlText)
+                .textContentType(.URL)
+                .keyboardType(.URL)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.go)
+                .focused($urlFocused)
+                .onSubmit {
+                    Task { await fetchURL() }
+                }
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textPrimary)
+            if !urlText.isEmpty && urlFetchState != .fetching {
+                Button {
+                    urlText = ""
+                    banner = nil
+                    parsedDraft = nil
+                    Haptics.selection()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(AppColor.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, AppSpacing.md)
+        .padding(.vertical, AppSpacing.sm + 2)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private var fetchButton: some View {
+        Button {
+            Task { await fetchURL() }
+        } label: {
+            Group {
+                if urlFetchState == .fetching {
+                    ProgressView()
+                        .tint(AppColor.onAccent)
+                } else {
+                    Text("Fetch")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(AppColor.onAccent)
+                }
+            }
+            .frame(width: 76, height: 44)
+            .background(appearance.accentColor)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .opacity(canFetch ? 1 : 0.4)
+        }
+        .disabled(!canFetch)
+    }
+
+    private func pasteSection(parsed: DraftRecipe) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            Text("Or from text").eyebrowStyle()
+
             formatHint(parsed: parsed)
                 .tourTarget(.formatHint)
 
@@ -232,7 +307,7 @@ struct ImportFromTextView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .frame(minHeight: 280)
+            .frame(minHeight: 240)
             .background(AppColor.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
@@ -240,17 +315,10 @@ struct ImportFromTextView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .animation(.easeInOut(duration: 0.15), value: pasteFocused)
-            // tourTarget applies `.id(LlamaTourTarget.pasteEditor)`
-            // — also serves as the on-focus scroll anchor (see
-            // `.onChange(of: pasteFocused)` above).
             .tourTarget(.pasteEditor)
         }
     }
 
-    /// Tip that sits between the check panel and the editor. Spells
-    /// out both the blank-line convention and the explicit "Ingredient" /
-    /// "Steps" header fallback so users who paste single-line-block
-    /// captions know they have a way out.
     private var firstLineHint: some View {
         HStack(alignment: .top, spacing: AppSpacing.xs + 2) {
             Image(systemName: "info.circle")
@@ -264,11 +332,6 @@ struct ImportFromTextView: View {
         .foregroundStyle(AppColor.textTertiary)
     }
 
-    /// Custom placeholder. Renders as a structured layout (title row,
-    /// faint divider, ingredients sample, faint divider, steps sample)
-    /// so the user picks up the blank-line convention visually instead
-    /// of from a sentence of instructions. The dividers stand in for the
-    /// blank lines they'll need in the parsed text.
     private var placeholderView: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             Text("Recipe Title")
@@ -305,11 +368,6 @@ struct ImportFromTextView: View {
             .frame(maxWidth: .infinity)
     }
 
-    /// Verification panel. Each row asks the user a question rather
-    /// than asserting that the parser succeeded — if the title got
-    /// glued onto the first ingredient line, the row will display
-    /// "Ingredients — Same day sourdough — is this the first
-    /// ingredient?" and the user spots the mistake instantly.
     private func formatHint(parsed: DraftRecipe) -> some View {
         let titleDetail = parsed.title.trimmed.isEmpty ? nil : parsed.title.trimmed
         let firstIngredient = formatFirstIngredient(parsed)
@@ -345,12 +403,6 @@ struct ImportFromTextView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
-    /// One row of the verification panel. Label is the eyebrow,
-    /// value is the parsed text, prompt is the italicized question
-    /// the user can answer at a glance. When detail is nil/empty the
-    /// row falls back to the placeholder copy and drops the prompt
-    /// — the panel stays the same height across all states so the
-    /// layout doesn't jump as the user types.
     private func textCheckRow(
         label: String,
         detail: String?,
@@ -367,12 +419,6 @@ struct ImportFromTextView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(AppColor.divider)
 
-            // Only the right-of-em-dash content gets re-identified
-            // and animated when the parsed value changes — the
-            // "Title" / "Ingredients" / "Steps" labels and the dash
-            // stay put. Wrapping the dynamic side in its own HStack
-            // with an `.id(detail)` scopes the transition to just
-            // this subtree.
             HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs + 2) {
                 if let detail, !detail.isEmpty {
                     Text(detail)
@@ -408,10 +454,6 @@ struct ImportFromTextView: View {
         }
     }
 
-    /// Render the first parsed ingredient as a single readable line.
-    /// Light punctuation — just space-joined qty, unit, name — since
-    /// this is a glance-level confirmation, not the editor's formatted
-    /// display.
     private func formatFirstIngredient(_ parsed: DraftRecipe) -> String? {
         guard let first = parsed.ingredients.first else { return nil }
         let pieces = [first.quantity, first.unit, first.name]
@@ -419,6 +461,36 @@ struct ImportFromTextView: View {
             .filter { !$0.isEmpty }
         let joined = pieces.joined(separator: " ")
         return joined.isEmpty ? nil : joined
+    }
+
+    private func bannerView(_ banner: ImportBanner) -> some View {
+        HStack(alignment: .top, spacing: AppSpacing.sm) {
+            Image(systemName: banner.kind.icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(bannerTint(for: banner.kind))
+                .padding(.top, 2)
+            Text(banner.message)
+                .font(.system(size: 13))
+                .foregroundStyle(AppColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(AppSpacing.md)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(bannerTint(for: banner.kind).opacity(0.45), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private func bannerTint(for kind: ImportBanner.Kind) -> Color {
+        switch kind {
+        case .info: return appearance.accentColor
+        case .warning: return AppColor.accentDeep
+        case .error: return AppColor.destructive
+        case .success: return AppColor.success
+        }
     }
 
     private func actionRow(canPreview: Bool) -> some View {
@@ -448,7 +520,8 @@ struct ImportFromTextView: View {
             Button {
                 Haptics.impact(.light)
                 dismissKeyboards()
-                parsedDraft = RecipeImporter.parse(pastedText)
+                guard let draft = resolvePreviewDraft() else { return }
+                parsedDraft = draft
                 showEditor = true
             } label: {
                 HStack(spacing: AppSpacing.xs) {
@@ -469,9 +542,97 @@ struct ImportFromTextView: View {
         }
     }
 
+    // MARK: - Preview routing
+
+    /// Pick which parser owns the Preview action. Link wins over text
+    /// when both are filled — cleanest signal — and a URL pasted into
+    /// the text body also routes to the link path so the user doesn't
+    /// have to re-paste.
+    private func resolvePreviewDraft() -> DraftRecipe? {
+        // If we already have a fetched URL draft, prefer it.
+        if !urlText.trimmed.isEmpty, let draft = parsedDraft {
+            return draft
+        }
+        let textValue = pastedText.trimmed
+        guard !textValue.isEmpty else { return nil }
+        return RecipeImporter.parse(textValue)
+    }
+
+    private func computeCanPreview(parsedFromText: DraftRecipe) -> Bool {
+        if !urlText.trimmed.isEmpty, let draft = parsedDraft {
+            return !draft.title.trimmed.isEmpty
+                || !draft.ingredients.isEmpty
+                || !draft.steps.isEmpty
+        }
+        return !parsedFromText.title.trimmed.isEmpty
+            || !parsedFromText.ingredients.isEmpty
+            || !parsedFromText.steps.isEmpty
+    }
+
+    // MARK: - URL fetch flow
+
+    @MainActor
+    private func fetchURL() async {
+        let candidate = urlText.trimmed
+        guard !candidate.isEmpty, urlFetchState != .fetching else { return }
+        Haptics.selection()
+        urlFocused = false
+        urlFetchState = .fetching
+        banner = nil
+
+        let outcome = await RecipeURLImporter.fetch(candidate)
+        urlFetchState = .idle
+
+        switch outcome {
+        case .full(let draft):
+            Haptics.success()
+            parsedDraft = draft
+            banner = ImportBanner(
+                kind: .success,
+                message: "Found a structured recipe. Tap Preview to review."
+            )
+
+        case .partial(let enrichment, let seedText, let hint):
+            Haptics.success()
+            parsedDraft = seedText.isEmpty
+                && enrichment.ingredients.isEmpty
+                && enrichment.steps.isEmpty
+                ? nil
+                : enrichment
+            // Pre-fill the paste area with whatever seed text the URL
+            // path could extract — same screen now, no sheet handoff.
+            if !seedText.isEmpty, pastedText.trimmed.isEmpty {
+                pastedText = seedText
+            }
+            let combined = seedText.isEmpty
+                ? hint
+                : "\(hint)\n\nYou can edit the text below and tap Preview when it's right."
+            banner = ImportBanner(kind: .info, message: combined)
+
+        case .blocked(let enrichment, let hint):
+            Haptics.warning()
+            parsedDraft = enrichment
+            banner = ImportBanner(kind: .warning, message: hint)
+
+        case .noRecipeInCaption(let enrichment, let hint):
+            Haptics.warning()
+            parsedDraft = enrichment
+            banner = ImportBanner(kind: .warning, message: hint)
+
+        case .failed(let message):
+            Haptics.warning()
+            banner = ImportBanner(kind: .error, message: message)
+        }
+    }
+
     // MARK: - Helpers
 
+    private var canFetch: Bool {
+        !urlText.trimmed.isEmpty && urlFetchState != .fetching
+    }
+
     private func dismissKeyboards() {
+        urlFocused = false
         pasteFocused = false
         UIApplication.shared.sendAction(
             #selector(UIResponder.resignFirstResponder),
@@ -480,6 +641,32 @@ struct ImportFromTextView: View {
     }
 
     private func updateDirty() {
-        editor.hasUnsavedChanges = !pastedText.trimmed.isEmpty
+        editor.hasUnsavedChanges =
+            !urlText.trimmed.isEmpty
+            || !pastedText.trimmed.isEmpty
+            || parsedDraft != nil
+    }
+
+    // MARK: - Local types
+
+    private enum URLFetchState {
+        case idle, fetching
+    }
+
+    private struct ImportBanner: Equatable {
+        enum Kind {
+            case info, warning, error, success
+
+            var icon: String {
+                switch self {
+                case .info: return "info.circle.fill"
+                case .warning: return "exclamationmark.triangle.fill"
+                case .error: return "xmark.octagon.fill"
+                case .success: return "checkmark.circle.fill"
+                }
+            }
+        }
+        let kind: Kind
+        let message: String
     }
 }

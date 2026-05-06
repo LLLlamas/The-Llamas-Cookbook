@@ -503,7 +503,7 @@ struct LibraryView: View {
             color: appearance.categoryAccentColor.opacity(appearance.isAccentGlowActive(.categories) ? 0.10 : 0),
             radius: appearance.isAccentGlowActive(.categories) ? 7 : 0
         )
-        .animation(.easeInOut(duration: 0.28), value: appearance.isAccentGlowActive(.categories))
+        .animation(.easeInOut(duration: 0.14), value: appearance.isAccentGlowActive(.categories))
     }
 
     private var emptyFilterState: some View {
@@ -548,21 +548,21 @@ struct LibraryView: View {
             }
             Button {
                 Haptics.impact(.light)
-                editor.startImportFromText()
+                editor.startImportFromTextLink()
             } label: {
-                Label("Import From Text", systemImage: "doc.on.clipboard")
-            }
-            Button {
-                Haptics.impact(.light)
-                editor.startImportFromLink()
-            } label: {
-                Label("Import From Link", systemImage: "link")
+                Label("Import From Text/Link", systemImage: "doc.on.clipboard")
             }
             Button {
                 Haptics.impact(.light)
                 editor.startImportFromPhoto()
             } label: {
                 Label("Import From Photo", systemImage: "doc.viewfinder")
+            }
+            Button {
+                Haptics.impact(.light)
+                editor.startImportFromVoice()
+            } label: {
+                Label("Import From Voice", systemImage: "mic.fill")
             }
         } label: {
             Image(systemName: "plus")
@@ -680,7 +680,7 @@ private struct FilterChip: View {
             )
             .clipShape(Capsule())
             .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
-            .animation(.easeInOut(duration: 0.28), value: glowActive)
+            .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
     }
 }

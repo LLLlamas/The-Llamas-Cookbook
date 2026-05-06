@@ -12,22 +12,12 @@ struct ImportHelpView: View {
 
                     VStack(alignment: .leading, spacing: AppSpacing.lg) {
                         section(
-                            eyebrow: "FROM A LINK",
+                            eyebrow: "FROM TEXT OR A LINK",
                             rows: [
-                                "Paste a recipe blog URL — I'll pull title, ingredients, steps, and times automatically.",
-                                "Pinterest pins work too — I'll grab the description, or follow it to the source recipe.",
-                                "TikTok captions come through. The body fills automatically; if it doesn't quite land I'll hand you over to the text editor.",
-                                "Instagram and Facebook block link previews — copy the caption text and paste it on the From Text screen instead."
-                            ]
-                        )
-
-                        section(
-                            eyebrow: "FROM TEXT — JUST 3 BLOCKS",
-                            rows: [
-                                "**Line 1** is the **recipe name**.",
-                                "Leave a **blank line**, then list each **ingredient** on its own line.",
-                                "Leave **another blank line**, then list each **step** on its own line.",
-                                "No keywords needed — bullets, numbers, fractions (½, 1/4), and units (g, tbsp, cup) all parse automatically."
+                                "Paste a recipe blog URL at the top — I'll pull title, ingredients, steps, and times automatically.",
+                                "Pinterest pins and TikTok captions come through too. Instagram and Facebook block previews — paste the caption in the text box below instead.",
+                                "Or skip the link and paste plain text: **line 1** is the **recipe name**, leave a **blank line**, then **ingredients**, another **blank line**, then **steps**.",
+                                "Bullets, numbers, fractions (½, 1/4), and units (g, tbsp, cup) all parse automatically."
                             ]
                         )
 
@@ -38,6 +28,16 @@ struct ImportHelpView: View {
                                 "Or pick an image from your photo library — multi-page scans concatenate top-to-bottom.",
                                 "Lighting and framing help — flat surface, full page in the frame, no glare on glossy paper.",
                                 "I OCR the page and parse it into the same preview screen as a shared recipe — review, then save."
+                            ]
+                        )
+
+                        section(
+                            eyebrow: "FROM YOUR VOICE",
+                            rows: [
+                                "Tap **Import From Voice** and read your recipe out loud — title first, then ingredients, then the steps.",
+                                "Pause briefly between sections so I can tell them apart.",
+                                "Numbers come through best when said with a unit — \"two cups flour\" parses cleaner than \"two flour\".",
+                                "Recordings cap at 5 minutes; you can always edit the result before saving."
                             ]
                         )
 
@@ -82,7 +82,7 @@ struct ImportHelpView: View {
                 Text("Hi there!")
                     .font(.system(size: 22, weight: .bold, design: .serif))
                     .foregroundStyle(appearance.accentColor)
-                Text("Three ways to import a recipe")
+                Text("A few ways to import a recipe")
                     .font(.system(size: 13, weight: .medium))
                     .tracking(0.3)
                     .foregroundStyle(AppColor.textSecondary)

@@ -1,8 +1,10 @@
 # Llama Intro
 
-Coach-mark tour overlay shown for New Recipe / Import From Text / Import From Link.
+Coach-mark tour overlay shown for New Recipe / Import From Text/Link.
 
 Files: `ios-native/Sources/Views/Components/LlamaIntro/`, `Tours/*.swift`, hosted by `Views/Editor/` and `Views/Library/`.
+
+The text/link tour (`TextLinkImportTour.swift`) covers both URL fetch and plain-text paste in a single 6-step run, since the merged sheet exposes both inputs side-by-side.
 
 ## New-recipe tour (interactive)
 

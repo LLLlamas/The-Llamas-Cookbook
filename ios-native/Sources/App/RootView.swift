@@ -1010,12 +1010,16 @@ private struct EditorSheetHost: View {
                 // navigation) avoids stacking a duplicate Detail on
                 // the navigation path.
                 RecipeEditorView(recipe: recipe) { _ in onClose() }
-            case .importFromText(let seedText):
-                ImportFromTextView(seedText: seedText, onSaved: onSaved)
-            case .importFromLink(let prefilledURL):
-                ImportFromLinkView(prefilledURL: prefilledURL, onSaved: onSaved)
+            case .importFromTextLink(let seedText, let prefilledURL):
+                ImportFromTextLinkView(
+                    seedText: seedText,
+                    prefilledURL: prefilledURL,
+                    onSaved: onSaved
+                )
             case .importFromPhoto:
                 ImportFromPhotoView(onSaved: onSaved)
+            case .importFromVoice:
+                ImportFromVoiceView(onSaved: onSaved)
             }
         }
         .presentationDetents([.large, .height(80)], selection: $detent)
