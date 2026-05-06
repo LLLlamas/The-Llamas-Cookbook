@@ -342,10 +342,6 @@ struct ProfileView: View {
         VStack(alignment: .leading, spacing: AppSpacing.lg) {
             displayNameRow(identity: identity)
 
-            cloudSyncRow(identity: identity)
-
-            republishLibraryRow
-
             if let lastCooked = lastCookedRecipe {
                 lastCookedLine(recipe: lastCooked)
             }
@@ -353,165 +349,6 @@ struct ProfileView: View {
             requestsSection
 
             friendsSection
-        }
-    }
-
-    /// Force-republish-library diagnostic. The bulk publish on first-
-    /// friend transition runs once per install and silently swallows
-    /// errors — if that pass ran while the CloudKit schema was still
-    /// half-deployed, every recipe failed to publish AND the gate
-    /// flipped to "done" so it never retried. This button resets the
-    /// gate and re-uploads every recipe, surfacing the per-recipe
-    /// success/failure counts so the user can confirm the recovery
-    /// actually worked.
-    private var republishLibraryRow: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text("LIBRARY SYNC")
-                .eyebrowStyle(AppColor.textTertiary)
-            HStack(spacing: AppSpacing.sm) {
-                if let message = republishResultMessage {
-                    Image(systemName: republishSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(republishSucceeded ? AppColor.success : AppColor.destructive)
-                    Text(message)
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                        .textSelection(.enabled)
-                } else {
-                    Text("Re-upload all your recipes so friends can see them in your cookbook.")
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(3)
-                }
-                Spacer(minLength: AppSpacing.sm)
-                Button {
-                    Task { await republishLibrary() }
-                } label: {
-                    if isRepublishingLibrary {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 32, height: 32)
-                    } else {
-                        Image(systemName: "icloud.and.arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
-                            .frame(width: 32, height: 32)
-                            .background(AppColor.surfaceSunken)
-                            .clipShape(Circle())
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isRepublishingLibrary)
-                .accessibilityLabel("Re-publish library to cloud")
-            }
-        }
-        .padding(AppSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-    }
-
-    private func republishLibrary() async {
-        isRepublishingLibrary = true
-        let recipes = allRecipes
-        let result = await LibraryMirrorService.shared.republishLibrary(recipes: recipes)
-        isRepublishingLibrary = false
-        if result.failed == 0 && result.firstError == nil {
-            republishSucceeded = true
-            republishResultMessage = "Published \(result.succeeded) recipe\(result.succeeded == 1 ? "" : "s"). Friends should see your full cookbook within a minute."
-        } else {
-            republishSucceeded = false
-            var msg = "Published \(result.succeeded) of \(result.succeeded + result.failed)."
-            if let firstError = result.firstError {
-                msg += " First error: \(firstError)"
-            }
-            republishResultMessage = msg
-        }
-    }
-
-    /// Diagnostic + manual-recovery row for the cloud `UserProfile`
-    /// bind. The fire-and-forget bind paths (cold launch, sign-in)
-    /// silently swallow CloudKit errors so the rest of the app never
-    /// blocks on iCloud being available; this row is the explicit
-    /// "tell me if my profile is actually in the cloud" affordance.
-    /// Tapping it runs the same upsert and surfaces the result inline
-    /// (success checkmark or the actual CKError message), so the
-    /// user can self-diagnose iCloud-not-signed-in, missing-schema-
-    /// field, or network failures without an Xcode console.
-    private func cloudSyncRow(identity: UserAccount.UserIdentity) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text("CLOUD SYNC")
-                .eyebrowStyle(AppColor.textTertiary)
-            HStack(spacing: AppSpacing.sm) {
-                if let message = resyncResultMessage {
-                    Image(systemName: resyncSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(resyncSucceeded ? AppColor.success : AppColor.destructive)
-                    Text(message)
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                        .textSelection(.enabled)
-                } else {
-                    Text("Push your profile to CloudKit so friends can find you in search.")
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(3)
-                }
-                Spacer(minLength: AppSpacing.sm)
-                Button {
-                    Task { await resyncProfile(identity: identity) }
-                } label: {
-                    if isResyncingProfile {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 32, height: 32)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
-                            .frame(width: 32, height: 32)
-                            .background(AppColor.surfaceSunken)
-                            .clipShape(Circle())
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isResyncingProfile)
-                .accessibilityLabel("Re-sync profile to cloud")
-            }
-        }
-        .padding(AppSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-    }
-
-    private func resyncProfile(identity: UserAccount.UserIdentity) async {
-        isResyncingProfile = true
-        let error = await UserProfileMirror.bindAndReturnError(
-            displayName: identity.displayName,
-            accentHex: appearance.accentColor.toHex
-        )
-        isResyncingProfile = false
-        if let error {
-            resyncSucceeded = false
-            resyncResultMessage = error
-        } else {
-            resyncSucceeded = true
-            resyncResultMessage = "Profile synced. Friends searching \"\(identity.displayName)\" should find you within a minute."
         }
     }
 
@@ -924,6 +761,11 @@ struct ProfileView: View {
                 VStack(spacing: AppSpacing.lg) {
                     Spacer().frame(height: AppSpacing.sm)
 
+                    if let identity = userAccount.status.identity {
+                        cloudSyncRow(identity: identity)
+                        republishLibraryRow
+                    }
+
                     VStack(spacing: AppSpacing.md) {
                         Button {
                             Haptics.selection()
@@ -961,6 +803,168 @@ struct ProfileView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .environment(userAccount)
+        .environment(friendsStore)
+        .environment(appearance)
+    }
+
+    /// Force-republish-library diagnostic. The bulk publish on first-
+    /// friend transition runs once per install and silently swallows
+    /// errors — if that pass ran while the CloudKit schema was still
+    /// half-deployed, every recipe failed to publish AND the gate
+    /// flipped to "done" so it never retried. This button resets the
+    /// gate and re-uploads every recipe, surfacing the per-recipe
+    /// success/failure counts so the user can confirm the recovery
+    /// actually worked.
+    private var republishLibraryRow: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("LIBRARY SYNC")
+                .eyebrowStyle(AppColor.textTertiary)
+            HStack(spacing: AppSpacing.sm) {
+                if let message = republishResultMessage {
+                    Image(systemName: republishSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(republishSucceeded ? AppColor.success : AppColor.destructive)
+                    Text(message)
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                        .textSelection(.enabled)
+                } else {
+                    Text("Re-upload all your recipes so friends can see them in your cookbook.")
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(3)
+                }
+                Spacer(minLength: AppSpacing.sm)
+                Button {
+                    Task { await republishLibrary() }
+                } label: {
+                    if isRepublishingLibrary {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 32, height: 32)
+                    } else {
+                        Image(systemName: "icloud.and.arrow.up")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                            .frame(width: 32, height: 32)
+                            .background(AppColor.surfaceSunken)
+                            .clipShape(Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isRepublishingLibrary)
+                .accessibilityLabel("Re-publish library to cloud")
+            }
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private func republishLibrary() async {
+        isRepublishingLibrary = true
+        let recipes = allRecipes
+        let result = await LibraryMirrorService.shared.republishLibrary(recipes: recipes)
+        isRepublishingLibrary = false
+        if result.failed == 0 && result.firstError == nil {
+            republishSucceeded = true
+            republishResultMessage = "Published \(result.succeeded) recipe\(result.succeeded == 1 ? "" : "s"). Friends should see your full cookbook within a minute."
+        } else {
+            republishSucceeded = false
+            var msg = "Published \(result.succeeded) of \(result.succeeded + result.failed)."
+            if let firstError = result.firstError {
+                msg += " First error: \(firstError)"
+            }
+            republishResultMessage = msg
+        }
+    }
+
+    /// Diagnostic + manual-recovery row for the cloud `UserProfile`
+    /// bind. The fire-and-forget bind paths (cold launch, sign-in)
+    /// silently swallow CloudKit errors so the rest of the app never
+    /// blocks on iCloud being available; this row is the explicit
+    /// "tell me if my profile is actually in the cloud" affordance.
+    /// Tapping it runs the same upsert and surfaces the result inline
+    /// (success checkmark or the actual CKError message), so the
+    /// user can self-diagnose iCloud-not-signed-in, missing-schema-
+    /// field, or network failures without an Xcode console.
+    private func cloudSyncRow(identity: UserAccount.UserIdentity) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("CLOUD SYNC")
+                .eyebrowStyle(AppColor.textTertiary)
+            HStack(spacing: AppSpacing.sm) {
+                if let message = resyncResultMessage {
+                    Image(systemName: resyncSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(resyncSucceeded ? AppColor.success : AppColor.destructive)
+                    Text(message)
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                        .textSelection(.enabled)
+                } else {
+                    Text("Push your profile to CloudKit so friends can find you in search.")
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                        .lineLimit(3)
+                }
+                Spacer(minLength: AppSpacing.sm)
+                Button {
+                    Task { await resyncProfile(identity: identity) }
+                } label: {
+                    if isResyncingProfile {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 32, height: 32)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(appearance.accentColor)
+                            .frame(width: 32, height: 32)
+                            .background(AppColor.surfaceSunken)
+                            .clipShape(Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isResyncingProfile)
+                .accessibilityLabel("Re-sync profile to cloud")
+            }
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private func resyncProfile(identity: UserAccount.UserIdentity) async {
+        isResyncingProfile = true
+        let error = await UserProfileMirror.bindAndReturnError(
+            displayName: identity.displayName,
+            accentHex: appearance.accentColor.toHex
+        )
+        isResyncingProfile = false
+        if let error {
+            resyncSucceeded = false
+            resyncResultMessage = error
+        } else {
+            resyncSucceeded = true
+            resyncResultMessage = "Profile synced. Friends searching \"\(identity.displayName)\" should find you within a minute."
+        }
     }
 
     private func settingsButtonLabel(title: String, role: SettingsButtonRole) -> some View {

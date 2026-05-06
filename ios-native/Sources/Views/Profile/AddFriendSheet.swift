@@ -40,7 +40,10 @@ struct AddFriendSheet: View {
 
                 resultsList
             }
-            .llamaBackground()
+            .llamaBackground(
+                asset: "Friends_Llama_Icon_Large",
+                tint: appearance.accentColor
+            )
             .navigationTitle("Add a Friend")
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)

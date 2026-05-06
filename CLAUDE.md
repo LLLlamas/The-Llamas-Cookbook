@@ -171,7 +171,7 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 - Detail ingredient: accent quantity + em dash.
 - Per-step timers: clock glyph + `needsTimer` flag.
 - Carousels: no inline reorder arrows — use dedicated reorder mode (`PhotoReorderView`).
-- New-recipe llama tour is interactive — dim/halo are `.allowsHitTesting(false)` so the user types into the real editor fields as the walkthrough runs; finishing the tour and tapping Save in the toolbar persists a real `Recipe`. No Skip button; six consolidated steps (Name+Description, Servings+PrepTime, Photos, Tag It, Ingredients, Steps+Notes). See `llama-intro.md`.
+- New-recipe llama tour is interactive — dim/halo are `.allowsHitTesting(false)` so the user types into the real editor fields as the walkthrough runs; finishing the tour and tapping Save in the toolbar persists a real `Recipe`. No Skip button, but an Exit pill sits below the Back/Next arrow row to bail out at any step (typed work stays in the editor). Six consolidated steps (Name+Description, Servings+PrepTime, Photos, Tag It, Ingredients, Steps+Notes). See `llama-intro.md`.
 - Duplicate title import: prompt + prefill `Title (N)`, including friend cookbook imports.
 - Social copy: "shared", "appears in Friends", "unlisted". Never "private to friends" or "only friends can see."
 - Friend surfaces (`FriendLibraryView`, `FriendRecipeDetailView`, `FriendsTabView`): tint in friend's accent. Presence dot: filled+pulsing when `cookingStartedAt` < 6h ago, hollow when idle. `lastCookedTitle` shows as "Cooking: <title>" eyebrow during a cook.

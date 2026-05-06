@@ -20,7 +20,7 @@ Step structure (6 consolidated steps):
 Guardrails:
 
 - Respect Reduce Motion.
-- No Skip button — the user types as they go; finishing the tour is the dismissal.
+- No Skip button — the user types as they go; finishing the tour is the dismissal. An Exit pill sits below the Back/Next arrow row for users who want to bail out partway through; their typed work stays in the editor.
 - The dim/halo pass touches through to the field underneath (`.allowsHitTesting(false)`), so the keyboard surfaces and edits land on the real draft.
 - Bubble + controls remain hit-testing so the navigation cluster works.
 - Do not auto-show during share-extension or prefilled-URL intents (`openedFromScratch == false`).

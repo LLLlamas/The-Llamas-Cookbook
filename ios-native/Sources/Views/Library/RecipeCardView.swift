@@ -52,7 +52,8 @@ struct RecipeCardView: View {
                     Text(summary)
                         .font(AppFont.body)
                         .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(2)
+                        .lineLimit(4)
+                        .minimumScaleFactor(0.8)
                 }
 
                 if !recipe.tags.isEmpty {
@@ -66,6 +67,7 @@ struct RecipeCardView: View {
             .frame(maxHeight: .infinity, alignment: .leading)
 
             thumbnail
+                .frame(maxHeight: .infinity, alignment: .center)
         }
         .padding(AppSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)

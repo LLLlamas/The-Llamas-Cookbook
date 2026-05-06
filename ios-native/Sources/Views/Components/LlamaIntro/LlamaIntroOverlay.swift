@@ -118,14 +118,15 @@ struct LlamaIntroOverlay: View {
     }
 
     /// Steady accent halo around the cutout, shaped like
-    /// `LlamaLogo`'s drop shadow — soft, no pulse. The faint accent
-    /// fill anchors the shadow; without a fill of any kind, SwiftUI's
-    /// drop shadow can render as nothing on a stroked-only shape.
+    /// `LlamaLogo`'s drop shadow — soft, no pulse. A near-invisible
+    /// fill anchors the drop shadow without tinting the field
+    /// underneath; without a fill of any kind, SwiftUI's drop shadow
+    /// can render as nothing on a stroked-only shape.
     @ViewBuilder
     private func haloGlow(around frame: CGRect) -> some View {
         let inflated = frame.insetBy(dx: -8, dy: -8)
         RoundedRectangle(cornerRadius: AppRadius.md)
-            .fill(appearance.accentColor.opacity(0.06))
+            .fill(Color.white.opacity(0.001))
             .frame(width: inflated.width, height: inflated.height)
             .shadow(color: appearance.accentColor.opacity(0.55), radius: 14, x: 0, y: 5)
             .shadow(color: appearance.accentColor.opacity(0.35), radius: 22, x: 0, y: 0)
@@ -304,7 +305,9 @@ struct LlamaIntroOverlay: View {
         // attached without literally overlapping the glow.
         let pairSpacing: CGFloat = AppSpacing.xs
         let bubbleHeightEstimate: CGFloat = 170
-        let controlsHeight: CGFloat = 44
+        // Arrow row (36) + spacing + Exit pill (36) — keeps the split
+        // layout from clipping the Exit button below the safe area.
+        let controlsHeight: CGFloat = 88
         let clusterHeightWithControls = bubbleHeightEstimate + controlsHeight + AppSpacing.sm
 
         let roomAbove = inflated.minY - safeArea.minY
@@ -409,19 +412,24 @@ struct LlamaIntroOverlay: View {
 
     // MARK: - Controls
 
-    /// Back · indicator · Next. No Skip — the user is editing the
-    /// real recipe as they walk through, so finishing the tour is
-    /// the dismissal. Back and Next are filled accent circles with
-    /// just an arrow glyph; the last step swaps Next for a "Got
-    /// it!" pill so the user reads "I'm done" rather than "next."
+    /// Back · indicator · Next, with a centered Exit pill below.
+    /// Back and Next are filled accent circles with just an arrow
+    /// glyph; the last step swaps Next for a "Got it!" pill so the
+    /// user reads "I'm done" rather than "next." Exit lets the user
+    /// bail out of the walkthrough at any step (the partial recipe
+    /// they've typed stays in the editor).
     private var controlsBar: some View {
-        HStack(spacing: AppSpacing.sm) {
-            backButton
+        VStack(spacing: AppSpacing.sm) {
+            HStack(spacing: AppSpacing.sm) {
+                backButton
 
-            stepIndicator
-                .padding(.horizontal, AppSpacing.xs)
+                stepIndicator
+                    .padding(.horizontal, AppSpacing.xs)
 
-            nextButton
+                nextButton
+            }
+
+            exitButton
         }
     }
 
@@ -471,6 +479,25 @@ struct LlamaIntroOverlay: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isLastStep ? "Finish walkthrough" : "Next step")
+    }
+
+    @ViewBuilder
+    private var exitButton: some View {
+        Button {
+            Haptics.selection()
+            finish()
+        } label: {
+            Text("Exit")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AppColor.onAccent)
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, AppSpacing.xs + 2)
+                .background(appearance.accentColor)
+                .clipShape(Capsule())
+                .frame(minHeight: 36)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Exit walkthrough")
     }
 
     @ViewBuilder
