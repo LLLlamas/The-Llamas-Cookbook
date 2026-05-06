@@ -125,11 +125,11 @@ final class AppearanceSettings {
         previousAccentColor = oldColor
         accentTransitionStage = .header
 
-        scheduleAccentStage(.categories, generation: generation, after: 0.68)
-        scheduleAccentStage(.recipeList, generation: generation, after: 1.36)
-        scheduleAccentStage(.plusButton, generation: generation, after: 2.04)
-        scheduleAccentStage(.bottomNav, generation: generation, after: 2.72)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.50) { [weak self] in
+        scheduleAccentStage(.categories, generation: generation, after: 0.45)
+        scheduleAccentStage(.recipeList, generation: generation, after: 0.90)
+        scheduleAccentStage(.plusButton, generation: generation, after: 1.35)
+        scheduleAccentStage(.bottomNav, generation: generation, after: 1.80)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.30) { [weak self] in
             guard let self, self.accentTransitionGeneration == generation else { return }
             self.previousAccentColor = nil
             self.accentTransitionStage = nil
