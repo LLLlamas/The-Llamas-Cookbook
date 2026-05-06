@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import UIKit
 import UserNotifications
+import os
 
 @main
 struct LlamasCookbookApp: App {
@@ -110,6 +111,11 @@ struct LlamasCookbookApp: App {
 /// Returning `[.banner, .sound, .list]` here re-enables the alert + ding
 /// + lock-screen-style vibration while in-app.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private static let logger = Logger(
+        subsystem: "com.llamascookbook.app",
+        category: "AppDelegate"
+    )
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -129,15 +135,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     /// APNs registration succeeded. CloudKit reads the device
-    /// token internally for subscription delivery routing — we
-    /// don't need to forward it anywhere ourselves. No-op
-    /// implementation required because UIKit logs an error
-    /// without it.
+    /// token internally for subscription delivery routing, so we
+    /// don't have to forward the bytes anywhere ourselves. We DO
+    /// hand the token to `CloudKitSubscriptions.noteAPNsTokenChanged`
+    /// which detects rotation across launches — when the token
+    /// rotates (privacy reset, iCloud account state change, or a
+    /// device-restore reinstall) any previously-saved CKQuerySubscription
+    /// keeps delivering to the stale token, silently stopping pushes
+    /// until the subscription is re-saved. The helper persists a
+    /// hash of the token so a subsequent `registerIfNeeded` call from
+    /// `RootView.task` knows to re-save.
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        // Intentionally empty — CloudKit handles the token.
+        CloudKitSubscriptions.noteAPNsTokenChanged(deviceToken)
     }
 
     /// APNs registration failed (no entitlement, simulator without
@@ -150,7 +162,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        print("[CloudKitSubscriptions] APNs registration failed: \(error.localizedDescription)")
+        Self.logger.error("APNs registration failed: \(error.localizedDescription, privacy: .public)")
     }
 
     /// Silent CKQuerySubscription push receipt. The payload's

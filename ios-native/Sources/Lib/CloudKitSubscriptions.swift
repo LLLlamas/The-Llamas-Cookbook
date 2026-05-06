@@ -1,5 +1,6 @@
 import Foundation
 import CloudKit
+import CryptoKit
 
 /// Coordinator for the slice 6 CKQuerySubscription registrations
 /// that turn the social slice's foreground-poll model into a
@@ -63,6 +64,20 @@ enum CloudKitSubscriptions {
     /// launch when nothing's changed; flips through whenever
     /// the user signs into a different Apple ID.
     private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v1"
+
+    /// SHA-256 of the most recent APNs device token we observed at
+    /// registration time. CKQuerySubscription delivery is bound to
+    /// the APNs token captured server-side at subscription save —
+    /// when iOS rotates the token (rare, but happens after privacy
+    /// resets and some iCloud account state changes), the previously
+    /// saved subscription's pushes go to the stale token and silently
+    /// stop firing. We detect the rotation by hashing the token here
+    /// (avoid persisting the token bytes themselves) and clearing
+    /// `registeredForKey` so the next `registerIfNeeded` re-saves
+    /// against the current token. Hash, not the raw token, because
+    /// UserDefaults persistence of an APNs token has no upside and
+    /// adds a small footprint of a per-device identifier.
+    private static let lastTokenHashKey = "cloudKitSubscriptions.lastAPNsTokenHash.v1"
 
     // MARK: - Subscription identifiers
 
@@ -177,6 +192,32 @@ enum CloudKitSubscriptions {
         info.shouldBadge = false
         subscription.notificationInfo = info
         _ = try await CloudKitService.publicDB.save(subscription)
+    }
+
+    // MARK: - APNs token rotation
+
+    /// Called from `AppDelegate.didRegisterForRemoteNotificationsWithDeviceToken`
+    /// every time iOS hands us a device token. When the token changes
+    /// between launches (privacy reset, iCloud state change, fresh
+    /// install on a restored device), CKQuerySubscriptions saved
+    /// against the previous token silently stop firing. We detect the
+    /// change here by comparing a SHA-256 hash of the current token
+    /// against a UserDefaults-cached previous hash. On mismatch, we
+    /// clear `registeredForKey` so the next `registerIfNeeded` invokes
+    /// `publicDB.save(subscription)` again, which CloudKit upserts and
+    /// re-binds the subscription to the current token. Token-stable
+    /// launches are a fast no-op (single hash compare, no CK round-
+    /// trip).
+    static func noteAPNsTokenChanged(_ token: Data) {
+        let hash = Data(SHA256.hash(data: token)).base64EncodedString()
+        let previous = UserDefaults.standard.string(forKey: lastTokenHashKey)
+        UserDefaults.standard.set(hash, forKey: lastTokenHashKey)
+        guard let previous, previous != hash else { return }
+        // Token rotated — invalidate the registered marker so the
+        // next `registerIfNeeded` resaves both subscriptions. Caller
+        // (`registerIfNeeded` from `RootView.task`) re-fires shortly
+        // after.
+        UserDefaults.standard.removeObject(forKey: registeredForKey)
     }
 
     // MARK: - Unregister

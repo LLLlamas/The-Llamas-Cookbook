@@ -118,10 +118,32 @@ extension CloudKitService {
         let photoBytes = envelope.flattenedPhotoBytes()
         let attachedCount = min(photoBytes.count, maxCloudPhotoCount)
 
+        // Sender-side budget enforcement. Without this, a recipe with
+        // many large photos uploads the full set and then the
+        // receiver's per-record total cap (`maxCloudTotalPhotoBytes`,
+        // enforced in `fetchPublishedRecipe`) silently drops trailing
+        // photos so the friend sees random gaps. Skipping over-budget
+        // photos here too — the slot index sequence is preserved by
+        // appending nil rather than removing entries, so the
+        // receiver's `injecting(photoBytes:)` canonical-order walk
+        // stays aligned with the unskipped photos.
         var photoURLs: [URL?] = []
+        var totalBytesQueued = 0
         for i in 0..<attachedCount {
             let bytes = photoBytes[i]
             guard !bytes.isEmpty else {
+                photoURLs.append(nil)
+                continue
+            }
+            guard bytes.count <= maxCloudPhotoBytes else {
+                // Single photo exceeds per-asset cap (10 MB). Skip.
+                photoURLs.append(nil)
+                continue
+            }
+            guard totalBytesQueued + bytes.count <= maxCloudTotalPhotoBytes else {
+                // Would push the record's total photo payload past
+                // the 40 MB ceiling. Skip; subsequent smaller photos
+                // can still fit.
                 photoURLs.append(nil)
                 continue
             }
@@ -129,6 +151,7 @@ extension CloudKitService {
                 .appendingPathComponent("publish-photo\(i)-\(UUID().uuidString).bin")
             try bytes.write(to: url, options: .atomic)
             photoURLs.append(url)
+            totalBytesQueued += bytes.count
         }
 
         defer {

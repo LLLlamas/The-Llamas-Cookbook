@@ -11,7 +11,6 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 ## Open work
 
 - Verify Universal Links on real devices.
-- AlarmKit: Per-cook `TimerLiveActivityRegistry` not yet implemented.
 - Aesthetic/type pass; adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.
 - Server-side uniqueness for `Friendship(userA,userB)` — currently client-side dedup only.
 - Account-deletion cascade: extend the persistent pending-delete queue (currently only on authored `RecipeShare`) to `Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile`, and CKQuerySubscriptions. Today those are single-shot best-effort and can strand records on a flaky network mid-cascade — App Review tests this path.
@@ -67,8 +66,10 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - `ios-native/Sources/Views/Cook/CookModeView.swift`
 - `ios-native/Sources/App/CookingSession.swift`, `CookingSessionState.swift`
 - `ios-native/Sources/Lib/TimerNotifications.swift` — AlarmKit wrapper (`AlarmManager.shared`); always uses `AlertConfiguration.AlertSound.default` (system alarm tone) — sound is no longer user-configurable
+- `ios-native/Sources/Lib/ResumeCookModeIntent.swift` — `LiveActivityIntent` wired through AlarmKit's `secondaryIntent`; tapping the alarm's "Open" button posts a NotificationCenter event that `RootView` translates into the existing `routeCookDeepLink` path
 - `ios-native/Sources/Shared/TimerAlarmMetadata.swift` — shared between app + widget
 - `ios-native/WidgetExtension/TimerLiveActivity.swift` — AlarmKit Live Activity widget
+- `ios-native/WidgetExtension/TimerWidgetBundle.swift` — `@main` widget bundle (single member, future-extensible)
 
 **Friends / social**
 - `ios-native/Sources/App/FriendsStore.swift` — `@MainActor` cache of friends + requests
@@ -134,7 +135,7 @@ All record types on the **public DB**. Privacy: world-readable, world-writable (
 
 | Record type | Key fields | Notes |
 |---|---|---|
-| `RecipeShare` | `envelope` (Asset), `senderDisplayName`, `recipeTitle`, `createdAt` (queryable+sortable), `photo0`–`photo19` (Asset, optional) | 12-char random recordName; Cloudflare still routes legacy 6-char IDs |
+| `RecipeShare` | `envelope` (Asset), `senderDisplayName`, `recipeTitle`, `createdAt` (queryable+sortable), `photo0`–`photo19` (Asset, optional); system `___createdBy` queryable for deleteAccount cascade | 12-char random recordName; Cloudflare still routes legacy 6-char IDs |
 | `UserProfile` | `displayName`, `accentHex`, `createdAt`, `lastCookedAt`, `lastCookedRecipeID`, `lastCookedTitle`, `cookingStartedAt` | recordName = `profile_<iCloudUserRecordName>` |
 | `Friendship` | `userA`, `userB` (queryable, lexicographic pair), `requesterID`, `status` (queryable), `acceptedAt` | One record per pair; deny is destructive |
 | `PublishedRecipe` | `ownerID`, `localRecipeID`, `recipeTitle`, `updatedAt`, `originalCreatorID`, `originalRecipeID`, `photo0`–`photo19` | recordName = `Recipe.id.uuidString` |

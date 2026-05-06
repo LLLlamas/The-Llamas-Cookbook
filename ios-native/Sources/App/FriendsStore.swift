@@ -202,6 +202,27 @@ final class FriendsStore {
             }
         }
 
+        // Resolve every unique counterpart profile in parallel. Without
+        // this, refreshing a 25-friend graph fires 25 sequential
+        // CloudKit round-trips and stalls the Profile sheet for
+        // seconds on a slow connection. `fetchUserProfile` is a
+        // stateless static `async throws`, safe to invoke
+        // concurrently — CloudKit accepts parallel reads on the
+        // public DB.
+        let otherIDs = Array(byOtherID.keys)
+        var profilesByID: [String: UserProfileSnapshot] = [:]
+        await withTaskGroup(of: (String, UserProfileSnapshot?).self) { group in
+            for otherID in otherIDs {
+                group.addTask {
+                    let snapshot = try? await CloudKitService.fetchUserProfile(userRecordName: otherID)
+                    return (otherID, snapshot)
+                }
+            }
+            for await (otherID, snapshot) in group {
+                if let snapshot { profilesByID[otherID] = snapshot }
+            }
+        }
+
         var newFriends: [UserProfileSnapshot] = []
         var newFriendsSince: [String: Date] = [:]
         var newIncoming: [PendingRequest] = []
@@ -212,7 +233,7 @@ final class FriendsStore {
         for (otherID, friendship) in byOtherID {
             switch friendship.status {
             case .accepted:
-                if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
+                if let profile = profilesByID[otherID] {
                     newFriends.append(profile)
                     if let acceptedAt = friendship.acceptedAt {
                         newFriendsSince[otherID] = acceptedAt
@@ -224,14 +245,14 @@ final class FriendsStore {
                     // button state) AND resolve the profile so the
                     // Requests section can render a "Sent to X" row.
                     newOutgoing[otherID] = friendship.recordName
-                    if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
+                    if let profile = profilesByID[otherID] {
                         newOutgoingProfiles.append(PendingRequest(
                             friendshipRecordName: friendship.recordName,
                             requester: profile
                         ))
                     }
                 } else {
-                    if let profile = try? await CloudKitService.fetchUserProfile(userRecordName: otherID) {
+                    if let profile = profilesByID[otherID] {
                         newIncoming.append(PendingRequest(
                             friendshipRecordName: friendship.recordName,
                             requester: profile

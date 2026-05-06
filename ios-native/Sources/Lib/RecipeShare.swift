@@ -114,6 +114,10 @@ struct LCRecipeShareV1: Codable {
         let sourceUrl: String?
         let servings: Int?
         let cookTimeMinutes: Int?
+        /// Optional + `decodeIfPresent` so envelopes minted before this
+        /// field existed still round-trip cleanly to nil rather than
+        /// throwing `keyNotFound`. Mirrors `cookTimeMinutes` in role.
+        let prepTimeMinutes: Int?
         let notes: String
         let tags: [String]
         let prefaceNote: String?
@@ -124,6 +128,59 @@ struct LCRecipeShareV1: Codable {
         /// Recipe-level gallery photos. Per-step photos hang off
         /// `ShareStep.photos`.
         let photos: [SharePhoto]
+
+        init(
+            id: UUID,
+            title: String,
+            summary: String?,
+            sourceUrl: String?,
+            servings: Int?,
+            cookTimeMinutes: Int?,
+            prepTimeMinutes: Int?,
+            notes: String,
+            tags: [String],
+            prefaceNote: String?,
+            epilogueNote: String?,
+            generalNote: String?,
+            ingredients: [ShareIngredient],
+            steps: [ShareStep],
+            photos: [SharePhoto]
+        ) {
+            self.id = id
+            self.title = title
+            self.summary = summary
+            self.sourceUrl = sourceUrl
+            self.servings = servings
+            self.cookTimeMinutes = cookTimeMinutes
+            self.prepTimeMinutes = prepTimeMinutes
+            self.notes = notes
+            self.tags = tags
+            self.prefaceNote = prefaceNote
+            self.epilogueNote = epilogueNote
+            self.generalNote = generalNote
+            self.ingredients = ingredients
+            self.steps = steps
+            self.photos = photos
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id               = try c.decode(UUID.self, forKey: .id)
+            title            = try c.decode(String.self, forKey: .title)
+            summary          = try c.decodeIfPresent(String.self, forKey: .summary)
+            sourceUrl        = try c.decodeIfPresent(String.self, forKey: .sourceUrl)
+            servings         = try c.decodeIfPresent(Int.self,    forKey: .servings)
+            cookTimeMinutes  = try c.decodeIfPresent(Int.self,    forKey: .cookTimeMinutes)
+            prepTimeMinutes  = try c.decodeIfPresent(Int.self,    forKey: .prepTimeMinutes)
+            notes            = try c.decode(String.self, forKey: .notes)
+            tags             = try c.decode([String].self, forKey: .tags)
+            prefaceNote      = try c.decodeIfPresent(String.self, forKey: .prefaceNote)
+            epilogueNote     = try c.decodeIfPresent(String.self, forKey: .epilogueNote)
+            generalNote      = try c.decodeIfPresent(String.self, forKey: .generalNote)
+            ingredients      = try c.decode([ShareIngredient].self, forKey: .ingredients)
+            steps            = try c.decode([ShareStep].self, forKey: .steps)
+            photos           = try c.decode([SharePhoto].self, forKey: .photos)
+        }
     }
 
     struct ShareIngredient: Codable {
@@ -193,6 +250,7 @@ extension LCRecipeShareV1 {
             sourceUrl: recipe.sourceUrl,
             servings: recipe.servings,
             cookTimeMinutes: recipe.cookTimeMinutes,
+            prepTimeMinutes: recipe.prepTimeMinutes,
             notes: recipe.notes,
             tags: recipe.tags,
             prefaceNote: recipe.prefaceNote,
@@ -244,6 +302,7 @@ extension LCRecipeShareV1 {
             sourceUrl: recipe.sourceUrl,
             servings: recipe.servings,
             cookTimeMinutes: recipe.cookTimeMinutes,
+            prepTimeMinutes: recipe.prepTimeMinutes,
             notes: recipe.notes,
             tags: recipe.tags,
             prefaceNote: recipe.prefaceNote,
@@ -326,6 +385,7 @@ extension LCRecipeShareV1 {
             sourceUrl: recipe.sourceUrl,
             servings: recipe.servings,
             cookTimeMinutes: recipe.cookTimeMinutes,
+            prepTimeMinutes: recipe.prepTimeMinutes,
             notes: recipe.notes,
             tags: recipe.tags,
             prefaceNote: recipe.prefaceNote,
@@ -560,6 +620,7 @@ enum RecipeShare {
                 sourceUrl: recipe.sourceUrl,
                 servings: recipe.servings,
                 cookTimeMinutes: recipe.cookTimeMinutes,
+                prepTimeMinutes: recipe.prepTimeMinutes,
                 notes: recipe.notes,
                 tags: recipe.tags,
                 prefaceNote: recipe.prefaceNote,
@@ -866,6 +927,7 @@ enum RecipeShare {
             sourceUrl: envelope.recipe.sourceUrl,
             servings: envelope.recipe.servings,
             cookTimeMinutes: envelope.recipe.cookTimeMinutes,
+            prepTimeMinutes: envelope.recipe.prepTimeMinutes,
             notes: envelope.recipe.notes,
             favorite: false,
             tags: envelope.recipe.tags

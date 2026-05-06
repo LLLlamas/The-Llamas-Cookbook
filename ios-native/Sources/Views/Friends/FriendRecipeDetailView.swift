@@ -303,6 +303,7 @@ struct FriendRecipeDetailView: View {
         let parts: [String] = {
             var bits: [String] = []
             if let s = envelope.recipe.servings { bits.append("Serves \(s)") }
+            if let p = envelope.recipe.prepTimeMinutes { bits.append("Prep \(p) min") }
             if let c = envelope.recipe.cookTimeMinutes { bits.append("Cook \(c) min") }
             return bits
         }()

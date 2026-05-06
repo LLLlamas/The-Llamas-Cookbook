@@ -97,11 +97,16 @@
       friend-request and import-audit events surface in near-
       real-time without waiting for a foreground refresh.
 
-      `development` is the right value for non-production builds;
-      Apple Developer Portal automatically substitutes
-      `production` at provisioning time when the app is signed
-      with a distribution profile. The string is literal-only
-      here — we don't conditionalize per-build.
+      `production` is the value the binary must ship with for
+      TestFlight + App Store distribution. iOS does NOT auto-
+      substitute this at provisioning time — APNs reads the
+      embedded entitlement value directly to decide whether to
+      issue the device a sandbox or production token, so a
+      `development` value on a TestFlight build silently routes
+      pushes to sandbox APNs and they never reach the device.
+      We don't conditionalize per-build because the only build
+      that targets a real device is the CI Distribution archive;
+      Windows dev box can't sign for device.
 
       Same portal+profile dance as the other capabilities in this
       file: Push Notifications capability enabled on the App ID
@@ -125,6 +130,6 @@
       the existing permission grant suffices.
     -->
     <key>aps-environment</key>
-    <string>development</string>
+    <string>production</string>
 </dict>
 </plist>

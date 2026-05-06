@@ -384,7 +384,7 @@ The `LlamasCookbook.entitlements` file declares:
 - Sign in with Apple (Default)
 - iCloud (`iCloud.com.llamascookbook.app`) + CloudKit
 - Associated Domains (`applinks:llamascookbook.pages.dev`)
-- `aps-environment = development` (auto-substituted to `production` at distribution-profile time)
+- `aps-environment = production` (iOS does NOT auto-substitute this — the value is embedded in the binary as-is and APNs uses it to decide sandbox vs production token routing; TestFlight + App Store builds need `production` or silent CloudKit pushes will never deliver)
 
 All five capabilities must be enabled on the App ID in Apple Developer Portal. The provisioning profile must have been regenerated *after* each capability was added, since the entitlement is baked into the profile at issue time. CLAUDE.md flags this multiple times for good reason — this is the #1 source of "ITMS-90xxx entitlement not in profile" rejections.
 

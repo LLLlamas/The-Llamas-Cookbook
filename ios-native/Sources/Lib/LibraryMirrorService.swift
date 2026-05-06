@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import SwiftData
+import CloudKit
 
 /// Coordinator for mirroring the local user's library into the public
 /// CloudKit `PublishedRecipe` record type. Friends read these in
@@ -165,13 +166,10 @@ final class LibraryMirrorService {
         // attribution. Own-authored recipes pass nil, which the
         // upsert clears on the cloud record.
         for recipe in recipes {
-            try? await CloudKitService.upsertPublishedRecipe(
+            try? await Self.upsertWithThrottleBackoff(
                 ownerID: ownerID,
-                sharedBy: recipe.originalCreatorDisplayName,
                 appVersion: appVersion,
-                recipe: recipe,
-                originalCreatorID: recipe.originalCreatorUserRecordName,
-                originalRecipeID: recipe.originalRecipeID
+                recipe: recipe
             )
         }
         UserDefaults.standard.set(true, forKey: Self.bulkPublishedKey)
@@ -212,13 +210,10 @@ final class LibraryMirrorService {
         var firstError: String? = nil
         for recipe in recipes {
             do {
-                try await CloudKitService.upsertPublishedRecipe(
+                try await Self.upsertWithThrottleBackoff(
                     ownerID: ownerID,
-                    sharedBy: recipe.originalCreatorDisplayName,
                     appVersion: appVersion,
-                    recipe: recipe,
-                    originalCreatorID: recipe.originalCreatorUserRecordName,
-                    originalRecipeID: recipe.originalRecipeID
+                    recipe: recipe
                 )
                 succeeded += 1
             } catch {
@@ -231,6 +226,58 @@ final class LibraryMirrorService {
         }
         UserDefaults.standard.set(true, forKey: Self.bulkPublishedKey)
         return (succeeded, failed, firstError)
+    }
+
+    /// Upsert with CloudKit throttle handling. When the server replies
+    /// with `requestRateLimited` / `serviceUnavailable` / `zoneBusy`,
+    /// CloudKit attaches a `CKErrorRetryAfterKey` (seconds) to the
+    /// error and expects the client to wait that long before retrying.
+    /// Without honoring it, every subsequent call in a tight loop also
+    /// throttles and the user-visible "republish 0 of N" outcome stays
+    /// silent. Retry up to 3 times per recipe; after that, propagate
+    /// the error so `republishLibrary` can record it as a failure.
+    /// `retryAfter` is clamped to [1s, 60s] — CloudKit usually returns
+    /// 1–10s, but a hostile or buggy server response shouldn't park
+    /// the bulk loop indefinitely.
+    @MainActor
+    private static func upsertWithThrottleBackoff(
+        ownerID: String,
+        appVersion: String,
+        recipe: Recipe,
+        maxAttempts: Int = 3
+    ) async throws {
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                try await CloudKitService.upsertPublishedRecipe(
+                    ownerID: ownerID,
+                    sharedBy: recipe.originalCreatorDisplayName,
+                    appVersion: appVersion,
+                    recipe: recipe,
+                    originalCreatorID: recipe.originalCreatorUserRecordName,
+                    originalRecipeID: recipe.originalRecipeID
+                )
+                return
+            } catch let ckError as CKError {
+                guard attempt < maxAttempts,
+                      Self.isThrottleCode(ckError.code) else {
+                    throw ckError
+                }
+                let retryAfter = (ckError.userInfo[CKErrorRetryAfterKey] as? Double) ?? 2
+                let clamped = max(1, min(retryAfter, 60))
+                try? await Task.sleep(for: .seconds(clamped))
+            }
+        }
+    }
+
+    private static func isThrottleCode(_ code: CKError.Code) -> Bool {
+        switch code {
+        case .requestRateLimited, .serviceUnavailable, .zoneBusy:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Helpers
