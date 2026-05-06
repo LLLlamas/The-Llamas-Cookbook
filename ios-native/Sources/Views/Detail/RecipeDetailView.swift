@@ -2,8 +2,14 @@ import SwiftUI
 import SwiftData
 import UIKit
 import CloudKit
+import os
 
 struct RecipeDetailView: View {
+    private static let logger = Logger(
+        subsystem: "com.llamascookbook.app",
+        category: "CloudShare"
+    )
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(CookingSession.self) private var session
@@ -1225,7 +1231,7 @@ struct RecipeDetailView: View {
     private func shareViaPreferredTransport() async {
         let status = await CloudKitService.accountStatus()
         guard status == .available else {
-            print("[CloudShare] account status not .available: \(status.rawValue)")
+            Self.logger.info("Account status not .available: \(status.rawValue, privacy: .public)")
             showCloudShareUnavailable = true
             return
         }
@@ -1269,7 +1275,7 @@ struct RecipeDetailView: View {
             pendingShareItem = .url(url)
             return true
         } catch {
-            print("[CloudShare] uploadShare threw: \(error.localizedDescription)")
+            Self.logger.error("uploadShare threw: \(AppMetadata.describeServerError(error), privacy: .public)")
             return false
         }
     }
@@ -1326,7 +1332,7 @@ struct RecipeDetailView: View {
         return RecipeShare.envelope(
             for: recipe,
             sharedBy: resolvedSenderDisplayName(),
-            appVersion: currentAppVersion()
+            appVersion: AppMetadata.currentAppVersion
         )
     }
 
@@ -1343,10 +1349,6 @@ struct RecipeDetailView: View {
             ?? ownerProfile.userName
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func currentAppVersion() -> String {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
     }
 
     /// Filesystem-safe filename for the share attachment. Strips

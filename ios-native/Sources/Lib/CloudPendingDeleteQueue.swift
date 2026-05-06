@@ -46,6 +46,12 @@ enum CloudPendingDeleteQueue {
     /// `.v2` without colliding with existing on-device state.
     private static let queueKey = "cloudPendingDeleteQueue.v1"
 
+    /// Legacy `cloudSharePendingDelete` UserDefaults key — predates
+    /// this generic queue. Entries here are absorbed on first drain
+    /// after upgrade so users with an in-flight delete from an older
+    /// build don't lose the retry. Once absorbed the key is removed.
+    private static let legacyShareDeleteKey = "cloudSharePendingDelete.v1"
+
     /// One queued delete request. `recordType` lets the drain pick
     /// the right CKRecord.ID; in practice `record(for: recordID)` and
     /// `deleteRecord(withID:)` are recordType-agnostic on the public
@@ -100,6 +106,7 @@ enum CloudPendingDeleteQueue {
     /// queue is empty — the early return short-circuits before any
     /// CloudKit calls.
     static func drain() async {
+        absorbLegacyShareDeletes()
         let queue = pendingEntries()
         guard !queue.isEmpty else { return }
         var remaining: [Entry] = []
@@ -129,5 +136,26 @@ enum CloudPendingDeleteQueue {
         }
         guard let data = try? JSONEncoder().encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: queueKey)
+    }
+
+    /// One-time migration. The pre-2026-05 build kept a flat
+    /// `[String]` of pending RecipeShare delete record names under
+    /// `cloudSharePendingDelete.v1`. We absorb any leftover entries
+    /// into this queue (with `recordType = "RecipeShare"`) and clear
+    /// the legacy key so this is a no-op on every subsequent drain.
+    /// Users mid-cascade during the upgrade keep their retry queue
+    /// intact.
+    private static func absorbLegacyShareDeletes() {
+        guard let names = UserDefaults.standard.stringArray(forKey: legacyShareDeleteKey),
+              !names.isEmpty else {
+            // Make sure a stale empty entry is also cleaned up.
+            UserDefaults.standard.removeObject(forKey: legacyShareDeleteKey)
+            return
+        }
+        enqueueMany(
+            recordType: CloudKitService.recipeShareRecordType,
+            recordNames: names
+        )
+        UserDefaults.standard.removeObject(forKey: legacyShareDeleteKey)
     }
 }

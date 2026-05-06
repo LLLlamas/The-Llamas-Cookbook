@@ -13,7 +13,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - Verify Universal Links on real devices.
 - Aesthetic/type pass; adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.
 - Server-side uniqueness for `Friendship(userA,userB)` — currently client-side dedup only.
-- Account-deletion cascade: CKQuerySubscriptions still single-shot best-effort (orphaned subscriptions are cheap server-side state, CloudKit GCs them). Record cascades for `Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile` route through `CloudPendingDeleteQueue` for persistent retry; `RecipeShare` routes through the legacy `cloudShareOutbox` pair on `CloudKitService`. Both queues drain on launch from `RootView.task`. Future cleanup: migrate the legacy outbox to the generic queue.
+- Account-deletion cascade: CKQuerySubscriptions still single-shot best-effort (orphaned subscriptions are cheap server-side state, CloudKit GCs them). All five record-type cascades route through `CloudPendingDeleteQueue`; `cloudShareOutbox` still tracks RecipeShare records at upload time and feeds the queue on `deleteAuthoredShares`.
 - Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision` from dev box (currently gitignored, not committed, but still present on disk).
 - App Store privacy labels need a once-over against CloudKit/Cloudflare sharing.
 
@@ -79,7 +79,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - `ios-native/Sources/Lib/CloudKitPublishedRecipe.swift` — `PublishedRecipeSummary`, `PublishedRecipeDetail`, library mirror ops
 - `ios-native/Sources/Lib/CloudKitRecipeImport.swift` — `RecipeImportRecord`, import audit log ops
 - `ios-native/Sources/Lib/CloudKitSubscriptions.swift` — CKQuerySubscription registration + `dispatchRemoteNotification`
-- `ios-native/Sources/Lib/CloudPendingDeleteQueue.swift` — generic UserDefaults-backed retry queue for cascade record deletes (`Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile`); drains on launch from `RootView.task`
+- `ios-native/Sources/Lib/CloudPendingDeleteQueue.swift` — generic UserDefaults-backed retry queue for ALL cascade record deletes (`RecipeShare`, `Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile`); drains on launch from `RootView.task`. Absorbs the legacy `cloudSharePendingDelete` key on first run after upgrade.
 - `ios-native/Sources/Lib/UserProfileMirror.swift` — iCloud user record name cache; canonical "is iCloud bound?" check
 - `ios-native/Sources/Lib/LibraryMirrorService.swift` — `@MainActor` singleton, 5s per-recipe debounce for `PublishedRecipe` upserts
 - `ios-native/Sources/Views/Friends/FriendsTabView.swift` — friends tab card grid
@@ -107,6 +107,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - `ios-native/Sources/Views/Components/AccentColorPicker.swift` — system `ColorPicker` sheet; commits accent on `.onDisappear` only
 - `ios-native/Sources/Views/Components/SavedToast.swift` — friend-import success badge + `ImportFlyGhost` fly animation, driven by `NavigationContext.FriendImportToast`
 - `ios-native/Sources/Lib/ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `KeyboardDismiss.swift`, `Shake.swift`
+- `ios-native/Sources/Lib/AppMetadata.swift` — shared `currentAppVersion` (CFBundleShortVersionString) + `describeServerError` helpers; route any new `appVersion`-stamping or CKError-message-extraction site through these
 - `ios-native/Sources/App/NavigationContext.swift` — cross-view navigation signals + friend-import toast payload
 
 ## Hard invariants

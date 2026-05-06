@@ -263,8 +263,7 @@ struct FriendLibraryView: View {
             // banner explains why a refresh failed. Only surface
             // the error UI when there's nothing to fall back to.
             if summaries.isEmpty {
-                let serverMessage = (error as NSError).userInfo["ServerErrorDescription"] as? String
-                loadError = serverMessage ?? error.localizedDescription
+                loadError = AppMetadata.describeServerError(error)
             }
         }
     }

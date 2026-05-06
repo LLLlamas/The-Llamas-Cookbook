@@ -293,15 +293,11 @@ struct RootView: View {
             // failure. Idempotent + early-return when the queue is
             // empty (the common case), so this doesn't add latency
             // to launches that don't need it. Apple App Review
-            // tests Delete Account, and we can't have records
-            // stranded in CloudKit just because the cascade hit a
-            // blip. Two queues drain in parallel:
-            //   - `CloudKitService.retryPendingDeletes` handles
-            //     RecipeShare records (the legacy outbox).
-            //   - `CloudPendingDeleteQueue.drain` handles Friendship,
-            //     PublishedRecipe, RecipeImport, and UserProfile
-            //     records added by slices 2-6.
-            await CloudKitService.retryPendingDeletes()
+            // tests Delete Account; records stranded in CloudKit
+            // because the cascade hit a blip would fail the
+            // Guideline 5.1.1(v) review. The queue absorbs any
+            // legacy `cloudSharePendingDelete` entries from pre-
+            // 2026-05 builds on first run after upgrade.
             await CloudPendingDeleteQueue.drain()
             // Slice 6 — register CKQuerySubscriptions for friend
             // events + recipe-import events. Idempotent + locally

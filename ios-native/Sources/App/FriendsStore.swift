@@ -166,8 +166,7 @@ final class FriendsStore {
             friendships = try await CloudKitService.fetchFriendships(for: me)
             lastRefreshError = nil
         } catch {
-            lastRefreshError = (error as NSError).userInfo["ServerErrorDescription"] as? String
-                ?? error.localizedDescription
+            lastRefreshError = AppMetadata.describeServerError(error)
             return
         }
 

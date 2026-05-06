@@ -91,7 +91,7 @@ final class LibraryMirrorService {
         }
 
         let recipeID = recipe.id
-        let appVersion = Self.currentAppVersion()
+        let appVersion = AppMetadata.currentAppVersion
         // Capture the live SwiftData reference for the @MainActor
         // upsert call. The Task body runs on @MainActor (inherits
         // from the caller), so reading recipe inside is safe.
@@ -153,7 +153,7 @@ final class LibraryMirrorService {
             return
         }
 
-        let appVersion = Self.currentAppVersion()
+        let appVersion = AppMetadata.currentAppVersion
         // Sequential to avoid swamping CloudKit + the iOS network
         // queue. For a user with 100 recipes this is ~100 round
         // trips; serializing keeps the device polite. Failures
@@ -204,7 +204,7 @@ final class LibraryMirrorService {
             UserDefaults.standard.set(true, forKey: Self.bulkPublishedKey)
             return (0, 0, nil)
         }
-        let appVersion = Self.currentAppVersion()
+        let appVersion = AppMetadata.currentAppVersion
         var succeeded = 0
         var failed = 0
         var firstError: String? = nil
@@ -219,8 +219,7 @@ final class LibraryMirrorService {
             } catch {
                 failed += 1
                 if firstError == nil {
-                    let serverMessage = (error as NSError).userInfo["ServerErrorDescription"] as? String
-                    firstError = serverMessage ?? error.localizedDescription
+                    firstError = AppMetadata.describeServerError(error)
                 }
             }
         }
@@ -280,14 +279,4 @@ final class LibraryMirrorService {
         }
     }
 
-    // MARK: - Helpers
-
-    /// `CFBundleShortVersionString` (e.g. "1.0.0"). Used as the
-    /// `appVersion` field in the share envelope so a friend
-    /// receiving a stale-schema recipe knows which build to nudge
-    /// the publisher toward. Falls back to "0.0.0" if the Info.plist
-    /// is missing the key (shouldn't happen in shipping builds).
-    static func currentAppVersion() -> String {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
-    }
 }
