@@ -76,29 +76,6 @@
     <key>NSCameraUsageDescription</key>
     <string>Llamas Cookbook uses the camera to scan recipe pages. The photos stay on your device.</string>
     <!--
-      Microphone permission, required by the voice-import path: the
-      "Import From Voice" entry in the Library FAB records audio so
-      the user can dictate a recipe out loud. Without this string,
-      App Reviewer auto-rejects builds that present microphone UI.
-      The string itself doubles as the user-facing copy in the iOS
-      permission prompt — keep it honest about scope (audio is
-      transcribed on-device when supported) so users understand it
-      doesn't leave the phone.
-    -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Llamas Cookbook uses the microphone so you can dictate a recipe out loud. The audio is transcribed on your device when supported.</string>
-    <!--
-      Speech recognition usage description, required before the
-      voice-import path can request `SFSpeechRecognizer` /
-      `SpeechAnalyzer` authorization. The transcription stays on-
-      device when the modern `SpeechTranscriber` asset is installed
-      for the user's locale; older devices fall back to
-      `SFSpeechRecognizer`, which may use Apple's servers depending
-      on the user's Siri privacy settings.
-    -->
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Llamas Cookbook turns your voice into recipe text so you can save what you say. Transcription stays on your device when supported.</string>
-    <!--
       AlarmKit usage description (iOS 26+). Required before
       `AlarmManager.shared.requestAuthorization()` can prompt; the
       copy here is what the user sees in the system permission

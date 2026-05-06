@@ -1018,8 +1018,6 @@ private struct EditorSheetHost: View {
                 )
             case .importFromPhoto:
                 ImportFromPhotoView(onSaved: onSaved)
-            case .importFromVoice:
-                ImportFromVoiceView(onSaved: onSaved)
             }
         }
         .presentationDetents([.large, .height(80)], selection: $detent)

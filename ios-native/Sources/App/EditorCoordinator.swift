@@ -21,7 +21,7 @@ final class EditorCoordinator {
     private(set) var pendingSwitch: ActiveSheet?
 
     /// Fed from the active sheet content (RecipeEditorView /
-    /// ImportFromTextLinkView / ImportFromPhotoView / ImportFromVoiceView)
+    /// ImportFromTextLinkView / ImportFromPhotoView)
     /// via onAppear / onChange / onDisappear. When false, switches happen
     /// immediately; when true, they get queued behind a discard alert.
     var hasUnsavedChanges: Bool = false
@@ -37,22 +37,18 @@ final class EditorCoordinator {
         case new(seed: DraftRecipe? = nil)
         case edit(Recipe)
         /// Merged text-paste + URL-fetch import sheet. Both inputs
-        /// live on one screen — `seedText` carries OCR/voice fallback
+        /// live on one screen — `seedText` carries OCR fallback
         /// text into the paste area, `prefilledURL` carries the
         /// share-extension URL handoff into the URL field. Identity /
         /// equality ignores both seeds so switching between FAB,
-        /// photo-handoff, voice-handoff, and share-extension entries
-        /// doesn't trip the dirty-state discard alert.
+        /// photo-handoff, and share-extension entries doesn't trip
+        /// the dirty-state discard alert.
         case importFromTextLink(seedText: String? = nil, prefilledURL: String? = nil)
         /// Photo import sheet. Camera + library picker live inside
         /// the sheet; on success the OCR'd draft surfaces in a
         /// separate read-only preview view (modeled on the share-
         /// recipient preview).
         case importFromPhoto
-        /// Voice import sheet. Mic recording + on-device speech
-        /// transcription, then the same `parseBestOf` path the photo
-        /// flow runs.
-        case importFromVoice
 
         var id: String {
             switch self {
@@ -60,7 +56,6 @@ final class EditorCoordinator {
             case .edit(let recipe):     return "edit-\(recipe.id.uuidString)"
             case .importFromTextLink:   return "import-text-link"
             case .importFromPhoto:      return "import-photo"
-            case .importFromVoice:      return "import-voice"
             }
         }
 
@@ -88,9 +83,6 @@ final class EditorCoordinator {
     }
     func startImportFromPhoto() {
         attemptSwitch(to: .importFromPhoto)
-    }
-    func startImportFromVoice() {
-        attemptSwitch(to: .importFromVoice)
     }
 
     /// Explicit close (after Save or Cancel-with-no-changes). Skips the

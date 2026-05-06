@@ -31,16 +31,6 @@ struct ImportHelpView: View {
                             ]
                         )
 
-                        section(
-                            eyebrow: "FROM YOUR VOICE",
-                            rows: [
-                                "Tap **Import From Voice** and read your recipe out loud — title first, then ingredients, then the steps.",
-                                "Pause briefly between sections so I can tell them apart.",
-                                "Numbers come through best when said with a unit — \"two cups flour\" parses cleaner than \"two flour\".",
-                                "Recordings cap at 5 minutes; you can always edit the result before saving."
-                            ]
-                        )
-
                         formatExample
                     }
                     .padding(.horizontal, AppSpacing.sm)
@@ -82,7 +72,7 @@ struct ImportHelpView: View {
                 Text("Hi there!")
                     .font(.system(size: 22, weight: .bold, design: .serif))
                     .foregroundStyle(appearance.accentColor)
-                Text("A few ways to import a recipe")
+                Text("Two ways to import a recipe")
                     .font(.system(size: 13, weight: .medium))
                     .tracking(0.3)
                     .foregroundStyle(AppColor.textSecondary)

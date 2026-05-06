@@ -558,12 +558,6 @@ struct LibraryView: View {
             } label: {
                 Label("Import From Photo", systemImage: "doc.viewfinder")
             }
-            Button {
-                Haptics.impact(.light)
-                editor.startImportFromVoice()
-            } label: {
-                Label("Import From Voice", systemImage: "mic.fill")
-            }
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 28, weight: .semibold))

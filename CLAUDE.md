@@ -45,9 +45,9 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 **Library / import**
 - `ios-native/Sources/Views/Library/LibraryView.swift`, `RecipeCardView.swift`, `EmptyLibraryView.swift`, `ImportHelpView.swift`
 - `ios-native/Sources/Views/Library/ImportFromTextLinkView.swift` — merged paste-text + URL-fetch sheet (replaces former `ImportFromTextView.swift` / `ImportFromLinkView.swift`)
-- `ios-native/Sources/Views/Library/ImportFromPhotoView.swift`, `ImportFromVoiceView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
+- `ios-native/Sources/Views/Library/ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
 - `ios-native/Sources/Views/Components/LetterIndex.swift`, `CookbookHeader.swift`, `RecipeImageView.swift`
-- `ios-native/Sources/Lib/RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeVoiceImporter.swift`, `RecipeAIParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
+- `ios-native/Sources/Lib/RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
 
 **Editor**
 - `ios-native/Sources/Views/Editor/RecipeEditorView.swift`

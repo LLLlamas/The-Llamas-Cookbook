@@ -13,16 +13,15 @@ import UIKit
 ///   • Both filled → link wins (cleanest signal; if the user pasted a
 ///     URL inside the text body, we also auto-route to link).
 ///
-/// `seedText` carries OCR / voice fallback text. `prefilledURL`
+/// `seedText` carries OCR fallback text. `prefilledURL`
 /// carries the share-extension URL handoff. Both seeds set
 /// pastedText / urlText on appear and (for the URL case) auto-fetch
 /// so the user lands on the parsed preview.
 struct ImportFromTextLinkView: View {
-    /// OCR / voice-derived text seed from the photo or voice import
-    /// partial-fallback path. When non-nil, populates the paste area
-    /// on appear so the user lands on a pre-filled box ready to clean
-    /// up. Nil for the plain "Import From Text/Link" entry from the
-    /// Library FAB.
+    /// OCR-derived text seed from the photo import partial-fallback
+    /// path. When non-nil, populates the paste area on appear so the
+    /// user lands on a pre-filled box ready to clean up. Nil for the
+    /// plain "Import From Text/Link" entry from the Library FAB.
     let seedText: String?
 
     /// URL string from the share-extension URL handoff (Safari /
@@ -142,7 +141,7 @@ struct ImportFromTextLinkView: View {
                     hasSeenTextLinkImportTour = true
                     Task { await fetchURL() }
                 }
-                // OCR / voice fallback seed — pre-fill the paste area.
+                // OCR fallback seed — pre-fill the paste area.
                 if let seed = seedText?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !seed.isEmpty,
                    pastedText.isEmpty {
