@@ -367,36 +367,45 @@ struct ImportFromTextView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(AppColor.divider)
 
-            if let detail, !detail.isEmpty {
-                Text(detail)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(AppColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let prompt {
-                    Text(prompt)
+            // Only the right-of-em-dash content gets re-identified
+            // and animated when the parsed value changes — the
+            // "Title" / "Ingredients" / "Steps" labels and the dash
+            // stay put. Wrapping the dynamic side in its own HStack
+            // with an `.id(detail)` scopes the transition to just
+            // this subtree.
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs + 2) {
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let prompt {
+                        Text(prompt)
+                            .font(.system(size: 12))
+                            .italic()
+                            .foregroundStyle(AppColor.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                } else {
+                    Text(emptyPlaceholder)
                         .font(.system(size: 12))
                         .italic()
                         .foregroundStyle(AppColor.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
-            } else {
-                Text(emptyPlaceholder)
-                    .font(.system(size: 12))
-                    .italic()
-                    .foregroundStyle(AppColor.textTertiary)
             }
+            .id(detail ?? "")
+            .transition(
+                .asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .leading)),
+                    removal: .opacity
+                )
+            )
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: detail)
+
             Spacer(minLength: 0)
         }
-        .id(detail ?? "")
-        .transition(
-            .asymmetric(
-                insertion: .opacity.combined(with: .move(edge: .leading)),
-                removal: .opacity
-            )
-        )
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: detail)
     }
 
     /// Render the first parsed ingredient as a single readable line.
