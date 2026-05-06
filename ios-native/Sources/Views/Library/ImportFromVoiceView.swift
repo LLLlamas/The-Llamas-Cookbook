@@ -28,6 +28,7 @@ struct ImportFromVoiceView: View {
     @State private var processing = false
     @State private var preview: PreviewPayload?
     @State private var errorBanner: ErrorBanner?
+    @State private var voiceAvailable: Bool = true
     /// Frozen copy of the live transcript captured at the moment the
     /// user tapped Stop. The session tears down its own copy during
     /// finalize, so we hold the snapshot for the on-screen review
@@ -45,7 +46,7 @@ struct ImportFromVoiceView: View {
                 heroRow
                     .padding(.top, AppSpacing.md)
 
-                if !RecipeVoiceImporter.isAvailable && !session.isRecording {
+                if !voiceAvailable && !session.isRecording {
                     unavailableBanner
                 } else {
                     recordingSection
@@ -84,8 +85,7 @@ struct ImportFromVoiceView: View {
             }
         }
         .task {
-            // Pre-warm the speech model so the first Record tap
-            // doesn't stall on a cold model load.
+            voiceAvailable = await RecipeVoiceImporter.isAvailable()
             await session.prepare()
         }
         .sheet(item: $preview) { payload in

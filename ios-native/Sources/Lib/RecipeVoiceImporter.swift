@@ -24,8 +24,10 @@ enum RecipeVoiceImporter {
     /// True when the modern on-device transcriber is ready for the
     /// user's locale. Caller treats false as "show the unavailable
     /// banner" — same shape as `RecipeAIParser.isAvailable`.
-    static var isAvailable: Bool {
-        SpeechTranscriber.isAvailable
+    static func isAvailable() async -> Bool {
+        let preferred = preferredLocale()
+        let supported = await SpeechTranscriber.supportedLocales
+        return supported.contains { $0.identifier(.bcp47) == preferred.identifier(.bcp47) }
     }
 
     /// Locale-aware locale pick for the transcriber. Mirrors the
@@ -395,7 +397,9 @@ final class ModernTranscribeSession {
     static func prewarm(locale: Locale) async {
         let transcriber = SpeechTranscriber(
             locale: locale,
-            preset: .default
+            transcriptionOptions: [],
+            reportingOptions: [.volatileResults],
+            attributeOptions: [.audioTimeRange]
         )
         if let request = try? await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
             try? await request.downloadAndInstall()
@@ -409,7 +413,9 @@ final class ModernTranscribeSession {
         let locale = RecipeVoiceImporter.preferredLocale()
         let transcriber = SpeechTranscriber(
             locale: locale,
-            preset: .default
+            transcriptionOptions: [],
+            reportingOptions: [.volatileResults],
+            attributeOptions: [.audioTimeRange]
         )
         transcriber.contextualStrings = RecipeVoiceImporter.contextualStrings
 
@@ -431,15 +437,19 @@ final class ModernTranscribeSession {
         // smooth running transcript.
         let resultTask = Task { @Sendable in
             var finalizedSegments: [String] = []
-            for await result in transcriber.results {
-                let textValue = String(result.text.characters)
-                if result.isFinal {
-                    finalizedSegments.append(textValue)
+            do {
+                for try await result in transcriber.results {
+                    let textValue = String(result.text.characters)
+                    if result.isFinal {
+                        finalizedSegments.append(textValue)
+                    }
+                    let combined = (finalizedSegments + (result.isFinal ? [] : [textValue]))
+                        .joined(separator: " ")
+                    let trimmed = combined.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onPartial(trimmed)
                 }
-                let combined = (finalizedSegments + (result.isFinal ? [] : [textValue]))
-                    .joined(separator: " ")
-                let trimmed = combined.trimmingCharacters(in: .whitespacesAndNewlines)
-                onPartial(trimmed)
+            } catch {
+                // Sequence ended or analyzer error — partial results already surfaced
             }
         }
 
@@ -459,7 +469,7 @@ final class ModernTranscribeSession {
 
     func finalize() async throws -> String {
         inputBuilder.finish()
-        try await analyzer.finalizeAndFinish(through: .positiveInfinity)
+        try await analyzer.finalizeAndFinishThroughEndOfInput()
         var collected: [String] = []
         for try await result in transcriber.results where result.isFinal {
             collected.append(String(result.text.characters))

@@ -195,7 +195,7 @@ enum TimerNotifications {
             // AlarmManager.alarms surface is in flux on the iOS 26
             // public-beta SDK; if the accessor is sync-throws on this
             // build, drop the `await` here.
-            guard let alarms = try? await AlarmManager.shared.alarms else { return }
+            guard let alarms = try? AlarmManager.shared.alarms else { return }
             for alarm in alarms {
                 try? AlarmManager.shared.cancel(id: alarm.id)
             }
