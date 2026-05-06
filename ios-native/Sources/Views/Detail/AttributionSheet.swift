@@ -8,10 +8,12 @@ import SwiftData
 ///
 /// **Three slots, one shape:**
 ///
-/// 1. **Original creator** — name + (optional) tap target if
-///    they're a current friend. v2 tap-to-friend-library
-///    navigation is deferred; `NavigationContext.pendingFriendOpenID`
-///    was never added. For now we just show the name.
+/// 1. **Original creator** — name, plus a NavigationLink push to
+///    their `FriendLibraryView` when they're a current friend.
+///    The sheet's own NavigationStack hosts the push (same
+///    pattern as `ImportersListSheet`), so the user drills in
+///    and pops back without dismissing first. Non-friends
+///    render as plain text.
 ///
 /// 2. **Imported on** — `Recipe.importedAt`, formatted long-
 ///    style so the date reads as a record rather than a
@@ -25,14 +27,6 @@ import SwiftData
 ///    the text is qualitative: "via {Sharer}". One hop is
 ///    common, multiple hops produce the same line. Acceptable
 ///    fidelity for a delight surface.
-///
-/// **Read-only.** v1 just shows. Tap-the-creator-name to open
-/// their library is deferred — wiring it requires
-/// FriendLibraryView reachability from inside a sheet that
-/// isn't itself in the friends nav stack. The
-/// `friendOpenAction` closure is wired up here so a future
-/// commit can light the path without re-touching the sheet
-/// shape.
 struct AttributionSheet: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(FriendsStore.self) private var friendsStore
@@ -55,7 +49,6 @@ struct AttributionSheet: View {
                 .padding(.bottom, AppSpacing.xxl)
             }
             .llamaBackground()
-            .navigationTitle("Attribution")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -88,30 +81,22 @@ struct AttributionSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
-    /// Render path when the creator is a current friend — same
-    /// row chrome as the static name path above, but the row is
-    /// a button. Tapping it pops the sheet and (in v2+) navigates
-    /// to their friend library. v1 just dismisses; the user can
-    /// reach the library through ProfileView's friends list.
+    /// Render path when the creator is a current friend — wraps the
+    /// name row in a NavigationLink that pushes their cookbook.
+    /// Mirrors `ImportersListSheet`'s in-sheet push pattern: the
+    /// sheet's own NavigationStack hosts the FriendLibraryView, so
+    /// the user can drill in and pop back without dismissing first.
     private func friendButton(for friend: UserProfileSnapshot) -> some View {
-        Button {
-            Haptics.selection()
-            // v1: just dismiss the sheet. v2 will route through
-            // a NavigationContext signal so the user lands on
-            // FriendLibraryView for this creator. The button
-            // affordance reads correctly today even without the
-            // navigation — users see the chevron and tap to
-            // dismiss, which is the documented behavior of the
-            // Done button anyway.
-            dismiss()
+        NavigationLink {
+            FriendLibraryView(friend: friend)
         } label: {
-            creatorNameRow(displayName: friend.displayName, accentHex: friend.accentHex)
+            creatorNameRow(displayName: friend.displayName, accentHex: friend.accentHex, showsChevron: true)
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Tap to close")
+        .accessibilityHint("Opens \(friend.displayName)'s cookbook")
     }
 
-    private func creatorNameRow(displayName: String, accentHex: String?) -> some View {
+    private func creatorNameRow(displayName: String, accentHex: String?, showsChevron: Bool = false) -> some View {
         HStack(spacing: AppSpacing.sm) {
             Circle()
                 .fill(creatorDot(accentHex: accentHex))
@@ -121,6 +106,11 @@ struct AttributionSheet: View {
                 .foregroundStyle(AppColor.textPrimary)
                 .lineLimit(2)
             Spacer(minLength: 0)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
         }
     }
 

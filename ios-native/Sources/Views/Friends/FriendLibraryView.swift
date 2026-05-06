@@ -420,9 +420,8 @@ private struct FriendRecipeCard: View {
                     Text(description)
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(2)
+                        .lineLimit(2, reservesSpace: true)
                         .textRenderer(TrailingShrinkRenderer(source: description))
-                        .fixedSize(horizontal: false, vertical: true)
                         .frame(height: Self.summaryLineHeight, alignment: .top)
                         .clipped()
                 }

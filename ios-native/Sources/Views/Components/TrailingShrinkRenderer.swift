@@ -1,14 +1,20 @@
 import SwiftUI
 
 /// Renders a description that either fits cleanly on one line (no
-/// shrinking, no taper) or, when it would overflow, keeps line 1 at
+/// shrinking, no taper) or, when it would overflow, keeps line 0 at
 /// full size and paints just the next word — the one that triggered
-/// the wrap — onto the trailing edge of line 1 with a per-glyph taper
+/// the wrap — onto the trailing edge of line 0 with a per-glyph taper
 /// from 1.0 down to `minScale`. The taper replaces ellipsis
 /// truncation: anything past that single tapered word is dropped.
 ///
-/// Driven by a `lineLimit(2)` `Text`, so SwiftUI's layout tells us
-/// whether the string fits and, if not, where the wrap landed.
+/// Driven by a `lineLimit(2, reservesSpace: true)` `Text` clipped to
+/// one line of visible height: SwiftUI lays the text out across two
+/// lines, the renderer reads the wrap from line 1's first word, and
+/// the outer `.frame(height:) + .clipped()` hides the unused second
+/// line. `reservesSpace` is required so the renderer reliably sees a
+/// two-line layout when wrapping; relying on `.fixedSize(vertical:
+/// true)` instead silently collapses to a single mid-word-truncated
+/// line on iOS 26.
 ///
 /// Originally lived inside `RecipeCardView`; lifted here so the
 /// friend-library card (`FriendLibraryView`) can reuse the exact same
@@ -47,25 +53,23 @@ struct TrailingShrinkRenderer: TextRenderer {
 
         let secondLine = lines[1]
 
-        // First pass: find the index of the first whitespace glyph on
-        // line 1 (after we've seen at least one non-whitespace). Glyph
-        // rects in a typeset line are flush against each other — the
-        // space character is itself a zero-ink glyph slot, not a gap
-        // between neighbors — so we detect the boundary by ink width:
-        // a glyph with rect.width near zero, following a real letter,
-        // is the inter-word space. The first word is glyphs [0, that
-        // space's index).
-        var wordEndIndex = Int.max
+        // First pass: find the end of the first word on line 1 and
+        // sum its glyphs' natural widths. Glyph rects in a typeset
+        // line are flush against each other — the space character is
+        // itself a zero-ink glyph slot, not a gap between neighbors —
+        // so we detect the boundary by ink width: a glyph with
+        // rect.width near zero, following a real letter, is the
+        // inter-word space. The first word is glyphs [0, that space's
+        // index).
         var totalGlyphs = 0
+        var wordEndIndex = Int.max
         var sawNonSpace = false
-        var firstGlyphMinX: CGFloat = 0
-        var lastWordGlyphMaxX: CGFloat = 0
+        var naturalTaperedAdvance: CGFloat = 0
         for run in secondLine {
             for glyph in run {
                 let rect = glyph.typographicBounds.rect
                 let isInk = rect.width > 0.5
                 if totalGlyphs == 0 {
-                    firstGlyphMinX = rect.minX
                     sawNonSpace = isInk
                 } else if wordEndIndex == Int.max {
                     if sawNonSpace && !isInk {
@@ -74,46 +78,75 @@ struct TrailingShrinkRenderer: TextRenderer {
                         sawNonSpace = true
                     }
                 }
-                if wordEndIndex == Int.max && isInk {
-                    lastWordGlyphMaxX = rect.maxX
-                }
                 totalGlyphs += 1
             }
         }
         guard totalGlyphs > 0 else { return }
         if wordEndIndex == Int.max { wordEndIndex = totalGlyphs }
+        guard wordEndIndex > 0 else { return }
 
         let line0Bounds = firstLine.typographicBounds.rect
         let line1Bounds = secondLine.typographicBounds.rect
-        // Move the wrapped word's glyphs from line 1's start back to
-        // line 0's trailing edge, and lift them vertically onto line 0.
-        let dx = line0Bounds.maxX - firstGlyphMinX
         let dy = line0Bounds.midY - line1Bounds.midY
-        let taperStart = firstGlyphMinX + dx
-        let taperEnd = lastWordGlyphMaxX + dx
-        let taperWidth = max(0.001, taperEnd - taperStart)
 
-        // Second pass: draw the first `wordEndIndex` glyphs of line 1,
-        // shifted onto line 0 and per-glyph scaled along the taper.
-        // Each glyph's horizontal advance is also scaled, so the
-        // tapered word visually compresses along x rather than
-        // occupying its full original width.
+        // The taper has to fit inside the gap between line 0's used
+        // ink and the laid-out frame's right edge. Per-line
+        // `typographicBounds` only tells us how wide each line's ink
+        // is — neither line is guaranteed to reach the proposed width
+        // (if the wrap word is itself shorter than line 0 minus its
+        // last word, line 1 will be the shorter line). The
+        // GraphicsContext's clip bounds reflect the Text view's
+        // resolved frame, which IS the laid-out width.
+        let frameRight = context.clipBoundingRect.maxX
+        let widestLine = max(line0Bounds.maxX, line1Bounds.maxX)
+        let availableRight = max(frameRight, widestLine)
+        let taperStart = line0Bounds.maxX
+        let gap = availableRight - taperStart
+        guard gap > 0.5 else { return }
+
+        // Second pass: lay out the wrap word's glyphs into
+        // [taperStart, taperStart + gap]. The per-glyph scale follows
+        // a linear ramp from 1.0 to `minScale` indexed by glyph
+        // position in the word, so the visible taper is uniform
+        // regardless of glyph widths. The natural tapered word can be
+        // wider than the available gap (the word's the reason line 0
+        // wrapped in the first place) — in that case the whole word's
+        // advances get a single uniform compression so all of it fits
+        // and the user sees the full ramp from large to tiny instead
+        // of a hard cutoff.
+        let denom = CGFloat(max(1, wordEndIndex - 1))
+        // Walk the wrap word's glyphs once to sum their natural
+        // tapered advances.
+        var idx = 0
+        for run in secondLine {
+            if idx >= wordEndIndex { break }
+            for glyph in run {
+                if idx >= wordEndIndex { break }
+                let t = CGFloat(idx) / denom
+                let scale = 1 - (1 - minScale) * t
+                naturalTaperedAdvance += glyph.typographicBounds.rect.width * scale
+                idx += 1
+            }
+        }
+        let compression = naturalTaperedAdvance > gap
+            ? gap / naturalTaperedAdvance
+            : 1.0
         var drawn = 0
+
         var cursorX = taperStart
         for run in secondLine {
             for glyph in run {
                 if drawn >= wordEndIndex { return }
                 let rect = glyph.typographicBounds.rect
-                let centerX = rect.midX + dx
-                let t = min(1, max(0, (centerX - taperStart) / taperWidth))
-                let scale = 1 - (1 - minScale) * t
-
+                let t = CGFloat(drawn) / denom
+                let scale = (1 - (1 - minScale) * t) * compression
                 let scaledAdvance = rect.width * scale
+
                 let targetCenterX = cursorX + scaledAdvance / 2
-                let extraDx = targetCenterX - centerX
+                let extraDx = targetCenterX - rect.midX
 
                 var glyphContext = context
-                glyphContext.translateBy(x: dx + extraDx, y: dy)
+                glyphContext.translateBy(x: extraDx, y: dy)
                 let anchor = CGPoint(x: rect.midX, y: rect.maxY)
                 glyphContext.translateBy(x: anchor.x, y: anchor.y)
                 glyphContext.scaleBy(x: scale, y: scale)

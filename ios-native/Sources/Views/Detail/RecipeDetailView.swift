@@ -396,10 +396,12 @@ struct RecipeDetailView: View {
             // the local Recipe's denormalized fields so the sheet
             // works offline.
             AttributionSheet(recipe: recipe)
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .environment(appearance)
                 .environment(friendsStore)
+                .environment(navContext)
+                .environment(userAccount)
         }
         .sheet(isPresented: $showingSourdough) {
             SourdoughCalculatorView { row in
