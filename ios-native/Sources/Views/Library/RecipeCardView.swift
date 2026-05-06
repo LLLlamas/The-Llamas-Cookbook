@@ -52,10 +52,16 @@ struct RecipeCardView: View {
                     Text(summary)
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .minimumScaleFactor(0.4)
+                        .lineLimit(2)
                         .textRenderer(TrailingShrinkRenderer(source: summary))
+                        // Pin the row to a single line of the same font so
+                        // the card height is identical whether the
+                        // description fits or has a tapered overflow — the
+                        // renderer paints the wrapped first word of line 2
+                        // back onto line 1, so we never want SwiftUI to
+                        // reserve a second line of vertical space.
+                        .frame(maxHeight: Self.summaryLineHeight, alignment: .top)
+                        .clipped()
                 }
 
                 if !recipe.tags.isEmpty {
@@ -187,92 +193,137 @@ struct RecipeCardView: View {
         f.dateFormat = "M/d/yy"
         return f
     }()
+
+    /// One-line height of the summary font (10.5pt medium). Used to
+    /// clamp the description row so a wrapped layout doesn't reserve
+    /// double-height space — the renderer paints the tapered first word
+    /// of line 2 onto line 1, so visible content is always one line.
+    private static let summaryLineHeight: CGFloat = {
+        let font = UIFont.systemFont(ofSize: 10.5, weight: .medium)
+        return ceil(font.lineHeight)
+    }()
 }
 
-/// Per-glyph scale taper that ramps the trailing portion of a single
-/// line of text from full size down to `minScale`, replacing what would
-/// otherwise read as ellipsis-style truncation. The first three words
-/// always render at full scale; only glyphs after the third word
-/// participate in the taper, and only when there's enough overflow that
-/// they extend past the third-word boundary. Combined with
-/// `lineLimit(1)` + `minimumScaleFactor`, the layout first shrinks the
-/// whole string to fit on one line, then this renderer shrinks word 4+
-/// further so the tail visibly fades to "incredibly small" rather than
-/// ending in `...`.
+/// Renders a description that either fits cleanly on one line (no
+/// shrinking, no taper) or, when it would overflow, keeps line 1 at
+/// full size and paints just the next word — the one that triggered
+/// the wrap — onto the trailing edge of line 1 with a per-glyph taper
+/// from 1.0 down to `minScale`. The taper replaces ellipsis
+/// truncation: anything past that single tapered word is dropped.
+///
+/// Driven by a `lineLimit(2)` `Text`, so SwiftUI's layout tells us
+/// whether the string fits and, if not, where the wrap landed.
 private struct TrailingShrinkRenderer: TextRenderer {
-    /// The source string the `Text` was built from. Used to find the
-    /// glyph index where the third word ends.
+    /// The source string the `Text` was built from. Unused at render
+    /// time — kept so the renderer is tied to a specific summary in
+    /// the SwiftUI diffing graph (different descriptions get distinct
+    /// renderer values, forcing redraws on change).
     var source: String
-    /// Scale applied to glyphs sitting at the very trailing edge.
-    var minScale: CGFloat = 0.30
-
-    /// Number of leading characters that comprise the first three words
-    /// (counted up to but not including the whitespace that follows the
-    /// third word). Returns the full string length if there are fewer
-    /// than three words, which disables the taper entirely.
-    private var protectedCharCount: Int {
-        var wordsSeen = 0
-        var inWord = false
-        var count = 0
-        for ch in source {
-            if ch.isWhitespace {
-                if inWord {
-                    wordsSeen += 1
-                    inWord = false
-                    if wordsSeen == 3 { return count }
-                }
-            } else {
-                inWord = true
-            }
-            count += 1
-        }
-        return count
-    }
+    /// Scale applied to the trailing edge of the tapered word.
+    var minScale: CGFloat = 0.22
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
-        guard let line = layout.first else { return }
-        let protectedCount = protectedCharCount
-        let lineBounds = line.typographicBounds.rect
-        let trailing = lineBounds.maxX
-        let available = context.clipBoundingRect
+        let lines = Array(layout)
+        guard let firstLine = lines.first else { return }
 
-        // Skip the taper entirely when the text fits the available width
-        // at native size — `minimumScaleFactor` only kicks in on overflow,
-        // so a comfortably-fitting line should render flat at scale 1.
-        let overflowing = lineBounds.width >= available.width - 0.5
-
-        var glyphIndex = 0
-        var taperStart: CGFloat = trailing
-        for run in line {
-            for glyph in run {
-                if glyphIndex == protectedCount {
-                    taperStart = glyph.typographicBounds.rect.minX
+        // Single-line layout: text fits, render flat at full scale.
+        guard lines.count >= 2 else {
+            for run in firstLine {
+                for glyph in run {
+                    context.draw(glyph)
                 }
-                glyphIndex += 1
+            }
+            return
+        }
+
+        // Two-line (or more) layout: line 1 wraps. Draw line 0 as-is,
+        // then take just the first word of line 1, reposition it to
+        // sit at the end of line 0, and taper its glyphs.
+        for run in firstLine {
+            for glyph in run {
+                context.draw(glyph)
             }
         }
-        if !overflowing || glyphIndex <= protectedCount {
-            taperStart = trailing
-        }
-        let taperWidth = max(0.001, trailing - taperStart)
 
-        for run in line {
+        let secondLine = lines[1]
+
+        // First pass: find the index of the first inter-word gap on
+        // line 1. The first wrapped word is everything from glyph 0 up
+        // to (but not including) that index. Detect gaps via x-deltas
+        // between consecutive glyph rects — intra-word gaps stay near
+        // zero, inter-word gaps span an actual space character's width.
+        var wordEndIndex = Int.max
+        var totalGlyphs = 0
+        var prevMaxX: CGFloat? = nil
+        var prevHeight: CGFloat = 0
+        var sawNonSpace = false
+        var firstGlyphMinX: CGFloat = 0
+        var lastWordGlyphMaxX: CGFloat = 0
+        for run in secondLine {
             for glyph in run {
-                let glyphRect = glyph.typographicBounds.rect
-                let glyphCenterX = glyphRect.midX
-                let scale: CGFloat
-                if glyphCenterX <= taperStart {
-                    scale = 1
-                } else {
-                    let t = min(1, max(0, (glyphCenterX - taperStart) / taperWidth))
-                    scale = 1 - (1 - minScale) * t
+                let rect = glyph.typographicBounds.rect
+                if totalGlyphs == 0 {
+                    firstGlyphMinX = rect.minX
+                    sawNonSpace = rect.width > 0.5
+                } else if wordEndIndex == Int.max, let pmx = prevMaxX {
+                    let gap = rect.minX - pmx
+                    let threshold = max(1.5, prevHeight * 0.25)
+                    if sawNonSpace && gap > threshold {
+                        wordEndIndex = totalGlyphs
+                    } else if rect.width > 0.5 {
+                        sawNonSpace = true
+                    }
                 }
+                if wordEndIndex == Int.max {
+                    lastWordGlyphMaxX = rect.maxX
+                }
+                prevMaxX = rect.maxX
+                prevHeight = rect.height
+                totalGlyphs += 1
+            }
+        }
+        guard totalGlyphs > 0 else { return }
+        if wordEndIndex == Int.max { wordEndIndex = totalGlyphs }
+
+        let line0Bounds = firstLine.typographicBounds.rect
+        let line1Bounds = secondLine.typographicBounds.rect
+        // Move the wrapped word's glyphs from line 1's start back to
+        // line 0's trailing edge, and lift them vertically onto line 0.
+        let dx = line0Bounds.maxX - firstGlyphMinX
+        let dy = line0Bounds.midY - line1Bounds.midY
+        let taperStart = firstGlyphMinX + dx
+        let taperEnd = lastWordGlyphMaxX + dx
+        let taperWidth = max(0.001, taperEnd - taperStart)
+
+        // Second pass: draw the first `wordEndIndex` glyphs of line 1,
+        // shifted onto line 0 and per-glyph scaled along the taper.
+        // Each glyph's horizontal advance is also scaled, so the
+        // tapered word visually compresses along x rather than
+        // occupying its full original width.
+        var drawn = 0
+        var cursorX = taperStart
+        for run in secondLine {
+            for glyph in run {
+                if drawn >= wordEndIndex { return }
+                let rect = glyph.typographicBounds.rect
+                let centerX = rect.midX + dx
+                let t = min(1, max(0, (centerX - taperStart) / taperWidth))
+                let scale = 1 - (1 - minScale) * t
+
+                let scaledAdvance = rect.width * scale
+                let targetCenterX = cursorX + scaledAdvance / 2
+                let extraDx = targetCenterX - centerX
+
                 var glyphContext = context
-                let anchor = CGPoint(x: glyphCenterX, y: glyphRect.maxY)
+                glyphContext.translateBy(x: dx + extraDx, y: dy)
+                let anchor = CGPoint(x: rect.midX, y: rect.maxY)
                 glyphContext.translateBy(x: anchor.x, y: anchor.y)
                 glyphContext.scaleBy(x: scale, y: scale)
                 glyphContext.translateBy(x: -anchor.x, y: -anchor.y)
                 glyphContext.draw(glyph)
+
+                cursorX += scaledAdvance
+                drawn += 1
             }
         }
     }
