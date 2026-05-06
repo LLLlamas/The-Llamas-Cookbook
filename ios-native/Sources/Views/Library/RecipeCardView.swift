@@ -50,12 +50,12 @@ struct RecipeCardView: View {
 
                 if let summary = recipe.summary, !summary.isEmpty {
                     Text(summary)
-                        .font(AppFont.body)
+                        .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(AppColor.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .minimumScaleFactor(0.4)
-                        .textRenderer(TrailingShrinkRenderer())
+                        .textRenderer(TrailingShrinkRenderer(source: summary))
                 }
 
                 if !recipe.tags.isEmpty {
@@ -191,23 +191,69 @@ struct RecipeCardView: View {
 
 /// Per-glyph scale taper that ramps the trailing portion of a single
 /// line of text from full size down to `minScale`, replacing what would
-/// otherwise read as ellipsis-style truncation. Combined with
+/// otherwise read as ellipsis-style truncation. The first three words
+/// always render at full scale; only glyphs after the third word
+/// participate in the taper, and only when there's enough overflow that
+/// they extend past the third-word boundary. Combined with
 /// `lineLimit(1)` + `minimumScaleFactor`, the layout first shrinks the
-/// whole string to fit on one line, then this renderer shrinks the
-/// last `taperFraction` of the line further so the tail visibly fades
-/// to "incredibly small" rather than ending in `...`.
+/// whole string to fit on one line, then this renderer shrinks word 4+
+/// further so the tail visibly fades to "incredibly small" rather than
+/// ending in `...`.
 private struct TrailingShrinkRenderer: TextRenderer {
-    /// Fraction of the line width over which the taper runs, measured
-    /// from the trailing edge. 0.40 = the last 40% of the line shrinks.
-    var taperFraction: CGFloat = 0.40
+    /// The source string the `Text` was built from. Used to find the
+    /// glyph index where the third word ends.
+    var source: String
     /// Scale applied to glyphs sitting at the very trailing edge.
     var minScale: CGFloat = 0.30
 
+    /// Number of leading characters that comprise the first three words
+    /// (counted up to but not including the whitespace that follows the
+    /// third word). Returns the full string length if there are fewer
+    /// than three words, which disables the taper entirely.
+    private var protectedCharCount: Int {
+        var wordsSeen = 0
+        var inWord = false
+        var count = 0
+        for ch in source {
+            if ch.isWhitespace {
+                if inWord {
+                    wordsSeen += 1
+                    inWord = false
+                    if wordsSeen == 3 { return count }
+                }
+            } else {
+                inWord = true
+            }
+            count += 1
+        }
+        return count
+    }
+
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
         guard let line = layout.first else { return }
-        let bounds = line.typographicBounds.rect
-        let trailing = bounds.maxX
-        let taperStart = trailing - bounds.width * taperFraction
+        let protectedCount = protectedCharCount
+        let lineBounds = line.typographicBounds.rect
+        let trailing = lineBounds.maxX
+        let available = context.clipBoundingRect
+
+        // Skip the taper entirely when the text fits the available width
+        // at native size — `minimumScaleFactor` only kicks in on overflow,
+        // so a comfortably-fitting line should render flat at scale 1.
+        let overflowing = lineBounds.width >= available.width - 0.5
+
+        var glyphIndex = 0
+        var taperStart: CGFloat = trailing
+        for run in line {
+            for glyph in run {
+                if glyphIndex == protectedCount {
+                    taperStart = glyph.typographicBounds.rect.minX
+                }
+                glyphIndex += 1
+            }
+        }
+        if !overflowing || glyphIndex <= protectedCount {
+            taperStart = trailing
+        }
         let taperWidth = max(0.001, trailing - taperStart)
 
         for run in line {
