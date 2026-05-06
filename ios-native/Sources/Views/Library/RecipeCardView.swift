@@ -220,7 +220,7 @@ private struct TrailingShrinkRenderer: TextRenderer {
     /// renderer values, forcing redraws on change).
     var source: String
     /// Scale applied to the trailing edge of the tapered word.
-    var minScale: CGFloat = 0.22
+    var minScale: CGFloat = 0.08
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
         let lines = Array(layout)
