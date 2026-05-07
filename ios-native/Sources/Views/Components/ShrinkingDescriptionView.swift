@@ -20,7 +20,7 @@ struct ShrinkingDescriptionView: View {
     let font: UIFont
     let color: Color
     var minScale: CGFloat = 0.08
-    var trailingInset: CGFloat = 16
+    var trailingInset: CGFloat = 32
 
     var body: some View {
         GeometryReader { geo in
