@@ -333,6 +333,7 @@ struct CookModeView: View {
             Text(displayTitle)
                 .font(.system(size: 22, weight: .bold, design: .serif))
                 .foregroundStyle(appearance.accentColor)
+                .accentTextOutline()
                 // Two stacked accent shadows scale from 0 → full radius
                 // with `titleGlow`, producing a soft halo when the view
                 // appears. The base contact shadow is still drawn last
@@ -1183,6 +1184,7 @@ private struct RunningTimerSheet: View {
                 Text(ClockFormat.mmss(secondsLeft))
                     .font(.system(size: 44, weight: .bold, design: .serif))
                     .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
                     .monospacedDigit()
             }
             .padding(.top, AppSpacing.md)

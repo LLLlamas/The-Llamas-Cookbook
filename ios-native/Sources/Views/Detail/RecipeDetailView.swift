@@ -111,6 +111,7 @@ struct RecipeDetailView: View {
                     Text(StringCase.titleCase(recipe.title))
                         .font(AppFont.recipeTitle)
                         .foregroundStyle(appearance.accentColor)
+                        .accentTextOutline()
                         .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
                     // One eyebrow line under the title. Provenance wins

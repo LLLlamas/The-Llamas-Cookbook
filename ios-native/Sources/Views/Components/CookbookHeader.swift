@@ -41,6 +41,7 @@ struct CookbookHeader<Leading: View>: View {
             Text(title)
                 .font(.system(size: 22, weight: .heavy, design: .serif))
                 .foregroundStyle(accent)
+                .accentTextOutline()
                 .shadow(color: accent.opacity(glowActive ? 0.20 : 0), radius: glowActive ? 7 : 0)
                 .shadow(color: accent.opacity(glowActive ? 0.08 : 0), radius: glowActive ? 14 : 0)
                 .tracking(0.2)

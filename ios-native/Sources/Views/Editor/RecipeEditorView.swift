@@ -350,6 +350,7 @@ struct RecipeEditorView: View {
                 Text(recipe == nil ? "New Recipe" : "Edit Recipe")
                     .font(.system(size: 20, weight: .bold, design: .serif))
                     .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
                 Text("What are we cookin'?")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textSecondary)

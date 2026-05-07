@@ -231,7 +231,11 @@ struct LibraryView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
-                    LazyVStack(spacing: AppSpacing.md) {
+                    // Spacing bumped slightly above AppSpacing.md so the
+                    // focused card's 4% scale-up never visually overlaps
+                    // its neighbors. Subtle on a still list; necessary
+                    // mid-scroll.
+                    LazyVStack(spacing: AppSpacing.md + 4) {
                         ForEach(filtered) { recipe in
                             NavigationLink(value: recipe) {
                                 RecipeCardView(recipe: recipe)
@@ -243,6 +247,19 @@ struct LibraryView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+                            }
+                            // Continuous scroll-focus zoom: the card
+                            // closest to the scroll view's vertical
+                            // center renders at 1.04, and cards above/
+                            // below taper to 0.96 with a faint opacity
+                            // dim. `.interactive` updates per-frame as
+                            // the user drags.
+                            .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                                let v = phase.value
+                                let scale = 1.0 + 0.04 * (1 - abs(v)) - 0.04 * abs(v)
+                                return content
+                                    .scaleEffect(scale)
+                                    .opacity(1.0 - 0.08 * abs(v))
                             }
                             .id(recipe.id)
                         }

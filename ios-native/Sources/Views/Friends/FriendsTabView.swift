@@ -324,10 +324,7 @@ private struct FriendCardView: View {
                     .foregroundStyle(friendAccent)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: -0.4)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
+                    .accentTextOutline()
                     .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
             }
 

@@ -203,7 +203,10 @@ struct FriendLibraryView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
-                    LazyVStack(spacing: AppSpacing.md) {
+                    // Spacing bumped to match the home library so the
+                    // focused card's 4% scale-up doesn't overlap its
+                    // neighbors mid-scroll.
+                    LazyVStack(spacing: AppSpacing.md + 4) {
                         ForEach(filteredSummaries) { summary in
                             NavigationLink {
                                 FriendRecipeDetailView(friend: friend, summary: summary)
@@ -214,6 +217,13 @@ struct FriendLibraryView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                                let v = phase.value
+                                let scale = 1.0 + 0.04 * (1 - abs(v)) - 0.04 * abs(v)
+                                return content
+                                    .scaleEffect(scale)
+                                    .opacity(1.0 - 0.08 * abs(v))
+                            }
                             .id(summary.id)
                         }
                     }
@@ -396,14 +406,7 @@ private struct FriendRecipeCard: View {
                     .foregroundStyle(accent)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    // Same letterpressed treatment as `RecipeCardView`
-                    // so the title reads as the same kind of object
-                    // when navigating between own-library and
-                    // friend-library cards.
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4, y: 0)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: -0.4)
-                    .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0, y: 0.4)
+                    .accentTextOutline()
                     .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
 
                 if !summary.tags.isEmpty {
@@ -436,7 +439,7 @@ private struct FriendRecipeCard: View {
         .background(
             LinearGradient(
                 colors: [
-                    AppColor.surfaceRaised.opacity(0.85),
+                    AppColor.surfaceRaised.opacity(0.95),
                     AppColor.surface.opacity(0.85)
                 ],
                 startPoint: .top,
@@ -444,13 +447,38 @@ private struct FriendRecipeCard: View {
             )
         )
         .overlay(
+            // Top-edge highlight — matches `RecipeCardView` so own-
+            // library and friend-library cards read as the same kind
+            // of object. See RecipeCardView for the full rationale.
+            LinearGradient(
+                colors: [Color.white.opacity(0.18), .clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            .allowsHitTesting(false)
+        )
+        .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
-                .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.5)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.55),
+                            AppColor.divider.opacity(0.6),
+                            AppColor.divider.opacity(0.85)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.6
+                )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
-        .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+        .shadow(color: Self.shadowHue.opacity(0.18), radius: 2.5, x: 0, y: 1)
+        .shadow(color: Self.shadowHue.opacity(0.12), radius: 9, x: 0, y: 4)
+        .shadow(color: Self.shadowHue.opacity(0.06), radius: 24, x: 0, y: 12)
     }
+
+    private static let shadowHue: Color = Color(red: 0.40, green: 0.30, blue: 0.20)
 
     private var thumbnail: some View {
         Group {

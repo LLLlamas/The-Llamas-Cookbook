@@ -25,15 +25,7 @@ struct RecipeCardView: View {
                         .font(AppFont.sectionHeading)
                         .foregroundStyle(accent)
                         .lineLimit(2)
-                        // Subtle outline = four hard-edged shadows in
-                        // cardinal directions, painted under the soft
-                        // drop shadow. Low opacity + small offsets so
-                        // it just lifts the glyph edge against the
-                        // cream gradient without looking letterpressed.
-                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: -0.4, y: 0)
-                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0.4,  y: 0)
-                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: -0.4)
-                        .shadow(color: AppColor.textPrimary.opacity(0.22), radius: 0, x: 0,    y: 0.4)
+                        .accentTextOutline()
                         .shadow(color: accent.opacity(glowActive ? 0.16 : 0), radius: glowActive ? 7 : 0)
                         .shadow(color: accent.opacity(glowActive ? 0.07 : 0), radius: glowActive ? 14 : 0)
                         .shadow(color: AppColor.shadow, radius: 1.5, x: 0, y: 1)
@@ -77,7 +69,7 @@ struct RecipeCardView: View {
         .background(
             LinearGradient(
                 colors: [
-                    AppColor.surfaceRaised.opacity(0.85),
+                    AppColor.surfaceRaised.opacity(0.95),
                     AppColor.surface.opacity(0.85)
                 ],
                 startPoint: .top,
@@ -85,13 +77,48 @@ struct RecipeCardView: View {
             )
         )
         .overlay(
+            // Top-edge highlight — a soft "light from above" wash that
+            // fades over the upper third of the card. Clipped to the
+            // same rounded rect as the card so it stays inside the
+            // corners and reads as a bevel rather than a stripe.
+            LinearGradient(
+                colors: [Color.white.opacity(0.18), .clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            .allowsHitTesting(false)
+        )
+        .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
-                .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.5)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.55),
+                            AppColor.divider.opacity(0.6),
+                            AppColor.divider.opacity(0.85)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.6
+                )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
-        .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+        // 3-layer warm-brown shadow stack: close contact (grounds the
+        // card), mid body (gives it weight), far ambient (room/
+        // atmosphere). Cumulative effect is "floating just above the
+        // page" without any single layer reading as a chunky drop
+        // shadow. Hue matches AppColor.shadow's warm brown.
+        .shadow(color: Self.shadowHue.opacity(0.18), radius: 2.5, x: 0, y: 1)
+        .shadow(color: Self.shadowHue.opacity(0.12), radius: 9, x: 0, y: 4)
+        .shadow(color: Self.shadowHue.opacity(0.06), radius: 24, x: 0, y: 12)
     }
+
+    /// Warm-brown shadow base — same RGB as `AppColor.shadow` /
+    /// `shadowSoft`, but exposed without baked-in opacity so the
+    /// 3-layer stack can pick its own per-layer alphas (0.18 / 0.12 /
+    /// 0.06) instead of stacking pre-attenuated colors.
+    private static let shadowHue: Color = Color(red: 0.40, green: 0.30, blue: 0.20)
 
     // MARK: - Right rail thumbnail
 

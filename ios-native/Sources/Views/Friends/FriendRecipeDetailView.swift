@@ -281,6 +281,7 @@ struct FriendRecipeDetailView: View {
             Text(StringCase.titleCase(envelope.recipe.title))
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(friendAccent)
+                .accentTextOutline()
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
             // Render an attribution line only when the friend

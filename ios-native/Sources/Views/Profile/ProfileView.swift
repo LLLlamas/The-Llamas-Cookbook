@@ -275,6 +275,7 @@ struct ProfileView: View {
             Text(headerTitle)
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(appearance.accentColor)
+                .accentTextOutline()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .padding(.horizontal, AppSpacing.md)
