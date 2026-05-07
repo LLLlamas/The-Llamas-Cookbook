@@ -383,15 +383,10 @@ private struct FriendRecipeCard: View {
         return f
     }()
 
-    /// One-line height of the description font (10.5pt medium).
-    /// Mirrors `RecipeCardView.summaryLineHeight` so the friend card
-    /// clamps the description row identically — the trailing-shrink
-    /// renderer paints the wrapped first word back onto line 1, so
-    /// visible content is always exactly one line.
-    private static let summaryLineHeight: CGFloat = {
-        let font = UIFont.systemFont(ofSize: 10.5, weight: .medium)
-        return ceil(font.lineHeight)
-    }()
+    /// Shared `UIFont` for the description row. Mirrors
+    /// `RecipeCardView.summaryFont` so own-library and friend-library
+    /// cards measure and render the description identically.
+    private static let summaryFont: UIFont = .systemFont(ofSize: 10.5, weight: .medium)
 
     var body: some View {
         HStack(alignment: .top, spacing: AppSpacing.md) {
@@ -417,13 +412,11 @@ private struct FriendRecipeCard: View {
                 }
 
                 if let description = summary.summary, !description.isEmpty {
-                    Text(description)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(2, reservesSpace: true)
-                        .textRenderer(TrailingShrinkRenderer(source: description))
-                        .frame(height: Self.summaryLineHeight, alignment: .top)
-                        .clipped()
+                    ShrinkingDescriptionView(
+                        text: description,
+                        font: Self.summaryFont,
+                        color: AppColor.textSecondary
+                    )
                 }
 
                 Spacer(minLength: AppSpacing.xs)

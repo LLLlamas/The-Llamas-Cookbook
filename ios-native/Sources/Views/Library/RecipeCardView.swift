@@ -54,13 +54,11 @@ struct RecipeCardView: View {
                 }
 
                 if let summary = recipe.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(2, reservesSpace: true)
-                        .textRenderer(TrailingShrinkRenderer(source: summary))
-                        .frame(height: Self.summaryLineHeight, alignment: .top)
-                        .clipped()
+                    ShrinkingDescriptionView(
+                        text: summary,
+                        font: Self.summaryFont,
+                        color: AppColor.textSecondary
+                    )
                 }
 
                 Spacer(minLength: AppSpacing.xs)
@@ -168,14 +166,11 @@ struct RecipeCardView: View {
         return f
     }()
 
-    /// One-line height of the summary font (10.5pt medium). Used to
-    /// clamp the description row so a wrapped layout doesn't reserve
-    /// double-height space — the renderer paints the tapered first word
-    /// of line 2 onto line 1, so visible content is always one line.
-    private static let summaryLineHeight: CGFloat = {
-        let font = UIFont.systemFont(ofSize: 10.5, weight: .medium)
-        return ceil(font.lineHeight)
-    }()
+    /// Shared `UIFont` for the description row. Drives both the
+    /// `ShrinkingDescriptionView` measurement pass and its rendered
+    /// glyphs — keeping a single source of truth so measure-vs-draw
+    /// can never disagree.
+    private static let summaryFont: UIFont = .systemFont(ofSize: 10.5, weight: .medium)
 }
 
 /// Heart silhouette for favorited-recipe thumbnails. Built from four
