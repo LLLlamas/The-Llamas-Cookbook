@@ -20,11 +20,12 @@ struct ShrinkingDescriptionView: View {
     let font: UIFont
     let color: Color
     var minScale: CGFloat = 0.08
+    var trailingInset: CGFloat = 16
 
     var body: some View {
         GeometryReader { geo in
             Canvas(rendersAsynchronously: false) { context, size in
-                draw(availableWidth: geo.size.width, in: &context, size: size)
+                draw(availableWidth: max(0, geo.size.width - trailingInset), in: &context, size: size)
             }
         }
         .frame(height: ceil(font.lineHeight))
