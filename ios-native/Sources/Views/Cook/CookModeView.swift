@@ -308,6 +308,7 @@ struct CookModeView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(AppColor.textPrimary)
+                    .accentTextOutline()
                     .frame(width: 40, height: 40)
                     .background(AppColor.surface)
                     .clipShape(Circle())
@@ -324,6 +325,7 @@ struct CookModeView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(AppColor.textPrimary)
+                    .accentTextOutline()
                     .frame(width: 40, height: 40)
                     .background(AppColor.surface)
                     .clipShape(Circle())
@@ -390,14 +392,18 @@ struct CookModeView: View {
                 if !trailingChevron {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 12, weight: .bold))
+                        .accentTextOutline()
                 }
                 Image(systemName: systemImage)
                     .font(.system(size: 14, weight: .semibold))
+                    .accentTextOutline()
                 Text(label)
                     .font(.system(size: 14, weight: .semibold))
+                    .accentTextOutline()
                 if trailingChevron {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .bold))
+                        .accentTextOutline()
                 }
             }
             .foregroundStyle(appearance.accentColor)
@@ -598,6 +604,7 @@ struct CookModeView: View {
                 Text("\(idx + 1)")
                     .font(.system(size: 15, weight: .bold, design: .serif))
                     .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
                     .monospacedDigit()
             }
         }
@@ -618,8 +625,10 @@ struct CookModeView: View {
             HStack(spacing: AppSpacing.xs + 2) {
                 Image(systemName: "photo.fill")
                     .font(.system(size: 14, weight: .semibold))
+                    .accentTextOutline()
                 Text(bytes.count == 1 ? "View photo" : "View photos · \(bytes.count)")
                     .font(.system(size: 14, weight: .semibold))
+                    .accentTextOutline()
             }
             .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.md)
@@ -646,6 +655,7 @@ struct CookModeView: View {
             Image(systemName: "lightbulb.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(appearance.accentColor)
+                .accentTextOutline()
                 .padding(.top, 2)
             Text(note)
                 .font(.system(size: 15, weight: .regular, design: .serif))
@@ -671,8 +681,10 @@ struct CookModeView: View {
             HStack(spacing: AppSpacing.xs) {
                 Image(systemName: "timer")
                     .font(.system(size: 14, weight: .semibold))
+                    .accentTextOutline()
                 Text("Start \(StringCase.capitalizeFirst(keyword)) timer (\(formatDuration(seconds)))")
                     .font(.system(size: 14, weight: .semibold))
+                    .accentTextOutline()
             }
             .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.md)

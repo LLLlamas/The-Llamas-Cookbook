@@ -79,9 +79,12 @@ struct PhotoImportPreviewView: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(appearance.accentColor)
-                        .disabled(isSaving)
+                    Button { dismiss() } label: {
+                        Text("Cancel")
+                            .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
+                    }
+                    .disabled(isSaving)
                 }
                 ToolbarItem(placement: .principal) {
                     Text("Import From Photo")

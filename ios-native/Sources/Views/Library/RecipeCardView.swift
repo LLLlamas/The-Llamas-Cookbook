@@ -149,6 +149,7 @@ struct RecipeCardView: View {
             thumbnailShape
                 .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
         )
+        .accentTextOutline()
     }
 
     /// True when the recipe is favorited *and* has a photo. Favorited

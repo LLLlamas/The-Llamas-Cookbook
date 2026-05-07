@@ -85,6 +85,7 @@ struct PhotoReorderView: View {
                         Text("Done")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
                     }
                 }
             }

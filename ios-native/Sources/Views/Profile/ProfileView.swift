@@ -174,15 +174,19 @@ struct ProfileView: View {
                             Image(systemName: "gearshape")
                                 .font(.system(size: 18, weight: .medium))
                                 .foregroundStyle(appearance.accentColor)
+                                .accentTextOutline()
                         }
                         .accessibilityLabel("Settings")
                     }
                 }
                 if presentation == .sheet {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
+                        Button { dismiss() } label: {
+                            Text("Done")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(appearance.accentColor)
+                                .accentTextOutline()
+                        }
                     }
                 }
             }
@@ -440,6 +444,7 @@ struct ProfileView: View {
                     .foregroundStyle(AppColor.textTertiary)
                 Text("\(Text("Last cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(recipe.title).fontWeight(.semibold).foregroundStyle(appearance.accentColor))")
                     .font(AppFont.caption)
+                    .accentTextOutline()
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, AppSpacing.sm)
@@ -467,6 +472,7 @@ struct ProfileView: View {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
                     }
                 }
                 .buttonStyle(.plain)
@@ -522,6 +528,7 @@ struct ProfileView: View {
                 Text("Cancel")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(AppColor.textSecondary)
+                    .accentTextOutline()
                     .padding(.horizontal, AppSpacing.sm)
                     .padding(.vertical, 6)
                     .overlay(
@@ -798,8 +805,11 @@ struct ProfileView: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { showingSettings = false }
-                        .foregroundStyle(appearance.accentColor)
+                    Button { showingSettings = false } label: {
+                        Text("Done")
+                            .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
+                    }
                 }
             }
         }

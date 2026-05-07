@@ -98,6 +98,7 @@ struct LetterIndex: View {
                 Text(letter)
                     .font(.system(size: 9, weight: .bold, design: .serif))
                     .foregroundStyle(letterColor(for: letter, isActive: index == displayedActiveIndex))
+                    .accentTextOutline()
                     .shadow(color: accent.opacity(glowActive ? 0.12 : 0), radius: glowActive ? 5 : 0)
                     .frame(maxWidth: .infinity)
                     .frame(height: rowHeight)

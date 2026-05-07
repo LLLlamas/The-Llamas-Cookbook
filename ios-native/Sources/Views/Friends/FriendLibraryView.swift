@@ -27,6 +27,8 @@ import SwiftUI
 struct FriendLibraryView: View {
     let friend: UserProfileSnapshot
 
+    @Environment(\.dismiss) private var dismiss
+
     @State private var summaries: [PublishedRecipeSummary] = []
     @State private var isLoading: Bool = false
     @State private var loadError: String? = nil
@@ -70,8 +72,25 @@ struct FriendLibraryView: View {
         .llamaBackground()
         .navigationTitle(StringCase.cookbookTitle(displayName: friend.displayName))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .tint(friendAccent)
         .toolbar {
+            // Custom back chevron tinted in the friend's accent so
+            // `.accentTextOutline()` can letterpress the glyph the same
+            // way the cookbook header does. Back swipe still works.
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    Haptics.selection()
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(friendAccent)
+                        .accentTextOutline()
+                        .frame(width: 30, height: 30)
+                }
+                .accessibilityLabel("Back")
+            }
             ToolbarItem(placement: .principal) {
                 // Friend cookbook surfaces tint in the friend's accent
                 // (CLAUDE.md › UX guardrails) — pass `friendAccent`,
@@ -502,5 +521,6 @@ private struct FriendRecipeCard: View {
             RoundedRectangle(cornerRadius: AppRadius.md)
                 .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
         )
+        .accentTextOutline()
     }
 }

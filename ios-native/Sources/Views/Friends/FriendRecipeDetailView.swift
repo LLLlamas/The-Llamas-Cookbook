@@ -33,6 +33,7 @@ struct FriendRecipeDetailView: View {
     let summary: PublishedRecipeSummary
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Environment(NavigationContext.self) private var navContext
     @Environment(UserAccount.self) private var userAccount
 
@@ -92,8 +93,26 @@ struct FriendRecipeDetailView: View {
         .llamaBackground()
         .navigationTitle(StringCase.titleCase(summary.recipeTitle))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .tint(friendAccent)
         .toolbar {
+            // Custom back chevron tinted in the friend's accent so the
+            // letterpressed `.accentTextOutline()` lifts it the same way
+            // every other accent-tinted glyph on this surface does.
+            // Back swipe still works regardless.
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    Haptics.selection()
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(friendAccent)
+                        .accentTextOutline()
+                        .frame(width: 30, height: 30)
+                }
+                .accessibilityLabel("Back")
+            }
             // "Add to my book" — primary action, trailing position
             // (iOS HIG convention for an action-on-this-screen).
             // Spec sketch said "left of the llama," but `Friend`
@@ -109,6 +128,7 @@ struct FriendRecipeDetailView: View {
                     Image(systemName: "square.and.arrow.down")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(canImport ? friendAccent : AppColor.textTertiary)
+                        .accentTextOutline()
                 }
                 .disabled(!canImport)
                 .accessibilityLabel("Add to my book")

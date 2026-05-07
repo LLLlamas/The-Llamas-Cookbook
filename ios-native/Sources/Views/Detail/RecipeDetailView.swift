@@ -265,7 +265,27 @@ struct RecipeDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            // Custom back chevron so `.accentTextOutline()` can letterpress
+            // the glyph the same way every other accent-tinted icon on this
+            // surface does. System back button doesn't accept modifiers, so
+            // we hide it (`.navigationBarBackButtonHidden`) and rebuild the
+            // dismiss behavior ourselves. Back swipe still works — that's
+            // gesture-driven, not button-driven.
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    Haptics.selection()
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(appearance.accentColor)
+                        .accentTextOutline()
+                        .frame(width: 30, height: 30)
+                }
+                .accessibilityLabel("Back")
+            }
             // Center: llama icon → opens accent-color picker. Slightly
             // larger than the trailing icons so the mascot reads as the
             // headline element rather than just another toolbar button.
@@ -307,6 +327,7 @@ struct RecipeDetailView: View {
                         Image(systemName: recipe.favorite ? "heart.fill" : "heart")
                             .font(.system(size: 19, weight: .bold))
                             .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
                             .frame(width: 30, height: 30)
                             .offset(y: 1)
                     }
@@ -335,6 +356,7 @@ struct RecipeDetailView: View {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 19, weight: .bold))
                             .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
                             .frame(width: 30, height: 30)
                     }
                     .accessibilityLabel("Share recipe")
@@ -344,6 +366,7 @@ struct RecipeDetailView: View {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 19, weight: .bold))
                             .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
                             .frame(width: 30, height: 30)
                     }
                     .accessibilityLabel("Edit recipe")
@@ -659,10 +682,12 @@ struct RecipeDetailView: View {
                     Text(provenance)
                         .font(AppFont.eyebrow)
                         .foregroundStyle(appearance.accentColor)
+                        .accentTextOutline()
                         .lineLimit(1)
                     Image(systemName: "info.circle")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(appearance.accentColor.opacity(0.6))
+                        .accentTextOutline()
                 }
             }
             .buttonStyle(.plain)
@@ -802,6 +827,7 @@ struct RecipeDetailView: View {
                     Text(display.quantity)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(appearance.accentColor)
+                        .accentTextOutline()
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
@@ -810,6 +836,7 @@ struct RecipeDetailView: View {
                     Text(display.unit)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(appearance.accentColor.opacity(0.75))
+                        .accentTextOutline()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
@@ -888,9 +915,11 @@ struct RecipeDetailView: View {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "arrow.up.right.square")
                     .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
                 Text(url)
                     .font(AppFont.body)
                     .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
@@ -1053,8 +1082,10 @@ struct RecipeDetailView: View {
         } label: {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "fork.knife")
+                    .accentTextOutline()
                 Text("Start Cooking")
                     .font(.system(size: 17, weight: .semibold))
+                    .accentTextOutline()
             }
             .foregroundStyle(AppColor.onAccent)
             .frame(maxWidth: .infinity)
@@ -1380,9 +1411,10 @@ private struct TagPill: View {
     var body: some View {
         Text(label)
             .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(AppColor.textPrimary)
+            .accentTextOutline()
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
-            .foregroundStyle(AppColor.textPrimary)
             .background(AppColor.surface)
             .overlay(Capsule().stroke(AppColor.divider, lineWidth: 1))
             .clipShape(Capsule())
@@ -1464,6 +1496,7 @@ private struct StepDetailRow: View {
                 Text("\(idx + 1).")
                     .font(AppFont.sectionHeading)
                     .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
                     .monospacedDigit()
                     .frame(minWidth: 28, alignment: .leading)
 
@@ -1477,6 +1510,7 @@ private struct StepDetailRow: View {
                     Image(systemName: "timer")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(appearance.accentColor.opacity(0.85))
+                        .accentTextOutline()
                 }
             }
 
@@ -1517,10 +1551,12 @@ private struct StepDetailRow: View {
             HStack(spacing: AppSpacing.xs + 2) {
                 Image(systemName: "photo.fill")
                     .font(.system(size: 13, weight: .semibold))
+                    .accentTextOutline()
                 Text(stepPhotoBytes.count == 1
                      ? "View photo"
                      : "View photos · \(stepPhotoBytes.count)")
                     .font(.system(size: 13, weight: .semibold))
+                    .accentTextOutline()
             }
             .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.md)

@@ -26,16 +26,22 @@ struct ConversionsView: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(appearance.accentColor)
-                        .font(.system(size: 16, weight: .semibold))
+                    Button { dismiss() } label: {
+                        Text("Done")
+                            .foregroundStyle(appearance.accentColor)
+                            .font(.system(size: 16, weight: .semibold))
+                            .accentTextOutline()
+                    }
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     if calcFocused {
                         Spacer()
-                        Button("Done") { calcFocused = false }
-                            .foregroundStyle(appearance.accentColor)
-                            .font(.system(size: 16, weight: .semibold))
+                        Button { calcFocused = false } label: {
+                            Text("Done")
+                                .foregroundStyle(appearance.accentColor)
+                                .font(.system(size: 16, weight: .semibold))
+                                .accentTextOutline()
+                        }
                     }
                 }
             }

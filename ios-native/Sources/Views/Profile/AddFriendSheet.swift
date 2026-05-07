@@ -49,8 +49,11 @@ struct AddFriendSheet: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(appearance.accentColor)
+                    Button { dismiss() } label: {
+                        Text("Cancel")
+                            .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
+                    }
                 }
             }
             .onAppear {

@@ -82,6 +82,7 @@ struct FriendsTabView: View {
                         Image(systemName: "person.crop.circle.badge.plus")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(appearance.cookbookTitleAccentColor)
+                            .accentTextOutline()
                     }
                     .accessibilityLabel("Add a friend")
                 }
@@ -96,6 +97,7 @@ struct FriendsTabView: View {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(appearance.cookbookTitleAccentColor)
+                                .accentTextOutline()
                         }
                     }
                     .accessibilityLabel("Refresh friends")

@@ -94,8 +94,11 @@ struct ImportFromTextLinkView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(appearance.accentColor)
+                    Button { dismiss() } label: {
+                        Text("Cancel")
+                            .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
+                    }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -118,6 +121,7 @@ struct ImportFromTextLinkView: View {
                         Text("Done")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
                     }
                 }
             }

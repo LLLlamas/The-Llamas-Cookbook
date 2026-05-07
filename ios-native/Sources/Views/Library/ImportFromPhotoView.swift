@@ -63,9 +63,12 @@ struct ImportFromPhotoView: View {
         .tint(appearance.accentColor)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                    .foregroundStyle(appearance.accentColor)
-                    .disabled(ocrInProgress)
+                Button { dismiss() } label: {
+                    Text("Cancel")
+                        .foregroundStyle(appearance.accentColor)
+                        .accentTextOutline()
+                }
+                .disabled(ocrInProgress)
             }
         }
         .fullScreenCover(isPresented: $showingScanner) {

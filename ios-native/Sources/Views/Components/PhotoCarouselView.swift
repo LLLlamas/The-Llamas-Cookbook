@@ -252,6 +252,7 @@ struct PhotoCarouselView: View {
         ToolbarItem(placement: .topBarLeading) {
             Button("Done") { dismiss() }
                 .foregroundStyle(appearance.accentColor)
+                .accentTextOutline()
         }
         // Title moved out of the principal slot — it now renders as a
         // hero header above the photo (see `heroTitle`). Lorenzo wanted
@@ -303,6 +304,7 @@ struct PhotoCarouselView: View {
         } label: {
             Image(systemName: "rectangle.on.rectangle.angled")
                 .font(.system(size: 17, weight: .semibold))
+                .accentTextOutline()
         }
         .foregroundStyle(appearance.accentColor)
         .accessibilityLabel("Rearrange photos")
@@ -345,6 +347,7 @@ struct PhotoCarouselView: View {
                     Text("Done")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(appearance.accentColor)
+                        .accentTextOutline()
                         .padding(.horizontal, AppSpacing.lg)
                         .padding(.vertical, AppSpacing.sm + 2)
                         .contentShape(Rectangle())
@@ -375,6 +378,7 @@ struct PhotoCarouselView: View {
             Text(StringCase.titleCase(title))
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(appearance.accentColor)
+                .accentTextOutline()
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
@@ -406,6 +410,7 @@ struct PhotoCarouselView: View {
             } else {
                 Image(systemName: "plus")
                     .font(.system(size: 17, weight: .semibold))
+                    .accentTextOutline()
             }
         }
         .disabled(isProcessing || pickLimit == 0)

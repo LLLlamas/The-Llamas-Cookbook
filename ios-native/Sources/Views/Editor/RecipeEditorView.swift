@@ -58,8 +58,11 @@ struct RecipeEditorView: View {
             scrollContent
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { attemptCancel() }
-                            .foregroundStyle(appearance.accentColor)
+                        Button { attemptCancel() } label: {
+                            Text("Cancel")
+                                .foregroundStyle(appearance.accentColor)
+                                .accentTextOutline()
+                        }
                     }
                     // Help icon — only shown when creating a new recipe.
                     // Editing an existing recipe doesn't surface the
@@ -98,11 +101,14 @@ struct RecipeEditorView: View {
                     ToolbarItemGroup(placement: .keyboard) {
                         if isNumericFocused {
                             Spacer()
-                            Button("Done") {
+                            Button {
                                 isNumericFocused = false
+                            } label: {
+                                Text("Done")
+                                    .foregroundStyle(appearance.accentColor)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .accentTextOutline()
                             }
-                            .foregroundStyle(appearance.accentColor)
-                            .font(.system(size: 16, weight: .semibold))
                         }
                     }
                 }

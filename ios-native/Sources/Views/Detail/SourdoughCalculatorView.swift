@@ -60,15 +60,21 @@ struct SourdoughCalculatorView: View {
             .safeAreaInset(edge: .bottom) { addBar }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                        .foregroundStyle(appearance.accentColor)
+                    Button { dismiss() } label: {
+                        Text("Close")
+                            .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
+                    }
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     if totalFocused {
                         Spacer()
-                        Button("Done") { totalFocused = false }
-                            .foregroundStyle(appearance.accentColor)
-                            .font(.system(size: 16, weight: .semibold))
+                        Button { totalFocused = false } label: {
+                            Text("Done")
+                                .foregroundStyle(appearance.accentColor)
+                                .font(.system(size: 16, weight: .semibold))
+                                .accentTextOutline()
+                        }
                     }
                 }
             }

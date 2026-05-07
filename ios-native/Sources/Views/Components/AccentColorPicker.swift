@@ -69,6 +69,7 @@ struct AccentColorPicker: View {
                     Button("Done") { dismiss() }
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(pickerColor)
+                        .accentTextOutline()
                 }
             }
             .onAppear {
@@ -104,6 +105,7 @@ struct AccentColorPicker: View {
             Text("Sample Recipe Title")
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(pickerColor)
+                .accentTextOutline()
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
                 .multilineTextAlignment(.center)
 
@@ -111,12 +113,15 @@ struct AccentColorPicker: View {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(pickerColor)
+                    .accentTextOutline()
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(pickerColor)
+                    .accentTextOutline()
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(pickerColor)
+                    .accentTextOutline()
             }
             .padding(.top, 2)
         }

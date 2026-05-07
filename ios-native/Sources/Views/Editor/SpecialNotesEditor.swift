@@ -112,12 +112,15 @@ struct SpecialNotesEditor: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(AppColor.textPrimary)
                 Spacer()
-                Button("Cancel") {
+                Button {
                     Haptics.selection()
                     mode = .idle
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppColor.textSecondary)
+                        .accentTextOutline()
                 }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(AppColor.textSecondary)
             }
 
             if availableTargets.isEmpty {
@@ -195,14 +198,17 @@ struct SpecialNotesEditor: View {
             .foregroundStyle(AppColor.textPrimary)
 
             HStack(spacing: AppSpacing.sm) {
-                Button("Cancel") {
+                Button {
                     Haptics.selection()
                     noteFieldFocused = false
                     draftText = ""
                     mode = .idle
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(AppColor.textSecondary)
+                        .accentTextOutline()
                 }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(AppColor.textSecondary)
 
                 Spacer()
 
