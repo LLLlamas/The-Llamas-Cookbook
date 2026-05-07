@@ -58,38 +58,56 @@ jobs:
       # but actions/runner-images installs Xcode under point-release names
       # (Xcode_26.0.1.app, Xcode_26.1.app, …), never bare Xcode_26.app —
       # and it also keeps the latest beta installed alongside (e.g.
-      # Xcode_26.5_beta_2.app). Naive sort -V picks the beta because 26.5
-      # > 26.4, but beta SDKs ship with a simulator-runtime build mismatch
-      # that breaks actool during archive (see "Ensure iOS Simulator
-      # runtime" below). Prefer stable; fall back to beta only if nothing
-      # else is available. If no Xcode 26 is present at all, fail loudly
-      # and dump what *is* installed so the next push can pin to it.
+      # Xcode_26.5_beta_2.app).
+      #
+      # Setting DEVELOPER_DIR + xcode-select alone is NOT enough: the
+      # runner's shell profile pre-pends the default Xcode's usr/bin to
+      # PATH, and xcodebuild's sub-tool resolution (actool, clang, ld,
+      # and iphoneos SDK lookup via xcrun) follows PATH and the iOS SDK
+      # cross-Xcode index, both of which can route to the beta even when
+      # DEVELOPER_DIR points elsewhere. Symptom: `xcodebuild -version`
+      # reports stable, but the archived binary is built by beta tooling,
+      # which ASC's external-testing validator rejects with "This build
+      # is using a beta version of Xcode and can't be submitted."
+      # Internal TestFlight is more permissive and lets it through —
+      # which is why this only surfaces when promoting to a public group.
+      #
+      # Fix: physically rename every beta Xcode so it can't be resolved
+      # by any tool, then re-pin DEVELOPER_DIR AND PATH for subsequent
+      # steps. Safe because the runner is ephemeral.
       - name: Select Xcode 26
         run: |
           set -euo pipefail
+
+          echo "Installed Xcodes before disabling betas:"
+          ls -d /Applications/Xcode*.app 2>/dev/null || echo "(none)"
+
+          for beta in /Applications/Xcode_*beta*.app; do
+            [ -e "$beta" ] || continue
+            disabled="$(dirname "$beta")/_disabled_$(basename "$beta")"
+            echo "Disabling $beta -> $disabled"
+            sudo mv "$beta" "$disabled"
+          done
+
           shopt -s nullglob
           ALL_XCODES=( /Applications/Xcode_26*.app )
           shopt -u nullglob
           if [ ${#ALL_XCODES[@]} -eq 0 ]; then
-            echo "::error::No Xcode 26.x found in /Applications. Installed Xcodes:"
+            echo "::error::No stable Xcode 26.x found in /Applications after disabling betas. Installed:"
             ls -d /Applications/Xcode*.app 2>/dev/null || echo "(none)"
             exit 1
           fi
-          XCODE_APP=$(printf '%s\n' "${ALL_XCODES[@]}" | grep -vi beta | sort -V | tail -1 || true)
-          if [ -z "$XCODE_APP" ]; then
-            echo "::warning::No stable Xcode 26.x found; falling back to beta"
-            XCODE_APP=$(printf '%s\n' "${ALL_XCODES[@]}" | sort -V | tail -1)
-          fi
+          XCODE_APP=$(printf '%s\n' "${ALL_XCODES[@]}" | sort -V | tail -1)
+
           echo "Selecting $XCODE_APP"
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
-          # Also export DEVELOPER_DIR via $GITHUB_ENV so it sticks for
-          # every subsequent step. The macos-26 runner pre-sets
-          # DEVELOPER_DIR in its shell profile pointing at the image's
-          # default Xcode (currently 26.5 beta 2), which silently
-          # overrides our `xcode-select` if we don't override it back.
-          # That's how we ended up archiving with beta despite picking
-          # stable here. Belt + suspenders.
+
+          # Re-pin BOTH DEVELOPER_DIR and PATH so every tool xcodebuild
+          # shells out to (xcrun, actool, clang, swiftc, ld) comes from
+          # the selected Xcode and not from the runner-default that's
+          # still on PATH.
           echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+          echo "PATH=$XCODE_APP/Contents/Developer/usr/bin:$PATH" >> "$GITHUB_ENV"
 
       # Print the full toolchain so the build log proves we're compiling
       # against the iOS 26 SDK. The `iphoneos --show-sdk-version` line is

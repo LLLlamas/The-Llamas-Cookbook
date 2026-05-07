@@ -2,7 +2,7 @@
 
 Source of truth for agents. Code wins when this disagrees.
 
-Last refreshed: 2026-05-05.
+Last refreshed: 2026-05-07.
 
 ## Status
 
@@ -131,6 +131,7 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VE
 - **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` is the single source of truth for the 25 MB inbound cap. Both `RecipeShare.maxInboundBytes` (main app) and `ShareViewController.maxInboundBytes` (share extension) reference it — do not reintroduce duplicated literals.
 - **Cloud-share failures show "try again later"** — `RecipeDetailView.shareViaPreferredTransport` aborts with an alert when iCloud is unavailable or upload fails. No long-URL fallback. The "Share recipe" menu only ever produces an HTTPS Universal Link permalink.
 - **`AccentColorPicker` commits on `.onDisappear`, never mid-pick** — driving `pickerColor` straight into `AppearanceSettings.accentColor` re-renders the parent, rebuilds the `ColorPicker` subtree, and desyncs `UIColorPickerViewController` so only the first pick registers. `@Environment(AppearanceSettings.self)` must also be re-injected at every call site or the live preview stops updating once the system picker covers the sheet.
+- **CI Xcode toolchain pinning needs PATH override + beta rename, not just `DEVELOPER_DIR`** — `macos-26` ships `Xcode_*beta*.app` next to the stable point releases, and the runner's shell profile pre-pends the default Xcode's `usr/bin` to PATH. Setting `xcode-select`/`DEVELOPER_DIR` alone leaves xcodebuild's sub-tools (actool, clang, ld, xcrun's iphoneos SDK lookup) resolving to the beta — `xcodebuild -version` still reports stable, but the archived binary is built by beta tooling. Internal TestFlight accepts it; external TestFlight rejects it with "This build is using a beta version of Xcode." The `Select Xcode 26` step in `ios-native-ci.yml` physically renames every `Xcode_*beta*.app` to `_disabled_…` and re-pins both `DEVELOPER_DIR` and `PATH`. If a future macOS runner image labels a release-candidate seed without "beta" in the filename (e.g. `Xcode_26.5.0.app` with build number `17F5022i`), this step will need to skip that version range too.
 
 ## CloudKit schema
 
