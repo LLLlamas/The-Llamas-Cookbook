@@ -608,6 +608,7 @@ struct CookModeView: View {
                     .monospacedDigit()
             }
         }
+        .accentTextOutline()
     }
 
     /// Per-step photos affordance in Cook Mode. The image isn't
@@ -682,7 +683,7 @@ struct CookModeView: View {
                 Image(systemName: "timer")
                     .font(.system(size: 14, weight: .semibold))
                     .accentTextOutline()
-                Text("Start \(StringCase.capitalizeFirst(keyword)) timer (\(formatDuration(seconds)))")
+                Text("Start \(StringCase.capitalizeFirst(keyword)) Timer (\(formatDuration(seconds)))")
                     .font(.system(size: 14, weight: .semibold))
                     .accentTextOutline()
             }
@@ -695,6 +696,7 @@ struct CookModeView: View {
                     .stroke(appearance.accentColor, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .accentTextOutline()
         }
         .buttonStyle(.plain)
     }
@@ -751,8 +753,10 @@ struct CookModeView: View {
                     HStack(spacing: AppSpacing.sm) {
                         Text(startCookingLabel)
                             .font(.system(size: 17, weight: .semibold))
+                            .accentTextOutline()
                         Image(systemName: "chevron.right")
                             .font(.system(size: 15, weight: .bold))
+                            .accentTextOutline()
                     }
                     .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)

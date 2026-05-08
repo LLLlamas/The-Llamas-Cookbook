@@ -638,6 +638,7 @@ struct ProfileView: View {
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .heavy))
                         .foregroundStyle(AppColor.onAccent)
+                        .accentTextOutline()
                         .frame(width: 28, height: 28)
                         .background(Circle().fill(appearance.accentColor))
                 }

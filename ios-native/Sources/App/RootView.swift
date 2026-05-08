@@ -1142,9 +1142,11 @@ private struct CookPill: View {
             HStack(spacing: compact ? AppSpacing.xs : AppSpacing.sm) {
                 Image(systemName: "fork.knife")
                     .font(.system(size: compact ? 13 : 15, weight: .bold))
+                    .accentTextOutline()
                 if compact {
                     Text(displayTitle)
                         .font(.system(size: 12, weight: .semibold, design: .serif))
+                        .accentTextOutline()
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
                         .multilineTextAlignment(.center)
@@ -1153,6 +1155,7 @@ private struct CookPill: View {
                     VStack(alignment: .center, spacing: 0) {
                         Text(displayTitle)
                             .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .accentTextOutline()
                             .lineLimit(2)
                             .minimumScaleFactor(0.75)
                             .multilineTextAlignment(.center)

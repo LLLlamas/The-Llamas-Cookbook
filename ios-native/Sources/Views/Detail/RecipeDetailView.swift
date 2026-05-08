@@ -821,6 +821,7 @@ struct RecipeDetailView: View {
             Circle()
                 .fill(appearance.accentColor)
                 .frame(width: 6, height: 6)
+                .accentTextOutline()
 
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 if !display.quantity.isEmpty {
