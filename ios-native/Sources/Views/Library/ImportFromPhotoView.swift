@@ -37,14 +37,14 @@ struct ImportFromPhotoView: View {
     @State private var ocrPageStatus: String?
     @State private var preview: PreviewPayload?
     @State private var errorBanner: ErrorBanner?
-    @State private var capturedImages: [UIImage] = []
+    @State private var capturedPages: [CapturedPage] = []
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppSpacing.lg) {
                 heroRow
                     .padding(.top, AppSpacing.md)
-                if capturedImages.isEmpty {
+                if capturedPages.isEmpty {
                     captureButtons
                 } else {
                     capturedPagesView
@@ -80,7 +80,7 @@ struct ImportFromPhotoView: View {
             CameraCaptureView(
                 onComplete: { images in
                     showingScanner = false
-                    capturedImages.append(contentsOf: images)
+                    capturedPages.append(contentsOf: images.map { CapturedPage(image: $0) })
                 },
                 onCancel: { showingScanner = false }
             )
@@ -89,15 +89,15 @@ struct ImportFromPhotoView: View {
         .onChange(of: pickedItems) { _, items in
             guard !items.isEmpty else { return }
             Task {
-                var loaded: [UIImage] = []
+                var loaded: [CapturedPage] = []
                 for item in items {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let img = UIImage(data: data) {
-                        loaded.append(img)
+                        loaded.append(CapturedPage(image: img, sourceData: data))
                     }
                 }
                 if !loaded.isEmpty {
-                    capturedImages.append(contentsOf: loaded)
+                    capturedPages.append(contentsOf: loaded)
                 }
                 pickedItems = []
             }
@@ -159,7 +159,7 @@ struct ImportFromPhotoView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: ocrInProgress)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: errorBanner)
-        .animation(.easeInOut(duration: 0.25), value: capturedImages.isEmpty)
+        .animation(.easeInOut(duration: 0.25), value: capturedPages.isEmpty)
         .onDisappear {
             editor.hasUnsavedChanges = false
         }
@@ -230,9 +230,9 @@ struct ImportFromPhotoView: View {
             // Thumbnail strip with page-number badges
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: AppSpacing.sm) {
-                    ForEach(capturedImages.indices, id: \.self) { idx in
+                    ForEach(capturedPages.indices, id: \.self) { idx in
                         ZStack(alignment: .bottomTrailing) {
-                            Image(uiImage: capturedImages[idx])
+                            Image(uiImage: capturedPages[idx].image)
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: 72, height: 72)
@@ -249,13 +249,13 @@ struct ImportFromPhotoView: View {
                     }
                 }
             }
-            Text(capturedImages.count == 1
+            Text(capturedPages.count == 1
                  ? "1 page captured"
-                 : "\(capturedImages.count) pages captured")
+                 : "\(capturedPages.count) pages captured")
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
 
-            if capturedImages.count < 3 {
+            if capturedPages.count < 3 {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
                     Button {
                         Haptics.impact(.light)
@@ -276,7 +276,7 @@ struct ImportFromPhotoView: View {
                 }
                 PhotosPicker(
                     selection: $pickedItems,
-                    maxSelectionCount: 3 - capturedImages.count,
+                    maxSelectionCount: 3 - capturedPages.count,
                     matching: .images,
                     photoLibrary: .shared()
                 ) {
@@ -301,13 +301,13 @@ struct ImportFromPhotoView: View {
             // Primary CTA
             Button {
                 Haptics.impact(.medium)
-                Task { await runOCR(on: capturedImages) }
+                Task { await runOCR(on: capturedPages) }
             } label: {
                 captureButtonLabel(
-                    title: capturedImages.count == 1
+                    title: capturedPages.count == 1
                         ? "Process Recipe"
-                        : "Process \(capturedImages.count) Pages",
-                    subtitle: capturedImages.count == 1
+                        : "Process \(capturedPages.count) Pages",
+                    subtitle: capturedPages.count == 1
                         ? "Extract and organize the recipe"
                         : "Combine and extract the full recipe",
                     icon: "text.viewfinder",
@@ -320,7 +320,7 @@ struct ImportFromPhotoView: View {
             .disabled(ocrInProgress)
 
             Button {
-                capturedImages = []
+                capturedPages = []
                 errorBanner = nil
             } label: {
                 Text("Start over")
@@ -453,8 +453,8 @@ struct ImportFromPhotoView: View {
     // MARK: - OCR runner
 
     @MainActor
-    private func runOCR(on images: [UIImage]) async {
-        guard !images.isEmpty else { return }
+    private func runOCR(on pages: [CapturedPage]) async {
+        guard !pages.isEmpty else { return }
         ocrInProgress = true
         errorBanner = nil
         defer {
@@ -462,14 +462,15 @@ struct ImportFromPhotoView: View {
             ocrPageStatus = nil
         }
 
-        // 1. Encode each UIImage to Data + run through ImageProcessing.
-        // Resize to the OCR target. It keeps more pixels and less JPEG
-        // loss than saved gallery photos, which helps handwriting and
-        // tiny fractions without storing a larger image anywhere.
+        // 1. Prepare page bytes for OCR. Photo-library picks keep their
+        // original bytes, avoiding a UIImage -> JPEG round-trip before
+        // ImageIO resizes/orients for Vision. Camera captures still
+        // arrive as UIImage, so those fall back to a one-time JPEG
+        // encode here.
         var prepared: [Data] = []
-        for (idx, img) in images.enumerated() {
-            ocrPageStatus = "Preparing page \(idx + 1) of \(images.count)…"
-            guard let raw = img.jpegData(compressionQuality: 0.95),
+        for (idx, page) in pages.enumerated() {
+            ocrPageStatus = "Preparing page \(idx + 1) of \(pages.count)…"
+            guard let raw = page.sourceData ?? page.image.jpegData(compressionQuality: 0.95),
                   let resized = await ImageProcessing.prepare(raw, for: .ocr)
             else { continue }
             prepared.append(resized)
@@ -485,8 +486,8 @@ struct ImportFromPhotoView: View {
         }
 
         // 2. OCR per page.
-        ocrPageStatus = images.count > 1
-            ? "Reading text from \(images.count) pages…"
+        ocrPageStatus = pages.count > 1
+            ? "Reading text from \(pages.count) pages…"
             : "Reading text…"
         let text = await RecipeOCRImporter.recognize(prepared)
         guard !text.isEmpty else {
@@ -514,7 +515,7 @@ struct ImportFromPhotoView: View {
         let confident = hasTitle && hasIngredients && hasSteps
 
         if confident, let draft {
-            capturedImages = []
+            capturedPages = []
             preview = PreviewPayload(draft: draft)
         } else {
             // Partial OCR — surface the text in the text editor so
@@ -547,6 +548,16 @@ struct ImportFromPhotoView: View {
     private struct PreviewPayload: Identifiable {
         let id = UUID()
         let draft: DraftRecipe
+    }
+
+    private struct CapturedPage {
+        let image: UIImage
+        let sourceData: Data?
+
+        init(image: UIImage, sourceData: Data? = nil) {
+            self.image = image
+            self.sourceData = sourceData
+        }
     }
 
     private struct ErrorBanner: Equatable {

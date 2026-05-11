@@ -61,9 +61,11 @@ enum ImageProcessing {
     /// source bytes anyway" — but that's the caller's choice; this
     /// function refuses to fabricate output.
     ///
-    /// **Bytes guard:** if the re-encoded output is larger than the
-    /// source (rare, mostly happens with already-tiny inputs), the
-    /// source bytes are returned instead. We never make a photo bigger.
+    /// **Bytes guard:** for stored gallery/step photos, if the re-encoded
+    /// output is larger than the source (rare, mostly happens with
+    /// already-tiny inputs), the source bytes are returned instead. OCR
+    /// always keeps the resized/oriented copy because it is temporary and
+    /// the pixel cap matters more than byte size.
     ///
     /// Run from `Task.detached` — a 12MP source takes ~150-300ms on a
     /// recent device. The editor stays responsive because the picker
@@ -118,6 +120,9 @@ enum ImageProcessing {
         guard CGImageDestinationFinalize(destination) else { return nil }
 
         let encoded = destinationData as Data
+        if case .ocr = target {
+            return encoded
+        }
         // If the round-trip somehow inflated the bytes — rare, but real
         // for already-small inputs (e.g. a 200KB screenshot re-encoding
         // to ~250KB JPEG) — return the source unchanged. Better to keep

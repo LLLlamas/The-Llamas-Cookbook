@@ -30,9 +30,23 @@ enum RecipeOCRImporter {
     /// hyphenate). Returns "" if Vision returned nothing — caller
     /// treats that as "ask the user to retry."
     static func recognize(_ pages: [Data]) async -> String {
-        var perPage: [[String]] = []
-        for data in pages {
-            perPage.append(await recognizePage(data))
+        guard !pages.isEmpty else { return "" }
+
+        let perPage = await withTaskGroup(
+            of: (Int, [String]).self,
+            returning: [[String]].self
+        ) { group in
+            for (idx, data) in pages.enumerated() {
+                group.addTask {
+                    (idx, await recognizePage(data))
+                }
+            }
+
+            var ordered = Array(repeating: [String](), count: pages.count)
+            for await (idx, lines) in group {
+                ordered[idx] = lines
+            }
+            return ordered
         }
         let cleanedPages = stripRepeatedHeaders(perPage)
         let concatenated = cleanedPages
@@ -60,7 +74,7 @@ enum RecipeOCRImporter {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
-            request.recognitionLanguages = supportedLanguages()
+            request.recognitionLanguages = supportedRecognitionLanguages
             request.customWords = customWords
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             do {
@@ -111,7 +125,7 @@ enum RecipeOCRImporter {
     /// Locale-aware language list, intersected with what the current
     /// Vision revision actually supports. Always includes "en-US" as
     /// fallback.
-    private static func supportedLanguages() -> [String] {
+    private static let supportedRecognitionLanguages: [String] = {
         let candidates: [String] = {
             var langs: [String] = []
             if let code = Locale.current.language.languageCode?.identifier {
@@ -128,7 +142,7 @@ enum RecipeOCRImporter {
         let supported = (try? request.supportedRecognitionLanguages()) ?? []
         let filtered = candidates.filter { supported.contains($0) }
         return filtered.isEmpty ? ["en-US"] : filtered
-    }
+    }()
 
     /// Cooking-domain custom-words list. Biases the recognizer toward
     /// canonical units and common cookbook vocabulary so it stops
@@ -521,13 +535,24 @@ enum RecipeOCRImporter {
         guard pages.count >= 2 else { return pages }
         var counts: [String: Int] = [:]
         for page in pages {
-            let unique = Set(page.filter { $0.count <= 24 })
-            for line in unique {
-                counts[line, default: 0] += 1
+            let unique = Set(page.compactMap(repeatedHeaderKey))
+            for key in unique {
+                counts[key, default: 0] += 1
             }
         }
         let dropSet = Set(counts.filter { $0.value >= 2 }.keys)
         guard !dropSet.isEmpty else { return pages }
-        return pages.map { page in page.filter { !dropSet.contains($0) } }
+        return pages.map { page in
+            page.filter { line in
+                guard let key = repeatedHeaderKey(line) else { return true }
+                return !dropSet.contains(key)
+            }
+        }
+    }
+
+    private static func repeatedHeaderKey(_ line: String) -> String? {
+        let key = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, key.count <= 24 else { return nil }
+        return key
     }
 }
