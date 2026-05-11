@@ -37,13 +37,18 @@ struct ImportFromPhotoView: View {
     @State private var ocrPageStatus: String?
     @State private var preview: PreviewPayload?
     @State private var errorBanner: ErrorBanner?
+    @State private var capturedImages: [UIImage] = []
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppSpacing.lg) {
                 heroRow
                     .padding(.top, AppSpacing.md)
-                captureButtons
+                if capturedImages.isEmpty {
+                    captureButtons
+                } else {
+                    capturedPagesView
+                }
                 if let banner = errorBanner {
                     bannerView(banner)
                         .transition(.asymmetric(
@@ -75,7 +80,7 @@ struct ImportFromPhotoView: View {
             CameraCaptureView(
                 onComplete: { images in
                     showingScanner = false
-                    Task { await runOCR(on: images) }
+                    capturedImages.append(contentsOf: images)
                 },
                 onCancel: { showingScanner = false }
             )
@@ -83,7 +88,19 @@ struct ImportFromPhotoView: View {
         }
         .onChange(of: pickedItems) { _, items in
             guard !items.isEmpty else { return }
-            Task { await runOCRFromPicker(items) }
+            Task {
+                var loaded: [UIImage] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let img = UIImage(data: data) {
+                        loaded.append(img)
+                    }
+                }
+                if !loaded.isEmpty {
+                    capturedImages.append(contentsOf: loaded)
+                }
+                pickedItems = []
+            }
         }
         .sheet(item: $preview) { payload in
             PhotoImportPreviewView(
@@ -142,6 +159,7 @@ struct ImportFromPhotoView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: ocrInProgress)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: errorBanner)
+        .animation(.easeInOut(duration: 0.25), value: capturedImages.isEmpty)
         .onDisappear {
             editor.hasUnsavedChanges = false
         }
@@ -191,7 +209,7 @@ struct ImportFromPhotoView: View {
 
             PhotosPicker(
                 selection: $pickedItems,
-                maxSelectionCount: 5,
+                maxSelectionCount: 3,
                 matching: .images,
                 photoLibrary: .shared()
             ) {
@@ -204,6 +222,112 @@ struct ImportFromPhotoView: View {
                     strokeColor: appearance.accentColor
                 )
             }
+        }
+    }
+
+    private var capturedPagesView: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.md) {
+            // Thumbnail strip with page-number badges
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: AppSpacing.sm) {
+                    ForEach(capturedImages.indices, id: \.self) { idx in
+                        ZStack(alignment: .bottomTrailing) {
+                            Image(uiImage: capturedImages[idx])
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 72, height: 72)
+                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                            Text("\(idx + 1)")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(AppColor.onAccent)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(appearance.accentColor)
+                                .clipShape(Capsule())
+                                .padding(4)
+                        }
+                    }
+                }
+            }
+            Text(capturedImages.count == 1
+                 ? "1 page captured"
+                 : "\(capturedImages.count) pages captured")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textSecondary)
+
+            if capturedImages.count < 3 {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button {
+                        Haptics.impact(.light)
+                        errorBanner = nil
+                        showingScanner = true
+                    } label: {
+                        captureButtonLabel(
+                            title: "Add Another Page",
+                            subtitle: "Snap the next part of the recipe",
+                            icon: "plus.viewfinder",
+                            foreground: appearance.accentColor,
+                            background: AppColor.surface,
+                            strokeColor: appearance.accentColor
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(ocrInProgress)
+                }
+                PhotosPicker(
+                    selection: $pickedItems,
+                    maxSelectionCount: 3 - capturedImages.count,
+                    matching: .images,
+                    photoLibrary: .shared()
+                ) {
+                    captureButtonLabel(
+                        title: "Add from Library",
+                        subtitle: "Pick another page from your photos",
+                        icon: "photo.badge.plus",
+                        foreground: appearance.accentColor,
+                        background: AppColor.surface,
+                        strokeColor: appearance.accentColor
+                    )
+                }
+                .disabled(ocrInProgress)
+            } else {
+                Text("Maximum 3 pages reached")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, AppSpacing.sm)
+            }
+
+            // Primary CTA
+            Button {
+                Haptics.impact(.medium)
+                Task { await runOCR(on: capturedImages) }
+            } label: {
+                captureButtonLabel(
+                    title: capturedImages.count == 1
+                        ? "Process Recipe"
+                        : "Process \(capturedImages.count) Pages",
+                    subtitle: capturedImages.count == 1
+                        ? "Extract and organize the recipe"
+                        : "Combine and extract the full recipe",
+                    icon: "text.viewfinder",
+                    foreground: AppColor.onAccent,
+                    background: appearance.accentColor,
+                    strokeColor: nil
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(ocrInProgress)
+
+            Button {
+                capturedImages = []
+                errorBanner = nil
+            } label: {
+                Text("Start over")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppColor.textSecondary.opacity(0.7))
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -336,7 +460,6 @@ struct ImportFromPhotoView: View {
         defer {
             ocrInProgress = false
             ocrPageStatus = nil
-            pickedItems = []
         }
 
         // 1. Encode each UIImage to Data + run through ImageProcessing.
@@ -391,6 +514,7 @@ struct ImportFromPhotoView: View {
         let confident = hasTitle && hasIngredients && hasSteps
 
         if confident, let draft {
+            capturedImages = []
             preview = PreviewPayload(draft: draft)
         } else {
             // Partial OCR — surface the text in the text editor so
@@ -404,25 +528,14 @@ struct ImportFromPhotoView: View {
             let seed = text
             errorBanner = ErrorBanner(
                 kind: .warning,
-                message: "We pulled the text from your photo but couldn't tell ingredients from steps. Edit it as text?",
-                actionTitle: "Continue in text editor",
+                message: "We pulled the text but couldn't separate ingredients from steps. Try adding another page, or edit the text directly.",
+                actionTitle: "Edit as text",
                 action: {
                     Haptics.impact(.light)
                     editor.startImportFromText(seedText: seed)
                 }
             )
         }
-    }
-
-    private func runOCRFromPicker(_ items: [PhotosPickerItem]) async {
-        var images: [UIImage] = []
-        for item in items {
-            if let data = try? await item.loadTransferable(type: Data.self),
-               let img = UIImage(data: data) {
-                images.append(img)
-            }
-        }
-        await runOCR(on: images)
     }
 
     // MARK: - Local types

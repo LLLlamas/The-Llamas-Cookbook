@@ -315,17 +315,53 @@ enum RecipeAIParser {
     19. Ingredient quantity suffixes to strip: Remove ", plus more to \
         taste", ", plus more for serving", ", or more to taste", \
         ", to taste" (when appended after a quantity — keep it when \
-        the entire ingredient is "salt to taste" with no quantity). \
-        These are serving notes, not part of the measured quantity or \
-        name. Example: "½ tsp salt, plus more to taste" → quantity \
-        "½", unit "tsp", name "salt". "salt to taste" (no quantity) \
-        → quantity "", unit "", name "salt to taste" (keep as-is).
+        the entire ingredient is "salt to taste" with no quantity), \
+        ", for serving", ", for greasing", ", for garnish", \
+        ", for drizzling", ", optional" (trailing comma form). \
+        These are serving/prep notes, not part of the quantity or name. \
+        Examples: "½ tsp salt, plus more to taste" → qty "½", unit \
+        "tsp", name "salt". "Warm pancake syrup, for serving" → qty \
+        "", unit "", name "warm pancake syrup". "Butter, for greasing" \
+        → qty "", unit "", name "butter". "salt to taste" (no \
+        quantity) → keep as-is.
     20. Parenthetical cross-references in ingredients: Drop \
         parenthetical page or section cross-references from ingredient \
         names — "(see Pro Tips)", "(see Note)", "(page 142)", \
         "(recipe follows)", etc. Keep functional parentheticals that \
         describe the ingredient itself: "(14-oz can)", "(room \
         temperature)", "(toasted)", "(packed)".
+    21. Vague or intentionally unmeasured ingredients: Some recipes \
+        deliberately omit quantities ("your favorite spices", \
+        "good olive oil", "salt"). Preserve the name exactly as \
+        written — do not invent a quantity, do not rewrite the name \
+        to be more specific. quantity: "", unit: "", name: "your \
+        favorite spices" is correct. This applies to "no-recipe" \
+        style books and casual handwritten cards alike.
+    22. Ingredient section sub-headers: Recipes sometimes split their \
+        ingredient list into labeled groups ("FRENCH TOAST:", \
+        "TOPPING:", "FOR THE SAUCE:", "CRUST:", "FILLING:"). These \
+        are organizational labels, not step headers and not food \
+        items. Drop them silently — flatten all ingredients into one \
+        list regardless of their section. Do not emit a step or an \
+        ingredient entry for the label itself.
+    23. Incomplete or cut-off recipes: If the instructions end \
+        mid-sentence or a step is clearly unfinished (text trails off, \
+        final step has no conclusion), include whatever is visible as \
+        the last step text — do not fabricate the missing content. \
+        The quality gate still applies to what was captured: if title \
+        + ingredients are present, the draft is worth previewing even \
+        if the final step is incomplete.
+    24. Recipe card continuation markers: Strip "(over)", "(cont.)", \
+        "(continued)", "(see back)", "(flip)", "(back)" and similar \
+        card-flip annotations that appear at the bottom of handwritten \
+        recipe cards. They are navigation cues, not ingredients or \
+        steps.
+    25. Yield embedded in the title: When the title begins with a \
+        number followed by a food noun ("100 Good Cookies", \
+        "24 Brownies", "48 Mini Muffins"), that number is the yield — \
+        extract it into servings AND keep the full phrase as the title. \
+        Example: "100 Good Cookies" → title "100 Good Cookies", \
+        servings "100". Do not strip the number from the title.
 
     Worked example #1 (TikTok caption):
 
