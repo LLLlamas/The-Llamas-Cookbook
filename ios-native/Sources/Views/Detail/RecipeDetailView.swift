@@ -266,13 +266,8 @@ struct RecipeDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .enableSwipeBack()
         .toolbar {
-            // Custom back chevron so `.accentTextOutline()` can letterpress
-            // the glyph the same way every other accent-tinted icon on this
-            // surface does. System back button doesn't accept modifiers, so
-            // we hide it (`.navigationBarBackButtonHidden`) and rebuild the
-            // dismiss behavior ourselves. Back swipe still works — that's
-            // gesture-driven, not button-driven.
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     Haptics.selection()

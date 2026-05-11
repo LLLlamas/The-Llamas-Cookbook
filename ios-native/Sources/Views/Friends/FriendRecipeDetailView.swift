@@ -94,12 +94,9 @@ struct FriendRecipeDetailView: View {
         .navigationTitle(StringCase.titleCase(summary.recipeTitle))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .enableSwipeBack()
         .tint(friendAccent)
         .toolbar {
-            // Custom back chevron tinted in the friend's accent so the
-            // letterpressed `.accentTextOutline()` lifts it the same way
-            // every other accent-tinted glyph on this surface does.
-            // Back swipe still works regardless.
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     Haptics.selection()

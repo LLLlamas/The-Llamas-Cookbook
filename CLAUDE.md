@@ -2,181 +2,182 @@
 
 Source of truth for agents. Code wins when this disagrees.
 
-Last refreshed: 2026-05-07.
+Last refreshed: 2026-05-10.
 
 ## Status
 
-Live SwiftUI app under `ios-native/`. Version `1.0.0` (project.yml `MARKETING_VERSION`). CI overrides `CURRENT_PROJECT_VERSION` per archive. First public TestFlight target.
+Live SwiftUI app under `ios-native/`. Version `1.0.0`. CI overrides `CURRENT_PROJECT_VERSION` per archive. First public TestFlight target.
 
 ## Open work
 
 - Verify Universal Links on real devices.
-- Aesthetic/type pass; adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.
+- Adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.
 - Server-side uniqueness for `Friendship(userA,userB)` — currently client-side dedup only.
-- Account-deletion cascade: CKQuerySubscriptions still single-shot best-effort (orphaned subscriptions are cheap server-side state, CloudKit GCs them). All five record-type cascades route through `CloudPendingDeleteQueue`; `cloudShareOutbox` still tracks RecipeShare records at upload time and feeds the queue on `deleteAuthoredShares`.
-- Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision` from dev box (currently gitignored, not committed, but still present on disk).
+- Account-deletion cascade: CKQuerySubscriptions single-shot best-effort; all five record-type cascades route through `CloudPendingDeleteQueue`.
+- Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision` from dev box (gitignored, not committed, but present on disk).
 - App Store privacy labels need a once-over against CloudKit/Cloudflare sharing.
 
 ## Stack
 
 - Swift 5.10, SwiftUI, SwiftData, iOS 26+ deploy target, iOS 26 SDK.
-- `SWIFT_STRICT_CONCURRENCY: minimal` across all targets.
+- `SWIFT_STRICT_CONCURRENCY: minimal`.
 - XcodeGen: `ios-native/project.yml`. Do not hand-edit generated Xcode files.
-- CI: `macos-26` runner, Xcode 26. Windows dev machine — do NOT run `xcodegen`/`xcodebuild`/CocoaPods here.
+- CI: `macos-26` runner, Xcode 26. **Windows dev — do NOT run `xcodegen`/`xcodebuild`/CocoaPods here.**
 - Bundle IDs: `com.llamascookbook.app` (main), `.widget`, `.shareext`.
 - App Group: `group.com.llamascookbook.app`.
 - CloudKit container: `iCloud.com.llamascookbook.app`.
 - Universal Link host: `llamascookbook.pages.dev`.
 - Team: `GYFN949Q5E`. ASC app id: `6762527184`.
 
+## Directory map
+
+Start here before searching. Each row is the primary directory for that feature area.
+
+| Feature area | Primary directory |
+|---|---|
+| App shell, tab bar, deep links, navigation | `ios-native/Sources/App/` |
+| SwiftData models | `ios-native/Sources/Models/` |
+| Theme (colors, fonts, spacing, outline) | `ios-native/Sources/Theme/` |
+| Library, recipe cards, import flows | `ios-native/Sources/Views/Library/` |
+| Recipe editor | `ios-native/Sources/Views/Editor/` |
+| Recipe detail + sharing | `ios-native/Sources/Views/Detail/` |
+| Cook mode + timers | `ios-native/Sources/Views/Cook/` |
+| Friends / social views | `ios-native/Sources/Views/Friends/` |
+| Profile + auth views | `ios-native/Sources/Views/Profile/` |
+| Reusable UI components | `ios-native/Sources/Views/Components/` |
+| CloudKit ops (all `CloudKit*.swift`) | `ios-native/Sources/Lib/` |
+| Shared utilities + modifiers | `ios-native/Sources/Lib/` |
+| Widget + Live Activity | `ios-native/WidgetExtension/` |
+| Share extension | `ios-native/ShareExtension/` |
+| Web preview (Cloudflare Pages) | `cloudflare-pages/` |
+
 ## Feature → Files map
 
-**App shell / entry point**
-- `ios-native/Sources/App/LlamasCookbookApp.swift` — `@main`, `ModelContainer`, `AppDelegate` (APNs + remote-push dispatch)
-- `ios-native/Sources/App/RootView.swift` — tab bar, all deep-link routing, editor/cook/share sheet orchestration
+**App shell** (`Sources/App/`)
+- `LlamasCookbookApp.swift` — `@main`, `ModelContainer`, `AppDelegate` (APNs + remote-push dispatch)
+- `RootView.swift` — tab bar, all deep-link routing, editor/cook/share sheet orchestration
+- `EditorCoordinator.swift`, `NavigationContext.swift`, `CookingSession.swift`, `CookingSessionState.swift`
+- `FriendsStore.swift` — `@MainActor` cache of friends + requests
+- `UserAccount.swift` — SIWA identity, sign-out, delete-account cascade
+- `OwnerProfile.swift` — pre-SIWA display-name fallback; `AppearanceSettings.swift` — accent color
 
-**Data models**
-- `ios-native/Sources/Models/Recipe.swift` — `Recipe`, `Ingredient`, `RecipeStep`, `RecipePhoto`, `RecipeStepPhoto`; chain-attribution fields on `Recipe`
-- `ios-native/Sources/Models/DraftRecipe.swift` — editor draft type; photo bytes carried via `DraftPhoto`/`DraftStep`
+**Data models** (`Sources/Models/`)
+- `Recipe.swift` — `Recipe`, `Ingredient`, `RecipeStep`, `RecipePhoto`, `RecipeStepPhoto`; chain-attribution fields
+- `DraftRecipe.swift` — editor draft type; photos via `DraftPhoto`/`DraftStep`
 
-**Theme**
-- `ios-native/Sources/Theme/` — `AppColor`, `AppFont`, `AppSpacing`, `ColorHex`, `AccentTextOutline`
+**Theme** (`Sources/Theme/`)
+- `AppColor`, `AppFont`, `AppSpacing`, `ColorHex`, `AccentTextOutline`
 
-**Library / import**
-- `ios-native/Sources/Views/Library/LibraryView.swift`, `RecipeCardView.swift`, `EmptyLibraryView.swift`, `ImportHelpView.swift`
-- `ios-native/Sources/Views/Library/ImportFromTextLinkView.swift` — merged paste-text + URL-fetch sheet (replaces former `ImportFromTextView.swift` / `ImportFromLinkView.swift`)
-- `ios-native/Sources/Views/Library/ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
-- `ios-native/Sources/Views/Components/LetterIndex.swift`, `CookbookHeader.swift`, `RecipeImageView.swift`
-- `ios-native/Sources/Lib/RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
+**Library / import** (`Sources/Views/Library/`)
+- `LibraryView.swift`, `RecipeCardView.swift`, `EmptyLibraryView.swift`, `ImportHelpView.swift`
+- `ImportFromTextLinkView.swift` — merged paste-text + URL-fetch sheet
+- `ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
+- Components: `LetterIndex.swift`, `CookbookHeader.swift`, `RecipeImageView.swift`
+- Lib: `RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
 
-**Editor**
-- `ios-native/Sources/Views/Editor/RecipeEditorView.swift`
-- `ios-native/Sources/Views/Editor/IngredientRowEditor.swift`, `IngredientQuickAdd.swift`, `StepRowEditor.swift`, `StepQuickAdd.swift`, `SpecialNotesEditor.swift`, `TagInputView.swift`, `PhotoToggleButton.swift`
-- `ios-native/Sources/Views/Editor/Chips/QuantityChips.swift`, `UnitChips.swift`
-- `ios-native/Sources/App/EditorCoordinator.swift`
-- `ios-native/Sources/Lib/TagPresets.swift`, `IngredientDisplay.swift`, `Plural.swift`
+**Editor** (`Sources/Views/Editor/`)
+- `RecipeEditorView.swift`
+- `IngredientRowEditor.swift`, `IngredientQuickAdd.swift`, `StepRowEditor.swift`, `StepQuickAdd.swift`, `SpecialNotesEditor.swift`, `TagInputView.swift`, `PhotoToggleButton.swift`
+- `Chips/QuantityChips.swift`, `UnitChips.swift`
+- Lib: `TagPresets.swift`, `IngredientDisplay.swift`, `Plural.swift`
 
-**Detail / share**
-- `ios-native/Sources/Views/Detail/RecipeDetailView.swift`
-- `ios-native/Sources/Views/Detail/ImportersListSheet.swift`, `AttributionSheet.swift`, `ConversionsView.swift`, `SourdoughCalculatorView.swift`
-- `ios-native/Sources/Lib/RecipeShare.swift` — wire format (`LCRecipeShareV1`), encode/decode, file/URL/cloud paths
-- `ios-native/Sources/Lib/CloudKitService.swift` — CloudKit upload/fetch/delete, outbox, `queryAllRecords`, share-link constants
-- `ios-native/Sources/Lib/ImportCountCache.swift` — UserDefaults-backed import count cache (not on `@Model`)
+**Detail / share** (`Sources/Views/Detail/`)
+- `RecipeDetailView.swift`
+- `ImportersListSheet.swift`, `AttributionSheet.swift`, `ConversionsView.swift`, `SourdoughCalculatorView.swift`
+- Lib: `RecipeShare.swift` (wire format), `CloudKitService.swift` (upload/fetch/delete), `ImportCountCache.swift`
 
-**Cook mode / timers**
-- `ios-native/Sources/Views/Cook/CookModeView.swift`
-- `ios-native/Sources/App/CookingSession.swift`, `CookingSessionState.swift`
-- `ios-native/Sources/Lib/TimerNotifications.swift` — AlarmKit wrapper (`AlarmManager.shared`); always uses `AlertConfiguration.AlertSound.default` (system alarm tone) — sound is no longer user-configurable
-- `ios-native/Sources/Lib/ResumeCookModeIntent.swift` — `LiveActivityIntent` wired through AlarmKit's `secondaryIntent`; tapping the alarm's "Open" button posts a NotificationCenter event that `RootView` translates into the existing `routeCookDeepLink` path
-- `ios-native/Sources/Shared/TimerAlarmMetadata.swift` — shared between app + widget
-- `ios-native/WidgetExtension/TimerLiveActivity.swift` — AlarmKit Live Activity widget
-- `ios-native/WidgetExtension/TimerWidgetBundle.swift` — `@main` widget bundle (single member, future-extensible)
+**Cook mode / timers** (`Sources/Views/Cook/`)
+- `CookModeView.swift`
+- Lib: `TimerNotifications.swift` — AlarmKit wrapper (`AlarmManager.shared`); `ResumeCookModeIntent.swift`
+- `Shared/TimerAlarmMetadata.swift`; Widget: `TimerLiveActivity.swift`, `TimerWidgetBundle.swift`
 
-**Friends / social**
-- `ios-native/Sources/App/FriendsStore.swift` — `@MainActor` cache of friends + requests
-- `ios-native/Sources/App/UserAccount.swift` — SIWA identity, sign-out, delete-account cascade
-- `ios-native/Sources/Lib/CloudKitFriendship.swift` — `FriendshipRecord`, friendship CRUD on public DB
-- `ios-native/Sources/Lib/CloudKitUserProfile.swift` — `UserProfileSnapshot`, profile upsert/fetch/search
-- `ios-native/Sources/Lib/CloudKitPublishedRecipe.swift` — `PublishedRecipeSummary`, `PublishedRecipeDetail`, library mirror ops
-- `ios-native/Sources/Lib/CloudKitRecipeImport.swift` — `RecipeImportRecord`, import audit log ops
-- `ios-native/Sources/Lib/CloudKitSubscriptions.swift` — CKQuerySubscription registration + `dispatchRemoteNotification`
-- `ios-native/Sources/Lib/CloudPendingDeleteQueue.swift` — generic UserDefaults-backed retry queue for ALL cascade record deletes (`RecipeShare`, `Friendship`, `PublishedRecipe`, `RecipeImport`, `UserProfile`); drains on launch from `RootView.task`. Absorbs the legacy `cloudSharePendingDelete` key on first run after upgrade.
-- `ios-native/Sources/Lib/UserProfileMirror.swift` — iCloud user record name cache; canonical "is iCloud bound?" check
-- `ios-native/Sources/Lib/LibraryMirrorService.swift` — `@MainActor` singleton, 5s per-recipe debounce for `PublishedRecipe` upserts
-- `ios-native/Sources/Views/Friends/FriendsTabView.swift` — friends tab card grid
-- `ios-native/Sources/Views/Friends/FriendLibraryView.swift`, `FriendRecipeDetailView.swift`
-- `ios-native/Sources/Views/Profile/ProfileView.swift`, `AddFriendSheet.swift`
+**Friends / social** (`Sources/Views/Friends/`, `Sources/Lib/`)
+- `FriendsTabView.swift`, `FriendLibraryView.swift`, `FriendRecipeDetailView.swift`
+- Lib: `CloudKitFriendship.swift`, `CloudKitUserProfile.swift`, `CloudKitPublishedRecipe.swift`, `CloudKitRecipeImport.swift`, `CloudKitSubscriptions.swift`, `CloudPendingDeleteQueue.swift`, `UserProfileMirror.swift`, `LibraryMirrorService.swift`
 
-**Auth / identity**
-- `ios-native/Sources/Lib/SignInWithAppleService.swift`
-- `ios-native/Sources/Lib/KeychainStore.swift` — Apple `sub` + display name, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
-- `ios-native/Sources/App/OwnerProfile.swift` — pre-SIWA fallback for sender display name (UserDefaults); envelope-build code prefers `UserAccount.status.identity?.displayName` and falls back here for signed-out sessions
-- `ios-native/Sources/App/AppearanceSettings.swift` — accent color (UserDefaults + UIKit tint sync)
+**Auth / identity** (`Sources/Lib/`)
+- `SignInWithAppleService.swift`, `KeychainStore.swift` — Apple `sub` + display name
 
-**Share extension**
-- `ios-native/ShareExtension/ShareViewController.swift` — transparent passthrough; URL → `llamascookbook://share-url/`, file → App Group inbox
-- `ios-native/Sources/Shared/SharedContainer.swift`, `Base64URL.swift`
+**Share extension** (`ShareExtension/`)
+- `ShareViewController.swift` — URL → `llamascookbook://share-url/`, file → App Group inbox
+- `Sources/Shared/SharedContainer.swift`, `Base64URL.swift`
 
-**Web preview (Cloudflare Pages)**
-- `cloudflare-pages/functions/r/[id].js` — OG-tagged HTML preview page
-- `cloudflare-pages/functions/img/[id].js` — image proxy (content-length cap + magic-byte sniff)
-- `cloudflare-pages/lib/cloudkit.js` — CloudKit Web Services client (ECDSA P-256 auth)
-- `cloudflare-pages/.well-known/apple-app-site-association` — AASA for Universal Links
+**Web preview** (`cloudflare-pages/`)
+- `functions/r/[id].js` — OG-tagged HTML preview; `functions/img/[id].js` — image proxy
+- `lib/cloudkit.js` — CloudKit Web Services client (ECDSA P-256)
+- `.well-known/apple-app-site-association` — AASA for Universal Links
 
-**Components / misc**
-- `ios-native/Sources/Views/Components/` — `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/` (onboarding tours)
-- `ios-native/Sources/Views/Components/AccentColorPicker.swift` — system `ColorPicker` sheet; commits accent on `.onDisappear` only
-- `ios-native/Sources/Views/Components/SavedToast.swift` — friend-import success badge + `ImportFlyGhost` fly animation, driven by `NavigationContext.FriendImportToast`
-- `ios-native/Sources/Lib/ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `KeyboardDismiss.swift`, `Shake.swift`
-- `ios-native/Sources/Lib/AppMetadata.swift` — shared `currentAppVersion` (CFBundleShortVersionString) + `describeServerError` helpers; route any new `appVersion`-stamping or CKError-message-extraction site through these
-- `ios-native/Sources/App/NavigationContext.swift` — cross-view navigation signals + friend-import toast payload
+**Components / misc** (`Sources/Views/Components/`)
+- `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/`
+- `AccentColorPicker.swift`, `SavedToast.swift`
+- Lib: `ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `SwipeBack.swift`, `AppMetadata.swift`
 
 ## Hard invariants
 
-- **SwiftData: `cloudKitDatabase: .none`** — do not switch to `.automatic`. The schema uses `.cascade` delete rules and non-optional properties; auto-opt-in silently degrades to in-memory storage.
-- **`Recipe.apply(_:)` must NOT touch** `sharedBy`/`sharedAt`/`sourceShareID` or `originalCreator*`/`originalSharer*`/`originalRecipeID`/`importedAt`. Edits preserve the chain.
-- **`RecipeStep.image` and `Recipe.imageUri` are deprecated** migration baggage — kept so lightweight migration doesn't drop the attributes on existing installs. New step photos use `RecipeStepPhoto`; new gallery photos use `RecipePhoto`. Don't repurpose either name.
-- **`UserProfile` recordName uses `profile_` prefix** — prevents collision with CloudKit's system `Users` record type. Prefix applied/stripped in `CloudKitUserProfile.swift`; callers pass raw iCloud user record names.
+- **SwiftData: `cloudKitDatabase: .none`** — `.cascade` delete rules + non-optional props break auto-opt-in (silently degrades to in-memory).
+- **`Recipe.apply(_:)` must NOT touch** `sharedBy`/`sharedAt`/`sourceShareID` or `originalCreator*`/`originalSharer*`/`originalRecipeID`/`importedAt`. Edits preserve the attribution chain.
+- **`RecipeStep.image` and `Recipe.imageUri` are deprecated** migration baggage — do not repurpose; kept so lightweight migration doesn't drop attributes on existing installs.
+- **`UserProfile` recordName uses `profile_` prefix** — applied/stripped in `CloudKitUserProfile.swift`; callers pass raw iCloud user record names.
 - **`PublishedRecipe.recordName == Recipe.id.uuidString`** — upsert fetches by recordName without a query.
 - **`queryAllRecords` follows cursors** — never reintroduce first-page-only social queries.
-- **Predicates split per field, not OR** — CloudKit public-DB OR requires every field to be queryable; a missing index throws `invalidArguments` and silently skips the cascade. See `deleteAllRecipeImports` (two legs) and `registerFriendshipSubscription` (two legs).
-- **Re-inject `@Observable` environments** into every sheet/fullScreenCover — `@Observable` values can drop across presentation boundaries on iOS 26.
-- **`FriendsStore.refresh()` sets `isRefreshing` synchronously** before any `await` to prevent re-entrancy across `.task` + `.onChange` racers.
+- **Predicates split per field, not OR** — CloudKit public-DB OR on non-queryable fields throws `invalidArguments` and silently skips cascades.
+- **Re-inject `@Observable` environments** into every sheet/fullScreenCover — values drop across presentation boundaries on iOS 26.
+- **`FriendsStore.refresh()` sets `isRefreshing` synchronously** before any `await` — prevents re-entrancy across `.task` + `.onChange` racers.
 - **`UserProfileMirror.cachedRecordID()`** is the canonical "is iCloud bound?" check — every social write short-circuits when nil.
-- **`LibraryMirrorService`** is a `@MainActor` singleton with a 5s per-`Recipe.id` debounce. Sign-out/delete-account paths must call `resetBulkPublishMarker()`.
-- **`ImportCountCache`** lives in UserDefaults, not on `Recipe` — chip refreshes must not trigger SwiftData change notifications that cause spurious `LibraryMirrorService` re-publishes.
-- **AlarmKit** owns the cook-timer lock-screen alert and Live Activity countdown. `TimerNotifications.schedule/cancel` wraps `AlarmManager.shared`. Widget renders `AlarmAttributes<TimerAlarmMetadata>` directly.
-- **App Group identifier** `group.com.llamascookbook.app` must match: `SharedContainer.appGroupID`, main app entitlements, share extension entitlements, and portal profiles — four places, one string.
-- **HEIC photos transcode to JPEG before upload to `RecipeShare`** (`ImageProcessing.transcodeHEICToJPEGForSharing`, called from `CloudKitService.uploadShare`). Local SwiftData stays HEIC; only the share-bound copy is JPEG so non-Apple link unfurlers (WhatsApp, Slack, Discord, Chrome) can preview the photo.
-- **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` is the single source of truth for the 25 MB inbound cap. Both `RecipeShare.maxInboundBytes` (main app) and `ShareViewController.maxInboundBytes` (share extension) reference it — do not reintroduce duplicated literals.
-- **Cloud-share failures show "try again later"** — `RecipeDetailView.shareViaPreferredTransport` aborts with an alert when iCloud is unavailable or upload fails. No long-URL fallback. The "Share recipe" menu only ever produces an HTTPS Universal Link permalink.
-- **`AccentColorPicker` commits on `.onDisappear`, never mid-pick** — driving `pickerColor` straight into `AppearanceSettings.accentColor` re-renders the parent, rebuilds the `ColorPicker` subtree, and desyncs `UIColorPickerViewController` so only the first pick registers. `@Environment(AppearanceSettings.self)` must also be re-injected at every call site or the live preview stops updating once the system picker covers the sheet.
-- **CI Xcode toolchain pinning needs PATH override + beta rename + dangling-symlink filter, not just `DEVELOPER_DIR`** — `macos-26` ships `Xcode_*beta*.app` next to the stable point releases, *and* it creates marketing-version symlink aliases that point at the beta (e.g. `Xcode_26.5.0.app` → `Xcode_26.5_beta_2.app`, `Xcode_26.5.app` → same). The runner's shell profile also pre-pends the default Xcode's `usr/bin` to PATH. Setting `xcode-select`/`DEVELOPER_DIR` alone leaves xcodebuild's sub-tools (actool, clang, ld, xcrun's iphoneos SDK lookup) resolving to the beta — `xcodebuild -version` still reports stable, but the archived binary is built by beta tooling. Internal TestFlight accepts it; external TestFlight rejects it with "This build is using a beta version of Xcode." The `Select Xcode 26` step in `ios-native-ci.yml` (1) renames every `Xcode_*beta*.app` to `_disabled_…`, (2) filters the resulting `Xcode_26*.app` glob to entries with a real `Contents/Developer` directory (the rename leaves the marketing-version symlinks dangling, and `sort -V` would otherwise pick them ahead of the real GM), and (3) re-pins both `DEVELOPER_DIR` and `PATH`.
+- **`LibraryMirrorService`** — `@MainActor` singleton, 5s per-`Recipe.id` debounce. Sign-out/delete must call `resetBulkPublishMarker()`.
+- **`ImportCountCache`** in UserDefaults, not `@Model` — prevents chip refreshes from triggering spurious `LibraryMirrorService` re-publishes.
+- **AlarmKit** owns cook-timer lock-screen alerts + Live Activity. `TimerNotifications.schedule/cancel` wraps `AlarmManager.shared`. Sound is always `AlertConfiguration.AlertSound.default` (not user-configurable).
+- **App Group** `group.com.llamascookbook.app` — must match in 4 places: `SharedContainer.appGroupID`, main app entitlements, share extension entitlements, portal profiles.
+- **HEIC → JPEG before CloudKit upload** (`ImageProcessing.transcodeHEICToJPEGForSharing`). Local SwiftData stays HEIC.
+- **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` — single source for the 25 MB cap; both main app and share extension reference it.
+- **Cloud-share failures show "try again later"** — no long-URL fallback. "Share recipe" always produces an HTTPS Universal Link.
+- **`AccentColorPicker` commits on `.onDisappear`**, never mid-pick — driving it earlier desyncs `UIColorPickerViewController` (only the first pick registers).
+- **Custom back buttons** (`RecipeDetailView`, `FriendLibraryView`, `FriendRecipeDetailView`) use `.navigationBarBackButtonHidden(true)` + `.enableSwipeBack()` (`Lib/SwipeBack.swift`) for letterpress styling + working swipe-back. `RecipeEditorView` omits `.enableSwipeBack()` intentionally — Cancel/Save pattern, data-loss risk.
+- **CI Xcode toolchain**: `macos-26` ships beta `.app`s with dangling marketing-version symlinks. `Select Xcode 26` step (1) renames `Xcode_*beta*.app` → `_disabled_…`, (2) filters for real `Contents/Developer`, (3) re-pins both `DEVELOPER_DIR` and `PATH`. Setting only `DEVELOPER_DIR` leaves sub-tools (actool, clang, ld) on the beta; external TestFlight rejects beta-built archives.
 
 ## CloudKit schema
 
-All record types on the **public DB**. Privacy: world-readable, world-writable (no Security Role yet — add one before expanding TestFlight).
+All record types on the **public DB**. Privacy: world-readable, world-writable (no Security Role yet).
 
 | Record type | Key fields | Notes |
 |---|---|---|
-| `RecipeShare` | `envelope` (Asset), `senderDisplayName`, `recipeTitle`, `createdAt` (queryable+sortable), `photo0`–`photo19` (Asset, optional); system `___createdBy` queryable for deleteAccount cascade | 12-char random recordName; Cloudflare still routes legacy 6-char IDs |
+| `RecipeShare` | `envelope` (Asset), `senderDisplayName`, `recipeTitle`, `createdAt` (queryable+sortable), `photo0`–`photo19` (Asset, optional) | 12-char random recordName; Cloudflare routes legacy 6-char IDs |
 | `UserProfile` | `displayName`, `accentHex`, `createdAt`, `lastCookedAt`, `lastCookedRecipeID`, `lastCookedTitle`, `cookingStartedAt` | recordName = `profile_<iCloudUserRecordName>` |
 | `Friendship` | `userA`, `userB` (queryable, lexicographic pair), `requesterID`, `status` (queryable), `acceptedAt` | One record per pair; deny is destructive |
-| `PublishedRecipe` | `ownerID`, `localRecipeID`, `recipeTitle`, `updatedAt`, `originalCreatorID`, `originalRecipeID`, `summary`, `tags` (String List), `photo0`–`photo19` | recordName = `Recipe.id.uuidString`; `summary`+`tags` denormalized for friend-library card rendering, neither queryable |
+| `PublishedRecipe` | `ownerID`, `localRecipeID`, `recipeTitle`, `updatedAt`, `originalCreatorID`, `originalRecipeID`, `summary`, `tags` (String List), `photo0`–`photo19` | recordName = `Recipe.id.uuidString`; `summary`+`tags` not queryable |
 | `RecipeImport` | `originalCreatorID`, `originalRecipeID`, `importerID`, `importerDisplayName`, `sourceUserID`, `importedAt` | Append-only audit log |
 
-Photo cap: 10 MB per photo (`maxCloudPhotoBytes`), 40 MB total (`maxCloudTotalPhotoBytes`). `photo0`–`photo19` fields must be added manually in CloudKit Console (auto-discovery misses optional `CKAsset` slots).
+Photo cap: 10 MB per photo (`maxCloudPhotoBytes`), 40 MB total. `photo0`–`photo19` must be added manually in CloudKit Console.
 
-Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `recipe-import-events-<me>`. Silent pushes only (`shouldSendContentAvailable = true`). Fan-out: `AppDelegate` → `CloudKitSubscriptions.dispatchRemoteNotification` → `Notification.Name.cloudKitSubscriptionFired` on `NotificationCenter.default` with `userInfo["kind"]`.
+Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `recipe-import-events-<me>`. Silent pushes only. Fan-out: `AppDelegate` → `CloudKitSubscriptions.dispatchRemoteNotification` → `Notification.Name.cloudKitSubscriptionFired` with `userInfo["kind"]`.
 
 ## Signing / portal
 
-**GitHub Secrets (CI):** `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_P12_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `IOS_WIDGET_PROVISIONING_PROFILE_BASE64`, `IOS_SHARE_EXT_PROVISIONING_PROFILE_BASE64`, `APPSTORE_API_KEY_P8_BASE64`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_ISSUER_ID`.
+**GitHub Secrets:** `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_P12_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `IOS_WIDGET_PROVISIONING_PROFILE_BASE64`, `IOS_SHARE_EXT_PROVISIONING_PROFILE_BASE64`, `APPSTORE_API_KEY_P8_BASE64`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_ISSUER_ID`.
 
 **Cloudflare Pages env:** `CLOUDKIT_CONTAINER_ID`, `CLOUDKIT_KEY_ID`, `CLOUDKIT_PRIVATE_KEY` (encrypted), `CLOUDKIT_ENVIRONMENT`.
 
-**Main app entitlements** (`Resources/LlamasCookbook.entitlements`): App Group, Sign in with Apple, iCloud CloudKit (`iCloud.com.llamascookbook.app`), Associated Domains (`applinks:llamascookbook.pages.dev`), `aps-environment`. All entitlements are baked into the provisioning profile at issue time — regenerate the profile after any capability change.
+**Entitlements** (`Resources/LlamasCookbook.entitlements`): App Group, SIWA, iCloud CloudKit, Associated Domains (`applinks:llamascookbook.pages.dev`), `aps-environment`. Regenerate profile after any capability change.
 
-**`UIDesignRequiresCompatibility = true`** — intentional Liquid Glass opt-out. Remove before iOS 27 forces it off.
+**`UIDesignRequiresCompatibility = true`** — Liquid Glass opt-out. Remove before iOS 27 forces it off.
 
-**AASA** (`cloudflare-pages/.well-known/apple-app-site-association`): declares `GYFN949Q5E.com.llamascookbook.app` against `/r/*`.
+**AASA** (`cloudflare-pages/.well-known/apple-app-site-association`): `GYFN949Q5E.com.llamascookbook.app` against `/r/*`.
 
-**Image proxy** (`functions/img/[id].js`): `MAX_PROXY_IMAGE_BYTES = 10_000_000`, content-length precheck, magic-byte sniff (JPEG/PNG/WebP/HEIC).
+**Image proxy** (`img/[id].js`): 10 MB cap, magic-byte sniff (JPEG/PNG/WebP/HEIC).
 
-**Keychain** (`KeychainStore.swift`): `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable — deliberate; Apple `sub` is per-device-team.
+**Keychain** (`KeychainStore.swift`): `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable — Apple `sub` is per-device-team.
 
 ## UX guardrails
 
 - Quick-add rows + Return-to-add; gesture fallbacks always visible.
 - Cook Mode: large type, warm cream background, check-off flow, ready overlay.
 - Quantity: strings, mixed fractions, `&` output, measurable chip set only.
-- Detail ingredient: accent quantity + em dash.
-- Per-step timers: clock glyph + `needsTimer` flag.
+- Detail ingredient: accent quantity + em dash. Per-step timers: clock glyph + `needsTimer` flag.
 - Carousels: no inline reorder arrows — use dedicated reorder mode (`PhotoReorderView`).
-- New-recipe llama tour is interactive — dim/halo are `.allowsHitTesting(false)` so the user types into the real editor fields as the walkthrough runs; finishing the tour and tapping Save in the toolbar persists a real `Recipe`. No Skip button, but an Exit pill sits below the Back/Next arrow row to bail out at any step (typed work stays in the editor). Six consolidated steps (Name+Description, Servings+PrepTime, Photos, Tag It, Ingredients, Steps+Notes). See `llama-intro.md`.
+- Llama tour: interactive, dim/halo are `.allowsHitTesting(false)`. No Skip button; Exit pill below nav row. Six steps (Name+Desc, Servings+Prep, Photos, Tags, Ingredients, Steps+Notes). See `llama-intro.md`.
 - Duplicate title import: prompt + prefill `Title (N)`, including friend cookbook imports.
-- Social copy: "shared", "appears in Friends", "unlisted". Never "private to friends" or "only friends can see."
-- Friend surfaces (`FriendLibraryView`, `FriendRecipeDetailView`, `FriendsTabView`): tint in friend's accent. Presence dot: filled+pulsing when `cookingStartedAt` < 6h ago, hollow when idle. `lastCookedTitle` shows as "Cooking: <title>" eyebrow during a cook.
-- `LibraryView` profile button: `.disabled(editor.active != nil)` — not a silent no-op while editor is up.
-- **Bottom tab bar** (`TabView.tabItem` in `RootView`): font color stays the default terracotta accent without `.accentTextOutline()` because SwiftUI's native `TabView` strips view modifiers from `.tabItem` content (the bar is system-rendered via UIKit `UITabBarItem`). May revisit later by switching to a custom tab bar implementation if the inconsistency with other accent surfaces becomes visually disruptive.
-- **Letterpress outline on accent surfaces.** `Sources/Theme/AccentTextOutline.swift` exposes `.accentTextOutline()` — four cardinal 0.4pt shadows in `AppColor.textPrimary` at 0.22 opacity, sitting under any colored glow. Applied universally to prominent accent-tinted text and SF-Symbol icons across the app: cookbook headers, recipe titles (own + friend), tag chips, filter pills (incl. "All" + sort glyph), the FAB `+`, recipe-card thumbnails, custom back chevrons (own/friend recipe + friend library — system back replaced via `.navigationBarBackButtonHidden(true)` + `@Environment(\.dismiss)`), top toolbar icons (heart/share/edit, info, refresh, gearshape, person.badge.plus), Cook Mode top bar + phase pill + step badges + photos/timer chips + special-note glyph, Recipe Detail Start-Cooking pill / provenance / ingredient quantity & unit / step number / per-step timer & photo glyphs / Reference link, AccentColorPicker preview + Done, AttributionSheet / ImportersListSheet / PhotoCarouselView / PhotoReorderView Done, all non-alert toolbar Cancel/Done buttons, profile "Last cooked" eyebrow, outgoing-request inline Cancel, `LetterIndex` A–Z/# glyphs, `CategoryFilterStrip` pills, `ShrinkingDescriptionView` is unaffected (canvas-rendered), and the Cook Mode `displayTitle` + `RunningTimerSheet` mm:ss readout. **Skipped intentionally:** white-on-accent (`AppColor.onAccent`) glyphs (FAB-style filled buttons, Mark-as-Cooked, IngredientRow Done capsule, friend-request Approve, Cook Mode floatingTimerBar / TimerReadyOverlay) where the dark shadow muddies white text; system alert/dialog buttons (SwiftUI alert chrome strips view modifiers); the destructive minus/delete glyphs in the carousel; native `TabView.tabItem` (system-rendered, can't carry the modifier — needs custom tab bar to outline). When adding a new accent-tinted surface, default to applying `.accentTextOutline()` unless it falls in one of the skip categories.
+- Social copy: "shared", "appears in Friends", "unlisted". Never "private to friends".
+- Friend surfaces: tint in friend's accent. Presence dot: filled+pulsing when `cookingStartedAt` < 6h, hollow when idle. `lastCookedTitle` as "Cooking: <title>" eyebrow during a cook.
+- `LibraryView` profile button: `.disabled(editor.active != nil)` — not a silent no-op.
+- **Tab bar** (`RootView`): `.accentTextOutline()` not applied — system `TabView`/UIKit strips modifiers from `.tabItem`.
+- **Letterpress outline**: `.accentTextOutline()` (`Theme/AccentTextOutline.swift`) — four 0.4pt shadows at 0.22 opacity. Apply to all prominent accent-tinted text/icons. **Skip on**: white-on-accent (`AppColor.onAccent`) glyphs, system alert buttons, carousel destructive glyphs, native `.tabItem`.

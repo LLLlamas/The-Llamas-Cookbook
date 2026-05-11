@@ -73,11 +73,9 @@ struct FriendLibraryView: View {
         .navigationTitle(StringCase.cookbookTitle(displayName: friend.displayName))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .enableSwipeBack()
         .tint(friendAccent)
         .toolbar {
-            // Custom back chevron tinted in the friend's accent so
-            // `.accentTextOutline()` can letterpress the glyph the same
-            // way the cookbook header does. Back swipe still works.
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     Haptics.selection()
