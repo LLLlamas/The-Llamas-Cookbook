@@ -256,12 +256,17 @@ enum RecipeAIParser {
         ingredient lines. When in doubt, ask: "is this something I \
         buy at the store or something I do?" If it's something I do, \
         it's a step.
-    12. Action-prefix step headers: Lines beginning with "Prep:", \
-        "To Bake:", "To Air Fry:", "To Cook:", "To Make:", "Serve:", \
-        or "To Serve:" are ALWAYS steps. Strip the prefix label and \
-        put the action text into steps. NEVER classify these as \
-        ingredients — even if they appear between ingredient lines \
-        in the OCR output.
+    12. Action-prefix step headers: Any phrase ending in ":" that \
+        names a cooking stage or method is a step header — strip it \
+        and keep the action text as a step. This includes explicit \
+        prefixes like "Prep:", "To Bake:", "To Air Fry:", "Serve:" \
+        AND named stage headers like "Prepare the filling:", \
+        "Start the batter:", "Finish the batter:", "Bake the cake:", \
+        "Make the sauce:", "Assemble:", "For the glaze:", etc. The \
+        rule is: if it names what you're about to do and ends in ":", \
+        it's a header — strip it, then split the remaining text into \
+        individual steps as normal. NEVER classify these headers or \
+        their following text as ingredients.
     13. Alternative cooking methods: When a recipe offers two methods \
         separated by "or" (e.g. oven vs. air fryer), include both as \
         consecutive steps with a short method label: "Oven: ..." then \
@@ -280,6 +285,33 @@ enum RecipeAIParser {
         temperatures "4257F" / "4257°F" → "425°F", "3757F" → \
         "375°F", "3507F" → "350°F" (oven temps 300–500°F; air fryer \
         325–425°F — pick the closest plausible value). Apply silently.
+    16. Two-column cookbook layout — OCR interleaving: Many cookbook \
+        pages place the ingredient list in the left column and the \
+        instructions in the right column. OCR reads horizontal bands \
+        across both columns, producing interleaved output where a \
+        step fragment appears between two ingredient lines. Sort every \
+        fragment by content type regardless of OCR order: food item \
+        with a quantity → ingredient; cooking action → step. A \
+        step fragment sandwiched between ingredient lines is still a \
+        step. An ingredient fragment sandwiched between step lines is \
+        still an ingredient. Also: partial ingredient lines that were \
+        split by the column break (e.g. "1 (14-oz) block firm" on one \
+        line, "tofu, drained" on the next) should be rejoined into one \
+        ingredient entry.
+    17. "To serve:" listings: The pattern "To serve: X, Y" or \
+        "For serving: X" appearing anywhere in the text lists serving \
+        accompaniments. Add each item as a separate ingredient with \
+        empty quantity and unit. Example: "To serve: rice, veggies" \
+        → ingredient name "rice" + ingredient name "veggies". Do NOT \
+        turn this line into a step.
+    18. Alternative cooking methods as specialNote: When two cooking \
+        methods are offered as alternatives ("To Bake: … or To Air \
+        Fry: …", "Oven: … / Stovetop: …"), use the first method as \
+        the main step text and fold the second method into that step's \
+        specialNote prefixed with the method label. Example: main \
+        step "Bake for 25 minutes, flipping halfway, until crispy", \
+        specialNote "Air fryer: Preheat to 375°F. Cook 10–15 minutes, \
+        shaking occasionally."
 
     Worked example #1 (TikTok caption):
 
@@ -414,56 +446,79 @@ enum RecipeAIParser {
     the step list clean. "of" in "1 cup of flour" is a connector and \
     is dropped from the name.
 
-    Worked example #4 (printed cookbook page, OCR'd — action headers \
-    bled into ingredient list, two cooking methods, DIY sidebar):
+    Worked example #4 (printed two-column cookbook page, OCR'd — \
+    columns interleaved, action headers mixed into ingredient list, \
+    alternative cooking methods, "To serve:" items, DIY sidebar):
 
     INPUT:
-    Quick Crispy Tofu
-    Serves 4 · 20 Minutes
-    A simple dish celebrating bold seasoning.
+    Crispy Seasoned Tofu
+    Serves 4 · 30 Minutes
+    A simple dish celebrating bold flavor.
 
-    1 (14-oz) block firm tofu, drained
-    Prep: Preheat oven to 4257F. Pat tofu dry, break into chunks. In \
-    a bowl, toss with cornstarch and seasoning until evenly coated.
-    # tablespoon cornstarch
+    1 (14-ounce) block firm or
+    Prep: Preheat oven to 4257F. Pat tofu dry
+    extra firm tofu, drained
+    with a clean towel, then break into bite-
+    1 tablespoon cornstarch
+    sized chunks. In a large bowl, stir together
     A tablespoon seasoning blend
+    cornstarch, seasoning, and solt. Add tofu
     15 tsp — salt
-    To Bake: Arrange pieces on a greased sheet pan; bake 25 minutes, \
-    flipping halfway, until crispy.
+    and toss to evenly coat.
+    To serve: rice, veggies
+    ro baxe: Arrange tofu on a greased sheet pan
+    baking sheet and bake for about 25 minutes,
+    flipping halfway through cooking, until
+    golden brown and crispy.
     or
-    To Air Fry: Preheat air fryer to 3757F. Cook 10-15 minutes, \
-    shaking pan occasionally.
-    Serve: Serve warm with rice or veggies.
+    To Air Fry: Preheat air fryer to 3757F.
+    Add tofu to basket in a single layer.
+    Cook for 10-15 minutes, shaking pan
+    occosionally to promote even cooking.
+    Serve: Serve warm with rice or a veggie.
 
     DIY SEASONING BLEND
-    Mix 2 tbsp black pepper, 1 tbsp flaky sea salt, 1 tsp onion \
-    powder, 1 tsp garlic powder. Blitz in a spice grinder.
+    Mix 2 tbsp black pepper, 1 tbsp flaky sea
+    salt, 1 tsp onion powder, 1 tsp garlic powder.
+    Blitz in a spice grinder.
 
     OUTPUT:
-    title: "Quick Crispy Tofu"
-    summary: "A simple dish celebrating bold seasoning."
+    title: "Crispy Seasoned Tofu"
+    summary: "A simple dish celebrating bold flavor."
     servings: "4"
-    cookTimeMinutes: "20"
+    cookTimeMinutes: "30"
     prepTimeMinutes: ""
     ingredients:
-      - quantity "1", unit "", name "(14-oz) block firm tofu, drained"
+      - quantity "1", unit "", name "(14-ounce) block firm or extra firm tofu, drained"
       - quantity "1", unit "tbsp", name "cornstarch"
       - quantity "1", unit "tbsp", name "seasoning blend"
       - quantity "½", unit "tsp", name "salt"
+      - quantity "", unit "", name "rice"
+      - quantity "", unit "", name "veggies"
     steps:
       - text "Preheat oven to 425°F", needsTimer false, specialNote ""
-      - text "Pat tofu dry, then break into chunks", needsTimer false, specialNote ""
-      - text "In a bowl, toss tofu with cornstarch and seasoning until evenly coated", needsTimer false, specialNote ""
-      - text "Oven: Arrange on a greased sheet pan; bake 25 minutes, flipping halfway, until crispy", needsTimer true, specialNote ""
-      - text "Air fryer: Preheat to 375°F. Cook 10-15 minutes, shaking occasionally", needsTimer true, specialNote ""
-      - text "Serve warm with rice or veggies", needsTimer false, specialNote "DIY seasoning blend: Mix 2 tbsp black pepper, 1 tbsp flaky salt, 1 tsp onion powder, 1 tsp garlic powder."
+      - text "Pat tofu dry with a clean towel, then break into bite-sized chunks", needsTimer false, specialNote ""
+      - text "In a large bowl, stir together cornstarch, seasoning, and salt", needsTimer false, specialNote ""
+      - text "Add tofu and toss to evenly coat", needsTimer false, specialNote ""
+      - text "Arrange tofu on a greased sheet pan; bake for about 25 minutes, flipping halfway, until golden brown and crispy", needsTimer true, specialNote "Air fryer: Preheat to 375°F. Add tofu to basket in a single layer. Cook 10–15 minutes, shaking occasionally."
+      - text "Serve warm with rice or a veggie", needsTimer false, specialNote "DIY seasoning blend: Mix 2 tbsp black pepper, 1 tbsp flaky salt, 1 tsp onion powder, 1 tsp garlic powder."
 
-    Notice: "Prep:" content moved to steps, not ingredients — even \
-    though OCR placed it between ingredient lines. "#" and "A" OCR \
-    errors corrected to "1". "15 tsp — salt" → "½ tsp salt". \
-    "4257F" → "425°F", "3757F" → "375°F". Both oven and air fryer \
-    methods preserved with labels. DIY sidebar collapsed into a \
-    specialNote on the final step, not broken into main steps.
+    Critical patterns demonstrated here:
+    - TWO-COLUMN INTERLEAVE: "1 (14-ounce) block firm or" and \
+      "extra firm tofu, drained" are the same ingredient split \
+      across lines by the column layout — rejoined into one entry. \
+      "cornstarch, seasoning, and solt." and "Add tofu and toss to \
+      evenly coat." are step fragments that appeared between \
+      ingredient lines — they go to STEPS, not ingredients.
+    - OCR FIXES: "A tablespoon" → "1 tablespoon"; "15 tsp — salt" \
+      → "½ tsp salt"; "4257F" → "425°F"; "3757F" → "375°F"; \
+      "ro baxe:" → "To Bake:" recognized as step header.
+    - "To serve: rice, veggies" → two ingredients with empty \
+      quantity/unit, not a step.
+    - ALTERNATIVE METHOD: "To Bake:" is the main method (becomes \
+      the step text); "To Air Fry:" is the alternative (becomes \
+      specialNote on that step).
+    - DIY SIDEBAR: collapsed into specialNote on the final step.
     """
 }
 
