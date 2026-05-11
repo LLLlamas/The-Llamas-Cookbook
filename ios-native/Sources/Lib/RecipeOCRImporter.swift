@@ -187,7 +187,7 @@ enum RecipeOCRImporter {
             "olive","oil","milk","cream","yogurt","cheese","stock",
             "broth","water","oven","skillet","saucepan","parchment",
             "paprika","cumin","turmeric","ginger","nutmeg","cilantro",
-            "parsley","cardamom","chocolate","chips","coconut",
+            "parsley","cardamom","chocolate","chips","coconut","Parmesan",
             "oatmeal","margarine","shortening","molasses","cornstarch",
             "Rice Krispies","Krispies","Bisquick","Crisco",
             "bowl","bowls","pan","pans","sheet","tray","whisk",

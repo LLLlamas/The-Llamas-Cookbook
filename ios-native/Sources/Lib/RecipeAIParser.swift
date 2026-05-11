@@ -362,6 +362,26 @@ enum RecipeAIParser {
         extract it into servings AND keep the full phrase as the title. \
         Example: "100 Good Cookies" → title "100 Good Cookies", \
         servings "100". Do not strip the number from the title.
+    26. Decorative cookbook content: Printed cookbook pages often include \
+        decorative editorial elements that are not part of the recipe — \
+        literary quotes with author attribution ("'A loaf of bread' the \
+        Walrus said. / LEWIS CARROLL (1832-1898)"), chapter epigraphs, \
+        publisher credits, author bios, and similar text. Discard any \
+        block that consists of quoted text (in quotation marks or clearly \
+        a quotation) followed by a person's name, dates like \
+        "(1832-1898)", or a descriptor like "English writer and \
+        mathematician." These are decorative and are never recipe \
+        ingredients or steps.
+    27. Book gutter and margin artifacts: When a cookbook is \
+        photographed, text from the adjacent page sometimes bleeds \
+        through the spine as isolated 1-5 character fragments ("sag", \
+        "ell", "For", "eat"). These appear as orphan lines with no \
+        culinary meaning and no connection to the surrounding recipe \
+        text. Discard any line that is 1-5 characters, carries no \
+        culinary or recipe meaning, and breaks the logical flow of the \
+        surrounding content. (A word like "For" that is followed by \
+        recipe text on the next line is NOT an artifact — only drop \
+        it when it truly floats in isolation with nothing before or after.)
 
     Worked example #1 (TikTok caption):
 
