@@ -2,13 +2,10 @@ import Foundation
 
 /// Anthropic Claude API client for recipe parsing.
 ///
-/// **Phase 2 (TestFlight only):** The API key is injected at build time
-/// via the `ANTHROPIC_API_KEY` build setting → Info.plist, then moved
-/// into Keychain on first launch by `provisionKeyIfNeeded()`. The key
-/// is technically present in the compiled binary, which is acceptable
-/// for internal TestFlight. Before App Store submission, migrate to the
-/// Cloudflare Worker proxy (Phase 3 of implement-new-ai-import.md) so
-/// the key never ships in a public binary.
+/// Routes through the Cloudflare Worker proxy at
+/// `llamascookbook.pages.dev/api/parse` so the Anthropic API key
+/// never ships in the app binary. The Worker holds the key in an
+/// encrypted env var and injects it before forwarding to Anthropic.
 ///
 /// **Structured output:** Forces the model to call the `structured_recipe`
 /// tool so the response is always a JSON object matching the recipe schema
@@ -22,51 +19,24 @@ import Foundation
 /// caching; it has no effect on accounts that haven't opted in.
 enum AnthropicRecipeParser {
 
-    // MARK: - Setup
+    // MARK: - Availability
 
-    /// Read the Anthropic API key baked into Info.plist at build time
-    /// (via `ANTHROPIC_API_KEY` build setting) and store it in Keychain.
-    /// Call once at app start from `LlamasCookbookApp.init()`. Idempotent
-    /// — rewrites Keychain whenever the bundle value is non-empty and
-    /// valid, which allows key rotation by updating the build setting
-    /// without reinstalling the app.
-    ///
-    /// The `$(...)` guard prevents writing the literal unexpanded
-    /// placeholder string that Xcode leaves in Info.plist when
-    /// `ANTHROPIC_API_KEY` is undefined in the active build configuration.
-    static func provisionKeyIfNeeded() {
-        guard
-            let bundleKey = Bundle.main.object(forInfoDictionaryKey: "AnthropicAPIKey") as? String,
-            !bundleKey.isEmpty,
-            !bundleKey.hasPrefix("$(")
-        else { return }
-        KeychainStore.write(bundleKey, to: .anthropicAPIKey)
-    }
-
-    /// True when a non-empty API key is present in Keychain. Used by
-    /// `RecipeAIParser.parseBestOf` to gate the Claude path without a
-    /// network round-trip.
-    static var isConfigured: Bool {
-        guard let key = KeychainStore.read(.anthropicAPIKey) else { return false }
-        return !key.isEmpty
-    }
+    /// Always true — the proxy is always reachable when the device has
+    /// network. Network failures fall through to nil gracefully.
+    static let isConfigured: Bool = true
 
     // MARK: - Parse
 
-    /// Parse a free-form recipe blob via the Claude Haiku API.
+    /// Parse a free-form recipe blob via the Cloudflare → Claude Haiku path.
     ///
     /// Returns nil when:
-    /// - No API key is configured in Keychain.
-    /// - The network call fails or the API returns an error status.
+    /// - The network call fails or the proxy returns an error status.
     /// - The model's response fails the minimum quality gate (title +
     ///   at least one ingredient or step).
     ///
     /// Callers treat nil as "fall back to the next parser in the chain"
     /// — never as a hard failure the user sees.
     static func parse(_ text: String, sourceUrl: String?) async -> DraftRecipe? {
-        guard let apiKey = KeychainStore.read(.anthropicAPIKey), !apiKey.isEmpty else {
-            return nil
-        }
         let trimmed = text.trimmed
         guard !trimmed.isEmpty else { return nil }
 
@@ -76,7 +46,7 @@ enum AnthropicRecipeParser {
         let capped = trimmed.count > 15_000 ? String(trimmed.prefix(15_000)) : trimmed
 
         do {
-            return try await callAPI(text: capped, sourceUrl: sourceUrl, apiKey: apiKey, attempt: 0)
+            return try await callAPI(text: capped, sourceUrl: sourceUrl, attempt: 0)
         } catch {
             return nil
         }
@@ -87,14 +57,12 @@ enum AnthropicRecipeParser {
     private static func callAPI(
         text: String,
         sourceUrl: String?,
-        apiKey: String,
         attempt: Int
     ) async throws -> DraftRecipe? {
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        var request = URLRequest(url: URL(string: "https://llamascookbook.pages.dev/api/parse")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json",          forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey,                      forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01",                forHTTPHeaderField: "anthropic-version")
         // Required to activate cache_control blocks on the system prompt.
         request.setValue("prompt-caching-2024-07-31", forHTTPHeaderField: "anthropic-beta")
@@ -115,7 +83,7 @@ enum AnthropicRecipeParser {
             let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
             try await Task.sleep(nanoseconds: nanos)
             return try await callAPI(
-                text: text, sourceUrl: sourceUrl, apiKey: apiKey, attempt: attempt + 1
+                text: text, sourceUrl: sourceUrl, attempt: attempt + 1
             )
 
         default:

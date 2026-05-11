@@ -42,10 +42,6 @@ struct LlamasCookbookApp: App {
         // a "cooking timer") would feel mysterious. The first time they
         // open Cook Mode is when the dialog earns its keep.
 
-        // Move Anthropic API key from Info.plist (build-time injection) into
-        // Keychain so the runtime path never reads Info.plist directly. No-op
-        // when the key is already present or when the build setting was not set.
-        AnthropicRecipeParser.provisionKeyIfNeeded()
     }
 
     var body: some Scene {

@@ -22,11 +22,6 @@ name: iOS Native (Swift) TestFlight
 #   APPSTORE_API_KEY_P8_BASE64              base64 of AuthKey_<KEYID>.p8
 #   APPSTORE_API_KEY_ID                     10-char ASC API Key ID
 #   APPSTORE_API_ISSUER_ID                  ASC API issuer UUID
-#   ANTHROPIC_API_KEY                       Anthropic API key for Claude recipe
-#                                            parsing (baked into Info.plist →
-#                                            Keychain on first launch). Phase 3
-#                                            migration removes this once the
-#                                            Cloudflare Worker proxy is live.
 
 on:
   workflow_dispatch:
@@ -382,7 +377,6 @@ jobs:
             -archivePath "$RUNNER_TEMP/app.xcarchive" \
             -destination "generic/platform=iOS" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             MAIN_PROFILE_NAME="$PROFILE_NAME" \
