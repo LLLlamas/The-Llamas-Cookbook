@@ -37,6 +37,13 @@ enum KeychainStore {
         /// signed-in UI has a name to show on cold launch before the
         /// (eventually) CloudKit `User` record is fetched.
         case displayName
+        /// Anthropic API key for Claude recipe parsing. Seeded at first
+        /// launch from the `AnthropicAPIKey` Info.plist entry (injected
+        /// via `ANTHROPIC_API_KEY` build setting). Read by
+        /// `AnthropicRecipeParser` on every import; never logged or
+        /// surfaced in UI. Phase 3 migration removes this and routes
+        /// through the Cloudflare Worker proxy instead.
+        case anthropicAPIKey
     }
 
     /// Distinguishes the three states a Keychain read can return.

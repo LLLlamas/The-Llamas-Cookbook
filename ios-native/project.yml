@@ -14,6 +14,12 @@ settings:
     # `.github/workflows/ios-native-ci.yml` "Inject build settings".
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: GYFN949Q5E
+    # Anthropic API key for Claude recipe parsing.
+    # Default is empty string so builds without the secret silently
+    # disable the Claude path rather than failing. CI overrides this
+    # at archive time via `ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}"`.
+    # See implement-new-ai-import.md Phase 2 for the full injection flow.
+    ANTHROPIC_API_KEY: ""
 targets:
   LlamasCookbookNative:
     type: application

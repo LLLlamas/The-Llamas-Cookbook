@@ -15,7 +15,8 @@ Live SwiftUI app under `ios-native/`. Version `1.0.0`. CI overrides `CURRENT_PRO
 - Server-side uniqueness for `Friendship(userA,userB)` — currently client-side dedup only.
 - Account-deletion cascade: CKQuerySubscriptions single-shot best-effort; all five record-type cascades route through `CloudPendingDeleteQueue`.
 - Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision` from dev box (gitignored, not committed, but present on disk).
-- App Store privacy labels need a once-over against CloudKit/Cloudflare sharing.
+- App Store privacy labels need a once-over against CloudKit/Cloudflare sharing + Anthropic AI processing (added with Claude Haiku import).
+- **Phase 3 AI import (before App Store):** move Anthropic API key out of binary into a Cloudflare Worker proxy at `llamascookbook.pages.dev/api/parse`; add per-user rate limiting and Workers KV result cache; add privacy disclosure to import UI. See `picture-import-implementation.md` § Phase 3 and `implement-new-ai-import.md` § Path B.
 
 ## Stack
 
@@ -73,7 +74,7 @@ Start here before searching. Each row is the primary directory for that feature 
 - `ImportFromTextLinkView.swift` — merged paste-text + URL-fetch sheet
 - `ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
 - Components: `LetterIndex.swift`, `CookbookHeader.swift`, `RecipeImageView.swift`
-- Lib: `RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
+- Lib: `RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `AnthropicRecipeParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
 
 **Editor** (`Sources/Views/Editor/`)
 - `RecipeEditorView.swift`

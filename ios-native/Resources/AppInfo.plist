@@ -59,6 +59,21 @@
     <array>
         <string>remote-notification</string>
     </array>
+    <!--
+      Anthropic API key for Claude recipe parsing (Phase 2 direct-from-app path).
+      Value is injected at build time via the ANTHROPIC_API_KEY build setting
+      (set in project.yml; overridden by CI from the ANTHROPIC_API_KEY GitHub
+      Secret). On first launch, AnthropicRecipeParser.provisionKeyIfNeeded()
+      reads this value and moves it into Keychain, after which Keychain is the
+      sole runtime source. The build setting defaults to "" so a missing xcconfig
+      entry silently disables the Claude path rather than crashing.
+
+      PHASE 3 MIGRATION: once the Cloudflare Worker proxy is live, remove this
+      key from Info.plist and delete the ANTHROPIC_API_KEY build setting — the
+      key will live only in the Worker's env vars, never in the binary.
+    -->
+    <key>AnthropicAPIKey</key>
+    <string>$(ANTHROPIC_API_KEY)</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>UIDesignRequiresCompatibility</key>

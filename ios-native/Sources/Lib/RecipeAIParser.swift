@@ -62,26 +62,43 @@ enum RecipeAIParser {
         }
     }
 
-    /// Best-of parse: run *both* the LLM (when available) and the regex
-    /// pipeline against the same text, then pick whichever produced
-    /// the more usable draft. Centralized here so each call site
-    /// (URL importer for TikTok / Pinterest / OG-fallback, OCR
-    /// importer for cookbook pages) calls one line.
+    /// Best-of parse: run an AI parser and the regex pipeline against
+    /// the same text, then pick whichever produced the more usable
+    /// draft. Centralized here so each call site (URL importer for
+    /// TikTok / Pinterest / OG-fallback, OCR importer for cookbook
+    /// pages) calls one line.
     ///
     /// Returns nil only when *both* parsers produce nothing worth
     /// previewing — at which point each call site falls back to the
     /// existing seed-text-and-edit flow rather than dropping the user
     /// into an empty editor.
     ///
-    /// **Why best-of, not AI-first**: the LLM occasionally mashes
-    /// several actions into one step (we saw a 13-step sourdough
-    /// caption come back as four steps with everything glued onto
-    /// step four). The regex pipeline has been tightened enough that
-    /// it's a strong baseline; if the AI loses on step count or
-    /// produces a giant blob-step, we use the regex result instead.
+    /// **Parser priority:**
+    /// 1. Claude API (Haiku) — best step splitting and ingredient
+    ///    extraction; available on all iOS versions and device tiers
+    ///    when an API key is configured. Used when `isConfigured`.
+    /// 2. Apple Intelligence — on-device, iOS 26+ capable-hardware
+    ///    only. Falls back to here when Claude is unconfigured or
+    ///    returns nil (API error, quality gate fail).
+    /// 3. Regex pipeline — universal baseline; always runs in parallel
+    ///    so `pickBetterDraft` can compare any AI result against it.
     static func parseBestOf(_ text: String, sourceUrl: String?) async -> DraftRecipe? {
         let urlString = sourceUrl ?? ""
         let regexDraft = makeRegexDraft(text, sourceUrl: urlString)
+
+        // Claude API path — preferred when configured. Works on all iOS
+        // versions, all device tiers; no Apple Intelligence requirement.
+        if AnthropicRecipeParser.isConfigured {
+            let claudeDraft = await AnthropicRecipeParser.parse(text, sourceUrl: sourceUrl)
+            if let winner = pickBetterDraft(ai: claudeDraft, regex: regexDraft) {
+                return winner
+            }
+            // Claude returned nil (key valid but API error / quality
+            // gate fail) — fall through to Apple Intelligence rather
+            // than returning only the regex result.
+        }
+
+        // Apple Intelligence path — iOS 26+, A17/M-chip hardware only.
         guard #available(iOS 26.0, *), isAvailable else {
             return regexDraft
         }
@@ -178,7 +195,12 @@ enum RecipeAIParser {
     /// compact — the model behaves better with directives than with
     /// prose. Two worked examples (caption + cookbook) pin the most
     /// common shapes the parser sees.
-    private static let instructions: String = """
+    /// Shared system-prompt used by both the on-device Apple Intelligence
+    /// path and the Claude API path in `AnthropicRecipeParser`. Keeping
+    /// one canonical copy ensures both paths behave identically when
+    /// the instructions are updated. Internal (not private) so
+    /// `AnthropicRecipeParser` can reference it without duplication.
+    static let instructions: String = """
     You parse messy recipe text into structured fields. Inputs vary: \
     social-media captions (TikTok, Instagram, Pinterest, recipe blogs) \
     and OCR'd printed pages (cookbooks, magazines, handwritten cards). \
