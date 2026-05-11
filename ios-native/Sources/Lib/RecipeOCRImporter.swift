@@ -189,7 +189,7 @@ enum RecipeOCRImporter {
             "paprika","cumin","turmeric","ginger","nutmeg","cilantro",
             "parsley","cardamom","chocolate","chips","coconut","Parmesan",
             "oatmeal","margarine","shortening","molasses","cornstarch",
-            "Rice Krispies","Krispies","Bisquick","Crisco",
+            "Rice Krispies","Krispies","Bisquick","Crisco","Tabasco",
             "bowl","bowls","pan","pans","sheet","tray","whisk",
             "spatula","mixer","blender","preheat","preheated",
         ]

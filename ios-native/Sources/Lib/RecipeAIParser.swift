@@ -339,11 +339,12 @@ enum RecipeAIParser {
         style books and casual handwritten cards alike.
     22. Ingredient section sub-headers: Recipes sometimes split their \
         ingredient list into labeled groups ("FRENCH TOAST:", \
-        "TOPPING:", "FOR THE SAUCE:", "CRUST:", "FILLING:"). These \
-        are organizational labels, not step headers and not food \
-        items. Drop them silently — flatten all ingredients into one \
-        list regardless of their section. Do not emit a step or an \
-        ingredient entry for the label itself.
+        "TOPPING:", "FOR THE SAUCE:", "SAUCE:", "CRUST:", "FILLING:", \
+        "MARINADE:", "DRESSING:", "GLAZE:"). These are organizational \
+        labels, not step headers and not food items. Drop them silently \
+        — flatten all ingredients into one list regardless of their \
+        section. Do not emit a step or an ingredient entry for the \
+        label itself.
     23. Incomplete or cut-off recipes: If the instructions end \
         mid-sentence or a step is clearly unfinished (text trails off, \
         final step has no conclusion), include whatever is visible as \
@@ -382,6 +383,10 @@ enum RecipeAIParser {
         surrounding content. (A word like "For" that is followed by \
         recipe text on the next line is NOT an artifact — only drop \
         it when it truly floats in isolation with nothing before or after.)
+    28. "W/" shorthand in handwritten recipes: "w/" means "with". \
+        Expand it everywhere — step text and ingredient names. \
+        "Season w/ salt & pepper" → "Season with salt & pepper". \
+        "Rub well w/ marg." → "Rub well with margarine". Apply silently.
 
     Worked example #1 (TikTok caption):
 
