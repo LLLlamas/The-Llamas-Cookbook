@@ -248,6 +248,38 @@ enum RecipeAIParser {
        Empty otherwise.
     10. Strip trailing creator handles (@username) and hashtag runs \
         from every field; they aren't part of the recipe.
+    11. Ingredient vs. step boundary: INGREDIENTS contain food items \
+        with quantities only. Any line that contains a cooking verb \
+        (preheat, mix, add, stir, cook, bake, heat, toss, drain, \
+        combine, arrange, spread, serve, set, blend, break, pat, \
+        coat) belongs in STEPS — even if OCR placed it between \
+        ingredient lines. When in doubt, ask: "is this something I \
+        buy at the store or something I do?" If it's something I do, \
+        it's a step.
+    12. Action-prefix step headers: Lines beginning with "Prep:", \
+        "To Bake:", "To Air Fry:", "To Cook:", "To Make:", "Serve:", \
+        or "To Serve:" are ALWAYS steps. Strip the prefix label and \
+        put the action text into steps. NEVER classify these as \
+        ingredients — even if they appear between ingredient lines \
+        in the OCR output.
+    13. Alternative cooking methods: When a recipe offers two methods \
+        separated by "or" (e.g. oven vs. air fryer), include both as \
+        consecutive steps with a short method label: "Oven: ..." then \
+        "Air fryer: ...". Do not drop either method.
+    14. Sidebars and bonus sections: Printed cookbook pages often \
+        contain sidebars ("DIY X", "Make your own", "Variation", \
+        "Tips", "Homemade X"). These are separate from the main \
+        recipe. Collect the sidebar content as a single specialNote \
+        on the last step, or omit it. NEVER split sidebar content \
+        into main recipe steps or ingredients.
+    15. OCR correction — numbers and fractions: Printed-book OCR \
+        frequently misreads characters. Apply these corrections by \
+        context: '#' or a capital 'A' as a standalone quantity → '1'; \
+        a garbled fraction before a spice in a clearly small-amount \
+        context (e.g. "15 tsp salt", "1/5 tsp salt") → '½ tsp'; \
+        temperatures "4257F" / "4257°F" → "425°F", "3757F" → \
+        "375°F", "3507F" → "350°F" (oven temps 300–500°F; air fryer \
+        325–425°F — pick the closest plausible value). Apply silently.
 
     Worked example #1 (TikTok caption):
 
@@ -381,6 +413,57 @@ enum RecipeAIParser {
     and cookbook pages; lifting it into the right field is what keeps \
     the step list clean. "of" in "1 cup of flour" is a connector and \
     is dropped from the name.
+
+    Worked example #4 (printed cookbook page, OCR'd — action headers \
+    bled into ingredient list, two cooking methods, DIY sidebar):
+
+    INPUT:
+    Quick Crispy Tofu
+    Serves 4 · 20 Minutes
+    A simple dish celebrating bold seasoning.
+
+    1 (14-oz) block firm tofu, drained
+    Prep: Preheat oven to 4257F. Pat tofu dry, break into chunks. In \
+    a bowl, toss with cornstarch and seasoning until evenly coated.
+    # tablespoon cornstarch
+    A tablespoon seasoning blend
+    15 tsp — salt
+    To Bake: Arrange pieces on a greased sheet pan; bake 25 minutes, \
+    flipping halfway, until crispy.
+    or
+    To Air Fry: Preheat air fryer to 3757F. Cook 10-15 minutes, \
+    shaking pan occasionally.
+    Serve: Serve warm with rice or veggies.
+
+    DIY SEASONING BLEND
+    Mix 2 tbsp black pepper, 1 tbsp flaky sea salt, 1 tsp onion \
+    powder, 1 tsp garlic powder. Blitz in a spice grinder.
+
+    OUTPUT:
+    title: "Quick Crispy Tofu"
+    summary: "A simple dish celebrating bold seasoning."
+    servings: "4"
+    cookTimeMinutes: "20"
+    prepTimeMinutes: ""
+    ingredients:
+      - quantity "1", unit "", name "(14-oz) block firm tofu, drained"
+      - quantity "1", unit "tbsp", name "cornstarch"
+      - quantity "1", unit "tbsp", name "seasoning blend"
+      - quantity "½", unit "tsp", name "salt"
+    steps:
+      - text "Preheat oven to 425°F", needsTimer false, specialNote ""
+      - text "Pat tofu dry, then break into chunks", needsTimer false, specialNote ""
+      - text "In a bowl, toss tofu with cornstarch and seasoning until evenly coated", needsTimer false, specialNote ""
+      - text "Oven: Arrange on a greased sheet pan; bake 25 minutes, flipping halfway, until crispy", needsTimer true, specialNote ""
+      - text "Air fryer: Preheat to 375°F. Cook 10-15 minutes, shaking occasionally", needsTimer true, specialNote ""
+      - text "Serve warm with rice or veggies", needsTimer false, specialNote "DIY seasoning blend: Mix 2 tbsp black pepper, 1 tbsp flaky salt, 1 tsp onion powder, 1 tsp garlic powder."
+
+    Notice: "Prep:" content moved to steps, not ingredients — even \
+    though OCR placed it between ingredient lines. "#" and "A" OCR \
+    errors corrected to "1". "15 tsp — salt" → "½ tsp salt". \
+    "4257F" → "425°F", "3757F" → "375°F". Both oven and air fryer \
+    methods preserved with labels. DIY sidebar collapsed into a \
+    specialNote on the final step, not broken into main steps.
     """
 }
 
