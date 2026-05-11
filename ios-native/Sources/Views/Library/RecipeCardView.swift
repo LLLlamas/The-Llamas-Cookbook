@@ -152,12 +152,11 @@ struct RecipeCardView: View {
         .accentTextOutline()
     }
 
-    /// True when the recipe is favorited *and* has a photo. Favorited
-    /// recipes without a photo keep the rounded-square llama placeholder
-    /// + the heart glyph next to the title, since the placeholder itself
-    /// can't carry the heart-shape signal.
+    /// True when the recipe is favorited — both photo thumbnails and the
+    /// llama placeholder are clipped to a heart. No separate heart glyph
+    /// next to the title is needed; the shape is the signal.
     private var showsHeartThumbnail: Bool {
-        recipe.favorite && recipe.sortedPhotos.first?.image != nil
+        recipe.favorite
     }
 
     /// Outer clip + stroke shape. Heart for favorited recipes with a

@@ -2,7 +2,7 @@
 
 Source of truth for agents. Code wins when this disagrees.
 
-Last refreshed: 2026-05-10.
+Last refreshed: 2026-05-11.
 
 ## Status
 
@@ -174,6 +174,7 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 - Quantity: strings, mixed fractions, `&` output, measurable chip set only.
 - Detail ingredient: accent quantity + em dash. Per-step timers: clock glyph + `needsTimer` flag.
 - Carousels: no inline reorder arrows — use dedicated reorder mode (`PhotoReorderView`).
+- **Favorited recipe card thumbnail** (`RecipeCardView`): `HeartShape()` clip + stroke for ALL favorited recipes — both photo thumbnails and the llama placeholder. `showsHeartThumbnail` is simply `recipe.favorite`; no separate heart glyph next to the title is shown when the thumbnail already signals it.
 - Llama tour: interactive, dim/halo are `.allowsHitTesting(false)`. No Skip button; Exit pill below nav row. Six steps (Name+Desc, Servings+Prep, Photos, Tags, Ingredients, Steps+Notes). See `llama-intro.md`.
 - Duplicate title import: prompt + prefill `Title (N)`, including friend cookbook imports.
 - Social copy: "shared", "appears in Friends", "unlisted". Never "private to friends".
