@@ -56,12 +56,12 @@ struct FriendsTabView: View {
                 emptyState
             } else {
                 grid
+                    .llamaBackground(
+                        asset: "Friends_Llama_Icon_Large",
+                        tint: appearance.cookbookTitleAccentColor
+                    )
             }
         }
-        .llamaBackground(
-            asset: "Friends_Llama_Icon_Large",
-            tint: appearance.cookbookTitleAccentColor
-        )
         .navigationTitle(friendsTitle)
         .navigationBarTitleDisplayMode(.inline)
         .tint(appearance.cookbookTitleAccentColor)
