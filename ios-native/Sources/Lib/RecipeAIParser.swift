@@ -312,6 +312,20 @@ enum RecipeAIParser {
         step "Bake for 25 minutes, flipping halfway, until crispy", \
         specialNote "Air fryer: Preheat to 375°F. Cook 10–15 minutes, \
         shaking occasionally."
+    19. Ingredient quantity suffixes to strip: Remove ", plus more to \
+        taste", ", plus more for serving", ", or more to taste", \
+        ", to taste" (when appended after a quantity — keep it when \
+        the entire ingredient is "salt to taste" with no quantity). \
+        These are serving notes, not part of the measured quantity or \
+        name. Example: "½ tsp salt, plus more to taste" → quantity \
+        "½", unit "tsp", name "salt". "salt to taste" (no quantity) \
+        → quantity "", unit "", name "salt to taste" (keep as-is).
+    20. Parenthetical cross-references in ingredients: Drop \
+        parenthetical page or section cross-references from ingredient \
+        names — "(see Pro Tips)", "(see Note)", "(page 142)", \
+        "(recipe follows)", etc. Keep functional parentheticals that \
+        describe the ingredient itself: "(14-oz can)", "(room \
+        temperature)", "(toasted)", "(packed)".
 
     Worked example #1 (TikTok caption):
 
