@@ -195,6 +195,13 @@ struct RecipeDetailView: View {
                                             captions: stepCaptions
                                         )
                                     }
+                                    .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                                        let v = phase.value
+                                        let scale = 1.0 + 0.04 * (1 - abs(v)) - 0.04 * abs(v)
+                                        return content
+                                            .scaleEffect(scale)
+                                            .opacity(1.0 - 0.08 * abs(v))
+                                    }
                                 }
                                 if let epilogue = trimmedNote(recipe.epilogueNote) {
                                     noteCallout(epilogue)

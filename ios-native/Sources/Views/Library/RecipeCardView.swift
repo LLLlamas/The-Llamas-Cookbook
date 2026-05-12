@@ -77,14 +77,22 @@ struct RecipeCardView: View {
             )
         )
         .overlay(
-            // Top-edge highlight — a soft "light from above" wash that
-            // fades over the upper third of the card. Clipped to the
-            // same rounded rect as the card so it stays inside the
-            // corners and reads as a bevel rather than a stripe.
+            // Top-edge bevel — vertical white wash over the upper third.
             LinearGradient(
-                colors: [Color.white.opacity(0.18), .clear],
+                colors: [Color.white.opacity(0.22), .clear],
                 startPoint: .top,
                 endPoint: .center
+            )
+            .allowsHitTesting(false)
+        )
+        .overlay(
+            // Diagonal glare — light catching the top-left corner,
+            // fading toward the center-right. Reads as a physical card
+            // surface rather than a flat UI panel.
+            LinearGradient(
+                colors: [Color.white.opacity(0.13), .clear],
+                startPoint: .init(x: 0.0, y: 0.0),
+                endPoint: .init(x: 0.65, y: 0.45)
             )
             .allowsHitTesting(false)
         )
@@ -160,7 +168,7 @@ struct RecipeCardView: View {
         .clipShape(thumbnailShape)
         .overlay(
             thumbnailShape
-                .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
+                .stroke(accent.opacity(0.55), lineWidth: 0.8)
         )
         .accentTextOutline()
     }
