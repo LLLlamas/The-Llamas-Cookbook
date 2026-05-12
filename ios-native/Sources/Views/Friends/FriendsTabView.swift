@@ -50,9 +50,19 @@ struct FriendsTabView: View {
         StringCase.friendsTitle(displayName: userAccount.status.identity?.displayName)
     }
 
+    /// Threshold for the hue/accent-tinted empty-state llama. Below
+    /// three friends the cookbook still feels sparse enough that the
+    /// "Looking for a friend?" prompt + centered Add CTA reads as more
+    /// inviting than a half-populated grid; at three or more the grid
+    /// has enough body to stand on its own with the standard llama
+    /// watermark background.
+    private var isBelowSocialThreshold: Bool {
+        friendsStore.friends.count < 3
+    }
+
     var body: some View {
         Group {
-            if friendsStore.friends.isEmpty {
+            if isBelowSocialThreshold {
                 emptyState
             } else {
                 grid
@@ -73,7 +83,7 @@ struct FriendsTabView: View {
                     glowActive: appearance.isAccentGlowActive(.header)
                 )
             }
-            if !friendsStore.friends.isEmpty {
+            if !isBelowSocialThreshold {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Haptics.impact(.light)
@@ -137,9 +147,10 @@ struct FriendsTabView: View {
                     x: 0,
                     y: 160 * 0.05
                 )
+                .llamaFloat()
                 .accessibilityHidden(true)
             VStack(spacing: AppSpacing.xs) {
-                Text("No friends yet")
+                Text("Looking for a friend?")
                     .font(AppFont.sectionHeading)
                     .foregroundStyle(AppColor.textPrimary)
                 Text("Add someone you know to see their cookbook.")
