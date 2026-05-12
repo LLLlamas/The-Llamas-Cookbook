@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-11.
+Last refreshed: 2026-05-12 (session 2).
 
 ---
 
@@ -86,7 +86,7 @@ Last refreshed: 2026-05-11.
 - Resources: `SeedRecipes.json` — 10 starter recipes the seed friend "owns"; decoded once into `LCRecipeShareV1` envelopes
 
 **Auth / identity** (`Sources/Lib/`)
-- `SignInWithAppleService.swift`, `KeychainStore.swift` — Apple `sub` + display name + Anthropic API key
+- `SignInWithAppleService.swift`, `KeychainStore.swift` — Apple `sub` + display name
 
 **Share extension** (`ShareExtension/`)
 - `ShareViewController.swift` — URL → `llamascookbook://share-url/`, file → App Group inbox
@@ -98,7 +98,7 @@ Last refreshed: 2026-05-11.
 - `.well-known/apple-app-site-association` — AASA for Universal Links
 
 **Components / misc** (`Sources/Views/Components/`)
-- `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/`
+- `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/` (includes `LlamaFloatModifier.swift` — `.llamaFloat()` reusable 4pt bob, 1.4s easeInOut, Reduce-Motion-aware; applied to `AccentColorPicker` llama preview and Friends empty-state llama)
 - `AccentColorPicker.swift`, `SavedToast.swift`
 - Lib: `ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `SwipeBack.swift`, `AppMetadata.swift`
 
@@ -118,14 +118,14 @@ Last refreshed: 2026-05-11.
 - **`UserProfileMirror.cachedRecordID()`** is the canonical "is iCloud bound?" check — every social write short-circuits when nil.
 - **`LibraryMirrorService`** — `@MainActor` singleton, 5s per-`Recipe.id` debounce. Sign-out/delete must call `resetBulkPublishMarker()`.
 - **`ImportCountCache`** in UserDefaults, not `@Model` — prevents chip refreshes from triggering spurious `LibraryMirrorService` re-publishes.
-- **"Your Llama" seed friend** (`SeedFriend.swift`) — synthetic local-only friend at `friends[0]` on every install. `userRecordName == "your-llama-seed"`; `SeedFriend.isSeed(_:)` short-circuits every CloudKit fan-out (`fetchPublishedRecipeSummaries`, `fetchPublishedRecipe`, `writeRecipeImport`, `removeFriend`, the contextMenu's Remove entry). Survives `refresh()` / `clearOnSignOut()` because it's prepended unconditionally. Counts toward `friends.count` — `ProfileView`'s bulk-publish trigger is `oldCount <= 1 && newCount > 1` (first *real* friend, not first friend ever).
+- **"Your Llama" seed friend** (`SeedFriend.swift`) — synthetic local-only friend at `friends[0]` on every install. `userRecordName == "your-llama-seed"`, accent `#C97C5D` (terracotta). `SeedFriend.isSeed(_:)` short-circuits every CloudKit fan-out (`fetchPublishedRecipeSummaries`, `fetchPublishedRecipe`, `writeRecipeImport`, `removeFriend`, the contextMenu's Remove entry). Survives `refresh()` / `clearOnSignOut()` because it's prepended unconditionally. Counts toward `friends.count` — `ProfileView`'s bulk-publish trigger is `oldCount <= 1 && newCount > 1` (first *real* friend, not first friend ever).
 - **AlarmKit** owns cook-timer lock-screen alerts + Live Activity. Sound is always `AlertConfiguration.AlertSound.default`.
 - **HEIC → JPEG before CloudKit upload** (`ImageProcessing.transcodeHEICToJPEGForSharing`). Local SwiftData stays HEIC.
 - **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` — 25 MB cap; referenced by both main app and share extension.
 - **`AccentColorPicker` commits on `.onDisappear`** — driving it earlier desyncs `UIColorPickerViewController`.
 - **Custom back buttons** (`RecipeDetailView`, `FriendLibraryView`, `FriendRecipeDetailView`) use `.navigationBarBackButtonHidden(true)` + `.enableSwipeBack()`. `RecipeEditorView` intentionally omits `.enableSwipeBack()` — Cancel/Save pattern, data-loss risk.
 - **CI Xcode toolchain**: `macos-26` ships beta `.app`s; CI renames them `_disabled_…` and re-pins both `DEVELOPER_DIR` and `PATH`. Setting only `DEVELOPER_DIR` leaves sub-tools on the beta; TestFlight rejects beta-built archives.
-- **Anthropic API key (Phase 2 TestFlight only)**: `ANTHROPIC_API_KEY` build setting → `AppInfo.plist AnthropicAPIKey` → Keychain via `AnthropicRecipeParser.provisionKeyIfNeeded()` on first launch. Key is in the compiled binary — acceptable for TestFlight only. **Phase 3 (before App Store): move key to Cloudflare Worker proxy at `llamascookbook.pages.dev/api/parse`; remove `AnthropicAPIKey` from `AppInfo.plist` and `ANTHROPIC_API_KEY` from `project.yml`.** See `implement-new-ai-import.md` § Path B.
+- **AI import parser chain**: `RecipeAIParser.parseBestOf` → `AnthropicRecipeParser` (Cloudflare Worker proxy at `llamascookbook.pages.dev/api/parse`) → Apple Intelligence fallback → regex baseline. `AnthropicRecipeParser.isConfigured = true` unconditionally — no key in binary or Keychain. API key lives in Cloudflare env only. **Photo import passes `preferHighQuality: true` → Sonnet 4.6. Link import uses default → Haiku 4.5.** Both use `temperature: 0`, `max_tokens: 4096`. Shared system prompt: `RecipeAIParser.instructions`.
 
 ---
 
@@ -176,6 +176,7 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 - Duplicate title import: prompt + prefill `Title (N)`, including friend cookbook imports.
 - Social copy: "shared", "appears in Friends", "unlisted". Never "private to friends".
 - Friend surfaces: tint in friend's accent. Presence dot: filled+pulsing when `cookingStartedAt` < 6h, hollow when idle.
+- **Friends empty state threshold**: `isBelowSocialThreshold` = `friends.count < 3` — show hue/accent-tinted llama empty state ("Looking for a friend?") below 3; show standard background llama at 3+. The seed friend counts, so fresh installs start at 1/3.
 - `LibraryView` profile button: `.disabled(editor.active != nil)` — not a silent no-op.
 - **Tab bar**: `.accentTextOutline()` NOT applied — system `TabView`/UIKit strips modifiers from `.tabItem`.
 - **Letterpress outline**: `.accentTextOutline()` (`Theme/AccentTextOutline.swift`) — four 0.4pt shadows at 0.22 opacity. Apply to prominent accent-tinted text/icons. Skip on: `AppColor.onAccent` glyphs, system alert buttons, carousel destructive glyphs, `.tabItem`.
@@ -184,8 +185,7 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 
 ## Open work (pre-App Store)
 
-- **Phase 3 AI import (BLOCKER):** Move Anthropic key out of binary into Cloudflare Worker proxy. See `implement-new-ai-import.md` § Path B and `picture-import-implementation.md` § Phase 3.
-- **Privacy manifest `NSPrivacyCollectedDataTypes`:** Currently empty. App sends recipe text + photos to Anthropic (third-party AI). Needs an `NSPrivacyCollectedDataTypes` entry and a user-facing disclosure in the import UI before App Store submission.
+- **Privacy manifest `NSPrivacyCollectedDataTypes`:** Currently empty. App sends recipe text to Anthropic via Cloudflare proxy (third-party AI). Needs an entry and a user-facing disclosure in the import UI before App Store submission.
 - **App Store privacy labels:** Audit against CloudKit sharing + Anthropic AI processing.
 - Verify Universal Links on real devices.
 - Adopt Liquid Glass before iOS 27 drops the `UIDesignRequiresCompatibility` opt-out.
