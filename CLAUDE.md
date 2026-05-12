@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-12 (session 3).
+Last refreshed: 2026-05-12 (session 4).
 
 ---
 
@@ -119,6 +119,7 @@ Last refreshed: 2026-05-12 (session 3).
 - **`LibraryMirrorService`** — `@MainActor` singleton, 5s per-`Recipe.id` debounce. Sign-out/delete must call `resetBulkPublishMarker()`.
 - **`ImportCountCache`** in UserDefaults, not `@Model` — prevents chip refreshes from triggering spurious `LibraryMirrorService` re-publishes.
 - **"Your Llama" seed friend** (`SeedFriend.swift`) — synthetic local-only friend at `friends[0]` on every install. `userRecordName == "your-llama-seed"`, accent `#C97C5D` (terracotta). `SeedFriend.isSeed(_:)` short-circuits every CloudKit fan-out (`fetchPublishedRecipeSummaries`, `fetchPublishedRecipe`, `writeRecipeImport`, `removeFriend`, the contextMenu's Remove entry). Survives `refresh()` / `clearOnSignOut()` because it's prepended unconditionally. Counts toward `friends.count` — `ProfileView`'s bulk-publish trigger is `oldCount <= 1 && newCount > 1` (first *real* friend, not first friend ever).
+- **`UserProfileSnapshot` has two inits** — `init(record:userRecordName:)` for the CloudKit path, and a direct-field `init` used by `SeedFriend.profile` to construct a snapshot without a `CKRecord`. Do not remove the direct-field init — `SeedFriend` depends on it and cannot build a fake `CKRecord`.
 - **AlarmKit** owns cook-timer lock-screen alerts + Live Activity. Sound is always `AlertConfiguration.AlertSound.default`.
 - **HEIC → JPEG before CloudKit upload** (`ImageProcessing.transcodeHEICToJPEGForSharing`). Local SwiftData stays HEIC.
 - **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` — 25 MB cap; referenced by both main app and share extension.
@@ -131,7 +132,7 @@ Last refreshed: 2026-05-12 (session 3).
 
 ## Performance invariants
 
-- **`RecipeImageView` decodes asynchronously.** `init` does a synchronous O(1) `NSCache` lookup — if cached (e.g. card thumbnail already decoded), `@State` is warm and the first body eval renders immediately with no flicker. Cache misses decode via `Task.detached(priority: .userInitiated)` off the main thread; result is written back on `@MainActor`. **Never revert to synchronous `UIImage(data:)` in `body`** — HEIC decode takes 50–150 ms and stalls push-animation frames.
+- **`RecipeImageView` decodes asynchronously.** `init` does a synchronous O(1) `NSCache` lookup — if cached (e.g. card thumbnail already decoded), `@State` is warm and the first body eval renders immediately with no flicker. Cache misses decode via `Task.detached(priority: .userInitiated)` off the main thread; result is written back on `@MainActor`. **Never revert to synchronous `UIImage(data:)` in `body`** — HEIC decode takes 50–150 ms and stalls push-animation frames. Callers must pass an explicit `placeholder` closure (not rely on the `EmptyView` convenience init) wherever a visible loading state matters — `RecipeCardView.thumbnail` and `RecipeDetailView.photoThumb` both use `accentSoft.opacity(0.5)` fill.
 - **`.drawingGroup()` placement rules** — applied INSIDE `.clipShape()` / before the outer shadow stack so the shadow composites against a single Metal texture rather than re-compositing each inner layer per frame. Current sites: `RecipeCardView` (scroll jank fix), `AccentColorPicker.preview` (color-pick re-render fix), `RecipeDetailView` ingredients `VStack` (push-animation first-render fix). Do **not** apply to views that use `.blur()`, `.regularMaterial`, or other backdrop-sampling effects — those break inside a drawing group.
 - **`.llamaFloat()` has a 250 ms delayed start** (`LlamaFloatModifier`). The `repeatForever` animation must not start at the same moment as a sheet presentation or tab transition — it competes for main-run-loop bandwidth and causes dropped frames on the incoming animation. Keep the delay if you ever add new `.llamaFloat()` call sites.
 
@@ -180,11 +181,12 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 - Quantity: strings, mixed fractions, `&` output, measurable chip set only.
 - Carousels: no inline reorder arrows — use dedicated reorder mode (`PhotoReorderView`).
 - **Favorited recipe card thumbnail**: `HeartShape()` clip + stroke for ALL favorited recipes. `showsHeartThumbnail` is simply `recipe.favorite`; no separate heart glyph next to the title.
+- **`RecipeDetailView` photo strip** (`photosButton`): fixed 84pt height row — 0 photos → Add tile only; 1 photo → photo + Add tile; 2 photos → 2 photos + Add tile; 3+ photos → first 2 photos + "+N more" overflow chip (taps open carousel at index 2). No horizontal `ScrollView` — always exactly 2 slots visible plus the overflow/add button. Do not revert to unlimited scroll.
 - Llama tour: interactive, dim/halo `.allowsHitTesting(false)`. No Skip button; Exit pill below nav row. Six steps. See `llama-intro.md`.
 - Duplicate title import: prompt + prefill `Title (N)`, including friend cookbook imports.
 - Social copy: "shared", "appears in Friends", "unlisted". Never "private to friends".
 - Friend surfaces: tint in friend's accent. Presence dot: filled+pulsing when `cookingStartedAt` < 6h, hollow when idle.
-- **Friends empty state threshold**: `isBelowSocialThreshold` = `friends.count < 3` — show hue/accent-tinted llama empty state ("Looking for a friend?") below 3; show standard background llama at 3+. The seed friend counts, so fresh installs start at 1/3.
+- **Friends empty state threshold**: `isBelowSocialThreshold` = `friends.count < 3` — below 3: accent-tinted `Friends_Llama_Icon_Large` watermark + "Looking for a friend?" CTA below the grid (title + subtitle + Add Friend button, same sheet as toolbar `+`). At 3+: same `Friends_Llama_Icon_Large` watermark but tint `.clear` (no accent shadow), CTA hidden. The seed friend counts, so fresh installs start at 1/3 and the CTA is always visible until 2 real friends are added.
 - `LibraryView` profile button: `.disabled(editor.active != nil)` — not a silent no-op.
 - **Tab bar**: `.accentTextOutline()` NOT applied — system `TabView`/UIKit strips modifiers from `.tabItem`.
 - **Letterpress outline**: `.accentTextOutline()` (`Theme/AccentTextOutline.swift`) — four 0.4pt shadows at 0.22 opacity. Apply to prominent accent-tinted text/icons. Skip on: `AppColor.onAccent` glyphs, system alert buttons, carousel destructive glyphs, `.tabItem`.

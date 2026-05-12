@@ -51,13 +51,11 @@ struct FriendsTabView: View {
         StringCase.friendsTitle(displayName: userAccount.status.identity?.displayName)
     }
 
-    /// Threshold the rest of the app (e.g. friend-suggestion nudges)
-    /// reads to gauge how filled-in the user's social graph is. The
-    /// synthetic "Your Llama" seed friend counts toward this number,
-    /// so a brand-new user starts at 1/3. Kept as an exposed property
-    /// even though the empty-state UI no longer fires off it — the
-    /// grid renders unconditionally now that the seed guarantees at
-    /// least one card.
+    /// True while the user has fewer than 3 friends total (including the
+    /// "Your Llama" seed, which always counts as 1). Drives the
+    /// accent-tinted background watermark and the "Looking for a friend?"
+    /// CTA below the grid. Flips to false — switching to the standard
+    /// background — once the user has 2+ real friends (seed + 2 = 3).
     private var isBelowSocialThreshold: Bool {
         friendsStore.friends.count < 3
     }
@@ -66,7 +64,7 @@ struct FriendsTabView: View {
         grid
             .llamaBackground(
                 asset: "Friends_Llama_Icon_Large",
-                tint: appearance.cookbookTitleAccentColor
+                tint: isBelowSocialThreshold ? appearance.cookbookTitleAccentColor : .clear
             )
             .navigationTitle(friendsTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -156,9 +154,53 @@ struct FriendsTabView: View {
             }
             .padding(.horizontal, AppSpacing.lg)
             .padding(.top, AppSpacing.md)
-            .padding(.bottom, AppSpacing.xxl)
+            .padding(.bottom, isBelowSocialThreshold ? AppSpacing.md : AppSpacing.xxl)
+
+            if isBelowSocialThreshold {
+                addFriendCTA
+            }
         }
         .scrollContentBackground(.hidden)
+    }
+
+    // MARK: - Below-threshold CTA
+
+    /// "Looking for a friend?" prompt shown below the grid until the
+    /// user has 2+ real friends (seed + 2 = 3). Same sheet as the
+    /// toolbar `+` button — the CTA is a second, more prominent entry
+    /// point that surfaces when the grid is sparse.
+    private var addFriendCTA: some View {
+        VStack(spacing: AppSpacing.sm) {
+            Text("Looking for a friend?")
+                .font(AppFont.sectionHeading)
+                .foregroundStyle(appearance.cookbookTitleAccentColor)
+                .accentTextOutline()
+            Text("Add friends to browse their recipes and see what they're cooking.")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textSecondary)
+                .multilineTextAlignment(.center)
+            Button {
+                Haptics.impact(.light)
+                showingAddFriend = true
+            } label: {
+                Label("Add Friend", systemImage: "person.crop.circle.badge.plus")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(appearance.cookbookTitleAccentColor)
+                    .padding(.horizontal, AppSpacing.lg)
+                    .padding(.vertical, AppSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .fill(appearance.cookbookTitleAccentColor.opacity(0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .stroke(appearance.cookbookTitleAccentColor.opacity(0.3), lineWidth: 1)
+                    )
+            }
+            .accentTextOutline()
+        }
+        .padding(AppSpacing.lg)
+        .padding(.bottom, AppSpacing.xxl)
     }
 
     private func loadCountIfNeeded(for friend: UserProfileSnapshot) async {
