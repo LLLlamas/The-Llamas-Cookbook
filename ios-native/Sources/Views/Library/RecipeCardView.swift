@@ -104,6 +104,14 @@ struct RecipeCardView: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        // Flatten the card's composited interior (gradients, overlays,
+        // glow shadows, image, text shadows) into a single Metal
+        // texture before applying the outer shadow stack. During scroll
+        // the `scrollTransition` scale/opacity and all three box
+        // shadows operate on one flat texture rather than
+        // re-compositing the full layer tree per drag frame — the
+        // primary fix for scroll jank on cards with photos + glow.
+        .drawingGroup()
         // 3-layer warm-brown shadow stack: close contact (grounds the
         // card), mid body (gives it weight), far ambient (room/
         // atmosphere). Cumulative effect is "floating just above the

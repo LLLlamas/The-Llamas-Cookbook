@@ -319,9 +319,9 @@ struct PhotoImportPreviewView: View {
         Task { @MainActor in
             var final = draft
             if let overrideTitle, !overrideTitle.isEmpty {
-                final.title = overrideTitle
+                final.title = StringCase.titleCase(overrideTitle)
             } else {
-                final.title = draft.title.trimmed
+                final.title = StringCase.titleCase(draft.title.trimmed)
             }
             let recipe = Recipe.new(from: final)
             modelContext.insert(recipe)
