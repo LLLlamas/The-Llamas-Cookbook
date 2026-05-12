@@ -53,6 +53,13 @@ enum NewRecipeTour {
         ),
         LlamaIntroStep(
             id: 6,
+            target: .firstIngredientRow,
+            headline: "Nice Work!",
+            body: "There's your first ingredient. Add as many as you need, then tap next for steps.",
+            waveOnEnter: false
+        ),
+        LlamaIntroStep(
+            id: 7,
             target: .stepQuickAdd,
             headline: "Steps & Notes",
             body: "One step at a time, tap the clock if it needs a timer. Special notes sit right below !",
@@ -60,7 +67,7 @@ enum NewRecipeTour {
             extraTargets: [.specialNotesEditor]
         ),
         LlamaIntroStep(
-            id: 7,
+            id: 8,
             target: .saveButton,
             headline: "Save It!",
             body: "All done? Hit Save up here to drop it in your cookbook !",

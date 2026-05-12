@@ -18,6 +18,7 @@ enum LlamaTourTarget: Hashable {
     case photosButton
     case categoriesHeader
     case ingredientQuickAdd
+    case firstIngredientRow
     case stepQuickAdd
     case specialNotesEditor
     case saveButton

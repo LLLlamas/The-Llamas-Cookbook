@@ -31,6 +31,10 @@ struct LlamaIntroOverlay: View {
     let steps: [LlamaIntroStep]
     let anchors: [LlamaTourTarget: Anchor<CGRect>]
     var scrollProxy: ScrollViewProxy? = nil
+    /// Set to true when the user has added at least one ingredient.
+    /// The overlay auto-advances from the ingredientQuickAdd step to
+    /// the firstIngredientRow step on the transition from false → true.
+    var ingredientAdded: Bool = false
     let onFinish: () -> Void
 
     @Environment(AppearanceSettings.self) private var appearance
@@ -69,6 +73,15 @@ struct LlamaIntroOverlay: View {
         }
         .ignoresSafeArea()
         .transition(.opacity)
+        .onChange(of: ingredientAdded) { wasAdded, isAdded in
+            guard isAdded && !wasAdded else { return }
+            let ingredientStepIndex = steps.firstIndex { $0.target == .ingredientQuickAdd }
+            if let idx = ingredientStepIndex, currentIndex == idx {
+                withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.85)) {
+                    currentIndex += 1
+                }
+            }
+        }
         .onAppear {
             // Anchor preferences need one layout pass before they're
             // populated. Defer the first scroll-and-announce a beat
@@ -429,7 +442,9 @@ struct LlamaIntroOverlay: View {
                 nextButton
             }
 
-            exitButton
+            if !isLastStep {
+                exitButton
+            }
         }
     }
 
@@ -502,7 +517,7 @@ struct LlamaIntroOverlay: View {
 
     @ViewBuilder
     private var stepIndicator: some View {
-        if steps.count <= 7 {
+        if steps.count <= 9 {
             HStack(spacing: 5) {
                 ForEach(0..<steps.count, id: \.self) { idx in
                     Circle()

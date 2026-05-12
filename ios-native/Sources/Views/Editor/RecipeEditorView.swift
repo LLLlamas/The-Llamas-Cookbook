@@ -167,6 +167,7 @@ struct RecipeEditorView: View {
                             steps: NewRecipeTour.steps,
                             anchors: anchors,
                             scrollProxy: proxy,
+                            ingredientAdded: !draft.ingredients.isEmpty,
                             onFinish: {
                                 showTour = false
                                 hasSeenNewRecipeTour = true
@@ -232,6 +233,7 @@ struct RecipeEditorView: View {
                             ))
                         }
                     }
+                    .tourTarget(.firstIngredientRow)
                     .animation(.spring(response: 0.42, dampingFraction: 0.82), value: draft.ingredients.count)
                 }
 

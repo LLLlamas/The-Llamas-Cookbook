@@ -185,19 +185,36 @@ struct FriendsTabView: View {
             } label: {
                 Label("Add Friend", systemImage: "person.crop.circle.badge.plus")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(appearance.cookbookTitleAccentColor)
+                    .foregroundStyle(AppColor.onAccent)
+                    .accentTextOutline()
                     .padding(.horizontal, AppSpacing.lg)
-                    .padding(.vertical, AppSpacing.sm)
+                    .padding(.vertical, AppSpacing.sm + 2)
                     .background(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .fill(appearance.cookbookTitleAccentColor.opacity(0.12))
+                        LinearGradient(
+                            colors: [
+                                appearance.cookbookTitleAccentColor.opacity(0.95),
+                                appearance.cookbookTitleAccentColor.opacity(0.80)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
+                    .clipShape(Capsule())
                     .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .stroke(appearance.cookbookTitleAccentColor.opacity(0.3), lineWidth: 1)
+                        Capsule()
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.45), Color.clear],
+                                    startPoint: .top,
+                                    endPoint: .center
+                                ),
+                                lineWidth: 1
+                            )
                     )
+                    .shadow(color: appearance.cookbookTitleAccentColor.opacity(0.35), radius: 10, y: 4)
+                    .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
             }
-            .accentTextOutline()
+            .buttonStyle(.plain)
         }
         .padding(AppSpacing.lg)
         .padding(.bottom, AppSpacing.xxl)
