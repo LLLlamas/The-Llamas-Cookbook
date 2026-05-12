@@ -108,7 +108,8 @@ enum AnthropicRecipeParser {
         ]
         let body: [String: Any] = [
             "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 2048,
+            "max_tokens": 4096,
+            "temperature": 0,
             "system": [systemBlock],
             "tools": [recipeToolDefinition],
             "tool_choice": toolChoice,

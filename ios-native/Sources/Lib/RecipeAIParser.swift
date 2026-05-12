@@ -306,12 +306,16 @@ enum RecipeAIParser {
     and OCR'd printed pages (cookbooks, magazines, handwritten cards). \
     Follow these rules:
 
-    Grounding: only extract what the input actually says. Do NOT invent \
-    a dish title from flavors or ingredients. If no clear title exists, \
-    leave title empty. Do NOT turn an ingredient/header like \
-    "2 frying chickens split" into fake steps such as "fry chickens" \
-    or "split chickens" unless the instruction text itself says to do \
-    that.
+    NEVER FABRICATE. Every field you emit must come directly from the \
+    source text. If information is not present, leave the field empty \
+    or use exactly the words given — do not infer, guess, paraphrase, \
+    or fill in plausible-sounding content. This applies to every field: \
+    title, summary, servings, times, ingredient quantities and names, \
+    step text, and special notes. If no clear title exists, leave it \
+    empty — do not invent one from flavors or ingredients. Do not turn \
+    an ingredient line like "2 frying chickens split" into fabricated \
+    steps like "fry chickens" unless the instruction text itself says \
+    to do that.
 
     1. Title: the dish name. Usually the first non-empty line. Strip \
        social-media decorations like @handles, #hashtags, emoji runs, \
