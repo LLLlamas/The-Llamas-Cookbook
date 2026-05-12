@@ -1481,10 +1481,10 @@ struct FlowRow: Layout {
 }
 
 /// One step in the detail-view numbered list. The row sits inside a
-/// gradient "bubble" pill — cream shading into a soft tint of the user's
-/// accent at the bottom-trailing corner, with layered shadows to lift
-/// it off the page. Number is a fixed size, vertically centered against
-/// the wrapping text.
+/// neutral cream card — top→bottom cream gradient with a white bevel
+/// highlight and a white-to-divider gradient stroke for a subtle 3D
+/// lift, matching ingredient-row chrome. Number is a fixed size,
+/// vertically centered against the wrapping text.
 private struct StepDetailRow: View {
     @Environment(AppearanceSettings.self) private var appearance
 
@@ -1542,21 +1542,37 @@ private struct StepDetailRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             LinearGradient(
-                colors: [
-                    AppColor.surfaceRaised,
-                    appearance.accentColor.opacity(0.22)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [AppColor.surfaceRaised, AppColor.surface],
+                startPoint: .top,
+                endPoint: .bottom
             )
         )
         .overlay(
+            LinearGradient(
+                colors: [Color.white.opacity(0.20), .clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            .allowsHitTesting(false)
+        )
+        .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
-                .stroke(appearance.accentColor.opacity(0.28), lineWidth: 0.8)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.60),
+                            AppColor.divider.opacity(0.50),
+                            AppColor.divider.opacity(0.80)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.6
+                )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 2)
-        .shadow(color: AppColor.shadowSoft, radius: 1, x: 0, y: 0.5)
+        .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 3)
+        .shadow(color: AppColor.shadowSoft, radius: 1.5, x: 0, y: 0.5)
     }
 
     /// Compact pill button under the step text. Only shown when the
