@@ -90,7 +90,7 @@ enum RecipeAIParser {
         // versions, all device tiers; no Apple Intelligence requirement.
         if AnthropicRecipeParser.isConfigured {
             let claudeDraft = await AnthropicRecipeParser.parse(text, sourceUrl: sourceUrl)
-            if let winner = pickBetterDraft(ai: claudeDraft, regex: regexDraft) {
+            if let winner = pickBetterDraft(ai: claudeDraft, regex: regexDraft, sourceText: text) {
                 return winner
             }
             // Claude returned nil (key valid but API error / quality
@@ -103,7 +103,7 @@ enum RecipeAIParser {
             return regexDraft
         }
         let aiDraft = await parse(text, sourceUrl: sourceUrl)
-        return pickBetterDraft(ai: aiDraft, regex: regexDraft)
+        return pickBetterDraft(ai: aiDraft, regex: regexDraft, sourceText: text)
     }
 
     /// Run the regex pipeline and stamp the source URL on it, gated
@@ -127,7 +127,16 @@ enum RecipeAIParser {
     ///    wins. A healthy cooking step is typically 50-100 chars; the
     ///    threshold is well above that to avoid false positives on
     ///    legitimately wordy single-action steps.
-    /// 3. If the AI extracted noticeably more ingredients than regex
+    /// 3. If the AI title contains dish-name words that do not appear
+    ///    in the source text, carry over the regex title instead. OCR
+    ///    cards often have no explicit title; an invented title is
+    ///    worse than a literal rough one the user can edit.
+    /// 4. If AI returned only one or two steps, but regex found a
+    ///    fuller step list and any AI step contains unsupported action
+    ///    words, prefer regex. This catches LLM "plausible but not on
+    ///    the page" output such as turning an ingredient/header line
+    ///    into fake steps.
+    /// 5. If the AI extracted noticeably more ingredients than regex
     ///    (≥ 3 ingredients AND > 2x regex's count), trust AI — it's
     ///    reading the structure correctly while regex is dumping
     ///    ingredient lines into the step list. Common failure mode
@@ -136,21 +145,52 @@ enum RecipeAIParser {
     ///    and end up as steps. This short-circuits the step-count
     ///    tie-breaker below, which would otherwise reward regex's
     ///    bloated step list.
-    /// 4. If the regex pulled out 5+ steps and the AI got fewer than
+    /// 6. If the regex pulled out 5+ steps and the AI got fewer than
     ///    70% of that count, the AI under-split — regex wins.
-    /// 5. If the regex pulled out 3+ ingredients and the AI got fewer
+    /// 7. If the regex pulled out 3+ ingredients and the AI got fewer
     ///    than half of that count, the AI mis-classified ingredient
     ///    lines as steps — regex wins. Mirror of the step under-split
     ///    guard above.
-    /// 6. Otherwise the AI wins. It generally beats regex on title
+    /// 8. Otherwise the AI wins. It generally beats regex on title
     ///    cleanup, ingredient quantity/unit splitting, and lifting
     ///    "while X" reminders into special notes.
-    private static func pickBetterDraft(ai: DraftRecipe?, regex: DraftRecipe?) -> DraftRecipe? {
-        guard let ai = ai else { return regex }
-        guard let regex = regex else { return ai }
+    private static func pickBetterDraft(
+        ai: DraftRecipe?,
+        regex: DraftRecipe?,
+        sourceText: String
+    ) -> DraftRecipe? {
+        guard var ai = ai else { return regex }
+
+        let sourceTokens = sourceSupportTokens(sourceText)
+        guard let regex = regex else {
+            let hasUnsupportedTitle = titleLooksInferred(ai.title, sourceTokens: sourceTokens)
+            let hasUnsupportedStep = ai.steps.contains {
+                stepLooksUnsupported($0.text, sourceTokens: sourceTokens)
+            }
+            if hasUnsupportedTitle || hasUnsupportedStep {
+                return nil
+            }
+            return ai
+        }
+
+        if ai.title.trimmed.isEmpty, !regex.title.trimmed.isEmpty {
+            ai.title = regex.title
+        }
 
         let aiLongest = ai.steps.map(\.text.count).max() ?? 0
         if aiLongest > 200 { return regex }
+
+        if titleLooksInferred(ai.title, sourceTokens: sourceTokens) {
+            ai.title = regex.title
+        }
+
+        let aiSteps = ai.steps.count
+        let regexSteps = regex.steps.count
+        if aiSteps <= 2,
+           regexSteps >= 3,
+           ai.steps.contains(where: { stepLooksUnsupported($0.text, sourceTokens: sourceTokens) }) {
+            return regex
+        }
 
         let aiIngredients = ai.ingredients.count
         let regexIngredients = regex.ingredients.count
@@ -165,8 +205,6 @@ enum RecipeAIParser {
             return ai
         }
 
-        let aiSteps = ai.steps.count
-        let regexSteps = regex.steps.count
         if regexSteps >= 5, aiSteps * 10 < regexSteps * 7 {
             return regex
         }
@@ -178,14 +216,76 @@ enum RecipeAIParser {
         return ai
     }
 
-    /// Minimum bar for "AI got something useful": title and at least
-    /// one ingredient OR one step. Below that we'd be handing the
-    /// editor an empty preview, which is worse UX than letting the
-    /// regex parser take a swing at the same input.
+    private static func titleLooksInferred(
+        _ title: String,
+        sourceTokens: Set<String>
+    ) -> Bool {
+        let tokens = supportTokens(title)
+        guard tokens.count >= 2 else { return false }
+        let missingCount = tokens.filter { !sourceTokens.contains($0) }.count
+        return missingCount > 0 && missingCount * 3 >= tokens.count
+    }
+
+    private static func stepLooksUnsupported(
+        _ step: String,
+        sourceTokens: Set<String>
+    ) -> Bool {
+        let tokens = supportTokens(step)
+        guard tokens.count >= 2 else { return false }
+        let missingCount = tokens.filter { !sourceTokens.contains($0) }.count
+        return missingCount > 0 && missingCount * 3 >= tokens.count
+    }
+
+    private static func sourceSupportTokens(_ text: String) -> Set<String> {
+        Set(supportTokens(text))
+    }
+
+    private static func supportTokens(_ text: String) -> [String] {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .map(normalizeSupportToken)
+            .filter { token in
+                token.count >= 3
+                    && token.rangeOfCharacter(from: .letters) != nil
+                    && !supportTokenStopwords.contains(token)
+            }
+    }
+
+    private static func normalizeSupportToken(_ raw: String) -> String {
+        var token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if token.count > 4, token.hasSuffix("ies") {
+            let stem = String(token.dropLast(3))
+            if let last = stem.last, "aeiou".contains(last) {
+                token = String(token.dropLast())
+            } else {
+                token = stem + "y"
+            }
+        } else if token.count > 4,
+                  ["ches", "shes", "xes", "zes", "oes"].contains(where: { token.hasSuffix($0) }) {
+            token = String(token.dropLast(2))
+        } else if token.count > 3, token.hasSuffix("s"), !token.hasSuffix("ss") {
+            token = String(token.dropLast())
+        }
+        return token
+    }
+
+    private static let supportTokenStopwords: Set<String> = [
+        "and", "are", "but", "for", "from", "into", "not", "off",
+        "onto", "out", "per", "the", "then", "than", "that", "this",
+        "through", "until", "with", "your",
+        "cup", "tbsp", "tablespoon", "tsp", "teaspoon", "ounce", "pound",
+        "gram", "kilogram", "milliliter", "liter", "pint", "quart",
+        "gallon", "clove", "pinch", "dash", "slice", "piece", "can",
+        "stick", "sprig", "head", "bunch", "handful",
+    ]
+
+    /// Minimum bar for "AI got something useful": at least one
+    /// ingredient OR one step. Title can be empty because the prompt
+    /// deliberately tells the model not to invent one when the source
+    /// card has no title; `pickBetterDraft` can carry over the regex
+    /// title if it has one.
     private static func passesQualityGate(_ draft: DraftRecipe) -> Bool {
-        let hasTitle = !draft.title.trimmed.isEmpty
-        let hasContent = !draft.ingredients.isEmpty || !draft.steps.isEmpty
-        return hasTitle && hasContent
+        !draft.ingredients.isEmpty || !draft.steps.isEmpty
     }
 
     /// Instructions tuned for both caption-style and cookbook-page
@@ -205,6 +305,13 @@ enum RecipeAIParser {
     social-media captions (TikTok, Instagram, Pinterest, recipe blogs) \
     and OCR'd printed pages (cookbooks, magazines, handwritten cards). \
     Follow these rules:
+
+    Grounding: only extract what the input actually says. Do NOT invent \
+    a dish title from flavors or ingredients. If no clear title exists, \
+    leave title empty. Do NOT turn an ingredient/header like \
+    "2 frying chickens split" into fake steps such as "fry chickens" \
+    or "split chickens" unless the instruction text itself says to do \
+    that.
 
     1. Title: the dish name. Usually the first non-empty line. Strip \
        social-media decorations like @handles, #hashtags, emoji runs, \
@@ -609,7 +716,7 @@ enum RecipeAIParser {
 @available(iOS 26.0, *)
 @Generable
 private struct ParsedRecipe {
-    @Guide(description: "The recipe name. Strip @-handles and hashtags.")
+    @Guide(description: "Explicit recipe name only; leave empty if no title is present. Strip @-handles and hashtags.")
     let title: String
 
     @Guide(description: "Short blurb if any; empty otherwise.")
@@ -642,7 +749,7 @@ private struct ParsedRecipe {
 
     @Generable
     struct ParsedStep {
-        @Guide(description: "The cooking action. No leading 'Step N:' or '1.'.")
+        @Guide(description: "Cooking action explicitly stated in the input. No leading 'Step N:' or '1.'.")
         let text: String
         @Guide(description: "True when the step mentions a duration to time.")
         let needsTimer: Bool

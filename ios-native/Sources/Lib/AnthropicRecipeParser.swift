@@ -31,8 +31,8 @@ enum AnthropicRecipeParser {
     ///
     /// Returns nil when:
     /// - The network call fails or the proxy returns an error status.
-    /// - The model's response fails the minimum quality gate (title +
-    ///   at least one ingredient or step).
+    /// - The model's response fails the minimum quality gate (at least
+    ///   one ingredient or step).
     ///
     /// Callers treat nil as "fall back to the next parser in the chain"
     /// — never as a hard failure the user sees.
@@ -141,8 +141,7 @@ enum AnthropicRecipeParser {
     }
 
     private static func passesQualityGate(_ draft: DraftRecipe) -> Bool {
-        !draft.title.trimmed.isEmpty
-            && (!draft.ingredients.isEmpty || !draft.steps.isEmpty)
+        !draft.ingredients.isEmpty || !draft.steps.isEmpty
     }
 
     // MARK: - Tool definition
@@ -165,7 +164,7 @@ enum AnthropicRecipeParser {
             "properties": {
               "title": {
                 "type": "string",
-                "description": "The recipe name. Strip @-handles and hashtags."
+                "description": "Explicit recipe name only; leave empty if no title is present. Strip @-handles and hashtags."
               },
               "summary": {
                 "type": "string",
@@ -212,7 +211,7 @@ enum AnthropicRecipeParser {
                   "properties": {
                     "text": {
                       "type": "string",
-                      "description": "The cooking action. No leading 'Step N:' or '1.'."
+                      "description": "Cooking action explicitly stated in the input. No leading 'Step N:' or '1.'."
                     },
                     "needsTimer": {
                       "type": "boolean",

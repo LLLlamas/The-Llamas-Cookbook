@@ -202,7 +202,7 @@ enum RecipeOCRImporter {
             "broth","water","oven","skillet","saucepan","parchment",
             "paprika","cumin","turmeric","ginger","nutmeg","cilantro",
             "parsley","cardamom","chocolate","chips","coconut","Parmesan",
-            "oatmeal","margarine","shortening","molasses","cornstarch",
+            "oatmeal","margarine","marg","shortening","molasses","cornstarch",
             "Rice Krispies","Krispies","Bisquick","Crisco","Tabasco",
             "bowl","bowls","pan","pans","sheet","tray","whisk",
             "spatula","mixer","blender","preheat","preheated",
@@ -478,6 +478,29 @@ enum RecipeOCRImporter {
     /// own — that's what makes unconditional replacement safe.
     private static func repairHandwritingMisreads(_ s: String) -> String {
         var out = s
+        out = out.replacingOccurrences(
+            of: #"(?i)\bw/\s*"#,
+            with: "with ",
+            options: .regularExpression
+        )
+        out = out.replacingOccurrences(
+            of: #"(?i)\bmarg(?:\.|arine|erine|azine)?\b"#,
+            with: "margarine",
+            options: .regularExpression
+        )
+        // Handwritten "Dash" can come back as "posh"/"pash" on this
+        // kind of card. Only repair it before Tabasco/tobacco so we
+        // don't corrupt legitimate prose.
+        out = out.replacingOccurrences(
+            of: #"(?i)\b(?:posh|pash)\s+(?=tabasco\b|tobacco\b)"#,
+            with: "dash ",
+            options: .regularExpression
+        )
+        out = out.replacingOccurrences(
+            of: #"(?i)\btobacco\b"#,
+            with: "Tabasco",
+            options: .regularExpression
+        )
         // "Mix in a bow!" → "Mix in a bowl". Lowercase `l` in
         // handwriting is a vertical stroke that Vision regularly
         // mis-classifies as `!`. "bow!" as an exclamation in cooking
