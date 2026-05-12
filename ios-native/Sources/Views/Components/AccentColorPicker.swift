@@ -142,6 +142,11 @@ struct AccentColorPicker: View {
                 .stroke(AppColor.divider, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        // Flatten the preview's layer tree (LlamaLogo + float animation +
+        // accentTextOutline shadows + gradient) into one Metal texture so
+        // live color-pick updates re-rasterize a single surface instead of
+        // re-compositing ~16 shadow/gradient layers per frame.
+        .drawingGroup()
         .shadow(color: AppColor.shadowSoft, radius: 4, x: 0, y: 2)
     }
 

@@ -19,8 +19,13 @@ struct LlamaFloatModifier: ViewModifier {
             .offset(y: bobOffset)
             .onAppear {
                 guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                    bobOffset = -4
+                // Short delay lets any concurrent sheet/navigation transition
+                // finish its first frames before the repeatForever animation
+                // starts competing for the main run loop.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                        bobOffset = -4
+                    }
                 }
             }
     }

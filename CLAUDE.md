@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-12 (session 2).
+Last refreshed: 2026-05-12 (session 3).
 
 ---
 
@@ -61,7 +61,7 @@ Last refreshed: 2026-05-12 (session 2).
 - `LibraryView.swift`, `RecipeCardView.swift`, `EmptyLibraryView.swift`, `ImportHelpView.swift`
 - `ImportFromTextLinkView.swift` — merged paste-text + URL-fetch sheet
 - `ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
-- Components: `LetterIndex.swift`, `CookbookHeader.swift`, `RecipeImageView.swift`
+- Components: `LetterIndex.swift`, `CookbookHeader.swift`
 - Lib: `RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `AnthropicRecipeParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
 
 **Editor** (`Sources/Views/Editor/`)
@@ -98,8 +98,8 @@ Last refreshed: 2026-05-12 (session 2).
 - `.well-known/apple-app-site-association` — AASA for Universal Links
 
 **Components / misc** (`Sources/Views/Components/`)
-- `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/` (includes `LlamaFloatModifier.swift` — `.llamaFloat()` reusable 4pt bob, 1.4s easeInOut, Reduce-Motion-aware; applied to `AccentColorPicker` llama preview and Friends empty-state llama)
-- `AccentColorPicker.swift`, `SavedToast.swift`
+- `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/` (includes `LlamaFloatModifier.swift` — `.llamaFloat()` reusable 4pt bob, 1.4s easeInOut, Reduce-Motion-aware; **250ms delayed start** so the bob doesn't compete with sheet/navigation transition frames; applied to `AccentColorPicker` llama preview and Friends empty-state llama)
+- `AccentColorPicker.swift`, `SavedToast.swift`, `RecipeImageView.swift` (async decode — see Performance invariants)
 - Lib: `ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `SwipeBack.swift`, `AppMetadata.swift`
 
 ---
@@ -126,6 +126,14 @@ Last refreshed: 2026-05-12 (session 2).
 - **Custom back buttons** (`RecipeDetailView`, `FriendLibraryView`, `FriendRecipeDetailView`) use `.navigationBarBackButtonHidden(true)` + `.enableSwipeBack()`. `RecipeEditorView` intentionally omits `.enableSwipeBack()` — Cancel/Save pattern, data-loss risk.
 - **CI Xcode toolchain**: `macos-26` ships beta `.app`s; CI renames them `_disabled_…` and re-pins both `DEVELOPER_DIR` and `PATH`. Setting only `DEVELOPER_DIR` leaves sub-tools on the beta; TestFlight rejects beta-built archives.
 - **AI import parser chain**: `RecipeAIParser.parseBestOf` → `AnthropicRecipeParser` (Cloudflare Worker proxy at `llamascookbook.pages.dev/api/parse`) → Apple Intelligence fallback → regex baseline. `AnthropicRecipeParser.isConfigured = true` unconditionally — no key in binary or Keychain. API key lives in Cloudflare env only. **Photo import passes `preferHighQuality: true` → Sonnet 4.6. Link import uses default → Haiku 4.5.** Both use `temperature: 0`, `max_tokens: 4096`. Shared system prompt: `RecipeAIParser.instructions`.
+
+---
+
+## Performance invariants
+
+- **`RecipeImageView` decodes asynchronously.** `init` does a synchronous O(1) `NSCache` lookup — if cached (e.g. card thumbnail already decoded), `@State` is warm and the first body eval renders immediately with no flicker. Cache misses decode via `Task.detached(priority: .userInitiated)` off the main thread; result is written back on `@MainActor`. **Never revert to synchronous `UIImage(data:)` in `body`** — HEIC decode takes 50–150 ms and stalls push-animation frames.
+- **`.drawingGroup()` placement rules** — applied INSIDE `.clipShape()` / before the outer shadow stack so the shadow composites against a single Metal texture rather than re-compositing each inner layer per frame. Current sites: `RecipeCardView` (scroll jank fix), `AccentColorPicker.preview` (color-pick re-render fix), `RecipeDetailView` ingredients `VStack` (push-animation first-render fix). Do **not** apply to views that use `.blur()`, `.regularMaterial`, or other backdrop-sampling effects — those break inside a drawing group.
+- **`.llamaFloat()` has a 250 ms delayed start** (`LlamaFloatModifier`). The `repeatForever` animation must not start at the same moment as a sheet presentation or tab transition — it competes for main-run-loop bandwidth and causes dropped frames on the incoming animation. Keep the delay if you ever add new `.llamaFloat()` call sites.
 
 ---
 

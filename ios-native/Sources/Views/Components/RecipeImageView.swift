@@ -17,6 +17,13 @@ import UIKit
 /// back-and-forth in the carousel doesn't re-decode the same `Data`
 /// repeatedly. The cache key is the data's hash; same bytes → same
 /// cached image regardless of which call site asked.
+///
+/// Performance: decoding is async. `init` does a synchronous cache
+/// lookup (O(1) hash check) so already-decoded images (e.g. a card
+/// thumbnail that scrolled into view before the navigation push) render
+/// on the first frame with no flicker. Cache-miss images decode on a
+/// background thread via `Task.detached`, keeping the main thread — and
+/// the navigation push animation — unblocked.
 struct RecipeImageView<Placeholder: View>: View {
     let data: Data?
     let contentMode: ContentMode
@@ -26,6 +33,8 @@ struct RecipeImageView<Placeholder: View>: View {
     /// the surrounding letterbox space the parent frame might have.
     let cornerRadius: CGFloat
     @ViewBuilder var placeholder: () -> Placeholder
+
+    @State private var decoded: UIImage?
 
     init(
         data: Data?,
@@ -37,29 +46,58 @@ struct RecipeImageView<Placeholder: View>: View {
         self.contentMode = contentMode
         self.cornerRadius = cornerRadius
         self.placeholder = placeholder
+        // Warm the @State initial value from the cache synchronously so
+        // the very first body eval renders the image immediately — no
+        // placeholder flash — when the data was already decoded (e.g. the
+        // card thumbnail in LibraryView decoded it before the push).
+        if let data, let cached = imageCache.object(forKey: data as NSData) {
+            _decoded = State(initialValue: cached)
+        }
     }
 
     var body: some View {
-        if let data, let image = decode(data) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: contentMode)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        } else {
-            placeholder()
+        Group {
+            if let decoded {
+                Image(uiImage: decoded)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            } else {
+                placeholder()
+            }
+        }
+        .task(id: data) {
+            await loadImage()
         }
     }
 
-    /// Decode-with-cache. Cache miss → decode + insert + return.
-    /// Decode failure → return nil so the caller paints the placeholder.
-    private func decode(_ data: Data) -> UIImage? {
-        let key = data as NSData
-        if let cached = imageCache.object(forKey: key) {
-            return cached
+    @MainActor
+    private func loadImage() async {
+        guard let data else {
+            decoded = nil
+            return
         }
-        guard let image = UIImage(data: data) else { return nil }
+        let key = data as NSData
+        // Fast path: already in cache (placed by the init warm-check or a
+        // previous render of the same data at another call site).
+        if let cached = imageCache.object(forKey: key) {
+            decoded = cached
+            return
+        }
+        // Clear any stale image from a previous data value before the
+        // background decode completes — avoids showing the wrong photo
+        // while the new one loads (e.g. after a recipe photo is replaced).
+        decoded = nil
+        // Slow path: decode HEIC/JPEG on a background thread so the main
+        // thread — and any in-flight navigation push animation — stays
+        // unblocked. Task.detached escapes the current actor; we await
+        // the result back on @MainActor before writing to @State.
+        let image = await Task.detached(priority: .userInitiated) {
+            UIImage(data: data)
+        }.value
+        guard let image else { return }
         imageCache.setObject(image, forKey: key)
-        return image
+        decoded = image
     }
 }
 

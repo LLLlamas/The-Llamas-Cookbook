@@ -171,6 +171,13 @@ struct RecipeDetailView: View {
                                     ingredientRow(ingredient)
                                 }
                             }
+                            // Flatten each row's gradient + stroke + shadow layers
+                            // (plus the accentTextOutline quad-shadows on qty/unit
+                            // text) into a single Metal texture. Cuts first-render
+                            // compositing cost proportional to ingredient count,
+                            // which is the heaviest contributor to push-animation
+                            // frame drops on detail views for longer recipes.
+                            .drawingGroup()
                         }
                     }
 
