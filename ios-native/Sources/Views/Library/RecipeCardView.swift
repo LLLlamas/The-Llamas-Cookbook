@@ -142,7 +142,12 @@ struct RecipeCardView: View {
                     data: photoData,
                     contentMode: .fill,
                     cornerRadius: showsHeartThumbnail ? 0 : AppRadius.md
-                )
+                ) {
+                    // Loading placeholder while async decode runs — matches
+                    // the no-photo fallback so the thumbnail slot stays filled.
+                    RoundedRectangle(cornerRadius: showsHeartThumbnail ? 0 : AppRadius.md)
+                        .fill(AppColor.accentSoft.opacity(0.5))
+                }
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: AppRadius.md)

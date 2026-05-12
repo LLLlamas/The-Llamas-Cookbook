@@ -938,43 +938,56 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// Photos entry-point. Renders **every** gallery photo as a small
-    /// rounded thumbnail in a single horizontal scroll row — first
-    /// photo on the left acts as the "hero", every additional photo
-    /// trails after it on the same row, no cap. Tapping any thumbnail
-    /// opens the existing carousel at that index, so the larger
-    /// viewing experience is unchanged. Empty gallery falls back to
-    /// a single "Add" placeholder so the user still has a tap target.
+    /// Photos entry-point. Shows the first two gallery photos as 72pt
+    /// thumbnails, then either a "+N more" overflow chip (when the gallery
+    /// has more than 2 photos) or an "Add" tile (when 0–2 photos exist so
+    /// there's always a visible tap target to open the carousel). Tapping
+    /// any element opens the carousel; the overflow chip opens at index 2.
     private var photosButton: some View {
         let displayablePhotos = recipe.sortedPhotos.filter { $0.image != nil }
+        let visiblePhotos = Array(displayablePhotos.prefix(2))
+        let remainingCount = displayablePhotos.count - visiblePhotos.count
 
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: AppSpacing.sm) {
-                if displayablePhotos.isEmpty {
-                    photoThumb(image: nil, index: 0)
-                } else {
-                    // Iterate over indices with `\.self` ID — bulletproof
-                    // against any Identifiable conformance edge cases on
-                    // the @Model `RecipePhoto` and avoids enumerated()
-                    // tuple keypath quirks. Each thumbnail's index is
-                    // routed straight into `carouselStartPage` so taps
-                    // open the carousel on the matching page.
-                    ForEach(displayablePhotos.indices, id: \.self) { idx in
-                        photoThumb(
-                            image: displayablePhotos[idx].image,
-                            index: idx
-                        )
-                    }
-                }
+        return HStack(spacing: AppSpacing.sm) {
+            ForEach(visiblePhotos.indices, id: \.self) { idx in
+                photoThumb(image: visiblePhotos[idx].image, index: idx)
             }
-            // Tiny inset on either end so a shadow on the first/last
-            // thumb isn't clipped by the ScrollView's content bounds.
-            .padding(.horizontal, 2)
-            .padding(.vertical, 4)
+
+            if remainingCount > 0 {
+                // "+N more" — opens carousel at the third photo.
+                Button {
+                    Haptics.selection()
+                    carouselStartPage = 2
+                    showingPhotoCarousel = true
+                } label: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .fill(AppColor.accentSoft.opacity(0.5))
+                        VStack(spacing: 2) {
+                            Text("+\(remainingCount)")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text(remainingCount == 1 ? "more" : "more")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundStyle(appearance.accentColor)
+                    }
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
+                    )
+                    .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View \(remainingCount) more photo\(remainingCount == 1 ? "" : "s")")
+            } else {
+                // Add tile — always present when fewer than 3 photos exist.
+                photoThumb(image: nil, index: displayablePhotos.count)
+            }
         }
-        // Slightly taller than the 72pt thumb so the soft drop shadow
-        // has room without getting clipped by the scroll view's
-        // content rect.
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
         .frame(height: 84)
     }
 
@@ -992,7 +1005,10 @@ struct RecipeDetailView: View {
                         data: image,
                         contentMode: .fill,
                         cornerRadius: AppRadius.md
-                    )
+                    ) {
+                        RoundedRectangle(cornerRadius: AppRadius.md)
+                            .fill(AppColor.accentSoft.opacity(0.5))
+                    }
                 } else {
                     ZStack {
                         RoundedRectangle(cornerRadius: AppRadius.md)
