@@ -82,14 +82,19 @@ enum RecipeAIParser {
     ///    returns nil (API error, quality gate fail).
     /// 3. Regex pipeline — universal baseline; always runs in parallel
     ///    so `pickBetterDraft` can compare any AI result against it.
-    static func parseBestOf(_ text: String, sourceUrl: String?) async -> DraftRecipe? {
+    /// - Parameter preferHighQuality: When true, routes the Claude call
+    ///   through Sonnet instead of Haiku. Use for photo import where OCR
+    ///   noise warrants stronger instruction following. Link import should
+    ///   leave this false (Haiku handles clean text well at lower cost).
+    static func parseBestOf(_ text: String, sourceUrl: String?, preferHighQuality: Bool = false) async -> DraftRecipe? {
         let urlString = sourceUrl ?? ""
         let regexDraft = makeRegexDraft(text, sourceUrl: urlString)
 
         // Claude API path — preferred when configured. Works on all iOS
         // versions, all device tiers; no Apple Intelligence requirement.
         if AnthropicRecipeParser.isConfigured {
-            let claudeDraft = await AnthropicRecipeParser.parse(text, sourceUrl: sourceUrl)
+            let model = preferHighQuality ? AnthropicRecipeParser.Model.sonnet : AnthropicRecipeParser.Model.haiku
+            let claudeDraft = await AnthropicRecipeParser.parse(text, sourceUrl: sourceUrl, model: model)
             if let winner = pickBetterDraft(ai: claudeDraft, regex: regexDraft, sourceText: text) {
                 return winner
             }

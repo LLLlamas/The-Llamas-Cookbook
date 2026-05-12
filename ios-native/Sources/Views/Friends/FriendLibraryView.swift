@@ -376,6 +376,16 @@ struct FriendLibraryView: View {
             isLoading = false
             hasLoadedOnce = true
         }
+        // Seed friend: hydrate from the bundled JSON, skip the
+        // network entirely. No throw path — the cached summaries
+        // are produced at decode time, so an empty list here means
+        // the seed JSON shipped empty (developer error caught at
+        // build time).
+        if SeedFriend.isSeed(friend) {
+            summaries = SeedFriend.librarySummaries()
+            loadError = nil
+            return
+        }
         do {
             let fetched = try await CloudKitService.fetchPublishedRecipeSummaries(
                 ownerID: friend.userRecordName

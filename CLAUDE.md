@@ -82,7 +82,8 @@ Last refreshed: 2026-05-11.
 
 **Friends / social** (`Sources/Views/Friends/`, `Sources/Lib/`)
 - `FriendsTabView.swift`, `FriendLibraryView.swift`, `FriendRecipeDetailView.swift`
-- Lib: `CloudKitFriendship.swift`, `CloudKitUserProfile.swift`, `CloudKitPublishedRecipe.swift`, `CloudKitRecipeImport.swift`, `CloudKitSubscriptions.swift`, `CloudPendingDeleteQueue.swift`, `UserProfileMirror.swift`, `LibraryMirrorService.swift`
+- Lib: `CloudKitFriendship.swift`, `CloudKitUserProfile.swift`, `CloudKitPublishedRecipe.swift`, `CloudKitRecipeImport.swift`, `CloudKitSubscriptions.swift`, `CloudPendingDeleteQueue.swift`, `UserProfileMirror.swift`, `LibraryMirrorService.swift`, `SeedFriend.swift` ("Your Llama" synthetic seed friend + bundled-JSON recipe catalog)
+- Resources: `SeedRecipes.json` — 10 starter recipes the seed friend "owns"; decoded once into `LCRecipeShareV1` envelopes
 
 **Auth / identity** (`Sources/Lib/`)
 - `SignInWithAppleService.swift`, `KeychainStore.swift` — Apple `sub` + display name + Anthropic API key
@@ -117,6 +118,7 @@ Last refreshed: 2026-05-11.
 - **`UserProfileMirror.cachedRecordID()`** is the canonical "is iCloud bound?" check — every social write short-circuits when nil.
 - **`LibraryMirrorService`** — `@MainActor` singleton, 5s per-`Recipe.id` debounce. Sign-out/delete must call `resetBulkPublishMarker()`.
 - **`ImportCountCache`** in UserDefaults, not `@Model` — prevents chip refreshes from triggering spurious `LibraryMirrorService` re-publishes.
+- **"Your Llama" seed friend** (`SeedFriend.swift`) — synthetic local-only friend at `friends[0]` on every install. `userRecordName == "your-llama-seed"`; `SeedFriend.isSeed(_:)` short-circuits every CloudKit fan-out (`fetchPublishedRecipeSummaries`, `fetchPublishedRecipe`, `writeRecipeImport`, `removeFriend`, the contextMenu's Remove entry). Survives `refresh()` / `clearOnSignOut()` because it's prepended unconditionally. Counts toward `friends.count` — `ProfileView`'s bulk-publish trigger is `oldCount <= 1 && newCount > 1` (first *real* friend, not first friend ever).
 - **AlarmKit** owns cook-timer lock-screen alerts + Live Activity. Sound is always `AlertConfiguration.AlertSound.default`.
 - **HEIC → JPEG before CloudKit upload** (`ImageProcessing.transcodeHEICToJPEGForSharing`). Local SwiftData stays HEIC.
 - **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` — 25 MB cap; referenced by both main app and share extension.

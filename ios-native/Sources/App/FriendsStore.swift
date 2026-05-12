@@ -32,7 +32,17 @@ final class FriendsStore {
     /// Snapshots of accepted friends, pre-sorted alphabetically by
     /// `displayName` (case-insensitive, locale-aware) so the
     /// `ProfileView` Friends list renders in scroll-friendly order.
-    private(set) var friends: [UserProfileSnapshot] = []
+    ///
+    /// **Always carries the synthetic "Your Llama" seed friend at
+    /// index 0.** See `SeedFriend.swift` — the seed is local-only
+    /// (no CloudKit record, no Friendship row) and exists so a
+    /// brand-new user has something to browse and import from on
+    /// day one. It survives every `refresh()` / `clearOnSignOut`
+    /// because it isn't sourced from the social graph; it is
+    /// prepended unconditionally after the rest of the list is
+    /// reconciled. Counts toward `friends.count`, so a fresh user
+    /// starts at 1/3 toward `isBelowSocialThreshold`.
+    private(set) var friends: [UserProfileSnapshot] = [SeedFriend.profile]
 
     /// Pending requests where the local user is the **recipient** —
     /// "X wants to be your friend." Each entry pairs the friendship
@@ -154,8 +164,10 @@ final class FriendsStore {
 
         guard let me else {
             // No iCloud at all — flush local state so the UI doesn't
-            // render stale friends from a previous session.
-            friends = []
+            // render stale friends from a previous session. The
+            // synthetic seed friend stays put so the Friends tab is
+            // never empty even when CloudKit is unreachable.
+            friends = [SeedFriend.profile]
             incomingRequests = []
             outgoingRequests = [:]
             return
@@ -290,7 +302,11 @@ final class FriendsStore {
             lhs.requester.displayName.localizedStandardCompare(rhs.requester.displayName) == .orderedAscending
         }
 
-        friends = newFriends
+        // Seed friend always rides at index 0, ahead of the alpha-
+        // sorted CloudKit friends. Keeps "Your Llama" reachable from
+        // a fresh install or a signed-out session, and gives the
+        // grid a familiar anchor on every refresh.
+        friends = [SeedFriend.profile] + newFriends
         friendsSinceByID = newFriendsSince
         incomingRequests = newIncoming
         outgoingRequests = newOutgoing
@@ -409,9 +425,15 @@ final class FriendsStore {
             $0.requester.userRecordName == pending.requester.userRecordName
         }
         friends.append(pending.requester)
-        friends.sort { lhs, rhs in
+        // Sort everything except the seed friend, then re-pin the
+        // seed at index 0 so accept-driven inserts can't dislodge
+        // it. Mirrors the post-refresh ordering.
+        let seed = friends.first { SeedFriend.isSeed($0) }
+        var rest = friends.filter { !SeedFriend.isSeed($0) }
+        rest.sort { lhs, rhs in
             lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
         }
+        friends = (seed.map { [$0] } ?? []) + rest
         // Match the CK write — `approveFriendRequest` stamps
         // `acceptedAt = Date()` server-side, so the optimistic local
         // entry uses the same instant. The next refresh reconciles
@@ -460,6 +482,11 @@ final class FriendsStore {
     /// either user can immediately re-request without the local
     /// dedup guards rejecting them due to a stale record.
     func removeFriend(_ friend: UserProfileSnapshot) async {
+        // The synthetic seed friend has no CloudKit record to delete
+        // and is never removable from the UI — bail before touching
+        // either side. Belt-and-suspenders; the friend card / detail
+        // surfaces don't expose a remove affordance on the seed.
+        guard !SeedFriend.isSeed(friend) else { return }
         guard let me = UserProfileMirror.cachedRecordID() else { return }
         let otherID = friend.userRecordName
         await CloudKitService.deleteAllFriendshipsBetween(me, and: otherID)
@@ -477,7 +504,11 @@ final class FriendsStore {
     /// flash the previous user's friends list before the next
     /// refresh fires (or, if signed out for good, never).
     func clearOnSignOut() {
-        friends = []
+        // Seed friend survives sign-out — it lives in the bundle,
+        // not in the just-cleared CloudKit graph. Without this the
+        // post-sign-out Friends tab would render fully empty for
+        // the brief moment before .task fires a refresh.
+        friends = [SeedFriend.profile]
         friendsSinceByID = [:]
         incomingRequests = []
         outgoingRequests = [:]

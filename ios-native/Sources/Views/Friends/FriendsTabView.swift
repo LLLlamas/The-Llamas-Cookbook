@@ -7,11 +7,12 @@ import SwiftUI
 /// thumbnail. Presence is encoded as an inline `AccentDot` next to
 /// the name plus a pulsing accent border around the card when cooking.
 ///
-/// Tapping a card pushes `FriendLibraryView`. The empty state centers a
-/// llama with an Add Friend CTA that opens the same `AddFriendSheet`
-/// reachable from the Profile tab's Friends section, so there's a
-/// single canonical entry point for finding people regardless of where
-/// the user starts.
+/// Tapping a card pushes `FriendLibraryView`. The "Your Llama" seed
+/// friend (see `SeedFriend.swift`) always sits at index 0 of
+/// `friendsStore.friends` regardless of CloudKit state, so the grid
+/// is never empty and the toolbar's `+` is the single canonical entry
+/// point for finding more people. The same sheet is reachable from
+/// the Profile tab's Friends section.
 ///
 /// Recipe counts come from `CloudKitService.fetchPublishedRecipeSummaries`
 /// — same source `FriendLibraryView` uses on push — cached per
@@ -50,40 +51,34 @@ struct FriendsTabView: View {
         StringCase.friendsTitle(displayName: userAccount.status.identity?.displayName)
     }
 
-    /// Threshold for the hue/accent-tinted empty-state llama. Below
-    /// three friends the cookbook still feels sparse enough that the
-    /// "Looking for a friend?" prompt + centered Add CTA reads as more
-    /// inviting than a half-populated grid; at three or more the grid
-    /// has enough body to stand on its own with the standard llama
-    /// watermark background.
+    /// Threshold the rest of the app (e.g. friend-suggestion nudges)
+    /// reads to gauge how filled-in the user's social graph is. The
+    /// synthetic "Your Llama" seed friend counts toward this number,
+    /// so a brand-new user starts at 1/3. Kept as an exposed property
+    /// even though the empty-state UI no longer fires off it — the
+    /// grid renders unconditionally now that the seed guarantees at
+    /// least one card.
     private var isBelowSocialThreshold: Bool {
         friendsStore.friends.count < 3
     }
 
     var body: some View {
-        Group {
-            if isBelowSocialThreshold {
-                emptyState
-            } else {
-                grid
-                    .llamaBackground(
-                        asset: "Friends_Llama_Icon_Large",
-                        tint: appearance.cookbookTitleAccentColor
+        grid
+            .llamaBackground(
+                asset: "Friends_Llama_Icon_Large",
+                tint: appearance.cookbookTitleAccentColor
+            )
+            .navigationTitle(friendsTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .tint(appearance.cookbookTitleAccentColor)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    CookbookHeader(
+                        title: friendsTitle,
+                        accent: appearance.cookbookTitleAccentColor,
+                        glowActive: appearance.isAccentGlowActive(.header)
                     )
-            }
-        }
-        .navigationTitle(friendsTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .tint(appearance.cookbookTitleAccentColor)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                CookbookHeader(
-                    title: friendsTitle,
-                    accent: appearance.cookbookTitleAccentColor,
-                    glowActive: appearance.isAccentGlowActive(.header)
-                )
-            }
-            if !isBelowSocialThreshold {
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Haptics.impact(.light)
@@ -114,72 +109,20 @@ struct FriendsTabView: View {
                     .disabled(friendsStore.isRefreshing)
                 }
             }
-        }
-        .sheet(isPresented: $showingAddFriend) {
-            AddFriendSheet()
-                .environment(appearance)
-                .environment(friendsStore)
-        }
-        .navigationDestination(for: UserProfileSnapshot.self) { friend in
-            FriendLibraryView(friend: friend)
-        }
-        .task {
-            await friendsStore.refresh()
-        }
-        .refreshable {
-            await friendsStore.refresh()
-        }
-    }
-
-    // MARK: - Empty state
-
-    private var emptyState: some View {
-        VStack(spacing: AppSpacing.lg) {
-            Image("Friends_Llama_Icon_Large")
-                .renderingMode(.original)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 160, height: 160)
-                .shadow(
-                    color: appearance.accentColor.opacity(0.45),
-                    radius: 160 * 0.0643,
-                    x: 0,
-                    y: 160 * 0.05
-                )
-                .llamaFloat()
-                .accessibilityHidden(true)
-            VStack(spacing: AppSpacing.xs) {
-                Text("Looking for a friend?")
-                    .font(AppFont.sectionHeading)
-                    .foregroundStyle(AppColor.textPrimary)
-                Text("Add someone you know to see their cookbook.")
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textSecondary)
-                    .multilineTextAlignment(.center)
+            .sheet(isPresented: $showingAddFriend) {
+                AddFriendSheet()
+                    .environment(appearance)
+                    .environment(friendsStore)
             }
-            Button {
-                Haptics.impact(.light)
-                showingAddFriend = true
-            } label: {
-                HStack(spacing: AppSpacing.xs) {
-                    Image(systemName: "person.crop.circle.badge.plus")
-                        .font(.system(size: 16, weight: .bold))
-                    Text("Add Friend")
-                        .font(.system(size: 15, weight: .semibold))
-                }
-                .foregroundStyle(AppColor.onAccent)
-                .padding(.horizontal, AppSpacing.lg)
-                .padding(.vertical, AppSpacing.sm + 2)
-                .background(appearance.accentColor)
-                .clipShape(Capsule())
-                .shadow(color: appearance.accentColor.opacity(0.35), radius: 12, y: 4)
+            .navigationDestination(for: UserProfileSnapshot.self) { friend in
+                FriendLibraryView(friend: friend)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Add a friend")
-        }
-        .padding(AppSpacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .task {
+                await friendsStore.refresh()
+            }
+            .refreshable {
+                await friendsStore.refresh()
+            }
     }
 
     // MARK: - Grid
@@ -221,6 +164,14 @@ struct FriendsTabView: View {
     private func loadCountIfNeeded(for friend: UserProfileSnapshot) async {
         let id = friend.userRecordName
         if recipeCounts[id] != nil || inFlightCounts.contains(id) { return }
+        // Seed friend: recipe count comes from the bundled JSON, no
+        // CloudKit query. Last-cooked thumbnail stays nil — the seed
+        // doesn't track cooks so the card falls back to the
+        // `Friends_Llama_Icon` placeholder, which reads correctly.
+        if SeedFriend.isSeed(friend) {
+            recipeCounts[id] = SeedFriend.librarySummaries().count
+            return
+        }
         inFlightCounts.insert(id)
         defer { inFlightCounts.remove(id) }
         if let summaries = try? await CloudKitService.fetchPublishedRecipeSummaries(ownerID: id) {
@@ -247,6 +198,14 @@ struct FriendsTabView: View {
     private func loadTotalSavesIfNeeded(for friend: UserProfileSnapshot) async {
         let key = friend.userRecordName
         guard friendTotalSaves[key] == nil, !inFlightSaves.contains(key) else { return }
+        // Seed friend has no CloudKit `RecipeImport` rows to count —
+        // resolve to 0 so the secondary meta line falls through to
+        // the "Friends since" branch (which itself collapses because
+        // the seed has no friendship `acceptedAt`).
+        if SeedFriend.isSeed(friend) {
+            friendTotalSaves[key] = 0
+            return
+        }
         inFlightSaves.insert(key)
         defer { inFlightSaves.remove(key) }
         if let count = try? await CloudKitService.countRecipeImports(forCreatorID: key) {

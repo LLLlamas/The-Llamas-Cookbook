@@ -25,9 +25,25 @@ enum AnthropicRecipeParser {
     /// network. Network failures fall through to nil gracefully.
     static let isConfigured: Bool = true
 
+    // MARK: - Models
+
+    enum Model {
+        /// Fast, cost-efficient. Good for clean text (link import,
+        /// social captions, structured blog scrapes).
+        static let haiku = "claude-haiku-4-5-20251001"
+        /// Higher quality. Used for photo import where OCR noise,
+        /// two-column layouts, and handwriting require stronger
+        /// instruction following.
+        static let sonnet = "claude-sonnet-4-6"
+    }
+
     // MARK: - Parse
 
-    /// Parse a free-form recipe blob via the Cloudflare → Claude Haiku path.
+    /// Parse a free-form recipe blob via the Cloudflare → Claude path.
+    ///
+    /// - Parameter model: Which Claude model to call. Defaults to Haiku
+    ///   (fast, cheap). Pass `Model.sonnet` for photo-import paths where
+    ///   OCR noise warrants higher accuracy.
     ///
     /// Returns nil when:
     /// - The network call fails or the proxy returns an error status.
@@ -36,7 +52,7 @@ enum AnthropicRecipeParser {
     ///
     /// Callers treat nil as "fall back to the next parser in the chain"
     /// — never as a hard failure the user sees.
-    static func parse(_ text: String, sourceUrl: String?) async -> DraftRecipe? {
+    static func parse(_ text: String, sourceUrl: String?, model: String = Model.haiku) async -> DraftRecipe? {
         let trimmed = text.trimmed
         guard !trimmed.isEmpty else { return nil }
 
@@ -46,7 +62,7 @@ enum AnthropicRecipeParser {
         let capped = trimmed.count > 15_000 ? String(trimmed.prefix(15_000)) : trimmed
 
         do {
-            return try await callAPI(text: capped, sourceUrl: sourceUrl, attempt: 0)
+            return try await callAPI(text: capped, sourceUrl: sourceUrl, model: model, attempt: 0)
         } catch {
             return nil
         }
@@ -57,6 +73,7 @@ enum AnthropicRecipeParser {
     private static func callAPI(
         text: String,
         sourceUrl: String?,
+        model: String,
         attempt: Int
     ) async throws -> DraftRecipe? {
         var request = URLRequest(url: URL(string: "https://llamascookbook.pages.dev/api/parse")!)
@@ -67,7 +84,7 @@ enum AnthropicRecipeParser {
         // Required to activate cache_control blocks on the system prompt.
         request.setValue("prompt-caching-2024-07-31", forHTTPHeaderField: "anthropic-beta")
 
-        request.httpBody = try buildBody(text: text)
+        request.httpBody = try buildBody(text: text, model: model)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { return nil }
@@ -83,7 +100,7 @@ enum AnthropicRecipeParser {
             let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
             try await Task.sleep(nanoseconds: nanos)
             return try await callAPI(
-                text: text, sourceUrl: sourceUrl, attempt: attempt + 1
+                text: text, sourceUrl: sourceUrl, model: model, attempt: attempt + 1
             )
 
         default:
@@ -93,7 +110,7 @@ enum AnthropicRecipeParser {
 
     // MARK: - Request body
 
-    private static func buildBody(text: String) throws -> Data {
+    private static func buildBody(text: String, model: String) throws -> Data {
         let systemBlock: [String: Any] = [
             "type": "text",
             "text": RecipeAIParser.instructions,
@@ -107,7 +124,7 @@ enum AnthropicRecipeParser {
             "content": "Recipe text to parse:\n\n\(text)",
         ]
         let body: [String: Any] = [
-            "model": "claude-haiku-4-5-20251001",
+            "model": model,
             "max_tokens": 4096,
             "temperature": 0,
             "system": [systemBlock],

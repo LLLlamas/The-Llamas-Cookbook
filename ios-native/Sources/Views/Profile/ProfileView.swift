@@ -246,7 +246,7 @@ struct ProfileView: View {
                 // friendsStore.clearOnSignOut(), so no work here.
             }
             .onChange(of: friendsStore.friends.count) { oldCount, newCount in
-                // First-friend transition (0 → 1+): backfill every
+                // First-real-friend transition: backfill every
                 // existing recipe to CloudKit so the friend has
                 // something to look at on day one. The service's
                 // bulk-publish path is idempotent + UserDefaults-
@@ -254,7 +254,13 @@ struct ProfileView: View {
                 // same install no-op. ProfileView holds the @Query
                 // for recipes already (used by Last Cooked), so
                 // this is the natural firing site.
-                if oldCount == 0 && newCount > 0 {
+                //
+                // The synthetic "Your Llama" seed friend ships pre-
+                // installed and parks `friends.count` at 1 from
+                // install onward, so the comparison fires on the
+                // 1 → 2+ transition (= first real friend added)
+                // rather than the bare 0 → 1+ one.
+                if oldCount <= 1 && newCount > 1 {
                     let snapshot = allRecipes
                     Task {
                         await LibraryMirrorService.shared.bulkPublishIfNeeded(
@@ -743,10 +749,18 @@ struct ProfileView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button(role: .destructive) {
-                pendingFriendRemoval = friend
-            } label: {
-                Label("Remove friend", systemImage: "person.fill.xmark")
+            // No remove affordance on the synthetic "Your Llama"
+            // seed friend — it isn't a real Friendship row, can't be
+            // unfriended, and `friendsStore.removeFriend` already
+            // no-ops for it. Suppressing the menu entry avoids
+            // surfacing a destructive control that silently does
+            // nothing.
+            if !SeedFriend.isSeed(friend) {
+                Button(role: .destructive) {
+                    pendingFriendRemoval = friend
+                } label: {
+                    Label("Remove friend", systemImage: "person.fill.xmark")
+                }
             }
         }
     }

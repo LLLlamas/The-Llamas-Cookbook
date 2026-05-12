@@ -503,7 +503,7 @@ struct ImportFromPhotoView: View {
         // 3. AI parse (best-of LLM + regex). `parseBestOf` returns
         // nil only when *both* parsers produce nothing usable.
         ocrPageStatus = "Organizing your recipe…"
-        let draft = await RecipeAIParser.parseBestOf(text, sourceUrl: nil)
+        let draft = await RecipeAIParser.parseBestOf(text, sourceUrl: nil, preferHighQuality: true)
 
         // 4. Stricter quality gate for the photo flow: title +
         // ingredients + steps. A photo preview that only got half

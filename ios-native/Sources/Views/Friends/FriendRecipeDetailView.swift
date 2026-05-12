@@ -517,6 +517,21 @@ struct FriendRecipeDetailView: View {
             isLoading = false
             hasLoadedOnce = true
         }
+        // Seed friend: pull the pre-built envelope from
+        // `SeedFriend.detail(forRecordName:)`. The seed recipes ship
+        // without photo bytes, so `galleryPhotos` stays empty and
+        // the photos strip simply doesn't render — clean fallback
+        // through the existing `if !galleryPhotos.isEmpty` gate.
+        if SeedFriend.isSeed(friend) {
+            if let fetched = SeedFriend.detail(forRecordName: summary.recordName) {
+                publishedDetail = fetched
+                galleryPhotos = []
+                loadError = nil
+            } else {
+                loadError = "Couldn't load this recipe."
+            }
+            return
+        }
         do {
             let fetched = try await CloudKitService.fetchPublishedRecipe(
                 recordName: summary.recordName
@@ -652,6 +667,11 @@ struct FriendRecipeDetailView: View {
     /// missing iCloud account silently skips the write the same
     /// way those flows do.
     private func writeImportAuditRow(for newRecipe: Recipe) {
+        // Importing from the seed friend never produces a CloudKit
+        // audit row — there's no real creator to credit, and writing
+        // one would just pollute the public DB with rows pointing at
+        // the `your-llama-seed` sentinel.
+        guard !SeedFriend.isSeed(friend) else { return }
         guard let importerID = UserProfileMirror.cachedRecordID() else { return }
         // Read the @Model fields into local `String?` values BEFORE
         // crossing the `Task.detached` boundary. SwiftData @Model

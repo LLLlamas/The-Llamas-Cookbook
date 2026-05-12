@@ -27,6 +27,12 @@ targets:
       # App Store Connect auto-rejects the upload. See
       # Resources/PrivacyInfo.xcprivacy for the full declaration.
       - path: Resources/PrivacyInfo.xcprivacy
+      # "Your Llama" seed friend recipes — bundled JSON decoded once
+      # at first access by `SeedFriend.swift`. The synthetic seed
+      # friend always appears at position 0 in every user's Friends
+      # tab so a fresh install has something to browse / import from
+      # on day one, with zero CloudKit dependency.
+      - path: Resources/SeedRecipes.json
     dependencies:
       - target: LlamasCookbookTimerWidget
         embed: true
