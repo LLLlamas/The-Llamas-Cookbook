@@ -49,6 +49,28 @@ struct UserProfileSnapshot: Identifiable, Hashable {
         self.lastCookedTitle = record["lastCookedTitle"] as? String
         self.cookingStartedAt = record["cookingStartedAt"] as? Date
     }
+
+    /// Direct-field initializer for synthetic snapshots (e.g. the seed
+    /// friend) that have no backing CKRecord.
+    init(
+        userRecordName: String,
+        displayName: String,
+        accentHex: String?,
+        createdAt: Date,
+        lastCookedAt: Date?,
+        lastCookedRecipeID: String?,
+        lastCookedTitle: String?,
+        cookingStartedAt: Date?
+    ) {
+        self.userRecordName = userRecordName
+        self.displayName = displayName
+        self.accentHex = accentHex
+        self.createdAt = createdAt
+        self.lastCookedAt = lastCookedAt
+        self.lastCookedRecipeID = lastCookedRecipeID
+        self.lastCookedTitle = lastCookedTitle
+        self.cookingStartedAt = cookingStartedAt
+    }
 }
 
 extension CloudKitService {
