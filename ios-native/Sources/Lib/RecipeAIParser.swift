@@ -111,6 +111,38 @@ enum RecipeAIParser {
         return pickBetterDraft(ai: aiDraft, regex: regexDraft, sourceText: text)
     }
 
+    /// Vision-first parse: send up to 3 page images directly to Claude
+    /// vision (Sonnet) and return the resulting `DraftRecipe` if it
+    /// passes the same quality gate the text path uses. Returns nil on
+    /// network error, rate-limit exhaustion, or insufficient content
+    /// — caller falls back to the text path (`parseBestOf` over OCR
+    /// output) when this returns nil.
+    ///
+    /// **Why vision before OCR:** The OCR pipeline collapses spatial
+    /// structure (two columns interleave, sidebars merge into the main
+    /// flow), corrupts characters under tight kerning ("I" vs "1",
+    /// "%" vs "&"), and hides formatting cues the model could use. The
+    /// shared system prompt has accumulated 28 numbered rules to
+    /// compensate; sending the image directly skips most of those
+    /// failure modes at the cost of a ~2-3x larger token bill per call.
+    ///
+    /// - Parameter images: JPEG-encoded page bytes prepared via
+    ///   `ImageProcessing.prepare(_:for:.aiVision)` so the long edge is
+    ///   capped to Anthropic's recommended 1568px and the format is
+    ///   guaranteed-JPEG (vision rejects HEIC).
+    /// - Parameter sourceUrl: Optional source URL stamped on the draft.
+    static func parseImages(_ images: [Data], sourceUrl: String?) async -> DraftRecipe? {
+        guard !images.isEmpty else { return nil }
+        guard AnthropicRecipeParser.isConfigured else { return nil }
+        let draft = await AnthropicRecipeParser.parseImages(
+            images,
+            sourceUrl: sourceUrl,
+            model: AnthropicRecipeParser.Model.sonnet
+        )
+        guard let draft else { return nil }
+        return passesQualityGate(draft) ? draft : nil
+    }
+
     /// Run the regex pipeline and stamp the source URL on it, gated
     /// by the same minimum bar the AI quality gate uses (title + at
     /// least one ingredient or step). Anything weaker isn't worth
@@ -306,9 +338,16 @@ enum RecipeAIParser {
     /// the instructions are updated. Internal (not private) so
     /// `AnthropicRecipeParser` can reference it without duplication.
     static let instructions: String = """
-    You parse messy recipe text into structured fields. Inputs vary: \
-    social-media captions (TikTok, Instagram, Pinterest, recipe blogs) \
-    and OCR'd printed pages (cookbooks, magazines, handwritten cards). \
+    You parse messy recipe content into structured fields. Inputs vary: \
+    social-media captions (TikTok, Instagram, Pinterest, recipe blogs), \
+    OCR'd printed pages (cookbooks, magazines, handwritten cards), \
+    and direct images of recipe pages (printed cookbooks, magazine \
+    clippings, handwritten cards, screenshots). When the input is an \
+    image, read the page directly and use visible layout — column \
+    structure, section headings, callout boxes, sidebar boxes, \
+    bold/italic emphasis, indentation — to disambiguate ingredients \
+    from steps and to locate the title and metadata. Every rule below \
+    applies whether the input arrived as text or as one or more images. \
     Follow these rules:
 
     NEVER FABRICATE. Every field you emit must come directly from the \

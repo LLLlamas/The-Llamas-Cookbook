@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-12 (session 4).
+Last refreshed: 2026-05-13 (session 5 — vision-first photo import).
 
 ---
 
@@ -127,6 +127,7 @@ Last refreshed: 2026-05-12 (session 4).
 - **Custom back buttons** (`RecipeDetailView`, `FriendLibraryView`, `FriendRecipeDetailView`) use `.navigationBarBackButtonHidden(true)` + `.enableSwipeBack()`. `RecipeEditorView` intentionally omits `.enableSwipeBack()` — Cancel/Save pattern, data-loss risk.
 - **CI Xcode toolchain**: `macos-26` ships beta `.app`s; CI renames them `_disabled_…` and re-pins both `DEVELOPER_DIR` and `PATH`. Setting only `DEVELOPER_DIR` leaves sub-tools on the beta; TestFlight rejects beta-built archives.
 - **AI import parser chain**: `RecipeAIParser.parseBestOf` → `AnthropicRecipeParser` (Cloudflare Worker proxy at `llamascookbook.pages.dev/api/parse`) → Apple Intelligence fallback → regex baseline. `AnthropicRecipeParser.isConfigured = true` unconditionally — no key in binary or Keychain. API key lives in Cloudflare env only. **Photo import passes `preferHighQuality: true` → Sonnet 4.6. Link import uses default → Haiku 4.5.** Both use `temperature: 0`, `max_tokens: 4096`. Shared system prompt: `RecipeAIParser.instructions`.
+- **Photo-import flow is vision-first**: `ImportFromPhotoView.runOCR` prepares each captured page in two formats in parallel (`.aiVision` 1568px JPEG, `.ocr` 2560px JPEG/HEIC), then tries `RecipeAIParser.parseImages` (Sonnet vision via the same Cloudflare proxy) before falling back to the OCR + text path (`RecipeOCRImporter.recognize` → `parseBestOf`). Vision sees layout (two-column cookbook pages, sidebars), reads handwriting and stylized fonts, and is immune to OCR character confusions — it now wins on every photo path that can reach the network. Banner-mode "Edit as text" handoff remains the final fallback when both vision and OCR-text fail the title+ingredients+steps quality gate. **Anthropic vision rejects HEIC** — `ImageProcessing.Target.aiVision` forces JPEG output via `forcesJPEGOutput`. Vision request timeout is 60s (vs 30s for text); same 429/529 backoff schedule as the text path. Vision call uses the same cached system prompt as the text path so cache entries are shared across import shapes.
 
 ---
 
@@ -182,7 +183,7 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 - Carousels: no inline reorder arrows — use dedicated reorder mode (`PhotoReorderView`).
 - **Favorited recipe card thumbnail**: `HeartShape()` clip + stroke for ALL favorited recipes. `showsHeartThumbnail` is simply `recipe.favorite`; no separate heart glyph next to the title.
 - **`RecipeDetailView` photo strip** (`photosButton`): fixed 84pt height row — 0 photos → Add tile only; 1 photo → photo + Add tile; 2 photos → 2 photos + Add tile; 3+ photos → first 2 photos + "+N more" overflow chip (taps open carousel at index 2). No horizontal `ScrollView` — always exactly 2 slots visible plus the overflow/add button. Do not revert to unlimited scroll.
-- Llama tour: interactive, dim/halo `.allowsHitTesting(false)`. No Skip button; Exit pill below nav row. Six steps. See `llama-intro.md`.
+- Llama tour: interactive, dim/halo `.allowsHitTesting(false)`. No Skip button; Exit pill below nav row (hidden on last step — "Got it!" suffices). Eight steps; step 5 auto-advances when the first ingredient is added. See `llama-intro.md`.
 - Duplicate title import: prompt + prefill `Title (N)`, including friend cookbook imports.
 - Social copy: "shared", "appears in Friends", "unlisted". Never "private to friends".
 - Friend surfaces: tint in friend's accent. Presence dot: filled+pulsing when `cookingStartedAt` < 6h, hollow when idle.

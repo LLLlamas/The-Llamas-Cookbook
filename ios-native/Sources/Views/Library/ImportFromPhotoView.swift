@@ -301,7 +301,7 @@ struct ImportFromPhotoView: View {
             // Primary CTA
             Button {
                 Haptics.impact(.medium)
-                Task { await runOCR(on: capturedPages) }
+                Task { await runImport(on: capturedPages) }
             } label: {
                 captureButtonLabel(
                     title: capturedPages.count == 1
@@ -450,10 +450,10 @@ struct ImportFromPhotoView: View {
         }
     }
 
-    // MARK: - OCR runner
+    // MARK: - Import runner (vision-first, OCR fallback)
 
     @MainActor
-    private func runOCR(on pages: [CapturedPage]) async {
+    private func runImport(on pages: [CapturedPage]) async {
         guard !pages.isEmpty else { return }
         ocrInProgress = true
         errorBanner = nil
@@ -462,20 +462,24 @@ struct ImportFromPhotoView: View {
             ocrPageStatus = nil
         }
 
-        // 1. Prepare page bytes for OCR. Photo-library picks keep their
-        // original bytes, avoiding a UIImage -> JPEG round-trip before
-        // ImageIO resizes/orients for Vision. Camera captures still
-        // arrive as UIImage, so those fall back to a one-time JPEG
-        // encode here.
-        var prepared: [Data] = []
-        for (idx, page) in pages.enumerated() {
-            ocrPageStatus = "Preparing page \(idx + 1) of \(pages.count)…"
-            guard let raw = page.sourceData ?? page.image.jpegData(compressionQuality: 0.95),
-                  let resized = await ImageProcessing.prepare(raw, for: .ocr)
-            else { continue }
-            prepared.append(resized)
-        }
-        guard !prepared.isEmpty else {
+        // 1. Prepare page bytes for both pipelines in parallel:
+        //    - `.aiVision` (1568px JPEG) for the Claude vision call.
+        //    - `.ocr`      (2560px JPEG/HEIC) for the OCR fallback.
+        // The two prep targets share a CGImageSource per page under
+        // the hood but produce different output, so we run them as a
+        // single TaskGroup that emits both shapes in one pass per page.
+        // Photo-library picks keep their original bytes (avoiding a
+        // UIImage -> JPEG round-trip); camera captures fall back to a
+        // one-time JPEG encode here.
+        ocrPageStatus = pages.count == 1
+            ? "Preparing page…"
+            : "Preparing \(pages.count) pages…"
+
+        let prepared = await preparePages(pages)
+        let visionImages = prepared.compactMap(\.vision)
+        let ocrImages    = prepared.compactMap(\.ocr)
+
+        guard !visionImages.isEmpty || !ocrImages.isEmpty else {
             errorBanner = ErrorBanner(
                 kind: .error,
                 message: "Couldn't read those photos. Try a different image.",
@@ -485,12 +489,49 @@ struct ImportFromPhotoView: View {
             return
         }
 
-        // 2. OCR per page.
-        ocrPageStatus = pages.count > 1
-            ? "Reading text from \(pages.count) pages…"
-            : "Reading text…"
-        let text = await RecipeOCRImporter.recognize(prepared)
-        guard !text.isEmpty else {
+        // 2. Vision-first parse. Send the prepared JPEGs straight to
+        // Claude vision (Sonnet) — it reads layout, handwriting, and
+        // formatting cues directly, avoiding the OCR-character-confusion
+        // class of bug entirely. Returns nil on network failure, rate-
+        // limit exhaustion, or a low-confidence response, in which case
+        // we fall back to the OCR + text path below.
+        ocrPageStatus = "Reading the recipe…"
+        let visionDraft: DraftRecipe? = visionImages.isEmpty
+            ? nil
+            : await RecipeAIParser.parseImages(visionImages, sourceUrl: nil)
+
+        if let draft = visionDraft, photoImportConfident(draft) {
+            capturedPages = []
+            preview = PreviewPayload(draft: draft)
+            return
+        }
+
+        // 3. OCR + text-AI fallback. The cleanup pipeline + Claude text
+        // path is the legacy flow — slower and noisier than vision but
+        // proven on every shape we've seen. If vision returned a draft
+        // that was incomplete (e.g. only ingredients, no steps), we
+        // still re-run through OCR-text to give the text path a fair
+        // shot at filling in the gaps.
+        ocrPageStatus = "Reading the recipe…"
+        let ocrText = ocrImages.isEmpty ? "" : await RecipeOCRImporter.recognize(ocrImages)
+
+        let textDraft: DraftRecipe? = ocrText.isEmpty
+            ? nil
+            : await RecipeAIParser.parseBestOf(ocrText, sourceUrl: nil, preferHighQuality: true)
+
+        // Vision was already eliminated above (returned non-confident);
+        // text path is our last shot at a confident draft.
+        if let t = textDraft, photoImportConfident(t) {
+            capturedPages = []
+            preview = PreviewPayload(draft: t)
+            return
+        }
+
+        // 4. Neither path produced a confident draft. Surface whatever
+        // OCR captured so the user can clean it up by hand. The action
+        // closure swaps the active sheet to text-import with the seed
+        // pre-loaded — same pattern as the URL importer's partial path.
+        guard !ocrText.isEmpty else {
             errorBanner = ErrorBanner(
                 kind: .error,
                 message: "Couldn't read text from the image. Try better lighting or a closer angle, or pick a different photo.",
@@ -499,44 +540,58 @@ struct ImportFromPhotoView: View {
             )
             return
         }
+        let seed = ocrText
+        errorBanner = ErrorBanner(
+            kind: .warning,
+            message: "We pulled the text but couldn't separate ingredients from steps. Try adding another page, or edit the text directly.",
+            actionTitle: "Edit as text",
+            action: {
+                Haptics.impact(.light)
+                editor.startImportFromText(seedText: seed)
+            }
+        )
+    }
 
-        // 3. AI parse (best-of LLM + regex). `parseBestOf` returns
-        // nil only when *both* parsers produce nothing usable.
-        ocrPageStatus = "Organizing your recipe…"
-        let draft = await RecipeAIParser.parseBestOf(text, sourceUrl: nil, preferHighQuality: true)
-
-        // 4. Stricter quality gate for the photo flow: title +
-        // ingredients + steps. A photo preview that only got half
-        // the recipe is more confusing than a soft fallback to the
-        // text editor with the OCR text seeded.
-        let hasTitle = !(draft?.title.trimmed.isEmpty ?? true)
-        let hasIngredients = !(draft?.ingredients.isEmpty ?? true)
-        let hasSteps = !(draft?.steps.isEmpty ?? true)
-        let confident = hasTitle && hasIngredients && hasSteps
-
-        if confident, let draft {
-            capturedPages = []
-            preview = PreviewPayload(draft: draft)
-        } else {
-            // Partial OCR — surface the text in the text editor so
-            // the user can clean it up. The continue button hands
-            // off via the EditorCoordinator (swaps the active sheet
-            // from photo-import to text-import with the seed pre-
-            // loaded; same pattern as the URL-importer's partial
-            // path). The seed text is captured directly in the
-            // closure so the action retains exactly the OCR result
-            // surfaced in the banner.
-            let seed = text
-            errorBanner = ErrorBanner(
-                kind: .warning,
-                message: "We pulled the text but couldn't separate ingredients from steps. Try adding another page, or edit the text directly.",
-                actionTitle: "Edit as text",
-                action: {
-                    Haptics.impact(.light)
-                    editor.startImportFromText(seedText: seed)
+    /// Prepare every captured page into both vision-ready and OCR-ready
+    /// byte payloads. Each page runs through `ImageProcessing.prepare`
+    /// twice (once per target) inside a TaskGroup so a 3-page batch
+    /// completes in roughly the time of one page rather than three.
+    /// Returns one entry per input page; either field can be nil when
+    /// that target's prep failed (corrupt source, undecodable format).
+    private func preparePages(_ pages: [CapturedPage]) async -> [PreparedPage] {
+        await withTaskGroup(of: (Int, PreparedPage).self) { group in
+            for (idx, page) in pages.enumerated() {
+                group.addTask {
+                    let raw = page.sourceData
+                        ?? page.image.jpegData(compressionQuality: 0.95)
+                    guard let raw else {
+                        return (idx, PreparedPage(vision: nil, ocr: nil))
+                    }
+                    async let vision = ImageProcessing.prepare(raw, for: .aiVision)
+                    async let ocr    = ImageProcessing.prepare(raw, for: .ocr)
+                    let v = await vision
+                    let o = await ocr
+                    return (idx, PreparedPage(vision: v, ocr: o))
                 }
-            )
+            }
+            var ordered = Array(repeating: PreparedPage(vision: nil, ocr: nil), count: pages.count)
+            for await (idx, prep) in group {
+                ordered[idx] = prep
+            }
+            return ordered
         }
+    }
+
+    /// Stricter quality gate for the photo flow: title + ingredients
+    /// + steps. A photo preview that only got half the recipe is more
+    /// confusing than a soft fallback to the text editor with the OCR
+    /// text seeded. Used by both the vision path and the OCR-text
+    /// path so the bar is identical regardless of which parser won.
+    private func photoImportConfident(_ draft: DraftRecipe) -> Bool {
+        let hasTitle = !draft.title.trimmed.isEmpty
+        let hasIngredients = !draft.ingredients.isEmpty
+        let hasSteps = !draft.steps.isEmpty
+        return hasTitle && hasIngredients && hasSteps
     }
 
     // MARK: - Local types
@@ -558,6 +613,15 @@ struct ImportFromPhotoView: View {
             self.image = image
             self.sourceData = sourceData
         }
+    }
+
+    /// Per-page prepared byte payloads. `vision` is JPEG @ 1568px for
+    /// the Anthropic vision call; `ocr` is JPEG/HEIC @ 2560px for the
+    /// on-device Vision OCR fallback. Either can be nil when that
+    /// target's prep step failed (corrupt source, undecodable format).
+    private struct PreparedPage {
+        let vision: Data?
+        let ocr: Data?
     }
 
     private struct ErrorBanner: Equatable {

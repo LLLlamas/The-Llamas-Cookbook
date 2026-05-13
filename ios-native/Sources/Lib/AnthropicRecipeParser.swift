@@ -68,6 +68,55 @@ enum AnthropicRecipeParser {
         }
     }
 
+    /// Parse one or more recipe-page images via Claude vision through
+    /// the same Cloudflare → Anthropic proxy. Each image becomes its
+    /// own `image` content block in the user message; the model reads
+    /// pages in order and emits a single structured recipe via the
+    /// same `structured_recipe` tool the text path uses.
+    ///
+    /// **Why this beats OCR-then-text on photos:** Vision sees layout
+    /// (two-column cookbook pages, sidebars, callout boxes), reads
+    /// handwriting and stylized fonts directly, and is immune to OCR
+    /// character confusions like "I" vs "1" or "%" vs "&". The OCR
+    /// cleanup pipeline still earns its keep as the fallback path
+    /// when vision fails (network down, rate-limited, low-confidence
+    /// response) — `parseImages` returns nil in that case so the
+    /// caller can drop back to the text path.
+    ///
+    /// - Parameter images: JPEG-encoded page bytes, in reading order.
+    ///   Caller must supply JPEGs (Anthropic vision rejects HEIC) —
+    ///   `ImageProcessing.prepare(_:for:.aiVision)` does the right thing.
+    /// - Parameter sourceUrl: Optional URL stamped on the resulting
+    ///   draft for attribution. Pass nil for camera/library imports.
+    /// - Parameter model: Which Claude model. Defaults to Sonnet 4.6;
+    ///   vision benefits from the larger model and the user opted in
+    ///   to higher quality by choosing photo import in the first place.
+    static func parseImages(
+        _ images: [Data],
+        sourceUrl: String?,
+        model: String = Model.sonnet
+    ) async -> DraftRecipe? {
+        guard !images.isEmpty else { return nil }
+
+        // Anthropic accepts up to 100 images per request, but the photo
+        // import UI caps at 3 pages (`maxSelectionCount: 3`). Honor that
+        // cap defensively here too — if a future caller drops a longer
+        // batch in, we silently truncate rather than blow the proxy's
+        // request-body budget.
+        let capped = Array(images.prefix(3))
+
+        do {
+            return try await callAPIWithImages(
+                images: capped,
+                sourceUrl: sourceUrl,
+                model: model,
+                attempt: 0
+            )
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - HTTP
 
     private static func callAPI(
@@ -108,6 +157,47 @@ enum AnthropicRecipeParser {
         }
     }
 
+    private static func callAPIWithImages(
+        images: [Data],
+        sourceUrl: String?,
+        model: String,
+        attempt: Int
+    ) async throws -> DraftRecipe? {
+        var request = URLRequest(url: URL(string: "https://llamascookbook.pages.dev/api/parse")!)
+        request.httpMethod = "POST"
+        // Vision calls take longer than text — Sonnet on 1-3 page images
+        // typically lands in 4-12 s. 60 s gives generous headroom for
+        // tail latencies without making a hung request feel infinite.
+        request.timeoutInterval = 60
+        request.setValue("application/json",          forHTTPHeaderField: "Content-Type")
+        request.setValue("2023-06-01",                forHTTPHeaderField: "anthropic-version")
+        request.setValue("prompt-caching-2024-07-31", forHTTPHeaderField: "anthropic-beta")
+
+        request.httpBody = try buildVisionBody(images: images, model: model)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { return nil }
+
+        switch http.statusCode {
+        case 200:
+            return extractDraft(from: data, sourceUrl: sourceUrl)
+
+        case 429, 529:
+            // Same backoff schedule as the text path. Three attempts
+            // total covers a brief overload spike without keeping the
+            // user staring at a spinner for the whole rate-limit window.
+            guard attempt < 2 else { return nil }
+            let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
+            try await Task.sleep(nanoseconds: nanos)
+            return try await callAPIWithImages(
+                images: images, sourceUrl: sourceUrl, model: model, attempt: attempt + 1
+            )
+
+        default:
+            return nil
+        }
+    }
+
     // MARK: - Request body
 
     private static func buildBody(text: String, model: String) throws -> Data {
@@ -133,6 +223,79 @@ enum AnthropicRecipeParser {
             "messages": [message],
         ]
         return try JSONSerialization.data(withJSONObject: body)
+    }
+
+    /// Build a vision-mode request body. The user message becomes a
+    /// content array: one image block per page (in reading order),
+    /// followed by a single text block telling the model what it's
+    /// looking at and reminding it to use the same parsing rules.
+    ///
+    /// The system prompt is identical to the text path so the same
+    /// cache entry serves both — repeat imports hit the cached prefix
+    /// regardless of whether the user came in via paste or photo.
+    private static func buildVisionBody(images: [Data], model: String) throws -> Data {
+        var content: [[String: Any]] = []
+        for data in images {
+            let imageBlock: [String: Any] = [
+                "type": "image",
+                "source": [
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": data.base64EncodedString(),
+                ] as [String: Any],
+            ]
+            content.append(imageBlock)
+        }
+        let textBlock: [String: Any] = [
+            "type": "text",
+            "text": visionUserPrompt(pageCount: images.count),
+        ]
+        content.append(textBlock)
+
+        let systemBlock: [String: Any] = [
+            "type": "text",
+            "text": RecipeAIParser.instructions,
+            "cache_control": ["type": "ephemeral"] as [String: Any],
+        ]
+        let toolChoice: [String: Any] = ["type": "tool", "name": "structured_recipe"]
+        let message: [String: Any] = [
+            "role": "user",
+            "content": content,
+        ]
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 4096,
+            "temperature": 0,
+            "system": [systemBlock],
+            "tools": [recipeToolDefinition],
+            "tool_choice": toolChoice,
+            "messages": [message],
+        ]
+        return try JSONSerialization.data(withJSONObject: body)
+    }
+
+    /// User-message preamble for vision calls. Tells the model how
+    /// many pages it's looking at, in what order, and which categories
+    /// of source it should expect — printed cookbook pages, magazine
+    /// clippings, handwritten cards, screenshots. Compact on purpose;
+    /// the heavy guidance still lives in the cached system prompt.
+    private static func visionUserPrompt(pageCount: Int) -> String {
+        let header = pageCount == 1
+            ? "The image above is a single page of a recipe."
+            : "The \(pageCount) images above are pages of one recipe in reading order."
+        return """
+        \(header) The source may be a printed cookbook page, a magazine \
+        clipping, a handwritten recipe card, or a screenshot. Read the \
+        image(s) directly — use the visible layout (column structure, \
+        section headings, callout boxes, sidebar boxes, bold/italic \
+        emphasis, indentation) to disambiguate ingredients from steps \
+        and to locate the title and metadata. Apply every rule from the \
+        system instructions. If two pages are present, treat them as \
+        one continuous recipe; ingredient and step lists may span the \
+        page break. Do not invent fields that aren't visible in the \
+        image — leave them empty per the NEVER FABRICATE rule. Emit \
+        the result via the structured_recipe tool.
+        """
     }
 
     // MARK: - Response parsing

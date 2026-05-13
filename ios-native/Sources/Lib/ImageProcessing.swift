@@ -27,31 +27,51 @@ import UniformTypeIdentifiers
 enum ImageProcessing {
     /// Different callers get different pixel budgets: gallery photos
     /// are viewed full-screen, step images render smaller in Cook Mode,
-    /// and OCR gets a sharper temporary image for text recognition.
+    /// OCR gets a sharper temporary image for text recognition, and the
+    /// AI vision import path uses a payload-friendly size matched to
+    /// Anthropic's recommended max long edge.
     enum Target {
         case gallery
         case step
         case ocr
+        case aiVision
 
         /// Long-edge ceiling in pixels. Source images smaller than this
         /// pass through without upscaling (the thumbnail API caps at the
         /// source size automatically).
+        ///
+        /// The `.aiVision` ceiling is 1568px because Anthropic's vision
+        /// docs recommend that exact value as the largest input that
+        /// avoids server-side downscaling — going higher costs tokens
+        /// and bandwidth without giving the model more signal.
         var maxLongEdgePixels: Int {
             switch self {
-            case .gallery: return 1920
-            case .step:    return 1280
-            case .ocr:     return 2560
+            case .gallery:  return 1920
+            case .step:     return 1280
+            case .ocr:      return 2560
+            case .aiVision: return 1568
             }
         }
 
         /// JPEG quality for fallback re-encodes. HEIC ignores this and
-        /// uses its own internal rate-distortion knob.
+        /// uses its own internal rate-distortion knob (so this only
+        /// matters when the source is a non-HEIC format or when the
+        /// target forces JPEG output via `forcesJPEGOutput`).
         var jpegQuality: CGFloat {
             switch self {
-            case .gallery: return 0.85
-            case .step:    return 0.82
-            case .ocr:     return 0.92
+            case .gallery:  return 0.85
+            case .step:     return 0.82
+            case .ocr:      return 0.92
+            case .aiVision: return 0.85
             }
+        }
+
+        /// `.aiVision` always emits JPEG because Anthropic's vision API
+        /// only accepts image/jpeg, image/png, image/gif, image/webp —
+        /// not HEIC. Forcing JPEG here keeps the upload format valid
+        /// regardless of source camera/library format.
+        var forcesJPEGOutput: Bool {
+            self == .aiVision
         }
     }
 
@@ -86,7 +106,7 @@ enum ImageProcessing {
             return nil
         }
 
-        let outputType = pickOutputType(for: imageSource)
+        let outputType = target.forcesJPEGOutput ? UTType.jpeg : pickOutputType(for: imageSource)
 
         let thumbOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -120,9 +140,11 @@ enum ImageProcessing {
         guard CGImageDestinationFinalize(destination) else { return nil }
 
         let encoded = destinationData as Data
-        if case .ocr = target {
-            return encoded
-        }
+        // OCR and AI-vision are temporary uploads where pixel/format
+        // discipline matters more than byte size — always return the
+        // re-encoded copy so callers get a guaranteed-shape payload.
+        if case .ocr = target { return encoded }
+        if case .aiVision = target { return encoded }
         // If the round-trip somehow inflated the bytes — rare, but real
         // for already-small inputs (e.g. a 200KB screenshot re-encoding
         // to ~250KB JPEG) — return the source unchanged. Better to keep
