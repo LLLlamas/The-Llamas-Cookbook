@@ -112,35 +112,31 @@ enum RecipeAIParser {
     }
 
     /// Vision-first parse: send up to 3 page images directly to Claude
-    /// vision (Sonnet) and return the resulting `DraftRecipe` if it
-    /// passes the same quality gate the text path uses. Returns nil on
-    /// network error, rate-limit exhaustion, or insufficient content
-    /// — caller falls back to the text path (`parseBestOf` over OCR
-    /// output) when this returns nil.
+    /// vision (Sonnet) via the Cloudflare proxy. Returns a
+    /// `VisionParseOutcome` so the caller can distinguish quota/auth
+    /// errors from parse failures.
     ///
-    /// **Why vision before OCR:** The OCR pipeline collapses spatial
-    /// structure (two columns interleave, sidebars merge into the main
-    /// flow), corrupts characters under tight kerning ("I" vs "1",
-    /// "%" vs "&"), and hides formatting cues the model could use. The
-    /// shared system prompt has accumulated 28 numbered rules to
-    /// compensate; sending the image directly skips most of those
-    /// failure modes at the cost of a ~2-3x larger token bill per call.
+    /// - `.error` is non-nil → surface the appropriate UI state (auth
+    ///   gate, upsell card, daily-limit card); do not fall through to OCR.
+    /// - `.error` is nil, `.draft` is nil → parse failed; fall through to OCR.
+    /// - `.error` is nil, `.draft` is non-nil → success; apply quality gate.
     ///
     /// - Parameter images: JPEG-encoded page bytes prepared via
-    ///   `ImageProcessing.prepare(_:for:.aiVision)` so the long edge is
-    ///   capped to Anthropic's recommended 1568px and the format is
-    ///   guaranteed-JPEG (vision rejects HEIC).
+    ///   `ImageProcessing.prepare(_:for:.aiVision)`.
     /// - Parameter sourceUrl: Optional source URL stamped on the draft.
-    static func parseImages(_ images: [Data], sourceUrl: String?) async -> DraftRecipe? {
-        guard !images.isEmpty else { return nil }
-        guard AnthropicRecipeParser.isConfigured else { return nil }
-        let draft = await AnthropicRecipeParser.parseImages(
+    static func parseImages(_ images: [Data], sourceUrl: String?) async -> VisionParseOutcome {
+        guard !images.isEmpty else { return VisionParseOutcome() }
+        guard AnthropicRecipeParser.isConfigured else { return VisionParseOutcome() }
+        var outcome = await AnthropicRecipeParser.parseImages(
             images,
             sourceUrl: sourceUrl,
             model: AnthropicRecipeParser.Model.sonnet
         )
-        guard let draft else { return nil }
-        return passesQualityGate(draft) ? draft : nil
+        // Apply quality gate to the draft; keep error and cacheHit unchanged.
+        if let draft = outcome.draft, !passesQualityGate(draft) {
+            outcome.draft = nil
+        }
+        return outcome
     }
 
     /// Run the regex pipeline and stamp the source URL on it, gated

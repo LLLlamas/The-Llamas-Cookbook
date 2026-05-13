@@ -1,5 +1,27 @@
 import Foundation
 
+// MARK: - Vision parse result types
+
+/// Outcome of a vision-path photo import parse call.
+/// Carries the parsed draft (nil = no usable content) and metadata
+/// the UI needs to decide on quota messaging and cache-hit hints.
+struct VisionParseOutcome {
+    var draft:    DraftRecipe?
+    var cacheHit: Bool           = false
+    var error:    VisionParseError? = nil
+}
+
+/// Typed errors surfaced by the photo-import vision path.
+/// The UI maps each case to distinct messaging (auth gate, upsell card,
+/// daily-limit card). Network/parse failures stay nil (fallback to OCR).
+enum VisionParseError: Equatable {
+    case authRequired    // 401 — no signed-in user
+    case quotaExhausted  // 402 — monthly cap hit
+    case dailyLimitHit   // 429 with error:"daily_parse_limit"
+    // 429 from Anthropic (rate limit) is NOT exposed here; it retries
+    // silently up to 3× and returns nil on exhaustion, falling back to OCR.
+}
+
 /// Anthropic Claude API client for recipe parsing.
 ///
 /// Routes through the Cloudflare Worker proxy at
@@ -74,35 +96,25 @@ enum AnthropicRecipeParser {
     /// pages in order and emits a single structured recipe via the
     /// same `structured_recipe` tool the text path uses.
     ///
-    /// **Why this beats OCR-then-text on photos:** Vision sees layout
-    /// (two-column cookbook pages, sidebars, callout boxes), reads
-    /// handwriting and stylized fonts directly, and is immune to OCR
-    /// character confusions like "I" vs "1" or "%" vs "&". The OCR
-    /// cleanup pipeline still earns its keep as the fallback path
-    /// when vision fails (network down, rate-limited, low-confidence
-    /// response) — `parseImages` returns nil in that case so the
-    /// caller can drop back to the text path.
+    /// Returns a `VisionParseOutcome` which wraps the optional draft,
+    /// a `cacheHit` flag (for the "same photo" hint in the UI), and
+    /// typed errors for auth/quota/daily-limit rejection so the UI
+    /// can surface the right message without parsing HTTP status codes.
     ///
     /// - Parameter images: JPEG-encoded page bytes, in reading order.
     ///   Caller must supply JPEGs (Anthropic vision rejects HEIC) —
     ///   `ImageProcessing.prepare(_:for:.aiVision)` does the right thing.
     /// - Parameter sourceUrl: Optional URL stamped on the resulting
     ///   draft for attribution. Pass nil for camera/library imports.
-    /// - Parameter model: Which Claude model. Defaults to Sonnet 4.6;
-    ///   vision benefits from the larger model and the user opted in
-    ///   to higher quality by choosing photo import in the first place.
+    /// - Parameter model: Which Claude model. Defaults to Sonnet 4.6.
     static func parseImages(
         _ images: [Data],
         sourceUrl: String?,
         model: String = Model.sonnet
-    ) async -> DraftRecipe? {
-        guard !images.isEmpty else { return nil }
+    ) async -> VisionParseOutcome {
+        guard !images.isEmpty else { return VisionParseOutcome() }
 
-        // Anthropic accepts up to 100 images per request, but the photo
-        // import UI caps at 3 pages (`maxSelectionCount: 3`). Honor that
-        // cap defensively here too — if a future caller drops a longer
-        // batch in, we silently truncate rather than blow the proxy's
-        // request-body budget.
+        // Cap at 3 pages to match the UI's maxSelectionCount.
         let capped = Array(images.prefix(3))
 
         do {
@@ -113,7 +125,7 @@ enum AnthropicRecipeParser {
                 attempt: 0
             )
         } catch {
-            return nil
+            return VisionParseOutcome()
         }
     }
 
@@ -162,7 +174,7 @@ enum AnthropicRecipeParser {
         sourceUrl: String?,
         model: String,
         attempt: Int
-    ) async throws -> DraftRecipe? {
+    ) async throws -> VisionParseOutcome {
         var request = URLRequest(url: URL(string: "https://llamascookbook.pages.dev/api/parse")!)
         request.httpMethod = "POST"
         // Vision calls take longer than text — Sonnet on 1-3 page images
@@ -172,21 +184,46 @@ enum AnthropicRecipeParser {
         request.setValue("application/json",          forHTTPHeaderField: "Content-Type")
         request.setValue("2023-06-01",                forHTTPHeaderField: "anthropic-version")
         request.setValue("prompt-caching-2024-07-31", forHTTPHeaderField: "anthropic-beta")
+        // Quota enforcement headers — required for photo import.
+        request.setValue("photo",                     forHTTPHeaderField: "x-llamas-import-kind")
+        if let userId = KeychainStore.read(.appleSub) {
+            request.setValue(userId, forHTTPHeaderField: "x-llamas-user")
+        }
+        request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "x-llamas-tz")
 
         request.httpBody = try buildVisionBody(images: images, model: model)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { return nil }
+        guard let http = response as? HTTPURLResponse else { return VisionParseOutcome() }
 
         switch http.statusCode {
         case 200:
-            return extractDraft(from: data, sourceUrl: sourceUrl)
+            let cacheHit = http.value(forHTTPHeaderField: "x-llamas-cache") == "hit"
+            let draft    = extractDraft(from: data, sourceUrl: sourceUrl)
+            return VisionParseOutcome(draft: draft, cacheHit: cacheHit)
 
-        case 429, 529:
-            // Same backoff schedule as the text path. Three attempts
-            // total covers a brief overload spike without keeping the
-            // user staring at a spinner for the whole rate-limit window.
-            guard attempt < 2 else { return nil }
+        case 401:
+            return VisionParseOutcome(error: .authRequired)
+
+        case 402:
+            return VisionParseOutcome(error: .quotaExhausted)
+
+        case 429:
+            // Distinguish daily-parse-limit (Worker) from Anthropic rate-limit.
+            if let errorCode = extractErrorCode(from: data), errorCode == "daily_parse_limit" {
+                return VisionParseOutcome(error: .dailyLimitHit)
+            }
+            // Anthropic rate-limit / overload: back off and retry.
+            guard attempt < 2 else { return VisionParseOutcome() }
+            let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
+            try await Task.sleep(nanoseconds: nanos)
+            return try await callAPIWithImages(
+                images: images, sourceUrl: sourceUrl, model: model, attempt: attempt + 1
+            )
+
+        case 529:
+            // Anthropic temporary overload — same retry schedule.
+            guard attempt < 2 else { return VisionParseOutcome() }
             let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
             try await Task.sleep(nanoseconds: nanos)
             return try await callAPIWithImages(
@@ -194,8 +231,16 @@ enum AnthropicRecipeParser {
             )
 
         default:
-            return nil
+            return VisionParseOutcome()
         }
+    }
+
+    private static func extractErrorCode(from data: Data) -> String? {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let code = json["error"] as? String
+        else { return nil }
+        return code
     }
 
     // MARK: - Request body

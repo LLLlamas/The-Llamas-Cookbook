@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-13 (session 5 — vision-first photo import).
+Last refreshed: 2026-05-13 (session 6 — quota enforcement + Llama Pro Phase 1).
 
 ---
 
@@ -63,6 +63,8 @@ Last refreshed: 2026-05-13 (session 5 — vision-first photo import).
 - `ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
 - Components: `LetterIndex.swift`, `CookbookHeader.swift`
 - Lib: `RecipeImporter.swift`, `RecipeURLImporter.swift`, `RecipeOCRImporter.swift`, `RecipeAIParser.swift`, `AnthropicRecipeParser.swift`, `RecipeSchemaParser.swift`, `RecipeExport.swift`
+- Lib: `QuotaService.swift` — `@MainActor @Observable` singleton; polls `/api/usage`, fires `/api/usage/consume` after saves; exposes `snapshot: QuotaSnapshot?`
+- Lib: `LlamaProStore.swift` — StoreKit 2 wrapper (Phase 1 stub: `isPro = false`)
 
 **Editor** (`Sources/Views/Editor/`)
 - `RecipeEditorView.swift`
@@ -85,6 +87,11 @@ Last refreshed: 2026-05-13 (session 5 — vision-first photo import).
 - Lib: `CloudKitFriendship.swift`, `CloudKitUserProfile.swift`, `CloudKitPublishedRecipe.swift`, `CloudKitRecipeImport.swift`, `CloudKitSubscriptions.swift`, `CloudPendingDeleteQueue.swift`, `UserProfileMirror.swift`, `LibraryMirrorService.swift`, `SeedFriend.swift` ("Your Llama" synthetic seed friend + bundled-JSON recipe catalog)
 - Resources: `SeedRecipes.json` — 10 starter recipes the seed friend "owns"; decoded once into `LCRecipeShareV1` envelopes
 
+**Quota + IAP** (`Sources/Lib/`, `Sources/Views/Profile/`)
+- `QuotaService.swift` — photo-import quota state (see quota enforcement invariants)
+- `LlamaProStore.swift` — StoreKit 2 wrapper; Phase 2 wires purchase + ASN V2 webhook
+- `PaywallView.swift` — IAP paywall sheet; Phase 1 shows "Coming soon" stub
+
 **Auth / identity** (`Sources/Lib/`)
 - `SignInWithAppleService.swift`, `KeychainStore.swift` — Apple `sub` + display name
 
@@ -92,8 +99,11 @@ Last refreshed: 2026-05-13 (session 5 — vision-first photo import).
 - `ShareViewController.swift` — URL → `llamascookbook://share-url/`, file → App Group inbox
 - `Sources/Shared/SharedContainer.swift`, `Base64URL.swift`
 
-**Web preview** (`cloudflare-pages/`)
+**Web preview + Worker API** (`cloudflare-pages/`)
 - `functions/r/[id].js` — OG-tagged HTML preview; `functions/img/[id].js` — image proxy
+- `functions/api/parse.js` — Anthropic proxy; Phase 1 adds quota enforcement + KV parse-result cache for photo calls
+- `functions/api/usage.js` — read-only quota snapshot endpoint (GET)
+- `functions/api/usage/consume.js` — save-confirm endpoint (POST); increments monthly save counter
 - `lib/cloudkit.js` — CloudKit Web Services client (ECDSA P-256)
 - `.well-known/apple-app-site-association` — AASA for Universal Links
 
@@ -127,6 +137,10 @@ Last refreshed: 2026-05-13 (session 5 — vision-first photo import).
 - **Custom back buttons** (`RecipeDetailView`, `FriendLibraryView`, `FriendRecipeDetailView`) use `.navigationBarBackButtonHidden(true)` + `.enableSwipeBack()`. `RecipeEditorView` intentionally omits `.enableSwipeBack()` — Cancel/Save pattern, data-loss risk.
 - **CI Xcode toolchain**: `macos-26` ships beta `.app`s; CI renames them `_disabled_…` and re-pins both `DEVELOPER_DIR` and `PATH`. Setting only `DEVELOPER_DIR` leaves sub-tools on the beta; TestFlight rejects beta-built archives.
 - **AI import parser chain**: `RecipeAIParser.parseBestOf` → `AnthropicRecipeParser` (Cloudflare Worker proxy at `llamascookbook.pages.dev/api/parse`) → Apple Intelligence fallback → regex baseline. `AnthropicRecipeParser.isConfigured = true` unconditionally — no key in binary or Keychain. API key lives in Cloudflare env only. **Photo import passes `preferHighQuality: true` → Sonnet 4.6. Link import uses default → Haiku 4.5.** Both use `temperature: 0`, `max_tokens: 4096`. Shared system prompt: `RecipeAIParser.instructions`.
+- **Photo-import quota** — enforced server-side in the Cloudflare Worker (`/api/parse`, `/api/usage`, `/api/usage/consume`). Free cap: 5 saves/month. Pro cap: 30 saves/month. Daily parse rate limit: 5 attempts/user/day. KV namespace `LLAMAS_QUOTA` must be bound in the Cloudflare Pages dashboard. The iOS client sends `x-llamas-user` (SIWA sub from Keychain), `x-llamas-tz` (IANA timezone), and `x-llamas-import-kind: photo` on every vision call and consume call. Text/link/paste imports do NOT send these headers and are NOT gated. **Consume is fire-and-forget** — save to SwiftData first, then POST `/api/usage/consume`; a 402 race response shows a soft "this one's on us" banner but does NOT undelete the recipe.
+- **`VisionParseOutcome`** is the return type of `AnthropicRecipeParser.parseImages` and `RecipeAIParser.parseImages`. It carries `draft: DraftRecipe?`, `cacheHit: Bool`, and `error: VisionParseError?`. Non-nil `.error` means the Worker rejected the call (auth/quota/daily-limit) and the caller must NOT fall through to the OCR path — it should refresh `QuotaService` and let the exhausted-state UI take over.
+- **`QuotaService`** is `@MainActor @Observable`, injected via environment from `LlamasCookbookApp`. `refresh(force: false)` respects a 60-second cache; `refresh(force: true)` always fetches. `consume()` returns `ConsumeResult` — `.race` triggers the "this one's on us" banner in `PhotoImportPreviewView`.
+- **Parse-result cache**: Worker caches vision responses in KV keyed by `parseCache:<promptVersion>:<contentHash>`. `PROMPT_VERSION = "v1"` — bump in `parse.js` whenever `RecipeAIParser.instructions` changes. Cache hits skip the daily parse counter but still pre-check monthly quota.
 - **Photo-import flow is vision-first**: `ImportFromPhotoView.runOCR` prepares each captured page in two formats in parallel (`.aiVision` 1568px JPEG, `.ocr` 2560px JPEG/HEIC), then tries `RecipeAIParser.parseImages` (Sonnet vision via the same Cloudflare proxy) before falling back to the OCR + text path (`RecipeOCRImporter.recognize` → `parseBestOf`). Vision sees layout (two-column cookbook pages, sidebars), reads handwriting and stylized fonts, and is immune to OCR character confusions — it now wins on every photo path that can reach the network. Banner-mode "Edit as text" handoff remains the final fallback when both vision and OCR-text fail the title+ingredients+steps quality gate. **Anthropic vision rejects HEIC** — `ImageProcessing.Target.aiVision` forces JPEG output via `forcesJPEGOutput`. Vision request timeout is 60s (vs 30s for text); same 429/529 backoff schedule as the text path. Vision call uses the same cached system prompt as the text path so cache entries are shared across import shapes.
 
 ---

@@ -4,6 +4,27 @@ Spec for an implementing agent. Code wins when this disagrees, but
 file this as the source-of-truth for *intent*.
 
 Author: Lorenzo + Claude (planning session 2026-05-13)
+**Phase 1 implemented: 2026-05-13 (session 6)**
+
+## Phase 1 implementation status
+
+✅ Cloudflare Worker `/api/parse.js` — identity + TZ + daily parse limit + monthly quota pre-check + KV parse-result cache  
+✅ Cloudflare Worker `/api/usage.js` (new) — read-only quota snapshot  
+✅ Cloudflare Worker `/api/usage/consume.js` (new) — save-confirm increment  
+✅ `QuotaService.swift` — `@MainActor @Observable` iOS quota state  
+✅ `AnthropicRecipeParser.swift` — `x-llamas-user`, `x-llamas-tz`, `x-llamas-import-kind: photo` headers; `VisionParseOutcome` typed result; 401/402/429 handling; `x-llamas-cache` detection  
+✅ `RecipeAIParser.parseImages` — returns `VisionParseOutcome`  
+✅ `ImportFromPhotoView.swift` — quota pill, blocked states (monthly free / monthly Pro / daily), sign-in nudge, paywall sheet wire  
+✅ `PhotoImportPreviewView.swift` — consume after save, race banner, cache-hit hint  
+✅ `LlamaProStore.swift` — Phase 1 stub (`isPro = false`)  
+✅ `PaywallView.swift` — "Coming soon" stub  
+✅ `LlamasCookbookApp.swift` — `QuotaService` + `LlamaProStore` injected into environment  
+
+**Still required before shipping Phase 1:**  
+⬜ Create `LLAMAS_QUOTA` KV namespace in Cloudflare dashboard and bind it to the Pages project (Lorenzo, manual)  
+⬜ Manually set quota states in KV dashboard to verify all UI state paths (acceptance criteria)
+
+---
 
 ---
 

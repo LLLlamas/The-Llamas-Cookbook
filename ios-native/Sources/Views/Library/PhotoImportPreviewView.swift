@@ -19,39 +19,44 @@ import SwiftData
 /// share-specific — both are SwiftData fetch-by-title probes).
 struct PhotoImportPreviewView: View {
     let draft: DraftRecipe
+    /// True when the Worker served this parse result from its KV cache.
+    /// Combined with `sessionAttemptIndex` to decide whether to show the
+    /// "same photo as before" hint above the title block.
+    var cacheHit: Bool = false
+    /// 1-indexed count of how many vision attempts the user has made in
+    /// this ImportFromPhotoView session. The cache-hit hint only shows
+    /// when this is ≥ 2 (the user has already seen this result; they need
+    /// to know it's cached).
+    var sessionAttemptIndex: Int = 1
+
     var onSaved: (Recipe) -> Void = { _ in }
-    /// Called when the user taps **Edit** — same persist path as Save,
-    /// but signals to the parent that the user wants to fix OCR typos
-    /// after the save. The parent runs the standard post-save
-    /// choreography (Library scroll + letter-magnify animation +
-    /// Detail push) and then opens `RecipeEditorView` on top of
-    /// Detail so the user lands directly in editing mode. Hands back
-    /// the freshly persisted `Recipe` (not the draft) so the parent
-    /// can route through `editor.startEdit`. Defaults to a no-op for
-    /// previews / future call sites that want a read-only preview
-    /// without the save-and-edit shortcut.
     var onSavedForEdit: (Recipe) -> Void = { _ in }
 
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext)     private var modelContext
+    @Environment(\.dismiss)          private var dismiss
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(QuotaService.self)  private var quotaService
 
-    @State private var isSaving = false
+    @State private var isSaving              = false
     @State private var showingDuplicateAlert = false
-    @State private var duplicateRenameText = ""
-    /// Tracks which button initiated the save so the post-save callback
-    /// routes to the right side of the parent's flow — Save lands the
-    /// user on Detail, Edit lands them in the Editor on top of Detail.
-    /// Reset to `.save` after every completion so a subsequent action
-    /// starts cleanly.
+    @State private var duplicateRenameText   = ""
+    @State private var showRaceBanner        = false
     @State private var pendingMode: SaveMode = .save
 
     private enum SaveMode { case save, saveForEdit }
+
+    private var showCacheHint: Bool { cacheHit && sessionAttemptIndex >= 2 }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
+                    if showCacheHint {
+                        cacheHintBanner
+                    }
+                    if showRaceBanner {
+                        raceBanner
+                    }
                     titleBlock
                     metaLine
                     if !draft.summary.trimmed.isEmpty {
@@ -263,6 +268,45 @@ struct PhotoImportPreviewView: View {
             .clipShape(Capsule())
     }
 
+    // MARK: banners
+
+    private var cacheHintBanner: some View {
+        HStack(spacing: AppSpacing.sm) {
+            LlamaLogo(size: 28, shadowColor: appearance.accentColor)
+            Text("Same photo as before — same result. Try a clearer or differently-angled photo for a fresh parse.")
+                .font(.system(size: 13))
+                .foregroundStyle(AppColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(appearance.accentColor.opacity(0.08))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(appearance.accentColor.opacity(0.3), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private var raceBanner: some View {
+        HStack(spacing: AppSpacing.sm) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(appearance.accentColor)
+            Text("This one's on us — you're already at your monthly limit. Recipe saved!")
+                .font(.system(size: 13))
+                .foregroundStyle(AppColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(appearance.accentColor.opacity(0.08))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(appearance.accentColor.opacity(0.3), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
     // MARK: helpers
 
     /// Recipe-level notes in canonical surface order. Trimmed +
@@ -326,6 +370,17 @@ struct PhotoImportPreviewView: View {
             let recipe = Recipe.new(from: final)
             modelContext.insert(recipe)
             try? modelContext.save()
+
+            // Fire consume after the local save so the server counter
+            // only ticks when the user actually kept the recipe.
+            // This is fire-and-forget from the UX perspective; we show
+            // a soft banner if the race-condition 402 comes back.
+            Task {
+                let result = await quotaService.consume()
+                if case .race = result {
+                    showRaceBanner = true
+                }
+            }
 
             let mode = pendingMode
             isSaving = false

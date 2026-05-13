@@ -2,61 +2,71 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-/// Capture chooser for the photo-import path. Two entry points:
-/// manual single-shot capture via `CameraCaptureView` (a wrapper
-/// around `UIImagePickerController` with the system shutter +
-/// confirm-or-retake screen), or one or more pictures from the
-/// photo library via `PhotosPicker`.
+/// Capture chooser for the photo-import path.
 ///
-/// On capture, the image runs through `RecipeOCRImporter.recognize`
-/// (Vision text recognition + cleanup pipeline) and then through
-/// `RecipeAIParser.parseBestOf` (LLM + regex best-of). On success
-/// the parsed `DraftRecipe` surfaces in the read-only
-/// `PhotoImportPreviewView`. On the partial-OCR fallback path
-/// (text recognized but parser couldn't separate ingredients from
-/// steps) we show a banner with a "Continue in text editor" handoff
-/// — same `EditorCoordinator.startImportFromText(seedText:)`
-/// pattern used elsewhere.
+/// Phase 1 additions vs. original:
+/// - Quota pill at the top of the sheet (always visible when signed in).
+/// - Capture buttons are disabled when the monthly cap or daily parse
+///   limit is hit; exhausted-state card replaces the tips section.
+/// - Sign-in nudge replaces capture buttons for unsigned users.
+/// - `runImport` handles the new `VisionParseOutcome` error cases:
+///   `.quotaExhausted` / `.dailyLimitHit` refresh the quota and switch
+///   into the appropriate exhausted-state UI without showing a banner.
+/// - Per-session attempt counter passed to `PhotoImportPreviewView` so
+///   the cache-hit hint appears on the 2nd+ attempt in a session.
 struct ImportFromPhotoView: View {
-    /// Called by RootView with the saved `Recipe` after the user
-    /// taps Save on the inner preview. RootView uses it to dismiss
-    /// the editor sheet and push Detail via `libraryPath.append`
-    /// after a brief delay (the share-recipient flow uses the same
-    /// pattern, since pushing immediately races the sheet dismiss).
-    /// Defaults to a no-op for previews / future call sites that
-    /// don't want the navigation hand-off.
     var onSaved: (Recipe) -> Void = { _ in }
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss)          private var dismiss
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(UserAccount.self)   private var userAccount
+    @Environment(QuotaService.self)  private var quotaService
 
-    @State private var showingScanner = false
+    @State private var showingScanner   = false
     @State private var pickedItems: [PhotosPickerItem] = []
-    @State private var ocrInProgress = false
+    @State private var ocrInProgress    = false
     @State private var ocrPageStatus: String?
     @State private var preview: PreviewPayload?
     @State private var errorBanner: ErrorBanner?
     @State private var capturedPages: [CapturedPage] = []
+    @State private var showingPaywall   = false
+    /// Counts how many parse attempts the user has made in this sheet session.
+    /// Resets when the sheet is dismissed and re-presented.
+    @State private var sessionAttemptCount = 0
+
+    // MARK: - Body
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppSpacing.lg) {
                 heroRow
                     .padding(.top, AppSpacing.md)
-                if capturedPages.isEmpty {
-                    captureButtons
+
+                if !userAccount.status.isSignedIn {
+                    signInNudge
                 } else {
-                    capturedPagesView
+                    quotaPill
+                    if isInputBlocked {
+                        exhaustedCard
+                    } else {
+                        if capturedPages.isEmpty {
+                            captureButtons
+                        } else {
+                            capturedPagesView
+                        }
+                        if let banner = errorBanner {
+                            bannerView(banner)
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .move(edge: .top)),
+                                    removal: .opacity
+                                ))
+                        }
+                        if !isInputBlocked {
+                            tipRow
+                        }
+                    }
                 }
-                if let banner = errorBanner {
-                    bannerView(banner)
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .move(edge: .top)),
-                            removal: .opacity
-                        ))
-                }
-                tipRow
                 Color.clear.frame(height: 32)
             }
             .padding(AppSpacing.lg)
@@ -105,28 +115,13 @@ struct ImportFromPhotoView: View {
         .sheet(item: $preview) { payload in
             PhotoImportPreviewView(
                 draft: payload.draft,
+                cacheHit: payload.cacheHit,
+                sessionAttemptIndex: payload.sessionAttemptIndex,
                 onSaved: { savedRecipe in
-                    // Photo preview saved & dismissed — hand the recipe
-                    // up to RootView (which dismisses the editor sheet
-                    // then pushes Detail via libraryPath.append after
-                    // the animation), and collapse this sheet too.
                     onSaved(savedRecipe)
                     dismiss()
                 },
                 onSavedForEdit: { savedRecipe in
-                    // Edit-tap takes the same persist path as Save so
-                    // the user sees the standard post-save Library
-                    // scroll + letter-magnify animation (no flicker
-                    // of the photo-import camera/library buttons,
-                    // which the previous "open editor with seed"
-                    // path produced as a brief visible frame between
-                    // the inner-preview dismiss and the editor sheet
-                    // re-presenting). After the animation lands the
-                    // user on Detail, we open the editor on top so
-                    // they can fix OCR typos directly. The 1500ms
-                    // delay covers `runPostSaveHighlight`'s 150 +
-                    // 750 + 400 = 1300ms sequence plus a small
-                    // buffer for the Detail push to settle.
                     onSaved(savedRecipe)
                     dismiss()
                     Task { @MainActor in
@@ -136,6 +131,11 @@ struct ImportFromPhotoView: View {
                 }
             )
             .environment(appearance)
+            .environment(quotaService)
+        }
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView()
+                .environment(appearance)
         }
         .overlay {
             if ocrInProgress {
@@ -157,15 +157,219 @@ struct ImportFromPhotoView: View {
                 .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: ocrInProgress)
+        .animation(.easeInOut(duration: 0.2),  value: ocrInProgress)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: errorBanner)
         .animation(.easeInOut(duration: 0.25), value: capturedPages.isEmpty)
+        .onAppear {
+            Task { await quotaService.refresh() }
+        }
         .onDisappear {
             editor.hasUnsavedChanges = false
+            sessionAttemptCount = 0
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Quota state helpers
+
+    private var snapshot: QuotaSnapshot? { quotaService.snapshot }
+
+    private var isDailyLimitHit: Bool    { snapshot?.isDailyLimitHit    ?? false }
+    private var isMonthlyExhausted: Bool { snapshot?.isMonthlyExhausted ?? false }
+
+    /// True when the user cannot start a new import attempt right now.
+    private var isInputBlocked: Bool { isDailyLimitHit || isMonthlyExhausted }
+
+    // MARK: - Quota pill
+
+    @ViewBuilder
+    private var quotaPill: some View {
+        if let s = snapshot {
+            HStack(spacing: AppSpacing.xs) {
+                if s.isPro {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(pillText(s))
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(pillForeground(s))
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.xs + 2)
+            .background(pillBackground(s))
+            .clipShape(Capsule())
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func pillText(_ s: QuotaSnapshot) -> String {
+        if s.isDailyLimitHit {
+            return "Try again tomorrow — daily limit reached"
+        }
+        if s.isMonthlyExhausted {
+            if s.isPro {
+                return "Llama Pro — 0 left, resets \(s.resetDateFormatted)"
+            } else {
+                return "0 imports left — resets \(s.resetDateFormatted)"
+            }
+        }
+        if s.isPro {
+            let low = s.remaining <= 9
+            if low {
+                return "Llama Pro — \(s.remaining) of \(s.limit) left this month"
+            } else {
+                return "Llama Pro — \(s.remaining) of \(s.limit) left"
+            }
+        } else {
+            let low = s.remaining <= 2
+            if low {
+                return "\(s.remaining) free import\(s.remaining == 1 ? "" : "s") left — resets \(s.resetDateFormatted)"
+            } else {
+                return "\(s.remaining) free import\(s.remaining == 1 ? "" : "s") left this month"
+            }
+        }
+    }
+
+    private func pillForeground(_ s: QuotaSnapshot) -> Color {
+        if s.isDailyLimitHit || s.isMonthlyExhausted { return AppColor.destructive }
+        if (s.isPro && s.remaining <= 9) || (!s.isPro && s.remaining <= 2) {
+            return AppColor.accentDeep
+        }
+        return appearance.accentColor
+    }
+
+    private func pillBackground(_ s: QuotaSnapshot) -> Color {
+        if s.isDailyLimitHit || s.isMonthlyExhausted {
+            return AppColor.destructive.opacity(0.1)
+        }
+        if (s.isPro && s.remaining <= 9) || (!s.isPro && s.remaining <= 2) {
+            return AppColor.accentDeep.opacity(0.1)
+        }
+        return appearance.accentColor.opacity(0.1)
+    }
+
+    // MARK: - Exhausted / blocked card
+
+    @ViewBuilder
+    private var exhaustedCard: some View {
+        if isDailyLimitHit {
+            dailyLimitCard
+        } else if isMonthlyExhausted {
+            if snapshot?.isPro == true {
+                proMonthlyLimitCard
+            } else {
+                freeMonthlyLimitCard
+            }
+        }
+    }
+
+    private var dailyLimitCard: some View {
+        blockedCard(
+            title: "Daily limit reached",
+            body: "You've made 5 photo imports today. Try again tomorrow, or paste / type recipes for free in the meantime.",
+            upgradeButton: nil
+        )
+    }
+
+    private var freeMonthlyLimitCard: some View {
+        let resetText = snapshot.map { "resets \($0.resetDateFormatted)" } ?? "next month"
+        return blockedCard(
+            title: "Out of free imports",
+            body: "You've saved 5 photo imports this month — \(resetText).\n\nUpgrade to Llama Pro for 30 photo imports per month, or paste / type recipes for free.\n\nComing soon to Pro: Grocery list with Instacart integration.",
+            upgradeButton: ("Upgrade to Llama Pro", { showingPaywall = true })
+        )
+    }
+
+    private var proMonthlyLimitCard: some View {
+        let resetText = snapshot.map { "resets \($0.resetDateFormatted)" } ?? "next month"
+        return blockedCard(
+            title: "You've hit your monthly Pro limit",
+            body: "You've saved 30 photo imports this month — \(resetText).\n\nIn the meantime, paste or type recipes for free, no limit.",
+            upgradeButton: nil
+        )
+    }
+
+    private func blockedCard(
+        title: String,
+        body: String,
+        upgradeButton: (String, () -> Void)?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.md) {
+            HStack(spacing: AppSpacing.sm) {
+                LlamaLogo(size: 36, shadowColor: appearance.accentColor)
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(AppColor.textPrimary)
+            }
+            Text(body)
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let (label, action) = upgradeButton {
+                VStack(spacing: AppSpacing.sm) {
+                    Button {
+                        Haptics.impact(.medium)
+                        action()
+                    } label: {
+                        Text(label)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(AppColor.onAccent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, AppSpacing.sm + 4)
+                            .background(appearance.accentColor)
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Maybe later")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(AppColor.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, AppSpacing.sm + 4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: AppRadius.md)
+                                    .stroke(AppColor.divider, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(AppSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.lg)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+    }
+
+    // MARK: - Sign-in nudge
+
+    private var signInNudge: some View {
+        VStack(spacing: AppSpacing.md) {
+            Text("Sign in with Apple to import recipes from photos.")
+                .font(AppFont.sectionHeading)
+                .foregroundStyle(AppColor.textPrimary)
+                .multilineTextAlignment(.center)
+            Text("Free users get 5 photo imports per month.")
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(AppSpacing.lg)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.lg)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+    }
+
+    // MARK: - Hero
 
     private var heroRow: some View {
         HStack(spacing: AppSpacing.md) {
@@ -183,12 +387,10 @@ struct ImportFromPhotoView: View {
         }
     }
 
+    // MARK: - Capture buttons
+
     private var captureButtons: some View {
         VStack(spacing: AppSpacing.md) {
-            // Primary — accent fill — for live capture. Only shown
-            // when a camera is available; the simulator hides it
-            // automatically. The system camera UI handles its own
-            // permission prompt.
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button {
                     Haptics.impact(.light)
@@ -225,9 +427,10 @@ struct ImportFromPhotoView: View {
         }
     }
 
+    // MARK: - Captured pages view
+
     private var capturedPagesView: some View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
-            // Thumbnail strip with page-number badges
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: AppSpacing.sm) {
                     ForEach(capturedPages.indices, id: \.self) { idx in
@@ -298,18 +501,13 @@ struct ImportFromPhotoView: View {
                     .padding(.vertical, AppSpacing.sm)
             }
 
-            // Primary CTA
             Button {
                 Haptics.impact(.medium)
                 Task { await runImport(on: capturedPages) }
             } label: {
                 captureButtonLabel(
-                    title: capturedPages.count == 1
-                        ? "Process Recipe"
-                        : "Process \(capturedPages.count) Pages",
-                    subtitle: capturedPages.count == 1
-                        ? "Extract and organize the recipe"
-                        : "Combine and extract the full recipe",
+                    title: capturedPages.count == 1 ? "Process Recipe" : "Process \(capturedPages.count) Pages",
+                    subtitle: capturedPages.count == 1 ? "Extract and organize the recipe" : "Combine and extract the full recipe",
                     icon: "text.viewfinder",
                     foreground: AppColor.onAccent,
                     background: appearance.accentColor,
@@ -330,6 +528,8 @@ struct ImportFromPhotoView: View {
             .buttonStyle(.plain)
         }
     }
+
+    // MARK: - Shared label builder
 
     private func captureButtonLabel(
         title: String,
@@ -368,6 +568,8 @@ struct ImportFromPhotoView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
+    // MARK: - Tips
+
     private var tipRow: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
             Text("Tips for a clean read").eyebrowStyle()
@@ -402,6 +604,8 @@ struct ImportFromPhotoView: View {
         }
     }
 
+    // MARK: - Error banner
+
     private func bannerView(_ banner: ErrorBanner) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack(alignment: .top, spacing: AppSpacing.sm) {
@@ -418,9 +622,7 @@ struct ImportFromPhotoView: View {
             if banner.action != nil {
                 HStack {
                     Spacer()
-                    Button {
-                        banner.action?()
-                    } label: {
+                    Button { banner.action?() } label: {
                         Text(banner.actionTitle ?? "Continue")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(AppColor.onAccent)
@@ -462,20 +664,8 @@ struct ImportFromPhotoView: View {
             ocrPageStatus = nil
         }
 
-        // 1. Prepare page bytes for both pipelines in parallel:
-        //    - `.aiVision` (1568px JPEG) for the Claude vision call.
-        //    - `.ocr`      (2560px JPEG/HEIC) for the OCR fallback.
-        // The two prep targets share a CGImageSource per page under
-        // the hood but produce different output, so we run them as a
-        // single TaskGroup that emits both shapes in one pass per page.
-        // Photo-library picks keep their original bytes (avoiding a
-        // UIImage -> JPEG round-trip); camera captures fall back to a
-        // one-time JPEG encode here.
-        ocrPageStatus = pages.count == 1
-            ? "Preparing page…"
-            : "Preparing \(pages.count) pages…"
-
-        let prepared = await preparePages(pages)
+        ocrPageStatus = pages.count == 1 ? "Preparing page…" : "Preparing \(pages.count) pages…"
+        let prepared     = await preparePages(pages)
         let visionImages = prepared.compactMap(\.vision)
         let ocrImages    = prepared.compactMap(\.ocr)
 
@@ -483,60 +673,73 @@ struct ImportFromPhotoView: View {
             errorBanner = ErrorBanner(
                 kind: .error,
                 message: "Couldn't read those photos. Try a different image.",
-                actionTitle: nil,
-                action: nil
+                actionTitle: nil, action: nil
             )
             return
         }
 
-        // 2. Vision-first parse. Send the prepared JPEGs straight to
-        // Claude vision (Sonnet) — it reads layout, handwriting, and
-        // formatting cues directly, avoiding the OCR-character-confusion
-        // class of bug entirely. Returns nil on network failure, rate-
-        // limit exhaustion, or a low-confidence response, in which case
-        // we fall back to the OCR + text path below.
+        // Increment session attempt counter before calling vision.
+        // This is what determines whether the cache-hit hint shows.
+        sessionAttemptCount += 1
+
         ocrPageStatus = "Reading the recipe…"
-        let visionDraft: DraftRecipe? = visionImages.isEmpty
-            ? nil
+        let visionOutcome: VisionParseOutcome = visionImages.isEmpty
+            ? VisionParseOutcome()
             : await RecipeAIParser.parseImages(visionImages, sourceUrl: nil)
 
-        if let draft = visionDraft, photoImportConfident(draft) {
-            capturedPages = []
-            preview = PreviewPayload(draft: draft)
+        // Handle quota/auth errors from the Worker — refresh quota and switch
+        // into the appropriate blocked state rather than falling through to OCR.
+        if let err = visionOutcome.error {
+            Task { await quotaService.refresh(force: true) }
+            switch err {
+            case .authRequired:
+                // Shouldn't reach here (the sign-in nudge blocks the UI),
+                // but handle defensively.
+                errorBanner = ErrorBanner(
+                    kind: .error,
+                    message: "Sign in with Apple to import from photos.",
+                    actionTitle: nil, action: nil
+                )
+            case .quotaExhausted, .dailyLimitHit:
+                // The blocked card will appear once the refreshed snapshot lands.
+                break
+            }
             return
         }
 
-        // 3. OCR + text-AI fallback. The cleanup pipeline + Claude text
-        // path is the legacy flow — slower and noisier than vision but
-        // proven on every shape we've seen. If vision returned a draft
-        // that was incomplete (e.g. only ingredients, no steps), we
-        // still re-run through OCR-text to give the text path a fair
-        // shot at filling in the gaps.
-        ocrPageStatus = "Reading the recipe…"
-        let ocrText = ocrImages.isEmpty ? "" : await RecipeOCRImporter.recognize(ocrImages)
+        if let draft = visionOutcome.draft, photoImportConfident(draft) {
+            capturedPages = []
+            preview = PreviewPayload(
+                draft: draft,
+                cacheHit: visionOutcome.cacheHit,
+                sessionAttemptIndex: sessionAttemptCount
+            )
+            return
+        }
 
+        // OCR + text-AI fallback.
+        ocrPageStatus = "Reading the recipe…"
+        let ocrText   = ocrImages.isEmpty ? "" : await RecipeOCRImporter.recognize(ocrImages)
         let textDraft: DraftRecipe? = ocrText.isEmpty
             ? nil
             : await RecipeAIParser.parseBestOf(ocrText, sourceUrl: nil, preferHighQuality: true)
 
-        // Vision was already eliminated above (returned non-confident);
-        // text path is our last shot at a confident draft.
         if let t = textDraft, photoImportConfident(t) {
             capturedPages = []
-            preview = PreviewPayload(draft: t)
+            // OCR fallback: no cache-hit, use sessionAttemptCount for context.
+            preview = PreviewPayload(
+                draft: t,
+                cacheHit: false,
+                sessionAttemptIndex: sessionAttemptCount
+            )
             return
         }
 
-        // 4. Neither path produced a confident draft. Surface whatever
-        // OCR captured so the user can clean it up by hand. The action
-        // closure swaps the active sheet to text-import with the seed
-        // pre-loaded — same pattern as the URL importer's partial path.
         guard !ocrText.isEmpty else {
             errorBanner = ErrorBanner(
                 kind: .error,
                 message: "Couldn't read text from the image. Try better lighting or a closer angle, or pick a different photo.",
-                actionTitle: nil,
-                action: nil
+                actionTitle: nil, action: nil
             )
             return
         }
@@ -552,12 +755,8 @@ struct ImportFromPhotoView: View {
         )
     }
 
-    /// Prepare every captured page into both vision-ready and OCR-ready
-    /// byte payloads. Each page runs through `ImageProcessing.prepare`
-    /// twice (once per target) inside a TaskGroup so a 3-page batch
-    /// completes in roughly the time of one page rather than three.
-    /// Returns one entry per input page; either field can be nil when
-    /// that target's prep failed (corrupt source, undecodable format).
+    // MARK: - Page preparation
+
     private func preparePages(_ pages: [CapturedPage]) async -> [PreparedPage] {
         await withTaskGroup(of: (Int, PreparedPage).self) { group in
             for (idx, page) in pages.enumerated() {
@@ -569,56 +768,36 @@ struct ImportFromPhotoView: View {
                     }
                     async let vision = ImageProcessing.prepare(raw, for: .aiVision)
                     async let ocr    = ImageProcessing.prepare(raw, for: .ocr)
-                    let v = await vision
-                    let o = await ocr
-                    return (idx, PreparedPage(vision: v, ocr: o))
+                    return (idx, PreparedPage(vision: await vision, ocr: await ocr))
                 }
             }
             var ordered = Array(repeating: PreparedPage(vision: nil, ocr: nil), count: pages.count)
-            for await (idx, prep) in group {
-                ordered[idx] = prep
-            }
+            for await (idx, prep) in group { ordered[idx] = prep }
             return ordered
         }
     }
 
-    /// Stricter quality gate for the photo flow: title + ingredients
-    /// + steps. A photo preview that only got half the recipe is more
-    /// confusing than a soft fallback to the text editor with the OCR
-    /// text seeded. Used by both the vision path and the OCR-text
-    /// path so the bar is identical regardless of which parser won.
     private func photoImportConfident(_ draft: DraftRecipe) -> Bool {
-        let hasTitle = !draft.title.trimmed.isEmpty
-        let hasIngredients = !draft.ingredients.isEmpty
-        let hasSteps = !draft.steps.isEmpty
-        return hasTitle && hasIngredients && hasSteps
+        !draft.title.trimmed.isEmpty && !draft.ingredients.isEmpty && !draft.steps.isEmpty
     }
 
     // MARK: - Local types
 
-    /// Wraps the parsed draft so `.sheet(item:)` can drive
-    /// presentation. `Identifiable` conformance via a fresh UUID per
-    /// payload keeps SwiftUI from re-identifying the same draft on
-    /// state churn.
     private struct PreviewPayload: Identifiable {
         let id = UUID()
         let draft: DraftRecipe
+        let cacheHit: Bool
+        let sessionAttemptIndex: Int
     }
 
     private struct CapturedPage {
         let image: UIImage
         let sourceData: Data?
-
         init(image: UIImage, sourceData: Data? = nil) {
-            self.image = image
-            self.sourceData = sourceData
+            self.image = image; self.sourceData = sourceData
         }
     }
 
-    /// Per-page prepared byte payloads. `vision` is JPEG @ 1568px for
-    /// the Anthropic vision call; `ocr` is JPEG/HEIC @ 2560px for the
-    /// on-device Vision OCR fallback. Either can be nil when that
-    /// target's prep step failed (corrupt source, undecodable format).
     private struct PreparedPage {
         let vision: Data?
         let ocr: Data?
@@ -627,7 +806,6 @@ struct ImportFromPhotoView: View {
     private struct ErrorBanner: Equatable {
         enum Kind: Equatable {
             case info, warning, error
-
             var icon: String {
                 switch self {
                 case .info:    return "info.circle.fill"
@@ -642,9 +820,7 @@ struct ImportFromPhotoView: View {
         let action: (() -> Void)?
 
         static func == (lhs: ErrorBanner, rhs: ErrorBanner) -> Bool {
-            lhs.kind == rhs.kind
-                && lhs.message == rhs.message
-                && lhs.actionTitle == rhs.actionTitle
+            lhs.kind == rhs.kind && lhs.message == rhs.message && lhs.actionTitle == rhs.actionTitle
         }
     }
 }
