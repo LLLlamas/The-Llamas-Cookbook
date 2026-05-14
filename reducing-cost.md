@@ -3,6 +3,24 @@
 Status: research only, no implementation changes.
 Date: 2026-05-14
 
+> **Status update (shipped 2026-05-14):** Items §1, §3, §4, §5, §8 from
+> "Biggest cost and speed opportunities" below were already
+> **implemented** before this session. Newly shipped this session:
+> **streaming the Sonnet vision response with progressive preview
+> reveal** (the primary perceived-speed win — preview pops ~1.5s after
+> request, ingredients/steps tick in as Anthropic emits each completed
+> JSON sub-value), **removal of the "What are we cookin'?" title field
+> and Ready/Review state** (subsumed by the streaming reveal),
+> **client-side `os_signpost` + `Logger.info` branch timing**, and the
+> **1-hour Anthropic prompt cache TTL** (`extended-cache-ttl-2025-04-11`
+> beta). The previously-planned title chooser and title-agreement
+> relaxed-accept gate were dropped — the streaming reveal subsumes the
+> perceived-speed need they were filling, and without a user-typed
+> title there's no agreement signal for the relaxed gate. See
+> `optimizing-import-photo.md` for the file-by-file diff. Items §6, §7,
+> §9, §10 (Haiku routing, cutting double-Sonnet, prompt compaction,
+> lower `max_tokens`) remain **deferred** pending benchmark proof.
+
 This document reviews the current Llamas Cookbook photo import implementation and outlines ways to reduce usage-token cost and processing time without weakening the import feature.
 
 ## Executive summary

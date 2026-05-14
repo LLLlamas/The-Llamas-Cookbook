@@ -1,24 +1,31 @@
 import SwiftUI
 import SwiftData
 
-/// Read-only preview of an OCR'd `DraftRecipe`. Modeled directly on
-/// `RecipeImportPreviewView` (the cloud-share recipient screen) so
-/// users get the same accept-or-cancel metaphor regardless of where
-/// the recipe came from. The single architectural difference: this
-/// view consumes a plain `DraftRecipe` instead of an
-/// `LCRecipeShareV1` envelope — no sender provenance, no base64 photo
-/// payload, no `RecipeShare.materialize` plumbing. Save persists a
-/// fresh `Recipe` via the existing `Recipe.new(from: draft)`
-/// initializer.
+/// Read-only preview of an imported `DraftRecipe`. Operates in two modes:
 ///
-/// Toolbar mirrors the share-recipient screen exactly: principal
-/// title set to "Import From Photo", Cancel left, Save right. Save
-/// surfaces the same duplicate-title rename alert pattern (and reuses
-/// the same `RecipeShare.libraryContainsRecipe` /
-/// `RecipeShare.resolveImportTitle` helpers since they're not
-/// share-specific — both are SwiftData fetch-by-title probes).
+/// 1. **Final-draft mode** (`streamingState == nil`): renders the full draft
+///    immediately. Used by the local-accept path, the cache-hit path, and
+///    the OCR + text-AI fallback path — anywhere the draft is fully formed
+///    before the preview opens.
+///
+/// 2. **Streaming mode** (`streamingState != nil`): pops as soon as the
+///    Sonnet vision response begins streaming. Title / ingredients / steps
+///    tick into the preview in real time as Anthropic emits each completed
+///    JSON sub-value via the SSE accumulator. Skeleton placeholders pulse
+///    for sections that haven't started arriving yet. Save is disabled
+///    until `streamingState.status == .completed`, at which point
+///    `streamingState.finalDraft` becomes the canonical draft to persist.
+///
+/// Toolbar mirrors the share-recipient screen exactly: principal title set
+/// to "Import From Photo", Cancel left, Edit + Save right. Save surfaces
+/// the same duplicate-title rename alert pattern as cloud share.
 struct PhotoImportPreviewView: View {
     let draft: DraftRecipe
+    /// Non-nil when this preview is bound to a live Sonnet stream. The
+    /// view reads title / ingredients / steps from this state while
+    /// `status == .streaming` and from `finalDraft` (or `draft`) after
+    /// completion. See `effectiveDraft`.
+    var streamingState: StreamingRecipeState? = nil
     /// True when the Worker served this parse result from its KV cache.
     /// Combined with `sessionAttemptIndex` to decide whether to show the
     /// "same photo as before" hint above the title block.
@@ -42,10 +49,54 @@ struct PhotoImportPreviewView: View {
     @State private var duplicateRenameText   = ""
     @State private var showRaceBanner        = false
     @State private var pendingMode: SaveMode = .save
+    @State private var titleHapticFired      = false
+    @State private var skeletonPulse         = false
 
     private enum SaveMode { case save, saveForEdit }
 
+    // MARK: - Streaming-aware view model
+
+    /// True while we're still receiving streamed content. Drives the
+    /// shimmer placeholders + Save-disabled state.
+    private var isStreaming: Bool {
+        guard let s = streamingState else { return false }
+        switch s.status {
+        case .waitingForFirstByte, .streaming: return true
+        case .completed, .cancelled, .failed:  return false
+        }
+    }
+
+    /// True when streaming has produced a usable final draft. Used to
+    /// flip the view from "live state" to the canonical post-stream
+    /// draft (which has gone through the full `ParsedAPIRecipe.toDraft`
+    /// post-processing including step splitting, plural normalization,
+    /// orphan-duration merge).
+    private var streamFinalDraftReady: Bool {
+        streamingState?.status == .completed && streamingState?.finalDraft != nil
+    }
+
+    /// The draft to render. Streaming live state during the stream;
+    /// `streamingState.finalDraft` (post-processed) after completion;
+    /// `draft` when there's no streaming state at all.
+    private var effectiveDraft: DraftRecipe {
+        if streamFinalDraftReady, let final = streamingState?.finalDraft {
+            return final
+        }
+        if let s = streamingState, isStreaming {
+            return s.snapshotDraft()
+        }
+        return draft
+    }
+
     private var showCacheHint: Bool { cacheHit && sessionAttemptIndex >= 2 }
+
+    private var canSave: Bool {
+        guard !isSaving else { return false }
+        guard !isStreaming else { return false }
+        return !effectiveDraft.title.trimmed.isEmpty
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -59,18 +110,8 @@ struct PhotoImportPreviewView: View {
                     }
                     titleBlock
                     metaLine
-                    if !draft.summary.trimmed.isEmpty {
-                        Text(draft.summary)
-                            .font(AppFont.body)
-                            .foregroundStyle(AppColor.textSecondary)
-                    }
-                    if !draft.tags.isEmpty {
-                        FlowRow(spacing: AppSpacing.xs) {
-                            ForEach(draft.tags.sorted(), id: \.self) { tag in
-                                tagChip(tag)
-                            }
-                        }
-                    }
+                    summaryBlock
+                    tagsBlock
                     ingredientsSection
                     stepsSection
                     notesSection
@@ -82,53 +123,27 @@ struct PhotoImportPreviewView: View {
             .llamaBackground()
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
-                        Text("Cancel")
-                            .foregroundStyle(appearance.accentColor)
-                            .accentTextOutline()
-                    }
-                    .disabled(isSaving)
-                }
-                ToolbarItem(placement: .principal) {
-                    Text("Import From Photo")
-                        .font(AppFont.eyebrow)
-                        .foregroundStyle(AppColor.textTertiary)
-                }
-                // Two trailing buttons share the same persist path —
-                // both run through `saveToLibrary` so the parent's
-                // post-save choreography (Library scroll + letter
-                // magnify + Detail push) plays for either tap. The
-                // only difference is `pendingMode`: Save lands the
-                // user on Detail (read-mode), Edit pushes Detail
-                // and then opens the Editor on top so the user can
-                // fix OCR typos directly. Group-form keeps declared
-                // order (Edit left, Save right) on iOS.
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Edit") {
-                        Haptics.selection()
-                        saveToLibrary(mode: .saveForEdit)
-                    }
-                    .foregroundStyle(appearance.accentColor)
-                    .disabled(isSaving)
-
-                    Button {
-                        saveToLibrary(mode: .save)
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Text("Save")
-                                .fontWeight(.semibold)
-                                .foregroundStyle(appearance.accentColor)
-                        }
-                    }
-                    .disabled(isSaving)
-                }
+            .toolbar { toolbarContent }
+        }
+        .interactiveDismissDisabled(isSaving || isStreaming)
+        .onAppear {
+            skeletonPulse = true
+        }
+        // Haptic + animation when the title first lands.
+        .onChange(of: streamingState?.title ?? "") { _, newValue in
+            if !newValue.isEmpty && !titleHapticFired {
+                titleHapticFired = true
+                Haptics.impact(.soft)
             }
         }
-        .interactiveDismissDisabled(isSaving)
+        // Animate ingredient/step arrival with springs. Driven by count so
+        // every new row triggers the insertion transition.
+        .animation(.spring(response: 0.4, dampingFraction: 0.75),
+                   value: effectiveDraft.ingredients.count)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8),
+                   value: effectiveDraft.steps.count)
+        .animation(.easeOut(duration: 0.4),
+                   value: effectiveDraft.title.trimmed.isEmpty)
         .alert(
             "Recipe already saved",
             isPresented: $showingDuplicateAlert
@@ -142,31 +157,93 @@ struct PhotoImportPreviewView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("You already have a recipe titled \"\(draft.title.trimmed)\". Save this one with a different name?")
+            Text("You already have a recipe titled \"\(effectiveDraft.title.trimmed)\". Save this one with a different name?")
         }
     }
 
-    // MARK: subsections
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button { dismiss() } label: {
+                Text("Cancel")
+                    .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
+            }
+            .disabled(isSaving)
+        }
+        ToolbarItem(placement: .principal) {
+            Text("Import From Photo")
+                .font(AppFont.eyebrow)
+                .foregroundStyle(AppColor.textTertiary)
+        }
+        // Two trailing buttons share the same persist path — both route
+        // through `saveToLibrary` so the parent's post-save choreography
+        // plays for either tap. `pendingMode` differs: Save lands on
+        // Detail (read-mode), Edit pushes Detail then opens the Editor.
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button("Edit") {
+                Haptics.selection()
+                saveToLibrary(mode: .saveForEdit)
+            }
+            .foregroundStyle(canSave ? appearance.accentColor : AppColor.textTertiary)
+            .disabled(!canSave)
+
+            Button {
+                saveToLibrary(mode: .save)
+            } label: {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Text("Save")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(canSave ? appearance.accentColor : AppColor.textTertiary)
+                }
+            }
+            .disabled(!canSave)
+        }
+    }
+
+    // MARK: - Title
 
     @ViewBuilder
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text(StringCase.titleCase(draft.title.trimmed))
+        let title = effectiveDraft.title.trimmed
+        if !title.isEmpty {
+            Text(StringCase.titleCase(title))
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(appearance.accentColor)
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: .leading)),
+                    removal:   .opacity
+                ))
+                .id("title-\(title.hashValue)")
+        } else if isStreaming {
+            titleSkeleton
         }
+    }
+
+    private var titleSkeleton: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(AppColor.surfaceSunken)
+            .frame(height: 36)
+            .frame(maxWidth: 240, alignment: .leading)
+            .opacity(skeletonPulse ? 0.55 : 1.0)
+            .animation(
+                .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
+                value: skeletonPulse
+            )
     }
 
     @ViewBuilder
     private var metaLine: some View {
         let parts: [String] = {
             var bits: [String] = []
-            let s = draft.servings.trimmed
+            let s = effectiveDraft.servings.trimmed
             if !s.isEmpty { bits.append("Serves \(s)") }
-            let c = draft.cookTimeMinutes.trimmed
+            let c = effectiveDraft.cookTimeMinutes.trimmed
             if !c.isEmpty { bits.append("Cook \(c) min") }
-            let p = draft.prepTimeMinutes.trimmed
+            let p = effectiveDraft.prepTimeMinutes.trimmed
             if !p.isEmpty { bits.append("Prep \(p) min") }
             return bits
         }()
@@ -174,58 +251,164 @@ struct PhotoImportPreviewView: View {
             Text(parts.joined(separator: "  ·  "))
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
+                .transition(.opacity)
         }
     }
+
+    @ViewBuilder
+    private var summaryBlock: some View {
+        let summary = effectiveDraft.summary.trimmed
+        if !summary.isEmpty {
+            Text(summary)
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textSecondary)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var tagsBlock: some View {
+        if !effectiveDraft.tags.isEmpty {
+            FlowRow(spacing: AppSpacing.xs) {
+                ForEach(effectiveDraft.tags.sorted(), id: \.self) { tag in
+                    tagChip(tag)
+                }
+            }
+        }
+    }
+
+    // MARK: - Ingredients
 
     @ViewBuilder
     private var ingredientsSection: some View {
-        if !draft.ingredients.isEmpty {
+        if !effectiveDraft.ingredients.isEmpty {
             VStack(alignment: .leading, spacing: AppSpacing.sm) {
                 sectionHeading("Ingredients")
-                ForEach(draft.ingredients) { ing in
-                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
-                        Circle()
-                            .fill(appearance.accentColor.opacity(0.5))
-                            .frame(width: 5, height: 5)
-                            .padding(.top, 6)
-                        Text(formatIngredient(ing))
-                            .font(AppFont.ingredient)
-                            .foregroundStyle(AppColor.textPrimary)
-                    }
+                ForEach(effectiveDraft.ingredients) { ing in
+                    ingredientRow(ing)
+                        .transition(.asymmetric(
+                            insertion: .modifier(
+                                active:   TickIn(offsetX: -20, opacity: 0),
+                                identity: TickIn(offsetX: 0,   opacity: 1)
+                            ),
+                            removal: .opacity
+                        ))
                 }
+            }
+        } else if isStreaming {
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                sectionHeading("Ingredients")
+                ForEach(0..<3, id: \.self) { _ in ingredientSkeletonRow }
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func ingredientRow(_ ing: DraftIngredient) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
+            Circle()
+                .fill(appearance.accentColor.opacity(0.5))
+                .frame(width: 5, height: 5)
+                .padding(.top, 6)
+            Text(formatIngredient(ing))
+                .font(AppFont.ingredient)
+                .foregroundStyle(AppColor.textPrimary)
+        }
+    }
+
+    private var ingredientSkeletonRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
+            Circle()
+                .fill(appearance.accentColor.opacity(0.2))
+                .frame(width: 5, height: 5)
+                .padding(.top, 6)
+            RoundedRectangle(cornerRadius: 4)
+                .fill(AppColor.surfaceSunken)
+                .frame(height: 14)
+                .frame(maxWidth: 220, alignment: .leading)
+        }
+        .opacity(skeletonPulse ? 0.5 : 1.0)
+        .animation(
+            .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
+            value: skeletonPulse
+        )
+    }
+
+    // MARK: - Steps
+
+    @ViewBuilder
+    private var stepsSection: some View {
+        if !effectiveDraft.steps.isEmpty {
+            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                sectionHeading("Steps")
+                ForEach(Array(effectiveDraft.steps.enumerated()), id: \.element.id) { (idx, step) in
+                    stepRow(idx: idx, step: step)
+                        .transition(.asymmetric(
+                            insertion: .modifier(
+                                active:   TickIn(offsetY: 12, opacity: 0),
+                                identity: TickIn(offsetY: 0,  opacity: 1)
+                            ),
+                            removal: .opacity
+                        ))
+                }
+            }
+        } else if isStreaming {
+            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                sectionHeading("Steps")
+                ForEach(0..<2, id: \.self) { idx in stepSkeletonRow(idx: idx) }
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func stepRow(idx: Int, step: DraftStep) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
+                Text("\(idx + 1).")
+                    .font(AppFont.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(appearance.accentColor)
+                    .frame(width: 24, alignment: .leading)
+                Text(step.text)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+            }
+            if let note = step.specialNote?.trimmed, !note.isEmpty {
+                Text("Note: \(note)")
+                    .font(AppFont.caption)
+                    .italic()
+                    .foregroundStyle(AppColor.textSecondary)
+                    .padding(.leading, 32)
+                    .transition(.opacity)
             }
         }
     }
 
-    @ViewBuilder
-    private var stepsSection: some View {
-        if !draft.steps.isEmpty {
-            VStack(alignment: .leading, spacing: AppSpacing.md) {
-                sectionHeading("Steps")
-                ForEach(Array(draft.steps.enumerated()), id: \.offset) { (idx, step) in
-                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
-                            Text("\(idx + 1).")
-                                .font(AppFont.body)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(appearance.accentColor)
-                                .frame(width: 24, alignment: .leading)
-                            Text(step.text)
-                                .font(AppFont.body)
-                                .foregroundStyle(AppColor.textPrimary)
-                        }
-                        if let note = step.specialNote?.trimmed, !note.isEmpty {
-                            Text("Note: \(note)")
-                                .font(AppFont.caption)
-                                .italic()
-                                .foregroundStyle(AppColor.textSecondary)
-                                .padding(.leading, 32)
-                        }
-                    }
-                }
+    private func stepSkeletonRow(idx: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
+            Text("\(idx + 1).")
+                .font(AppFont.body)
+                .fontWeight(.semibold)
+                .foregroundStyle(appearance.accentColor.opacity(0.3))
+                .frame(width: 24, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppColor.surfaceSunken)
+                    .frame(height: 14)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppColor.surfaceSunken)
+                    .frame(height: 14)
+                    .frame(maxWidth: 180, alignment: .leading)
             }
         }
+        .opacity(skeletonPulse ? 0.5 : 1.0)
+        .animation(
+            .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
+            value: skeletonPulse
+        )
     }
+
+    // MARK: - Notes
 
     @ViewBuilder
     private var notesSection: some View {
@@ -268,7 +451,7 @@ struct PhotoImportPreviewView: View {
             .clipShape(Capsule())
     }
 
-    // MARK: banners
+    // MARK: - Banners
 
     private var cacheHintBanner: some View {
         HStack(spacing: AppSpacing.sm) {
@@ -307,19 +490,14 @@ struct PhotoImportPreviewView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
-    // MARK: helpers
+    // MARK: - Helpers
 
-    /// Recipe-level notes in canonical surface order. Trimmed +
-    /// empty-filtered. Mirrors `RecipeImportPreviewView.collectedNotes`.
     private var collectedNotes: [String] {
-        [draft.prefaceNote, draft.epilogueNote, draft.generalNote]
+        [effectiveDraft.prefaceNote, effectiveDraft.epilogueNote, effectiveDraft.generalNote]
             .map { $0.trimmed }
             .filter { !$0.isEmpty }
     }
 
-    /// Lightweight ingredient renderer for draft rows. Reuses the same
-    /// quantity/plural helpers as persisted ingredients without needing
-    /// a temporary SwiftData object just to render the preview.
     private func formatIngredient(_ ing: DraftIngredient) -> String {
         let q = Quantity.displayFormat(ing.quantity.trimmed)
         let u = Plural.unit(ing.unit.trimmed, for: ing.quantity.trimmed)
@@ -330,15 +508,13 @@ struct PhotoImportPreviewView: View {
         return measure.isEmpty ? ing.name : "\(measure) — \(ing.name)"
     }
 
-    // MARK: save
+    // MARK: - Save
 
     private func saveToLibrary(mode: SaveMode) {
         guard !isSaving else { return }
-        let baseTitle = draft.title.trimmed
+        let baseTitle = effectiveDraft.title.trimmed
         guard !baseTitle.isEmpty else { return }
         pendingMode = mode
-        // Reuse the share-side helpers — both are simple SwiftData
-        // fetch-by-title probes, not share-specific.
         if RecipeShare.libraryContainsRecipe(withTitle: baseTitle, in: modelContext) {
             duplicateRenameText = RecipeShare.resolveImportTitle(
                 base: baseTitle,
@@ -351,30 +527,21 @@ struct PhotoImportPreviewView: View {
         performSave(withOverrideTitle: nil)
     }
 
-    /// Shared save tail used by both the no-collision path
-    /// (`overrideTitle: nil` keeps the OCR'd title) and the
-    /// duplicate-confirmation path (`overrideTitle` carries the
-    /// user's edited name). Routes the saved recipe to the right
-    /// callback based on `pendingMode`.
     private func performSave(withOverrideTitle overrideTitle: String?) {
         guard !isSaving else { return }
         isSaving = true
 
         Task { @MainActor in
-            var final = draft
+            var final = effectiveDraft
             if let overrideTitle, !overrideTitle.isEmpty {
                 final.title = StringCase.titleCase(overrideTitle)
             } else {
-                final.title = StringCase.titleCase(draft.title.trimmed)
+                final.title = StringCase.titleCase(final.title.trimmed)
             }
             let recipe = Recipe.new(from: final)
             modelContext.insert(recipe)
             try? modelContext.save()
 
-            // Fire consume after the local save so the server counter
-            // only ticks when the user actually kept the recipe.
-            // This is fire-and-forget from the UX perspective; we show
-            // a soft banner if the race-condition 402 comes back.
             Task {
                 let result = await quotaService.consume()
                 if case .race = result {
@@ -392,5 +559,24 @@ struct PhotoImportPreviewView: View {
             }
             dismiss()
         }
+    }
+}
+
+// MARK: - Tick-in transition modifier
+
+/// View modifier used to build the insertion side of the streaming
+/// reveal transition. Spring-animated by the parent's
+/// `.animation(.spring(...), value: count)` modifier on the containing
+/// `ForEach`. Keeping it as a `ViewModifier` (rather than a built-in
+/// `.move(edge:)` transition) lets us use a small fixed offset that
+/// reads as a "tick in" rather than a slide-across-the-screen feel.
+private struct TickIn: ViewModifier {
+    var offsetX: CGFloat = 0
+    var offsetY: CGFloat = 0
+    var opacity: Double  = 1
+    func body(content: Content) -> some View {
+        content
+            .opacity(opacity)
+            .offset(x: offsetX, y: offsetY)
     }
 }

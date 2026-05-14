@@ -139,6 +139,30 @@ enum RecipeAIParser {
         return outcome
     }
 
+    /// Streaming variant — same as `parseImages` but Anthropic returns
+    /// SSE deltas and the preview UI binds to `streamingState` to render
+    /// title / ingredients / steps as they arrive. Used by the photo
+    /// import path so users see the recipe materialize ~1.5 s after
+    /// request fires instead of waiting 6-8 s for the buffered response.
+    static func parseImagesStreaming(
+        _ images: [Data],
+        sourceUrl: String?,
+        streamingState: StreamingRecipeState
+    ) async -> VisionParseOutcome {
+        guard !images.isEmpty else { return VisionParseOutcome() }
+        guard AnthropicRecipeParser.isConfigured else { return VisionParseOutcome() }
+        var outcome = await AnthropicRecipeParser.parseImagesStreaming(
+            images,
+            sourceUrl: sourceUrl,
+            streamingState: streamingState,
+            model: AnthropicRecipeParser.Model.sonnet
+        )
+        if let draft = outcome.draft, !passesQualityGate(draft) {
+            outcome.draft = nil
+        }
+        return outcome
+    }
+
     /// Run the regex pipeline and stamp the source URL on it, gated
     /// by the same minimum bar the AI quality gate uses (title + at
     /// least one ingredient or step). Anything weaker isn't worth

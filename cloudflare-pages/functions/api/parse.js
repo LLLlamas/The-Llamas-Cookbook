@@ -1,19 +1,28 @@
 // /api/parse — Anthropic API proxy for recipe parsing.
 //
-// Phase 1: Added per-user quota enforcement and KV parse-result caching
-// for photo imports. Text/link/paste imports are unchanged (no quota).
+// Phase 1: Per-user quota enforcement + KV parse-result caching for
+// photo imports. Text/link/paste imports are unchanged (no quota).
 //
 // Phase 2: Added model to photo cache key (prep for Haiku routing),
 // upstream timing, and structured usage logging via console.log so
 // Cloudflare Workers Logs captures cost/cache/latency per request.
 // Logs never contain recipe text, image bytes, or raw user IDs.
 //
+// Phase 3 (streaming): Photo vision requests with `"stream": true` in
+// the body are forwarded with stream:true and the SSE response is
+// tee'd — one branch streams to the client, the other accumulates so
+// we can parse the final tool_use block and write it to KV on success.
+// Cache hits remain non-streaming (we serve the assembled JSON).
+//
 // Photo import flow:
 //   1. Compute SHA-256 content hash of image data for cache key.
 //   2. Cache hit  → run monthly quota pre-check; return cached response
-//      with x-llamas-cache: hit header (no parse counter tick, no API cost).
-//   3. Cache miss → increment daily parse counter, check daily limit (429),
-//      check monthly quota (402), forward to Anthropic, cache on success.
+//      with x-llamas-cache: hit header (no parse counter tick, no API cost,
+//      non-streaming JSON body).
+//   3. Cache miss + non-streaming → increment counters, forward, cache.
+//   4. Cache miss + streaming     → increment counters, forward with
+//      stream:true, tee SSE to client + accumulator, cache assembled
+//      response on message_stop.
 //
 // Cloudflare Pages env vars required:
 //   ANTHROPIC_API_KEY  (encrypted)
@@ -83,11 +92,15 @@ export async function onRequestPost(context) {
     return Response.json({ error: 'invalid_request' }, { status: 400 });
   }
 
-  const model = requestBody?.model ?? 'unknown';
+  const model           = requestBody?.model ?? 'unknown';
+  const streamRequested = requestBody?.stream === true;
 
   // ── 1. Cache lookup ────────────────────────────────────────────────────────
   // Model is included in the key so Haiku and Sonnet responses are stored
   // separately — prevents a cheap-model result being served for a Sonnet call.
+  // Cache entries are always stored as the assembled non-streaming JSON
+  // (`messages.create` shape), regardless of whether the request that
+  // populated them was streaming. Cache hits are returned non-streaming.
 
   const imageHashes  = await extractImageHashes(requestBody);
   const contentHash  = imageHashes.length ? await computeContentHash(imageHashes) : null;
@@ -154,7 +167,7 @@ export async function onRequestPost(context) {
   const userHash = await truncatedHash(userId);
   const pageCount = countImageBlocks(requestBody);
 
-  if (upstream.status !== 200 || !cacheKey) {
+  if (upstream.status !== 200) {
     console.log(JSON.stringify({
       import_kind: 'photo',
       model,
@@ -162,6 +175,7 @@ export async function onRequestPost(context) {
       worker_cache: 'miss',
       upstream_status: upstream.status,
       upstream_duration_ms: upstreamDurationMs,
+      stream_requested: streamRequested,
       has_valid_recipe: false,
       user_hash: userHash,
     }));
@@ -171,7 +185,57 @@ export async function onRequestPost(context) {
     });
   }
 
-  // ── 4. Cache successful responses ─────────────────────────────────────────
+  // ── 4a. Streaming path: tee SSE → client + accumulator ────────────────────
+  // The accumulator parses delta events to assemble the final tool_use
+  // input as JSON. On message_stop we materialize the assembled response
+  // in the same shape Anthropic returns for non-streaming calls and (on
+  // valid tool_use) write it to KV. The accumulator runs in `waitUntil`
+  // so cache writes don't block the streamed response to the client.
+
+  if (streamRequested) {
+    const [toClient, toCache] = upstream.body.tee();
+
+    const cacheTask = (async () => {
+      const assembled = await assembleStreamedResponse(toCache);
+      if (!assembled) return;
+      const hasRecipe = hasValidToolUse(assembled.body);
+      if (hasRecipe && cacheKey) {
+        await quota.put(
+          cacheKey,
+          JSON.stringify(assembled.body),
+          { expirationTtl: 7 * 24 * 60 * 60 },
+        );
+      }
+      console.log(JSON.stringify({
+        import_kind: 'photo',
+        model,
+        page_count: pageCount,
+        worker_cache: 'miss',
+        upstream_status: 200,
+        upstream_duration_ms: upstreamDurationMs,
+        stream_requested: true,
+        input_tokens: assembled.usage.input_tokens ?? 0,
+        cache_creation_tokens: assembled.usage.cache_creation_input_tokens ?? 0,
+        cache_read_tokens: assembled.usage.cache_read_input_tokens ?? 0,
+        output_tokens: assembled.usage.output_tokens ?? 0,
+        has_valid_recipe: hasRecipe,
+        estimated_cost_usd: estimateCost(model, assembled.usage),
+        user_hash: userHash,
+      }));
+    })();
+    context.waitUntil(cacheTask);
+
+    return new Response(toClient, {
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        'x-llamas-cache': 'miss',
+      },
+    });
+  }
+
+  // ── 4b. Non-streaming path: buffer, cache, return ─────────────────────────
 
   const responseText = await upstream.text();
   let responseBody;
@@ -179,13 +243,10 @@ export async function onRequestPost(context) {
 
   const hasRecipe = responseBody ? hasValidToolUse(responseBody) : false;
 
-  // Only cache responses that contain a valid structured_recipe tool_use block.
-  if (hasRecipe) {
+  if (hasRecipe && cacheKey) {
     await quota.put(cacheKey, responseText, { expirationTtl: 7 * 24 * 60 * 60 });
   }
 
-  // Structured usage log — never contains recipe text, image bytes, or
-  // raw user IDs. Used to measure prompt cache hit rate and cost per import.
   const usage = responseBody?.usage ?? {};
   console.log(JSON.stringify({
     import_kind: 'photo',
@@ -194,6 +255,7 @@ export async function onRequestPost(context) {
     worker_cache: 'miss',
     upstream_status: 200,
     upstream_duration_ms: upstreamDurationMs,
+    stream_requested: false,
     input_tokens: usage.input_tokens ?? 0,
     cache_creation_tokens: usage.cache_creation_input_tokens ?? 0,
     cache_read_tokens: usage.cache_read_input_tokens ?? 0,
@@ -207,6 +269,110 @@ export async function onRequestPost(context) {
     status: 200,
     headers: { 'content-type': 'application/json', 'x-llamas-cache': 'miss' },
   });
+}
+
+// ── Stream accumulator ────────────────────────────────────────────────────────
+
+/// Read an Anthropic SSE stream and assemble the equivalent non-streaming
+/// response body. Returns `{ body, usage }` on success or null on parse
+/// failure. The assembled body matches the shape `messages.create` returns
+/// for non-stream calls, so we can cache it once and serve cache hits as
+/// plain JSON regardless of how the original was fetched.
+async function assembleStreamedResponse(stream) {
+  const reader  = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer    = '';
+  let toolName  = null;
+  let toolId    = null;
+  let toolJson  = '';
+  let stopReason = null;
+  const usage   = {};
+  let messageMeta = null;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      // SSE events are separated by \n\n. Walk through complete events.
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const rawEvent = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+
+        // Each event has `event: <name>` and `data: <json>` lines.
+        let eventName = null;
+        let dataStr   = '';
+        for (const line of rawEvent.split('\n')) {
+          if (line.startsWith('event:')) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataStr += line.slice(5).trim();
+          }
+        }
+        if (!eventName || !dataStr) continue;
+        let payload;
+        try { payload = JSON.parse(dataStr); } catch { continue; }
+
+        switch (eventName) {
+          case 'message_start':
+            messageMeta = payload.message ?? null;
+            Object.assign(usage, messageMeta?.usage ?? {});
+            break;
+          case 'content_block_start':
+            if (payload.content_block?.type === 'tool_use') {
+              toolName = payload.content_block.name ?? null;
+              toolId   = payload.content_block.id ?? null;
+            }
+            break;
+          case 'content_block_delta':
+            if (payload.delta?.type === 'input_json_delta') {
+              toolJson += payload.delta.partial_json ?? '';
+            }
+            break;
+          case 'message_delta':
+            if (payload.delta?.stop_reason) stopReason = payload.delta.stop_reason;
+            if (payload.usage) {
+              // Final usage carries the cumulative output_tokens; merge.
+              Object.assign(usage, payload.usage);
+            }
+            break;
+          default:
+            break;
+        }
+      }
+    }
+  } catch (err) {
+    return null;
+  }
+
+  // Parse the assembled tool_use JSON.
+  let toolInput = null;
+  if (toolName && toolJson) {
+    try { toolInput = JSON.parse(toolJson); } catch { toolInput = null; }
+  }
+  if (!toolInput) return null;
+
+  // Build the non-streaming response shape.
+  const assembled = {
+    id:    messageMeta?.id    ?? '',
+    type:  'message',
+    role:  'assistant',
+    model: messageMeta?.model ?? '',
+    content: [
+      {
+        type:  'tool_use',
+        id:    toolId ?? '',
+        name:  toolName,
+        input: toolInput,
+      },
+    ],
+    stop_reason:   stopReason ?? 'tool_use',
+    stop_sequence: null,
+    usage,
+  };
+  return { body: assembled, usage };
 }
 
 // ── Quota helpers ─────────────────────────────────────────────────────────────

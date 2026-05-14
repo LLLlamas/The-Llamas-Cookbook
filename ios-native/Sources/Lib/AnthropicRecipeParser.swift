@@ -1,4 +1,11 @@
 import Foundation
+import os
+
+/// Signposter for the Anthropic streaming HTTP call. Lets Instruments
+/// visualize the upstream request vs. the iOS-side SSE parse separately
+/// from the wider photo-import pipeline (which has its own category in
+/// `ImportFromPhotoView`).
+private let anthropicSignposter = OSSignposter(subsystem: "com.llamascookbook.app", category: "anthropic")
 
 // MARK: - Vision parse result types
 
@@ -35,10 +42,13 @@ enum VisionParseError: Equatable {
 /// nil; the caller falls back to the Apple Intelligence path or the regex
 /// pipeline unchanged.
 ///
-/// **Prompt caching:** The system block carries `cache_control: ephemeral`
-/// so repeat imports within the 5-minute cache TTL cost ~90% less for the
-/// ~2,000-token instruction prefix. The beta header is required to activate
-/// caching; it has no effect on accounts that haven't opted in.
+/// **Prompt caching:** The system block carries
+/// `cache_control: {type: ephemeral, ttl: 1h}`, activated by the
+/// `extended-cache-ttl-2025-04-11` beta header. Repeat imports within a
+/// 60-minute meal-planning window cost ~90% less for the ~6,300-token
+/// cached prefix. The 1h TTL pays a slightly higher cache-write rate on
+/// the first call in the window but is net-positive when the user does
+/// 2+ imports per hour (the common case for recipe collection).
 enum AnthropicRecipeParser {
 
     // MARK: - Availability
@@ -129,6 +139,39 @@ enum AnthropicRecipeParser {
         }
     }
 
+    /// Streaming variant of `parseImages`. Identical request shape but
+    /// with `stream: true`; the Anthropic SSE response is parsed
+    /// incrementally and each completed sub-value of the
+    /// `structured_recipe` tool input is delivered to `streamingState`
+    /// as a typed event. The final `VisionParseOutcome` carries the
+    /// fully-assembled draft (or nil if the stream produced an
+    /// unusable result), matching the non-streaming function's contract.
+    ///
+    /// Cache hits short-circuit the streaming path: the Worker returns
+    /// a non-streaming JSON body with `x-llamas-cache: hit`, and this
+    /// function parses it as a single buffer — the streaming state is
+    /// left untouched, since the caller has the full draft immediately.
+    static func parseImagesStreaming(
+        _ images: [Data],
+        sourceUrl: String?,
+        streamingState: StreamingRecipeState,
+        model: String = Model.sonnet
+    ) async -> VisionParseOutcome {
+        guard !images.isEmpty else { return VisionParseOutcome() }
+        let capped = Array(images.prefix(3))
+        do {
+            return try await callAPIWithImagesStreaming(
+                images: capped,
+                sourceUrl: sourceUrl,
+                model: model,
+                streamingState: streamingState,
+                attempt: 0
+            )
+        } catch {
+            return VisionParseOutcome()
+        }
+    }
+
     // MARK: - HTTP
 
     private static func callAPI(
@@ -140,10 +183,12 @@ enum AnthropicRecipeParser {
         var request = URLRequest(url: URL(string: "https://llamascookbook.pages.dev/api/parse")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
-        request.setValue("application/json",          forHTTPHeaderField: "Content-Type")
-        request.setValue("2023-06-01",                forHTTPHeaderField: "anthropic-version")
-        // Required to activate cache_control blocks on the system prompt.
-        request.setValue("prompt-caching-2024-07-31", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("application/json",              forHTTPHeaderField: "Content-Type")
+        request.setValue("2023-06-01",                    forHTTPHeaderField: "anthropic-version")
+        // Activate cache_control blocks on the system prompt and the 1-hour
+        // extended TTL — repeat imports in a meal-planning window (typically
+        // 15-30 min between captures) hit the cache instead of the cold path.
+        request.setValue("extended-cache-ttl-2025-04-11", forHTTPHeaderField: "anthropic-beta")
 
         request.httpBody = try buildBody(text: text, model: model)
 
@@ -181,9 +226,11 @@ enum AnthropicRecipeParser {
         // typically lands in 4-12 s. 60 s gives generous headroom for
         // tail latencies without making a hung request feel infinite.
         request.timeoutInterval = 60
-        request.setValue("application/json",          forHTTPHeaderField: "Content-Type")
-        request.setValue("2023-06-01",                forHTTPHeaderField: "anthropic-version")
-        request.setValue("prompt-caching-2024-07-31", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("application/json",              forHTTPHeaderField: "Content-Type")
+        request.setValue("2023-06-01",                    forHTTPHeaderField: "anthropic-version")
+        // 1-hour extended cache TTL — meal-planning sessions stretch past the
+        // default 5-minute window, so the wider TTL keeps Sonnet warm.
+        request.setValue("extended-cache-ttl-2025-04-11", forHTTPHeaderField: "anthropic-beta")
         // Quota enforcement headers — required for photo import.
         request.setValue("photo",                     forHTTPHeaderField: "x-llamas-import-kind")
         if let userId = KeychainStore.read(.appleSub) {
@@ -235,6 +282,200 @@ enum AnthropicRecipeParser {
         }
     }
 
+    // MARK: - Streaming HTTP
+
+    private static func callAPIWithImagesStreaming(
+        images: [Data],
+        sourceUrl: String?,
+        model: String,
+        streamingState: StreamingRecipeState,
+        attempt: Int
+    ) async throws -> VisionParseOutcome {
+        var request = URLRequest(url: URL(string: "https://llamascookbook.pages.dev/api/parse")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("application/json",              forHTTPHeaderField: "Content-Type")
+        request.setValue("2023-06-01",                    forHTTPHeaderField: "anthropic-version")
+        request.setValue("extended-cache-ttl-2025-04-11", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("photo",                         forHTTPHeaderField: "x-llamas-import-kind")
+        if let userId = KeychainStore.read(.appleSub) {
+            request.setValue(userId, forHTTPHeaderField: "x-llamas-user")
+        }
+        request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "x-llamas-tz")
+
+        request.httpBody = try buildVisionBody(images: images, model: model, stream: true)
+
+        let httpInterval = anthropicSignposter.beginInterval("visionStreamingHTTP")
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        defer { anthropicSignposter.endInterval("visionStreamingHTTP", httpInterval) }
+        guard let http = response as? HTTPURLResponse else { return VisionParseOutcome() }
+
+        switch http.statusCode {
+        case 200:
+            let cacheHit = http.value(forHTTPHeaderField: "x-llamas-cache") == "hit"
+            if cacheHit {
+                // Worker served a buffered JSON body (the assembled tool_use
+                // response stored in KV). Drain bytes, parse as non-streaming.
+                var data = Data()
+                for try await byte in bytes { data.append(byte) }
+                let draft = extractDraft(from: data, sourceUrl: sourceUrl)
+                return VisionParseOutcome(draft: draft, cacheHit: true)
+            }
+            return try await consumeSSEStream(
+                bytes: bytes,
+                sourceUrl: sourceUrl,
+                streamingState: streamingState
+            )
+
+        case 401:
+            return VisionParseOutcome(error: .authRequired)
+
+        case 402:
+            return VisionParseOutcome(error: .quotaExhausted)
+
+        case 429:
+            // Drain bytes to inspect error code.
+            var data = Data()
+            for try await byte in bytes { data.append(byte) }
+            if let code = extractErrorCode(from: data), code == "daily_parse_limit" {
+                return VisionParseOutcome(error: .dailyLimitHit)
+            }
+            // Anthropic rate-limit: back off and retry.
+            guard attempt < 2 else { return VisionParseOutcome() }
+            let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
+            try await Task.sleep(nanoseconds: nanos)
+            return try await callAPIWithImagesStreaming(
+                images: images, sourceUrl: sourceUrl, model: model,
+                streamingState: streamingState, attempt: attempt + 1
+            )
+
+        case 529:
+            var sink = Data()
+            for try await byte in bytes { sink.append(byte) }
+            guard attempt < 2 else { return VisionParseOutcome() }
+            let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
+            try await Task.sleep(nanoseconds: nanos)
+            return try await callAPIWithImagesStreaming(
+                images: images, sourceUrl: sourceUrl, model: model,
+                streamingState: streamingState, attempt: attempt + 1
+            )
+
+        default:
+            // Drain to free the connection.
+            var sink = Data()
+            for try await byte in bytes { sink.append(byte) }
+            return VisionParseOutcome()
+        }
+    }
+
+    /// Consume Anthropic's SSE stream. For each `content_block_delta`
+    /// with `input_json_delta`, append to the running tool-input buffer
+    /// and feed the chunk into the `StreamingRecipeAccumulator` so the
+    /// UI sees title / ingredients / steps appear as their JSON objects
+    /// close. On `message_stop`, decode the assembled buffer once more
+    /// via the canonical `ParsedAPIRecipe` decoder to get the final
+    /// post-processed draft.
+    private static func consumeSSEStream(
+        bytes: URLSession.AsyncBytes,
+        sourceUrl: String?,
+        streamingState: StreamingRecipeState
+    ) async throws -> VisionParseOutcome {
+        var accumulator = StreamingRecipeAccumulator()
+        var toolName: String? = nil
+        var toolJson = ""
+
+        // Per-event state — emitted on each blank line in the SSE stream.
+        var currentEventName = "message"
+        var currentEventData = ""
+
+        for try await line in bytes.lines {
+            if line.isEmpty {
+                // Blank line — event boundary.
+                if !currentEventData.isEmpty,
+                   let payload = parseEventJSON(currentEventData) {
+                    let pendingEvents = handleSSEEvent(
+                        name: currentEventName,
+                        payload: payload,
+                        toolName: &toolName,
+                        toolJson: &toolJson,
+                        accumulator: &accumulator
+                    )
+                    if !pendingEvents.isEmpty {
+                        await applyEventsOnMainActor(pendingEvents, to: streamingState)
+                    }
+                }
+                currentEventName = "message"
+                currentEventData = ""
+                continue
+            }
+            if line.hasPrefix("event:") {
+                currentEventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("data:") {
+                currentEventData += String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+
+        // Drain any final accumulator state.
+        let trailing = accumulator.finalize()
+        if !trailing.isEmpty {
+            await applyEventsOnMainActor(trailing, to: streamingState)
+        }
+
+        // Decode the full assembled tool input as the canonical draft.
+        guard toolName == "structured_recipe",
+              !toolJson.isEmpty,
+              let data = toolJson.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(ParsedAPIRecipe.self, from: data) else {
+            return VisionParseOutcome()
+        }
+        let draft = parsed.toDraft(sourceUrl: sourceUrl)
+        guard passesQualityGate(draft) else { return VisionParseOutcome() }
+        return VisionParseOutcome(draft: draft, cacheHit: false)
+    }
+
+    /// Decode the `data:` payload of an SSE event.
+    private static func parseEventJSON(_ s: String) -> [String: Any]? {
+        guard let data = s.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// Process one decoded SSE event. Mutates `toolName` / `toolJson` and
+    /// the accumulator; returns any new typed events ready for the UI.
+    private static func handleSSEEvent(
+        name: String,
+        payload: [String: Any],
+        toolName: inout String?,
+        toolJson: inout String,
+        accumulator: inout StreamingRecipeAccumulator
+    ) -> [StreamingRecipeEvent] {
+        switch name {
+        case "content_block_start":
+            if let cb = payload["content_block"] as? [String: Any],
+               (cb["type"] as? String) == "tool_use" {
+                toolName = cb["name"] as? String
+            }
+            return []
+        case "content_block_delta":
+            guard let delta = payload["delta"] as? [String: Any],
+                  (delta["type"] as? String) == "input_json_delta",
+                  let partial = delta["partial_json"] as? String else { return [] }
+            toolJson += partial
+            return accumulator.consume(partial)
+        default:
+            return []
+        }
+    }
+
+    @MainActor
+    private static func applyEventsOnMainActor(
+        _ events: [StreamingRecipeEvent],
+        to state: StreamingRecipeState
+    ) {
+        for event in events {
+            state.applyEvent(event)
+        }
+    }
+
     private static func extractErrorCode(from data: Data) -> String? {
         guard
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -251,7 +492,8 @@ enum AnthropicRecipeParser {
             "text": RecipeAIParser.instructions,
             // Cache the ~2 000-token instructions so repeat imports within
             // the 5-minute TTL window hit the cache at 10% of input price.
-            "cache_control": ["type": "ephemeral"] as [String: Any],
+            // 1-hour TTL via the extended-cache-ttl beta — see callAPI for rationale.
+            "cache_control": ["type": "ephemeral", "ttl": "1h"] as [String: Any],
         ]
         let toolChoice: [String: Any] = ["type": "tool", "name": "structured_recipe"]
         let message: [String: Any] = [
@@ -278,7 +520,12 @@ enum AnthropicRecipeParser {
     /// The system prompt is identical to the text path so the same
     /// cache entry serves both — repeat imports hit the cached prefix
     /// regardless of whether the user came in via paste or photo.
-    private static func buildVisionBody(images: [Data], model: String) throws -> Data {
+    ///
+    /// - Parameter stream: When true, sets `"stream": true` so Anthropic
+    ///   returns SSE deltas. The Worker tees the upstream stream — one
+    ///   branch to iOS, one accumulates the assembled tool input for
+    ///   the KV cache write.
+    private static func buildVisionBody(images: [Data], model: String, stream: Bool = false) throws -> Data {
         var content: [[String: Any]] = []
         for data in images {
             let imageBlock: [String: Any] = [
@@ -300,14 +547,15 @@ enum AnthropicRecipeParser {
         let systemBlock: [String: Any] = [
             "type": "text",
             "text": RecipeAIParser.instructions,
-            "cache_control": ["type": "ephemeral"] as [String: Any],
+            // 1-hour TTL via the extended-cache-ttl beta — see callAPI for rationale.
+            "cache_control": ["type": "ephemeral", "ttl": "1h"] as [String: Any],
         ]
         let toolChoice: [String: Any] = ["type": "tool", "name": "structured_recipe"]
         let message: [String: Any] = [
             "role": "user",
             "content": content,
         ]
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 4096,
             "temperature": 0,
@@ -316,6 +564,7 @@ enum AnthropicRecipeParser {
             "tool_choice": toolChoice,
             "messages": [message],
         ]
+        if stream { body["stream"] = true }
         return try JSONSerialization.data(withJSONObject: body)
     }
 

@@ -1,6 +1,18 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import os
+
+/// Photo-import instrumentation. Branch-level signposts let Instruments
+/// visualize the full pipeline; one summary `Logger.info` line per import
+/// captures the same data for log-stream tailing (`log stream
+/// --predicate 'subsystem == "com.llamascookbook.app"' --info`).
+///
+/// Logs never contain recipe text, OCR text, image bytes, or titles —
+/// only durations, branch enum, and counts. Mirrors the Worker logs at
+/// `parse.js:189-204` for end-to-end timeline correlation.
+private let photoImportLog = Logger(subsystem: "com.llamascookbook.app", category: "photoImport")
+private let photoImportSignposter = OSSignposter(subsystem: "com.llamascookbook.app", category: "photoImport")
 
 /// Capture chooser for the photo-import path.
 ///
@@ -9,23 +21,23 @@ import UIKit
 /// - Capture buttons are disabled when the monthly cap or daily parse
 ///   limit is hit; exhausted-state card replaces the tips section.
 /// - Sign-in nudge replaces capture buttons for unsigned users.
-/// - `runImport` handles the new `VisionParseOutcome` error cases:
+/// - `runImport` handles `VisionParseOutcome` error cases:
 ///   `.quotaExhausted` / `.dailyLimitHit` refresh the quota and switch
 ///   into the appropriate exhausted-state UI without showing a banner.
 /// - Per-session attempt counter passed to `PhotoImportPreviewView` so
 ///   the cache-hit hint appears on the 2nd+ attempt in a session.
 ///
-/// Phase 2 additions:
-/// - Processing overlay shows an optional "What are we cookin'?" title
-///   field while the import runs, masking perceived latency.
-/// - Smart auto-advance: if the keyboard is down when processing finishes,
-///   the preview sheet opens automatically; if the user is still typing,
-///   a "Ready! / Review Recipe" state appears instead so their input is
-///   never interrupted.
-/// - Local OCR preflight: Vision OCR runs first; a strict confidence gate
-///   skips the paid Sonnet call entirely for clean printed pages.
-/// - User-entered title can rescue local parses that have strong
-///   ingredients/steps but a missing or weak extracted title.
+/// Phase 3 (streaming reveal):
+/// - Sonnet vision response streams as SSE. The processing overlay shows
+///   only briefly (image prep + OCR + first-byte wait); as soon as the
+///   first content event arrives (~1-2 s after request), the preview
+///   sheet pops with the title visible and ingredients / steps tick in
+///   as Anthropic emits them. Save enables on `message_stop`.
+/// - The legacy "What are we cookin'?" title input and Ready/Review state
+///   were removed once streaming made the perceived-speed need obsolete.
+/// - Local OCR preflight unchanged: Vision OCR runs first; a strict
+///   confidence gate skips the paid Sonnet call entirely for clean
+///   printed pages.
 struct ImportFromPhotoView: View {
     var onSaved: (Recipe) -> Void = { _ in }
 
@@ -46,17 +58,10 @@ struct ImportFromPhotoView: View {
     /// Counts how many parse attempts the user has made in this sheet session.
     /// Resets when the sheet is dismissed and re-presented.
     @State private var sessionAttemptCount = 0
-
-    // MARK: Phase 2 state
-
-    /// Optional title the user types while the import processes.
-    @State private var titleInput: String = ""
-    /// Tracks whether the title field keyboard is up.
-    @FocusState private var titleFieldFocused: Bool
-    /// Non-nil when processing finished while the keyboard was up.
-    /// The overlay shows a "Ready! / Review Recipe" card until the user
-    /// taps through — auto-advance is suppressed so typing isn't interrupted.
-    @State private var readyPayload: PreviewPayload? = nil
+    /// Backs the streaming preview when the Sonnet path is active. Created
+    /// in `runImport` before the first byte arrives so the preview can bind
+    /// to it; the preview pops once `streamingState.hasFirstContent` flips.
+    @State private var streamingState: StreamingRecipeState? = nil
 
     // MARK: - Body
 
@@ -97,7 +102,7 @@ struct ImportFromPhotoView: View {
         .llamaBackground()
         .navigationTitle("Import From Photo")
         .navigationBarTitleDisplayMode(.inline)
-        .interactiveDismissDisabled(ocrInProgress || readyPayload != nil)
+        .interactiveDismissDisabled(ocrInProgress)
         .tint(appearance.accentColor)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -106,7 +111,7 @@ struct ImportFromPhotoView: View {
                         .foregroundStyle(appearance.accentColor)
                         .accentTextOutline()
                 }
-                .disabled(ocrInProgress || readyPayload != nil)
+                .disabled(ocrInProgress)
             }
         }
         .fullScreenCover(isPresented: $showingScanner) {
@@ -138,6 +143,7 @@ struct ImportFromPhotoView: View {
         .sheet(item: $preview) { payload in
             PhotoImportPreviewView(
                 draft: payload.draft,
+                streamingState: payload.streamingState,
                 cacheHit: payload.cacheHit,
                 sessionAttemptIndex: payload.sessionAttemptIndex,
                 onSaved: { savedRecipe in
@@ -161,20 +167,15 @@ struct ImportFromPhotoView: View {
                 .environment(appearance)
         }
         .overlay {
-            if ocrInProgress || readyPayload != nil {
+            if ocrInProgress {
                 ZStack {
                     Color.black.opacity(0.35).ignoresSafeArea()
-                    if let payload = readyPayload {
-                        readyCard(payload: payload)
-                    } else {
-                        processingCard
-                    }
+                    processingCard
                 }
                 .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2),  value: ocrInProgress)
-        .animation(.easeInOut(duration: 0.2),  value: readyPayload != nil)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: errorBanner)
         .animation(.easeInOut(duration: 0.25), value: capturedPages.isEmpty)
         .onAppear {
@@ -183,13 +184,17 @@ struct ImportFromPhotoView: View {
         .onDisappear {
             editor.hasUnsavedChanges = false
             sessionAttemptCount = 0
-            titleInput = ""
-            readyPayload = nil
+            streamingState = nil
         }
     }
 
     // MARK: - Processing overlay
 
+    /// Shown only while we're waiting for image prep + OCR + the first
+    /// streaming byte from Sonnet. Once content begins arriving, the
+    /// preview sheet pops over this overlay; once the local path or
+    /// streaming preview is in flight, `ocrInProgress` flips false and
+    /// this view dismisses.
     private var processingCard: some View {
         VStack(spacing: AppSpacing.md) {
             LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
@@ -198,79 +203,6 @@ struct ImportFromPhotoView: View {
                 .foregroundStyle(AppColor.textPrimary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 240)
-
-            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                Text("What are we cookin'?")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(AppColor.textSecondary)
-                TextField("Recipe title", text: $titleInput)
-                    .font(.system(size: 16))
-                    .focused($titleFieldFocused)
-                    .submitLabel(.done)
-                    .onSubmit { titleFieldFocused = false }
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.sm + 2)
-                    .background(AppColor.surfaceSunken)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-            }
-            .frame(width: 240)
-        }
-        .padding(AppSpacing.xl)
-        .background(AppColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: AppColor.shadow, radius: 18, y: 6)
-    }
-
-    private func readyCard(payload: PreviewPayload) -> some View {
-        VStack(spacing: AppSpacing.md) {
-            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
-                .opacity(0.9)
-            Text("Ready!")
-                .font(.system(size: 22, weight: .bold, design: .serif))
-                .foregroundStyle(AppColor.textPrimary)
-
-            // Show whatever title we have: draft title or user-entered.
-            let displayTitle: String = {
-                let dt = payload.draft.title.trimmed
-                return dt.isEmpty ? titleInput.trimmed : dt
-            }()
-            if !displayTitle.isEmpty {
-                Text(displayTitle)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(AppColor.textSecondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 240)
-            }
-
-            Button {
-                Haptics.impact(.medium)
-                // Re-apply user title at tap time in case they kept typing
-                // after the draft was computed.
-                var finalDraft = payload.draft
-                let currentTitle = titleInput.trimmed
-                if finalDraft.title.trimmed.isEmpty && !currentTitle.isEmpty {
-                    finalDraft.title = currentTitle
-                }
-                let finalPayload = PreviewPayload(
-                    draft: finalDraft,
-                    cacheHit: payload.cacheHit,
-                    sessionAttemptIndex: payload.sessionAttemptIndex
-                )
-                readyPayload = nil
-                capturedPages = []
-                preview = finalPayload
-            } label: {
-                Text("Review Recipe")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AppColor.onAccent)
-                    .frame(width: 240)
-                    .padding(.vertical, AppSpacing.sm + 4)
-                    .background(appearance.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-            }
-            .buttonStyle(.plain)
         }
         .padding(AppSpacing.xl)
         .background(AppColor.surface)
@@ -798,24 +730,37 @@ struct ImportFromPhotoView: View {
         }
     }
 
-    // MARK: - Import runner (OCR preflight → vision → OCR+AI fallback)
+    // MARK: - Import runner (OCR preflight → streaming vision → OCR+AI fallback)
 
     @MainActor
     private func runImport(on pages: [CapturedPage]) async {
         guard !pages.isEmpty else { return }
         ocrInProgress = true
-        titleInput    = ""
-        readyPayload  = nil
         errorBanner   = nil
+        streamingState = nil
+        let importStart = Date()
+        var timings = ImportTimings()
+        var branch: ImportBranch = .unknown
+        var accepted = false
+        var cacheHit = false
         defer {
             ocrInProgress = false
             ocrPageStatus = nil
+            let totalMs = Int(Date().timeIntervalSince(importStart) * 1000)
+            photoImportLog.info(
+                "photo_import branch=\(branch.rawValue, privacy: .public) total_ms=\(totalMs, privacy: .public) prepare_ms=\(timings.prepare, privacy: .public) ocr_ms=\(timings.ocr, privacy: .public) local_parse_ms=\(timings.localParse, privacy: .public) vision_first_byte_ms=\(timings.visionFirstByte, privacy: .public) vision_total_ms=\(timings.visionTotal, privacy: .public) fallback_ms=\(timings.fallback, privacy: .public) page_count=\(pages.count, privacy: .public) accepted=\(accepted, privacy: .public) cache_hit=\(cacheHit, privacy: .public) session_attempt=\(self.sessionAttemptCount, privacy: .public)"
+            )
         }
 
         ocrPageStatus = pages.count == 1 ? "Preparing page…" : "Preparing \(pages.count) pages…"
+
+        let prepInterval = photoImportSignposter.beginInterval("preparePages")
+        let prepStart = Date()
         let prepared     = await preparePages(pages)
         let visionImages = prepared.compactMap(\.vision)
         let ocrImages    = prepared.compactMap(\.ocr)
+        timings.prepare = Int(Date().timeIntervalSince(prepStart) * 1000)
+        photoImportSignposter.endInterval("preparePages", prepInterval)
 
         guard !visionImages.isEmpty || !ocrImages.isEmpty else {
             errorBanner = ErrorBanner(
@@ -823,42 +768,78 @@ struct ImportFromPhotoView: View {
                 message: "Couldn't read those photos. Try a different image.",
                 actionTitle: nil, action: nil
             )
+            branch = .preparationFailed
             return
         }
 
         sessionAttemptCount += 1
         ocrPageStatus = "Reading the recipe…"
 
-        // ── Phase 2: Local OCR preflight ──────────────────────────────────────
-        // Run on-device Vision OCR first. For clean printed pages with explicit
-        // section labels the deterministic parser can produce a confident draft
-        // at zero API cost. The OCR text is reused in the AI fallback below so
-        // we never recognize the same images twice.
+        // ── Local OCR preflight ───────────────────────────────────────────────
+        // Run on-device Vision OCR first. Clean printed pages with explicit
+        // section labels produce a confident draft at zero API cost. The OCR
+        // text is reused in the fallback below so we never recognize twice.
         var prefetchedOCRText: String? = nil
         if !ocrImages.isEmpty {
+            let ocrInterval = photoImportSignposter.beginInterval("ocr")
+            let ocrStart = Date()
             let ocrText = await RecipeOCRImporter.recognize(ocrImages)
+            timings.ocr = Int(Date().timeIntervalSince(ocrStart) * 1000)
+            photoImportSignposter.endInterval("ocr", ocrInterval)
             if !ocrText.isEmpty {
                 prefetchedOCRText = ocrText
-                var localDraft = RecipeImporter.parse(ocrText)
-                // User title rescues a locally-parsed draft whose content is
-                // strong but whose title OCR'd poorly or is empty.
-                if localDraft.title.trimmed.isEmpty {
-                    localDraft = withUserTitleApplied(localDraft)
-                }
+                let localInterval = photoImportSignposter.beginInterval("localParse")
+                let localStart = Date()
+                let localDraft = RecipeImporter.parse(ocrText)
+                timings.localParse = Int(Date().timeIntervalSince(localStart) * 1000)
+                photoImportSignposter.endInterval("localParse", localInterval)
                 if localPhotoParseConfident(localDraft, ocrText: ocrText) {
-                    finishImport(draft: localDraft, cacheHit: false)
+                    branch = .localAccept
+                    accepted = true
+                    finishImport(draft: localDraft, cacheHit: false, streamingState: nil)
                     return
                 }
             }
         }
 
-        // ── Sonnet vision (primary paid path) ─────────────────────────────────
+        // ── Sonnet streaming vision ───────────────────────────────────────────
+        // The streaming state is created BEFORE the call so we can hand it to
+        // the preview sheet and have the UI bind to live updates. The state's
+        // `onFirstContent` closure pops the preview — the processing overlay
+        // dismisses (ocrInProgress = false) and the user is now watching the
+        // recipe materialize inside `PhotoImportPreviewView`.
+        let state = StreamingRecipeState()
+        streamingState = state
+        let sessionIndex = sessionAttemptCount
+        state.onFirstContent = { [self] in
+            let payload = PreviewPayload(
+                draft: DraftRecipe(),
+                streamingState: state,
+                cacheHit: false,
+                sessionAttemptIndex: sessionIndex
+            )
+            capturedPages = []
+            preview = payload
+            ocrInProgress = false
+        }
+
+        let visionInterval = photoImportSignposter.beginInterval("visionStreaming")
+        let visionStart = Date()
         let visionOutcome: VisionParseOutcome = visionImages.isEmpty
             ? VisionParseOutcome()
-            : await RecipeAIParser.parseImages(visionImages, sourceUrl: nil)
+            : await RecipeAIParser.parseImagesStreaming(
+                visionImages,
+                sourceUrl: nil,
+                streamingState: state
+            )
+        timings.visionTotal = Int(Date().timeIntervalSince(visionStart) * 1000)
+        if let firstByte = state.firstContentAt {
+            timings.visionFirstByte = Int(firstByte.timeIntervalSince(visionStart) * 1000)
+        }
+        photoImportSignposter.endInterval("visionStreaming", visionInterval)
 
-        // Handle quota / auth errors — refresh quota snapshot and let the
-        // blocked-card UI appear once it lands; do not fall through to OCR.
+        // Handle quota / auth errors — refresh snapshot, let blocked-card UI
+        // appear; do not fall through to OCR.
         if let err = visionOutcome.error {
             Task { await quotaService.refresh(force: true) }
             switch err {
@@ -868,24 +849,37 @@ struct ImportFromPhotoView: View {
                     message: "Sign in with Apple to import from photos.",
                     actionTitle: nil, action: nil
                 )
-            case .quotaExhausted, .dailyLimitHit:
-                break
+                branch = .authRequired
+            case .quotaExhausted:
+                branch = .quotaExhausted
+            case .dailyLimitHit:
+                branch = .dailyLimitHit
             }
             return
         }
 
+        // Stream completed successfully with a confident draft.
         if let draft = visionOutcome.draft, photoImportConfident(draft) {
-            var finalDraft = draft
-            if finalDraft.title.trimmed.isEmpty {
-                finalDraft = withUserTitleApplied(finalDraft)
+            cacheHit = visionOutcome.cacheHit
+            accepted = true
+            if state.hasFirstContent {
+                branch = .visionStream
+                state.completeStream(finalDraft: draft, cacheHit: visionOutcome.cacheHit)
+            } else {
+                branch = visionOutcome.cacheHit ? .visionCacheHit : .visionBufferedComplete
+                finishImport(draft: draft, cacheHit: visionOutcome.cacheHit, streamingState: nil)
             }
-            finishImport(draft: finalDraft, cacheHit: visionOutcome.cacheHit)
             return
         }
 
         // ── OCR + text-AI fallback ────────────────────────────────────────────
-        // Reuse the OCR text from the preflight if available; otherwise
-        // run recognition now (happens when visionImages was empty).
+        // Stream produced nothing usable. Fall back to OCR text + AI. If the
+        // preview was popped speculatively, dismiss it so the banner shows.
+        if state.hasFirstContent {
+            preview = nil
+            state.cancel()
+        }
+        let fallbackStart = Date()
         let ocrText: String
         if let precomputed = prefetchedOCRText {
             ocrText = precomputed
@@ -893,16 +887,17 @@ struct ImportFromPhotoView: View {
             ocrText = ocrImages.isEmpty ? "" : await RecipeOCRImporter.recognize(ocrImages)
         }
 
+        let fallbackInterval = photoImportSignposter.beginInterval("ocrTextFallback")
         let textDraft: DraftRecipe? = ocrText.isEmpty
             ? nil
             : await RecipeAIParser.parseBestOf(ocrText, sourceUrl: nil, preferHighQuality: true)
+        photoImportSignposter.endInterval("ocrTextFallback", fallbackInterval)
+        timings.fallback = Int(Date().timeIntervalSince(fallbackStart) * 1000)
 
         if let t = textDraft, photoImportConfident(t) {
-            var finalDraft = t
-            if finalDraft.title.trimmed.isEmpty {
-                finalDraft = withUserTitleApplied(finalDraft)
-            }
-            finishImport(draft: finalDraft, cacheHit: false)
+            branch = .ocrTextFallback
+            accepted = true
+            finishImport(draft: t, cacheHit: false, streamingState: nil)
             return
         }
 
@@ -912,6 +907,7 @@ struct ImportFromPhotoView: View {
                 message: "Couldn't read text from the image. Try better lighting or a closer angle, or pick a different photo.",
                 actionTitle: nil, action: nil
             )
+            branch = .ocrEmpty
             return
         }
         let seed = ocrText
@@ -924,30 +920,30 @@ struct ImportFromPhotoView: View {
                 editor.startImportFromText(seedText: seed)
             }
         )
+        branch = .editAsTextFallback
     }
 
-    // MARK: - Finish import (smart auto-advance)
+    // MARK: - Finish import
 
-    /// Called when a usable draft is ready. Auto-advances to the preview sheet
-    /// if the keyboard is down; shows the "Ready! / Review Recipe" card if the
-    /// user is still typing so their input isn't interrupted.
+    /// Pop the preview sheet with a fully-formed draft. Used by the local
+    /// accept and OCR+AI fallback paths (and by cache-hit Sonnet results
+    /// that never streamed). Streaming-path drafts are handled inline in
+    /// `runImport` so the preview can bind to the `StreamingRecipeState`
+    /// for progressive reveal.
     @MainActor
-    private func finishImport(draft: DraftRecipe, cacheHit: Bool) {
+    private func finishImport(
+        draft: DraftRecipe,
+        cacheHit: Bool,
+        streamingState: StreamingRecipeState?
+    ) {
         let payload = PreviewPayload(
             draft: draft,
+            streamingState: streamingState,
             cacheHit: cacheHit,
             sessionAttemptIndex: sessionAttemptCount
         )
-        if titleFieldFocused {
-            // Keyboard is up — store the payload and show the Ready! card.
-            // The defer block in runImport will set ocrInProgress = false,
-            // and the overlay condition (ocrInProgress || readyPayload != nil)
-            // keeps it visible in the Ready! state.
-            readyPayload = payload
-        } else {
-            capturedPages = []
-            preview       = payload
-        }
+        capturedPages = []
+        preview       = payload
     }
 
     // MARK: - Confidence gates
@@ -977,18 +973,6 @@ struct ImportFromPhotoView: View {
         !draft.title.trimmed.isEmpty && !draft.ingredients.isEmpty && !draft.steps.isEmpty
     }
 
-    // MARK: - User title helper
-
-    /// Returns a copy of `draft` with the title field set to `titleInput`
-    /// if the draft's own title is empty and the user typed something.
-    private func withUserTitleApplied(_ draft: DraftRecipe) -> DraftRecipe {
-        let typed = titleInput.trimmed
-        guard !typed.isEmpty, draft.title.trimmed.isEmpty else { return draft }
-        var modified = draft
-        modified.title = typed
-        return modified
-    }
-
     // MARK: - Page preparation
 
     private func preparePages(_ pages: [CapturedPage]) async -> [PreparedPage] {
@@ -1016,6 +1000,11 @@ struct ImportFromPhotoView: View {
     private struct PreviewPayload: Identifiable {
         let id = UUID()
         let draft: DraftRecipe
+        /// Non-nil when this payload represents a streaming Sonnet vision call.
+        /// The preview reads progressive title/ingredient/step events from
+        /// this state and re-renders as bytes arrive. Nil for local-accept /
+        /// cache-hit / OCR+AI fallback paths where the draft is already final.
+        let streamingState: StreamingRecipeState?
         let cacheHit: Bool
         let sessionAttemptIndex: Int
     }
@@ -1031,6 +1020,37 @@ struct ImportFromPhotoView: View {
     private struct PreparedPage {
         let vision: Data?
         let ocr: Data?
+    }
+
+    /// Branch the import landed in. Logged to OSLog per-import to make
+    /// branch share visible without recipe content. The cases mirror
+    /// `runImport`'s flow — exactly one is set before the deferred log
+    /// summary fires.
+    private enum ImportBranch: String {
+        case unknown
+        case preparationFailed
+        case localAccept
+        case visionStream         // Sonnet streamed and yielded confident draft
+        case visionBufferedComplete // Sonnet returned without ever streaming content (rare)
+        case visionCacheHit       // Worker served KV-cached assembled JSON
+        case authRequired
+        case quotaExhausted
+        case dailyLimitHit
+        case ocrTextFallback
+        case editAsTextFallback
+        case ocrEmpty
+    }
+
+    /// Per-import wall-clock timing buckets in milliseconds. All default to 0;
+    /// only the phases that actually ran get populated. Logged as a single
+    /// `Logger.info` summary line; never carries recipe content.
+    private struct ImportTimings {
+        var prepare:         Int = 0
+        var ocr:             Int = 0
+        var localParse:      Int = 0
+        var visionFirstByte: Int = 0
+        var visionTotal:     Int = 0
+        var fallback:        Int = 0
     }
 
     private struct ErrorBanner: Equatable {
