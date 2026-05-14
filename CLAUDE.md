@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-14 (session 11 — photo import bug fixes: strengthened NEVER FABRICATE + synonym rule + Rule 29 handwriting correction in `RecipeAIParser.instructions`; `PROMPT_VERSION` bumped to `v2`; 55 ms ingredient/step stagger in `consumeSSEStream`; `runImport` restructured to pop preview before Anthropic call so skeleton shows during TTFB).
+Last refreshed: 2026-05-14 (session 12 — LlamaProStore compile fixes: `nonisolated(unsafe)` on `transactionUpdateTask` for deinit; replaced removed `Transaction.isExpired` with `expirationDate`-based check).
 
 ---
 
@@ -91,7 +91,7 @@ Last refreshed: 2026-05-14 (session 11 — photo import bug fixes: strengthened 
 
 **Quota + IAP** (`Sources/Lib/`, `Sources/Views/Profile/`)
 - `QuotaService.swift` — photo-import quota state (see quota enforcement invariants)
-- `LlamaProStore.swift` — StoreKit 2 wrapper; Phase 2 wires purchase + ASN V2 webhook
+- `LlamaProStore.swift` — StoreKit 2 wrapper; Phase 2 wires purchase + ASN V2 webhook. `transactionUpdateTask` is `nonisolated(unsafe)` so `deinit` (which is nonisolated) can cancel it without an actor hop — `Task.cancel()` is thread-safe. Subscription liveness uses `transaction.expirationDate.map { $0 > Date.now } ?? true`; `Transaction.isExpired` does not exist on `StoreKit.Transaction`.
 - `PaywallView.swift` — IAP paywall sheet; Phase 1 shows "Coming soon" stub
 
 **Auth / identity** (`Sources/Lib/`)

@@ -13,7 +13,7 @@ final class LlamaProStore {
     private(set) var isPurchasing:   Bool     = false
     private(set) var purchaseError:  String?  = nil
 
-    private var transactionUpdateTask: Task<Void, Never>?
+    nonisolated(unsafe) private var transactionUpdateTask: Task<Void, Never>?
 
     init() {
         transactionUpdateTask = listenForTransactionUpdates()
@@ -116,7 +116,8 @@ final class LlamaProStore {
                 guard let self else { break }
                 guard case .verified(let transaction) = result else { continue }
                 guard transaction.productID == Self.productID else { continue }
-                let active = transaction.revocationDate == nil && !transaction.isExpired
+                let active = transaction.revocationDate == nil &&
+                             (transaction.expirationDate.map { $0 > Date.now } ?? true)
                 await self.activateOnServer(jws: result.jwsRepresentation)
                 await MainActor.run { self.isPro = active }
                 await transaction.finish()
