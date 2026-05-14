@@ -46,6 +46,7 @@ struct ImportFromTextLinkView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Environment(EditorCoordinator.self) private var editor
     @Environment(AppearanceSettings.self) private var appearance
 
@@ -56,6 +57,12 @@ struct ImportFromTextLinkView: View {
     @State private var parsedDraft: DraftRecipe?
     @State private var showEditor = false
     @State private var showTour = false
+    @State private var urlFieldEdited = false
+    @State private var textFieldEdited = false
+    @State private var previewJiggleCount = 0
+    @State private var pendingDraft: DraftRecipe? = nil
+    @State private var showDuplicateAlert = false
+    @State private var duplicateSuggestedTitle = ""
     @FocusState private var urlFocused: Bool
     @FocusState private var pasteFocused: Bool
     @AppStorage("hasSeenImportHelp") private var hasSeenImportHelp = false
@@ -73,8 +80,12 @@ struct ImportFromTextLinkView: View {
                         .tourTarget(.textLinkImportHero)
 
                     linkSection
+                        .opacity(textFieldEdited ? 0.45 : 1.0)
+                        .animation(.easeInOut(duration: 0.3), value: textFieldEdited)
 
                     pasteSection(parsed: parsedFromText)
+                        .opacity(urlFieldEdited ? 0.45 : 1.0)
+                        .animation(.easeInOut(duration: 0.3), value: urlFieldEdited)
 
                     actionRow(canPreview: canPreview)
 
@@ -159,10 +170,43 @@ struct ImportFromTextLinkView: View {
                 }
                 updateDirty()
             }
-            .onChange(of: pastedText) { _, _ in updateDirty() }
-            .onChange(of: urlText) { _, _ in updateDirty() }
+            .onChange(of: pastedText) { _, new in
+                updateDirty()
+                if pasteFocused && !new.trimmed.isEmpty {
+                    textFieldEdited = true
+                }
+                if new.trimmed.isEmpty {
+                    textFieldEdited = false
+                }
+            }
+            .onChange(of: urlText) { _, new in
+                updateDirty()
+                if urlFocused && !new.trimmed.isEmpty {
+                    urlFieldEdited = true
+                }
+                if new.trimmed.isEmpty {
+                    urlFieldEdited = false
+                }
+            }
+            .onChange(of: urlFieldEdited) { old, new in
+                if new && !old { previewJiggleCount += 1 }
+            }
             .onDisappear {
                 editor.hasUnsavedChanges = false
+            }
+            .alert("Already in Your Cookbook", isPresented: $showDuplicateAlert, presenting: pendingDraft) { draft in
+                Button("Cancel", role: .cancel) {
+                    pendingDraft = nil
+                }
+                Button("Save as \"\(duplicateSuggestedTitle)\"") {
+                    var updated = draft
+                    updated.title = duplicateSuggestedTitle
+                    parsedDraft = updated
+                    pendingDraft = nil
+                    showEditor = true
+                }
+            } message: { draft in
+                Text(""\(draft.title.trimmed)" is already in your cookbook.")
             }
             .overlayPreferenceValue(LlamaTourTargetKey.self) { anchors in
                 if showTour {
@@ -517,6 +561,8 @@ struct ImportFromTextLinkView: View {
                 .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1))
                 .clipShape(Capsule())
             }
+            .opacity(urlFieldEdited ? 0.4 : 1.0)
+            .animation(.easeInOut(duration: 0.3), value: urlFieldEdited)
 
             Spacer()
 
@@ -524,8 +570,15 @@ struct ImportFromTextLinkView: View {
                 Haptics.impact(.light)
                 dismissKeyboards()
                 guard let draft = resolvePreviewDraft() else { return }
-                parsedDraft = draft
-                showEditor = true
+                let title = draft.title.trimmed
+                if let suggested = nextAvailableTitle(base: title) {
+                    pendingDraft = draft
+                    duplicateSuggestedTitle = suggested
+                    showDuplicateAlert = true
+                } else {
+                    parsedDraft = draft
+                    showEditor = true
+                }
             } label: {
                 HStack(spacing: AppSpacing.xs) {
                     Text("Preview")
@@ -541,6 +594,23 @@ struct ImportFromTextLinkView: View {
                 .opacity(canPreview ? 1 : 0.4)
             }
             .disabled(!canPreview)
+            .shadow(
+                color: urlFieldEdited ? appearance.accentColor.opacity(0.5) : .clear,
+                radius: 12, x: 0, y: 4
+            )
+            .animation(.easeInOut(duration: 0.4), value: urlFieldEdited)
+            .keyframeAnimator(initialValue: 0.0, trigger: previewJiggleCount) { view, angle in
+                view.rotationEffect(.degrees(angle))
+            } keyframes: { _ in
+                KeyframeTrack {
+                    CubicKeyframe(0.0, duration: 0.05)
+                    CubicKeyframe(4.0, duration: 0.08)
+                    CubicKeyframe(-4.0, duration: 0.08)
+                    CubicKeyframe(3.0, duration: 0.07)
+                    CubicKeyframe(-3.0, duration: 0.07)
+                    CubicKeyframe(0.0, duration: 0.08)
+                }
+            }
             .tourTarget(.previewButton)
         }
     }
@@ -632,6 +702,23 @@ struct ImportFromTextLinkView: View {
 
     private var canFetch: Bool {
         !urlText.trimmed.isEmpty && urlFetchState != .fetching
+    }
+
+    /// Returns the next available de-duped title if `base` already exists
+    /// in the library, or `nil` when no duplicate is found.
+    private func nextAvailableTitle(base: String) -> String? {
+        let trimmed = base.trimmed
+        guard !trimmed.isEmpty else { return nil }
+        let descriptor = FetchDescriptor<Recipe>(predicate: #Predicate { $0.title == trimmed })
+        guard let existing = try? modelContext.fetch(descriptor), !existing.isEmpty else { return nil }
+        var n = 1
+        while n < 100 {
+            let candidate = "\(trimmed) (\(n))"
+            let d = FetchDescriptor<Recipe>(predicate: #Predicate { $0.title == candidate })
+            if (try? modelContext.fetch(d))?.isEmpty == true { return candidate }
+            n += 1
+        }
+        return "\(trimmed) (\(n))"
     }
 
     private func dismissKeyboards() {

@@ -28,11 +28,12 @@ private let photoImportSignposter = OSSignposter(subsystem: "com.llamascookbook.
 ///   the cache-hit hint appears on the 2nd+ attempt in a session.
 ///
 /// Phase 3 (streaming reveal):
-/// - Sonnet vision response streams as SSE. The processing overlay shows
-///   only briefly (image prep + OCR + first-byte wait); as soon as the
-///   first content event arrives (~1-2 s after request), the preview
-///   sheet pops with the title visible and ingredients / steps tick in
-///   as Anthropic emits them. Save enables on `message_stop`.
+/// - Sonnet vision response streams as SSE. After the OCR preflight
+///   (≤1 s), the preview sheet pops immediately with pulsing skeleton
+///   placeholders — the processing overlay is gone. Anthropic's TTFB
+///   for vision (5–10 s) passes with the skeleton visible; then title,
+///   ingredients, and steps tick in progressively. Save enables on
+///   `message_stop`.
 /// - The legacy "What are we cookin'?" title input and Ready/Review state
 ///   were removed once streaming made the perceived-speed need obsolete.
 /// - Local OCR preflight unchanged: Vision OCR runs first; a strict
@@ -59,8 +60,8 @@ struct ImportFromPhotoView: View {
     /// Resets when the sheet is dismissed and re-presented.
     @State private var sessionAttemptCount = 0
     /// Backs the streaming preview when the Sonnet path is active. Created
-    /// in `runImport` before the first byte arrives so the preview can bind
-    /// to it; the preview pops once `streamingState.hasFirstContent` flips.
+    /// in `runImport` immediately after OCR preflight; the preview pops at
+    /// that point (skeleton mode) so the overlay is gone before Anthropic TTFB.
     @State private var streamingState: StreamingRecipeState? = nil
 
     // MARK: - Body
@@ -190,11 +191,9 @@ struct ImportFromPhotoView: View {
 
     // MARK: - Processing overlay
 
-    /// Shown only while we're waiting for image prep + OCR + the first
-    /// streaming byte from Sonnet. Once content begins arriving, the
-    /// preview sheet pops over this overlay; once the local path or
-    /// streaming preview is in flight, `ocrInProgress` flips false and
-    /// this view dismisses.
+    /// Shown while we're waiting for image prep + OCR preflight only (~1 s).
+    /// Dismisses as soon as the preview sheet pops — which happens before
+    /// the Anthropic call starts, so the skeleton UI is visible during TTFB.
     private var processingCard: some View {
         VStack(spacing: AppSpacing.md) {
             LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
@@ -803,25 +802,21 @@ struct ImportFromPhotoView: View {
         }
 
         // ── Sonnet streaming vision ───────────────────────────────────────────
-        // The streaming state is created BEFORE the call so we can hand it to
-        // the preview sheet and have the UI bind to live updates. The state's
-        // `onFirstContent` closure pops the preview — the processing overlay
-        // dismisses (ocrInProgress = false) and the user is now watching the
-        // recipe materialize inside `PhotoImportPreviewView`.
+        // Pop the preview NOW — before the Anthropic call — so the overlay
+        // shows for only the OCR preflight time (~0.5-1 s). The user sees
+        // pulsing skeleton placeholders while Anthropic processes the image
+        // (5–10 s TTFB); content ticks in progressively as events arrive.
         let state = StreamingRecipeState()
         streamingState = state
         let sessionIndex = sessionAttemptCount
-        state.onFirstContent = { [self] in
-            let payload = PreviewPayload(
-                draft: DraftRecipe(),
-                streamingState: state,
-                cacheHit: false,
-                sessionAttemptIndex: sessionIndex
-            )
-            capturedPages = []
-            preview = payload
-            ocrInProgress = false
-        }
+        capturedPages = []
+        preview = PreviewPayload(
+            draft: DraftRecipe(),
+            streamingState: state,
+            cacheHit: false,
+            sessionAttemptIndex: sessionIndex
+        )
+        ocrInProgress = false
 
         let visionInterval = photoImportSignposter.beginInterval("visionStreaming")
         let visionStart = Date()
@@ -838,10 +833,12 @@ struct ImportFromPhotoView: View {
         }
         photoImportSignposter.endInterval("visionStreaming", visionInterval)
 
-        // Handle quota / auth errors — refresh snapshot, let blocked-card UI
-        // appear; do not fall through to OCR.
+        // Handle quota / auth errors — dismiss preview, refresh snapshot,
+        // let blocked-card UI appear; do not fall through to OCR.
         if let err = visionOutcome.error {
             Task { await quotaService.refresh(force: true) }
+            preview = nil
+            state.fail()
             switch err {
             case .authRequired:
                 errorBanner = ErrorBanner(
@@ -862,23 +859,17 @@ struct ImportFromPhotoView: View {
         if let draft = visionOutcome.draft, photoImportConfident(draft) {
             cacheHit = visionOutcome.cacheHit
             accepted = true
-            if state.hasFirstContent {
-                branch = .visionStream
-                state.completeStream(finalDraft: draft, cacheHit: visionOutcome.cacheHit)
-            } else {
-                branch = visionOutcome.cacheHit ? .visionCacheHit : .visionBufferedComplete
-                finishImport(draft: draft, cacheHit: visionOutcome.cacheHit, streamingState: nil)
-            }
+            branch = state.hasFirstContent
+                ? .visionStream
+                : (visionOutcome.cacheHit ? .visionCacheHit : .visionBufferedComplete)
+            state.completeStream(finalDraft: draft, cacheHit: visionOutcome.cacheHit)
             return
         }
 
         // ── OCR + text-AI fallback ────────────────────────────────────────────
-        // Stream produced nothing usable. Fall back to OCR text + AI. If the
-        // preview was popped speculatively, dismiss it so the banner shows.
-        if state.hasFirstContent {
-            preview = nil
-            state.cancel()
-        }
+        // Stream produced nothing usable — dismiss the speculative preview.
+        preview = nil
+        state.cancel()
         let fallbackStart = Date()
         let ocrText: String
         if let precomputed = prefetchedOCRText {
