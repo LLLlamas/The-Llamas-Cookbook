@@ -56,6 +56,10 @@ enum AnthropicRecipeParser {
     /// Always true — the proxy is always reachable when the device has
     /// network. Network failures fall through to nil gracefully.
     static let isConfigured: Bool = true
+    #if DEBUG
+    // Must match BYPASS_SECRET env var in Cloudflare Pages dashboard.
+    static let testBypassSecret = "llamas-dev-bypass-2026"
+    #endif
 
     // MARK: - Models
 
@@ -237,6 +241,9 @@ enum AnthropicRecipeParser {
             request.setValue(userId, forHTTPHeaderField: "x-llamas-user")
         }
         request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "x-llamas-tz")
+        #if DEBUG
+        request.setValue(AnthropicRecipeParser.testBypassSecret, forHTTPHeaderField: "x-llamas-bypass")
+        #endif
 
         request.httpBody = try buildVisionBody(images: images, model: model)
 
@@ -302,6 +309,9 @@ enum AnthropicRecipeParser {
             request.setValue(userId, forHTTPHeaderField: "x-llamas-user")
         }
         request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "x-llamas-tz")
+        #if DEBUG
+        request.setValue(AnthropicRecipeParser.testBypassSecret, forHTTPHeaderField: "x-llamas-bypass")
+        #endif
 
         request.httpBody = try buildVisionBody(images: images, model: model, stream: true)
 

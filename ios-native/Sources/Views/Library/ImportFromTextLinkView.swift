@@ -206,7 +206,7 @@ struct ImportFromTextLinkView: View {
                     showEditor = true
                 }
             } message: { draft in
-                Text(""\(draft.title.trimmed)" is already in your cookbook.")
+                Text("\"\(draft.title.trimmed)\" is already in your cookbook.")
             }
             .overlayPreferenceValue(LlamaTourTargetKey.self) { anchors in
                 if showTour {

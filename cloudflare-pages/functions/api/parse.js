@@ -68,6 +68,25 @@ export async function onRequestPost(context) {
   const tz    = request.headers.get('x-llamas-tz') ?? 'UTC';
   const quota = env.LLAMAS_QUOTA;
 
+  // Test bypass: skip all quota enforcement when the request presents the
+  // correct secret. Set BYPASS_SECRET in Cloudflare Pages env vars (dev only).
+  const bypassSecret = env.BYPASS_SECRET;
+  if (bypassSecret && request.headers.get('x-llamas-bypass') === bypassSecret) {
+    const body = await request.arrayBuffer();
+    const upstream = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers: buildAnthropicHeaders(request, apiKey),
+      body,
+    });
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        'content-type': upstream.headers.get('content-type') ?? 'application/json',
+        'x-llamas-cache': 'bypass',
+      },
+    });
+  }
+
   if (!quota) {
     // KV not bound (dev environment without wrangler binding) — allow through.
     console.warn('LLAMAS_QUOTA KV not bound; skipping quota enforcement');
