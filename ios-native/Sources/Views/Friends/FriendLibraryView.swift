@@ -26,8 +26,13 @@ import SwiftUI
 /// once the basic flow proves out.
 struct FriendLibraryView: View {
     let friend: UserProfileSnapshot
+    /// False when the view is the navigation-stack root (e.g. the
+    /// Friends tab for unsigned users). Hides the custom back button
+    /// since there's nothing to go back to.
+    var showsBackButton: Bool = true
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss)      private var dismiss
+    @Environment(UserAccount.self) private var userAccount
 
     @State private var summaries: [PublishedRecipeSummary] = []
     @State private var isLoading: Bool = false
@@ -53,6 +58,12 @@ struct FriendLibraryView: View {
                 .padding(.top, AppSpacing.xs)
                 .padding(.bottom, AppSpacing.sm)
 
+            if !showsBackButton && !userAccount.status.isSignedIn {
+                signInBanner
+                    .padding(.horizontal, AppSpacing.lg)
+                    .padding(.bottom, AppSpacing.sm)
+            }
+
             CategoryFilterStrip(
                 categories: allCategories,
                 totalCount: summaries.count,
@@ -76,18 +87,20 @@ struct FriendLibraryView: View {
         .enableSwipeBack()
         .tint(friendAccent)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    Haptics.selection()
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(friendAccent)
-                        .accentTextOutline()
-                        .frame(width: 30, height: 30)
+            if showsBackButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        Haptics.selection()
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(friendAccent)
+                            .accentTextOutline()
+                            .frame(width: 30, height: 30)
+                    }
+                    .accessibilityLabel("Back")
                 }
-                .accessibilityLabel("Back")
             }
             ToolbarItem(placement: .principal) {
                 // Friend cookbook surfaces tint in the friend's accent
@@ -108,6 +121,37 @@ struct FriendLibraryView: View {
                 await loadLibrary()
             }
         }
+    }
+
+    // MARK: - Sign-in banner (unsigned root path only)
+
+    /// Compact card shown at the top of the seed cookbook when the
+    /// user is not signed in. Encourages iCloud/SIWA without blocking
+    /// access to the sample recipes below.
+    private var signInBanner: some View {
+        HStack(alignment: .top, spacing: AppSpacing.sm) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(friendAccent)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Sign in to connect with friends")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppColor.textPrimary)
+                Text("Browse the starter recipes below, then sign in with Apple (Profile tab) to add friends and share recipes directly.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(friendAccent.opacity(0.07))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(friendAccent.opacity(0.3), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     // MARK: - Header

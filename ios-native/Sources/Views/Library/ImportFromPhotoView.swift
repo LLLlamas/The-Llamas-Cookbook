@@ -179,37 +179,61 @@ struct ImportFromPhotoView: View {
     /// True when the user cannot start a new import attempt right now.
     private var isInputBlocked: Bool { isDailyLimitHit || isMonthlyExhausted }
 
+    /// "4h 23m", "1d 6h", "18d", "soon" — used in the pill and blocked cards.
+    private static func timeRemaining(until target: Date, from now: Date) -> String {
+        let seconds = target.timeIntervalSince(now)
+        guard seconds > 60 else { return "soon" }
+        let totalMinutes = Int(seconds / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        let days = hours / 24
+        let remainingHours = hours % 24
+        if days >= 2 {
+            return "\(days)d"
+        } else if days == 1 {
+            return remainingHours > 0 ? "1d \(remainingHours)h" : "1d"
+        } else if hours >= 1 {
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
     // MARK: - Quota pill
 
     @ViewBuilder
     private var quotaPill: some View {
         if let s = snapshot {
-            HStack(spacing: AppSpacing.xs) {
-                if s.isPro {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 11, weight: .semibold))
+            TimelineView(.everyMinute) { context in
+                HStack(spacing: AppSpacing.xs) {
+                    if s.isPro {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    Text(pillText(s, now: context.date))
+                        .font(.system(size: 13, weight: .semibold))
                 }
-                Text(pillText(s))
-                    .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(pillForeground(s))
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, AppSpacing.xs + 2)
+                .background(pillBackground(s))
+                .clipShape(Capsule())
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .foregroundStyle(pillForeground(s))
-            .padding(.horizontal, AppSpacing.md)
-            .padding(.vertical, AppSpacing.xs + 2)
-            .background(pillBackground(s))
-            .clipShape(Capsule())
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func pillText(_ s: QuotaSnapshot) -> String {
+    private func pillText(_ s: QuotaSnapshot, now: Date) -> String {
         if s.isDailyLimitHit {
-            return "Try again tomorrow — daily limit reached"
+            let t = Self.timeRemaining(until: s.dailyParseResetAt, from: now)
+            return "Daily limit reached — resets in \(t)"
         }
         if s.isMonthlyExhausted {
+            let t = Self.timeRemaining(until: s.resetAt, from: now)
             if s.isPro {
-                return "Llama Pro — 0 left, resets \(s.resetDateFormatted)"
+                return "Llama Pro — 0 left, resets in \(t)"
             } else {
-                return "0 imports left — resets \(s.resetDateFormatted)"
+                return "0 imports left — resets in \(t)"
             }
         }
         if s.isPro {
@@ -265,25 +289,26 @@ struct ImportFromPhotoView: View {
     private var dailyLimitCard: some View {
         blockedCard(
             title: "Daily limit reached",
-            body: "You've made 5 photo imports today. Try again tomorrow, or paste / type recipes for free in the meantime.",
+            body: "You've made 5 photo parse attempts today. Paste or type recipes for free in the meantime.",
+            resetDate: snapshot?.dailyParseResetAt,
             upgradeButton: nil
         )
     }
 
     private var freeMonthlyLimitCard: some View {
-        let resetText = snapshot.map { "resets \($0.resetDateFormatted)" } ?? "next month"
-        return blockedCard(
+        blockedCard(
             title: "Out of free imports",
-            body: "You've saved 5 photo imports this month — \(resetText).\n\nUpgrade to Llama Pro for 30 photo imports per month, or paste / type recipes for free.\n\nComing soon to Pro: Grocery list with Instacart integration.",
+            body: "You've saved 5 photo imports this month. Upgrade to Llama Pro for 30 photo imports per month, or paste / type recipes for free.\n\nComing soon to Pro: Grocery list with Instacart integration.",
+            resetDate: snapshot?.resetAt,
             upgradeButton: ("Upgrade to Llama Pro", { showingPaywall = true })
         )
     }
 
     private var proMonthlyLimitCard: some View {
-        let resetText = snapshot.map { "resets \($0.resetDateFormatted)" } ?? "next month"
-        return blockedCard(
+        blockedCard(
             title: "You've hit your monthly Pro limit",
-            body: "You've saved 30 photo imports this month — \(resetText).\n\nIn the meantime, paste or type recipes for free, no limit.",
+            body: "You've saved 30 photo imports this month. Paste or type recipes for free, no limit.",
+            resetDate: snapshot?.resetAt,
             upgradeButton: nil
         )
     }
@@ -291,6 +316,7 @@ struct ImportFromPhotoView: View {
     private func blockedCard(
         title: String,
         body: String,
+        resetDate: Date?,
         upgradeButton: (String, () -> Void)?
     ) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
@@ -304,6 +330,17 @@ struct ImportFromPhotoView: View {
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let resetDate {
+                TimelineView(.everyMinute) { context in
+                    HStack(spacing: AppSpacing.xs) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Resets in \(Self.timeRemaining(until: resetDate, from: context.date))")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundStyle(appearance.accentColor)
+                }
+            }
             if let (label, action) = upgradeButton {
                 VStack(spacing: AppSpacing.sm) {
                     Button {

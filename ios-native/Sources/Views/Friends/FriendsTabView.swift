@@ -61,66 +61,74 @@ struct FriendsTabView: View {
     }
 
     var body: some View {
-        grid
-            .llamaBackground(
-                asset: "Friends_Llama_Icon_Large",
-                tint: isBelowSocialThreshold ? appearance.cookbookTitleAccentColor : .clear
-            )
-            .navigationTitle(friendsTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .tint(appearance.cookbookTitleAccentColor)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    CookbookHeader(
-                        title: friendsTitle,
-                        accent: appearance.cookbookTitleAccentColor,
-                        glowActive: appearance.isAccentGlowActive(.header)
-                    )
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Haptics.impact(.light)
-                        showingAddFriend = true
-                    } label: {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(appearance.cookbookTitleAccentColor)
-                            .accentTextOutline()
+        if !userAccount.status.isSignedIn {
+            // Unsigned users land directly in the Your Llama seed cookbook
+            // so they have something to browse on day one without signing in.
+            // The grid (and its Add Friend / social surfaces) is intentionally
+            // hidden until they're authenticated.
+            FriendLibraryView(friend: SeedFriend.profile, showsBackButton: false)
+        } else {
+            grid
+                .llamaBackground(
+                    asset: "Friends_Llama_Icon_Large",
+                    tint: isBelowSocialThreshold ? appearance.cookbookTitleAccentColor : .clear
+                )
+                .navigationTitle(friendsTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .tint(appearance.cookbookTitleAccentColor)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        CookbookHeader(
+                            title: friendsTitle,
+                            accent: appearance.cookbookTitleAccentColor,
+                            glowActive: appearance.isAccentGlowActive(.header)
+                        )
                     }
-                    .accessibilityLabel("Add a friend")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Haptics.selection()
-                        Task { await friendsStore.refresh() }
-                    } label: {
-                        if friendsStore.isRefreshing {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 16, weight: .semibold))
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Haptics.impact(.light)
+                            showingAddFriend = true
+                        } label: {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(appearance.cookbookTitleAccentColor)
                                 .accentTextOutline()
                         }
+                        .accessibilityLabel("Add a friend")
                     }
-                    .accessibilityLabel("Refresh friends")
-                    .disabled(friendsStore.isRefreshing)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Haptics.selection()
+                            Task { await friendsStore.refresh() }
+                        } label: {
+                            if friendsStore.isRefreshing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(appearance.cookbookTitleAccentColor)
+                                    .accentTextOutline()
+                            }
+                        }
+                        .accessibilityLabel("Refresh friends")
+                        .disabled(friendsStore.isRefreshing)
+                    }
                 }
-            }
-            .sheet(isPresented: $showingAddFriend) {
-                AddFriendSheet()
-                    .environment(appearance)
-                    .environment(friendsStore)
-            }
-            .navigationDestination(for: UserProfileSnapshot.self) { friend in
-                FriendLibraryView(friend: friend)
-            }
-            .task {
-                await friendsStore.refresh()
-            }
-            .refreshable {
-                await friendsStore.refresh()
-            }
+                .sheet(isPresented: $showingAddFriend) {
+                    AddFriendSheet()
+                        .environment(appearance)
+                        .environment(friendsStore)
+                }
+                .navigationDestination(for: UserProfileSnapshot.self) { friend in
+                    FriendLibraryView(friend: friend)
+                }
+                .task {
+                    await friendsStore.refresh()
+                }
+                .refreshable {
+                    await friendsStore.refresh()
+                }
+        }
     }
 
     // MARK: - Grid

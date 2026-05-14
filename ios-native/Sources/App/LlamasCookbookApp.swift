@@ -66,6 +66,22 @@ struct LlamasCookbookApp: App {
                 // this, a tester whose phone is in dark mode sees the
                 // Library scroll area fall through to system black.
                 .preferredColorScheme(.light)
+                .onAppear {
+                    // Ensure the accent is terracotta on cold launch when
+                    // the user is not signed in (e.g. fresh install or after
+                    // a prior sign-out). The stored preference is kept intact
+                    // in UserDefaults so `restoreFromDefaults` can recover it.
+                    if !userAccount.status.isSignedIn {
+                        appearance.applySignedOut()
+                    }
+                }
+                .onChange(of: userAccount.status.isSignedIn) { _, isSignedIn in
+                    if isSignedIn {
+                        appearance.restoreFromDefaults()
+                    } else {
+                        appearance.applySignedOut()
+                    }
+                }
         }
         // Explicit ModelConfiguration with `cloudKitDatabase: .none` so
         // adding the iCloud entitlement (for the cloud-permalink share

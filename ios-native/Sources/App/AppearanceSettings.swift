@@ -26,6 +26,10 @@ final class AppearanceSettings {
     /// end of `init`; subsequent user-driven didSets push to the
     /// `UserProfileMirror` (debounced).
     private var isInitializing: Bool = true
+    /// Suppresses persist + mirror push when `applySignedOut` forces
+    /// the visible accent to default without overwriting the user's
+    /// stored preference in UserDefaults.
+    @ObservationIgnored private var isForcingDefault: Bool = false
     private var previousAccentColor: Color?
     private var accentTransitionGeneration: Int = 0
 
@@ -53,6 +57,10 @@ final class AppearanceSettings {
 
     var accentColor: Color = AppColor.accent {
         didSet {
+            // `isForcingDefault` is set by `applySignedOut` — skip all
+            // side-effects so we don't overwrite the user's stored preference
+            // with terracotta just because they're not signed in right now.
+            guard !isForcingDefault else { return }
             persist()
             // Do NOT call applyToUIKit() here. While UIColorPickerViewController
             // is presented, any UIView.appearance() mutation causes UIKit to
@@ -98,6 +106,29 @@ final class AppearanceSettings {
     func resetToDefault() {
         accentColor = AppColor.accent
         UserDefaults.standard.removeObject(forKey: Self.storageKey)
+        applyToUIKit()
+    }
+
+    /// Called on sign-out. Reverts the visible accent to terracotta
+    /// without overwriting the stored preference — signing back in
+    /// restores the user's color via `restoreFromDefaults`.
+    func applySignedOut() {
+        isForcingDefault = true
+        accentColor = AppColor.accent
+        isForcingDefault = false
+        applyToUIKit()
+    }
+
+    /// Called on sign-in. Re-reads the stored preference from UserDefaults
+    /// so a sign-out → sign-in cycle within one session restores the color
+    /// without requiring a relaunch.
+    func restoreFromDefaults() {
+        if let hex = UserDefaults.standard.string(forKey: Self.storageKey),
+           let color = Color(hex: hex) {
+            isInitializing = true
+            accentColor = color
+            isInitializing = false
+        }
         applyToUIKit()
     }
 

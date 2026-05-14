@@ -14,7 +14,10 @@ struct AccentColorPicker: View {
     // @Environment here so that iOS 26's @Observable environment
     // re-injection actually takes effect for the preview section.
     @Environment(AppearanceSettings.self) private var settings
-    @Environment(\.dismiss) private var dismiss
+    @Environment(UserAccount.self)        private var userAccount
+    @Environment(\.dismiss)              private var dismiss
+
+    private var isSignedIn: Bool { userAccount.status.isSignedIn }
 
     // Local state drives the ColorPicker binding AND every live-preview
     // read in this sheet. We deliberately do NOT write to settings.accentColor
@@ -31,31 +34,35 @@ struct AccentColorPicker: View {
             VStack(spacing: AppSpacing.md) {
                 preview
 
-                VStack(spacing: AppSpacing.sm) {
-                    ColorPicker(
-                        "Accent color",
-                        selection: $pickerColor,
-                        supportsOpacity: false
-                    )
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(AppColor.textPrimary)
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.sm + 2)
-                    .background(AppColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.md)
-                            .stroke(AppColor.divider, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                if isSignedIn {
+                    VStack(spacing: AppSpacing.sm) {
+                        ColorPicker(
+                            "Accent color",
+                            selection: $pickerColor,
+                            supportsOpacity: false
+                        )
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(AppColor.textPrimary)
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.vertical, AppSpacing.sm + 2)
+                        .background(AppColor.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: AppRadius.md)
+                                .stroke(AppColor.divider, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
 
-                    Text("Tap the swatch to open the hex grid, sliders, or the eyedropper.")
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textTertiary)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Tap the swatch to open the hex grid, sliders, or the eyedropper.")
+                            .font(AppFont.caption)
+                            .foregroundStyle(AppColor.textTertiary)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    resetButton
+                } else {
+                    signInLockedCard
                 }
-
-                resetButton
             }
             .padding(.horizontal, AppSpacing.lg)
             .padding(.top, 0)
@@ -82,6 +89,8 @@ struct AccentColorPicker: View {
     }
 
     private func commitSelection() {
+        // Unsigned users have no color picker, so there's nothing to commit.
+        guard isSignedIn else { return }
         let selectedHex = pickerColor.toHex
         let currentHex = settings.accentColor.toHex
         if selectedHex != nil, selectedHex == currentHex {
@@ -96,6 +105,31 @@ struct AccentColorPicker: View {
         // UIColorPickerViewController.selectedColor back onto the
         // binding (see AppearanceSettings docs).
         settings.syncToUIKit()
+    }
+
+    private var signInLockedCard: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+                Text("Sign in to customize")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppColor.textPrimary)
+            }
+            Text("Accent color customization is available once you sign in with Apple. Head to the Profile tab to sign in — it's free and keeps your recipes and friends in sync.")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(AppSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .stroke(AppColor.divider, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     private var preview: some View {
