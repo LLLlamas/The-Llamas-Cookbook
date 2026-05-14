@@ -1,56 +1,58 @@
 import SwiftUI
-
-// MARK: - PaywallView (Phase 1 stub)
-//
-// Phase 1: "Coming soon" placeholder. The upgrade button in the
-// exhausted-state card opens this sheet so the code path compiles
-// and the UI is wired, but no actual purchase occurs.
-//
-// Phase 2 will replace this with:
-//  - Hero llama + value prop bullets (30 imports/month, Instacart teaser).
-//  - "Subscribe — $2.99/month" button calling `LlamaProStore.purchase`.
-//  - Restore Purchases link.
-//  - Terms/privacy links.
+import StoreKit
 
 struct PaywallView: View {
-    @Environment(\.dismiss)          private var dismiss
+    @Environment(\.dismiss)              private var dismiss
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(LlamaProStore.self)      private var proStore
+    @Environment(QuotaService.self)       private var quotaService
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: AppSpacing.lg) {
-                Spacer()
-                LlamaLogo(size: 96, shadowColor: appearance.accentColor)
-                    .llamaFloat()
-                Text("Llama Pro")
-                    .font(.system(size: 28, weight: .bold, design: .serif))
-                    .foregroundStyle(appearance.accentColor)
-                    .accentTextOutline()
-                Text("30 photo imports per month.\nComing soon: Grocery list with Instacart integration.")
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, AppSpacing.xl)
+            ScrollView {
+                VStack(spacing: AppSpacing.xl) {
+                    Spacer().frame(height: AppSpacing.lg)
 
-                Text("$2.99 / month")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(AppColor.textPrimary)
+                    LlamaLogo(size: 96, shadowColor: appearance.accentColor)
+                        .llamaFloat()
 
-                // Phase 1: button disabled; purchase not yet wired.
-                Button { } label: {
-                    Text("Coming soon")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(AppColor.onAccent.opacity(0.5))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppSpacing.md)
-                        .background(appearance.accentColor.opacity(0.4))
-                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+                    VStack(spacing: AppSpacing.xs) {
+                        Text("Llama Pro")
+                            .font(.system(size: 28, weight: .bold, design: .serif))
+                            .foregroundStyle(appearance.accentColor)
+                            .accentTextOutline()
+
+                        priceLabel
+                    }
+
+                    featureList
+
+                    subscribeButton
+
+                    if let error = proStore.purchaseError {
+                        Text(error)
+                            .font(AppFont.caption)
+                            .foregroundStyle(AppColor.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, AppSpacing.xl)
+                    }
+
+                    Button {
+                        Task { await proStore.restore() }
+                    } label: {
+                        Text("Restore Purchases")
+                            .font(AppFont.caption)
+                            .foregroundStyle(appearance.accentColor)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(proStore.isPurchasing)
+
+                    legalText
+
+                    Spacer().frame(height: AppSpacing.xl)
                 }
-                .buttonStyle(.plain)
-                .disabled(true)
                 .padding(.horizontal, AppSpacing.lg)
-
-                Spacer()
             }
             .llamaBackground()
             .navigationBarTitleDisplayMode(.inline)
@@ -64,6 +66,96 @@ struct PaywallView: View {
                     }
                 }
             }
+            .onChange(of: proStore.isPro) { _, isPro in
+                if isPro {
+                    // Refresh quota so the pill reflects Pro limits immediately
+                    // when the user returns to the import sheet.
+                    Task { await quotaService.refresh(force: true) }
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var priceLabel: some View {
+        Group {
+            if let product = proStore.product {
+                Text(product.displayPrice + " / month")
+            } else {
+                Text("$2.99 / month")
+            }
+        }
+        .font(.system(size: 20, weight: .semibold))
+        .foregroundStyle(AppColor.textPrimary)
+    }
+
+    private var featureList: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.md) {
+            PaywallFeatureRow(icon: "photo.stack",
+                             text: "30 photo imports per month")
+            PaywallFeatureRow(icon: "cart",
+                             text: "Grocery list with Instacart integration (coming soon)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, AppSpacing.sm)
+    }
+
+    private var subscribeButton: some View {
+        Button {
+            Task { await proStore.purchase() }
+        } label: {
+            ZStack {
+                if proStore.isPurchasing {
+                    ProgressView()
+                        .tint(AppColor.onAccent)
+                } else {
+                    Text(proStore.product != nil ? "Subscribe" : "Coming Soon")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(
+                            proStore.product != nil
+                                ? AppColor.onAccent
+                                : AppColor.onAccent.opacity(0.5)
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, AppSpacing.md)
+            .background(
+                appearance.accentColor.opacity(proStore.product != nil ? 1 : 0.4)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        }
+        .buttonStyle(.plain)
+        .disabled(proStore.isPurchasing || proStore.product == nil)
+    }
+
+    private var legalText: some View {
+        Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage anytime in Settings → Apple Account → Subscriptions.")
+            .font(.system(size: 11))
+            .foregroundStyle(AppColor.textSecondary.opacity(0.7))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, AppSpacing.sm)
+    }
+}
+
+// MARK: - Feature Row
+
+private struct PaywallFeatureRow: View {
+    let icon: String
+    let text: String
+
+    @Environment(AppearanceSettings.self) private var appearance
+
+    var body: some View {
+        HStack(spacing: AppSpacing.md) {
+            Image(systemName: icon)
+                .foregroundStyle(appearance.accentColor)
+                .frame(width: 22, alignment: .center)
+            Text(text)
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textPrimary)
         }
     }
 }

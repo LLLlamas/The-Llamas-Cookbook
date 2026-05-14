@@ -59,6 +59,7 @@ struct LlamasCookbookApp: App {
                 .environment(friendsStore)
                 .environment(quotaService)
                 .environment(llamaProStore)
+                .task { await llamaProStore.start() }
                 // The cream + terracotta palette has no dark-mode variant
                 // (AppColor values are hard sRGB, not asset-catalog system
                 // colors). Locking to light keeps SwiftUI's default fills
@@ -78,8 +79,10 @@ struct LlamasCookbookApp: App {
                 .onChange(of: userAccount.status.isSignedIn) { _, isSignedIn in
                     if isSignedIn {
                         appearance.restoreFromDefaults()
+                        Task { await llamaProStore.checkCurrentEntitlements() }
                     } else {
                         appearance.applySignedOut()
+                        llamaProStore.signOut()
                     }
                 }
         }
