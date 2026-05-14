@@ -109,11 +109,16 @@ enum RecipeSchemaParser {
         // extracted string runs through `parseStepLines` so a publisher
         // who jams several steps into one `HowToStep.text` paragraph
         // still ends up with separate steps in the editor.
+        // After splitting, a merge pass collapses standalone duration
+        // fragments (e.g. "5 to 7 minutes.") that recipe sites like
+        // Allrecipes publish as their own HowToStep entries back into
+        // the preceding action step they belong to.
         if let instr = recipe["recipeInstructions"] {
-            draft.steps = extractInstructions(instr)
+            let raw = extractInstructions(instr)
                 .map { cleanSchemaText($0) }
                 .filter { !$0.isEmpty }
                 .flatMap { RecipeImporter.parseStepLines($0) }
+            draft.steps = mergeDurationFragments(raw)
         }
 
         if let servings = extractServings(recipe["recipeYield"]) {
@@ -359,6 +364,52 @@ enum RecipeSchemaParser {
         // Numeric entities: &#8217; or &#x2019;
         result = decodeNumericEntities(result)
         return result
+    }
+
+    // MARK: - Step post-processing
+
+    /// Merge steps that are standalone duration fragments ("5 to 7 minutes.",
+    /// "About 30 seconds.") into the preceding step. Recipe sites like
+    /// Allrecipes publish these as separate HowToStep entries even though
+    /// they are continuations of the action described in the step before.
+    private static func mergeDurationFragments(_ steps: [DraftStep]) -> [DraftStep] {
+        var result: [DraftStep] = []
+        for step in steps {
+            if !result.isEmpty && isDurationFragment(step.text) {
+                let prev = result.removeLast()
+                var base = prev.text
+                // Normalise trailing punctuation so the duration appends cleanly:
+                // "...no longer pink,"  → keep comma, add space
+                // "...no longer pink."  → swap period for comma
+                // "...no longer pink"   → add comma
+                if base.hasSuffix(".") {
+                    base = String(base.dropLast()) + ","
+                } else if !base.hasSuffix(",") {
+                    base += ","
+                }
+                let joined = base + " " + step.text
+                result.append(DraftStep(
+                    text: joined,
+                    needsTimer: prev.needsTimer || step.needsTimer,
+                    specialNote: prev.specialNote ?? step.specialNote
+                ))
+            } else {
+                result.append(step)
+            }
+        }
+        return result
+    }
+
+    /// True when the step text is nothing more than a time-range expression —
+    /// e.g. "5 to 7 minutes.", "About 30 seconds.", "1 to 2 minutes."
+    private static func isDurationFragment(_ text: String) -> Bool {
+        let core = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .init(charactersIn: "."))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = #/^(?:about|approximately|around|up\s+to)?\s*\d+(?:\s*(?:to|or|\-)\s*\d+)?\s+(?:minutes?|seconds?|hours?)$/#
+            .ignoresCase()
+        return (try? pattern.wholeMatch(in: core)) != nil
     }
 
     private static func decodeNumericEntities(_ s: String) -> String {

@@ -30,7 +30,6 @@
 
 const ANTHROPIC_URL  = 'https://api.anthropic.com/v1/messages';
 const PROMPT_VERSION = 'v2'; // Bump when RecipeAIParser.instructions changes
-const DAILY_LIMIT    = 5;
 const FREE_CAP       = 5;
 const PRO_CAP        = 30;
 
@@ -150,22 +149,9 @@ export async function onRequestPost(context) {
     }
   }
 
-  // ── 2. Cache miss: increment daily counter, then check limits ─────────────
-
-  const localDate  = getLocalDate(tz);
-  const parseKey   = `parseAttempts:${userId}:${localDate}`;
-  const parsesUsed = parseInt((await quota.get(parseKey)) ?? '0', 10);
-
-  // Increment BEFORE checking so rejected attempts still burn the counter.
-  await quota.put(parseKey, String(parsesUsed + 1), { expirationTtl: 36 * 60 * 60 });
-
-  if (parsesUsed >= DAILY_LIMIT) {
-    const resetAt = nextLocalMidnightUTC(tz);
-    return Response.json(
-      { error: 'daily_parse_limit', limit: DAILY_LIMIT, resetAt: resetAt.toISOString() },
-      { status: 429 },
-    );
-  }
+  // ── 2. Cache miss: monthly quota pre-check ────────────────────────────────
+  // TEMP: daily parse limit disabled for testing. Re-enable by restoring the
+  // parseAttempts counter block before App Store submission.
 
   // Monthly quota pre-check (fails fast before burning Anthropic tokens).
   const quotaCheck = await checkMonthlyQuota(quota, userId, tz);
