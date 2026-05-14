@@ -3,6 +3,11 @@
 // Phase 1: Added per-user quota enforcement and KV parse-result caching
 // for photo imports. Text/link/paste imports are unchanged (no quota).
 //
+// Phase 2: Added model to photo cache key (prep for Haiku routing),
+// upstream timing, and structured usage logging via console.log so
+// Cloudflare Workers Logs captures cost/cache/latency per request.
+// Logs never contain recipe text, image bytes, or raw user IDs.
+//
 // Photo import flow:
 //   1. Compute SHA-256 content hash of image data for cache key.
 //   2. Cache hit  → run monthly quota pre-check; return cached response
@@ -78,11 +83,17 @@ export async function onRequestPost(context) {
     return Response.json({ error: 'invalid_request' }, { status: 400 });
   }
 
+  const model = requestBody?.model ?? 'unknown';
+
   // ── 1. Cache lookup ────────────────────────────────────────────────────────
+  // Model is included in the key so Haiku and Sonnet responses are stored
+  // separately — prevents a cheap-model result being served for a Sonnet call.
 
   const imageHashes  = await extractImageHashes(requestBody);
   const contentHash  = imageHashes.length ? await computeContentHash(imageHashes) : null;
-  const cacheKey     = contentHash ? `parseCache:${PROMPT_VERSION}:${contentHash}` : null;
+  const cacheKey     = contentHash
+    ? `parseCache:${PROMPT_VERSION}:model=${model}:${contentHash}`
+    : null;
 
   if (cacheKey) {
     const cached = await quota.get(cacheKey);
@@ -92,6 +103,14 @@ export async function onRequestPost(context) {
       if (quotaCheck.exhausted) {
         return Response.json(quotaCheck.errorBody, { status: 402 });
       }
+      const userHash = await truncatedHash(userId);
+      console.log(JSON.stringify({
+        import_kind: 'photo',
+        model,
+        page_count: countImageBlocks(requestBody),
+        worker_cache: 'hit',
+        user_hash: userHash,
+      }));
       return new Response(cached, {
         status: 200,
         headers: { 'content-type': 'application/json', 'x-llamas-cache': 'hit' },
@@ -124,13 +143,28 @@ export async function onRequestPost(context) {
 
   // ── 3. Forward to Anthropic ────────────────────────────────────────────────
 
+  const upstreamStart = Date.now();
   const upstream = await fetch(ANTHROPIC_URL, {
     method: 'POST',
     headers: buildAnthropicHeaders(request, apiKey),
     body: rawBody,
   });
+  const upstreamDurationMs = Date.now() - upstreamStart;
+
+  const userHash = await truncatedHash(userId);
+  const pageCount = countImageBlocks(requestBody);
 
   if (upstream.status !== 200 || !cacheKey) {
+    console.log(JSON.stringify({
+      import_kind: 'photo',
+      model,
+      page_count: pageCount,
+      worker_cache: 'miss',
+      upstream_status: upstream.status,
+      upstream_duration_ms: upstreamDurationMs,
+      has_valid_recipe: false,
+      user_hash: userHash,
+    }));
     return new Response(upstream.body, {
       status: upstream.status,
       headers: { 'content-type': 'application/json', 'x-llamas-cache': 'miss' },
@@ -143,10 +177,31 @@ export async function onRequestPost(context) {
   let responseBody;
   try { responseBody = JSON.parse(responseText); } catch { responseBody = null; }
 
+  const hasRecipe = responseBody ? hasValidToolUse(responseBody) : false;
+
   // Only cache responses that contain a valid structured_recipe tool_use block.
-  if (responseBody && hasValidToolUse(responseBody)) {
+  if (hasRecipe) {
     await quota.put(cacheKey, responseText, { expirationTtl: 7 * 24 * 60 * 60 });
   }
+
+  // Structured usage log — never contains recipe text, image bytes, or
+  // raw user IDs. Used to measure prompt cache hit rate and cost per import.
+  const usage = responseBody?.usage ?? {};
+  console.log(JSON.stringify({
+    import_kind: 'photo',
+    model,
+    page_count: pageCount,
+    worker_cache: 'miss',
+    upstream_status: 200,
+    upstream_duration_ms: upstreamDurationMs,
+    input_tokens: usage.input_tokens ?? 0,
+    cache_creation_tokens: usage.cache_creation_input_tokens ?? 0,
+    cache_read_tokens: usage.cache_read_input_tokens ?? 0,
+    output_tokens: usage.output_tokens ?? 0,
+    has_valid_recipe: hasRecipe,
+    estimated_cost_usd: estimateCost(model, usage),
+    user_hash: userHash,
+  }));
 
   return new Response(responseText, {
     status: 200,
@@ -218,6 +273,38 @@ async function computeContentHash(imageHashes) {
   const joined  = imageHashes.join(':');
   const encoded = new TextEncoder().encode(joined);
   return sha256Hex(encoded);
+}
+
+// ── Logging helpers ───────────────────────────────────────────────────────────
+
+/// First 16 hex chars of the SHA-256 of the userId — enough to correlate
+/// events for a single user without storing the raw SIWA sub in logs.
+async function truncatedHash(value) {
+  return (await sha256Hex(new TextEncoder().encode(value))).slice(0, 16);
+}
+
+/// Count image blocks in the user message (= number of photo pages).
+function countImageBlocks(requestBody) {
+  try {
+    const content = requestBody?.messages?.[0]?.content;
+    if (!Array.isArray(content)) return 0;
+    return content.filter(b => b?.type === 'image').length;
+  } catch { return 0; }
+}
+
+/// Estimate USD cost from Anthropic usage fields and model ID.
+/// Uses official Anthropic pricing as of 2026-05-14.
+function estimateCost(model, usage) {
+  const isHaiku = model.includes('haiku');
+  const rates = isHaiku
+    ? { input: 1 / 1e6, cacheWrite: 1.25 / 1e6, cacheRead: 0.1 / 1e6, output: 5 / 1e6 }
+    : { input: 3 / 1e6, cacheWrite: 3.75 / 1e6, cacheRead: 0.3 / 1e6, output: 15 / 1e6 };
+  return (
+    (usage.input_tokens ?? 0) * rates.input +
+    (usage.cache_creation_input_tokens ?? 0) * rates.cacheWrite +
+    (usage.cache_read_input_tokens ?? 0) * rates.cacheRead +
+    (usage.output_tokens ?? 0) * rates.output
+  );
 }
 
 // ── Cache validation ──────────────────────────────────────────────────────────

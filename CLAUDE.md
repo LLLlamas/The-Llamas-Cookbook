@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-13 (session 6 — quota enforcement + Llama Pro Phase 1).
+Last refreshed: 2026-05-14 (session 8 — photo import cost: title UX, OCR preflight gate, image sizing, Worker logging).
 
 ---
 
@@ -48,7 +48,7 @@ Last refreshed: 2026-05-13 (session 6 — quota enforcement + Llama Pro Phase 1)
 - `EditorCoordinator.swift`, `NavigationContext.swift`, `CookingSession.swift`, `CookingSessionState.swift`
 - `FriendsStore.swift` — `@MainActor` cache of friends + requests
 - `UserAccount.swift` — SIWA identity, sign-out, delete-account cascade
-- `OwnerProfile.swift` — pre-SIWA display-name fallback; `AppearanceSettings.swift` — accent color
+- `OwnerProfile.swift` — pre-SIWA display-name fallback; `AppearanceSettings.swift` — accent color; `applySignedOut()` resets accent to terracotta without erasing UserDefaults preference; `restoreFromDefaults()` re-reads it on sign-in. Wired from `LlamasCookbookApp` via `.onAppear` + `.onChange(of: userAccount.status.isSignedIn)`.
 
 **Data models** (`Sources/Models/`)
 - `Recipe.swift` — `Recipe`, `Ingredient`, `RecipeStep`, `RecipePhoto`, `RecipeStepPhoto`; chain-attribution fields
@@ -83,7 +83,9 @@ Last refreshed: 2026-05-13 (session 6 — quota enforcement + Llama Pro Phase 1)
 - `Shared/TimerAlarmMetadata.swift`; Widget: `TimerLiveActivity.swift`, `TimerWidgetBundle.swift`
 
 **Friends / social** (`Sources/Views/Friends/`, `Sources/Lib/`)
-- `FriendsTabView.swift`, `FriendLibraryView.swift`, `FriendRecipeDetailView.swift`
+- `FriendsTabView.swift` — unsigned users see `FriendLibraryView(friend: SeedFriend.profile, showsBackButton: false)` directly instead of the grid; signed-in path unchanged.
+- `FriendLibraryView.swift` — `var showsBackButton: Bool = true`; when `false`, hides the custom back button. When `!showsBackButton && !userAccount.status.isSignedIn`, shows a `signInBanner` card above the category strip.
+- `FriendRecipeDetailView.swift`
 - Lib: `CloudKitFriendship.swift`, `CloudKitUserProfile.swift`, `CloudKitPublishedRecipe.swift`, `CloudKitRecipeImport.swift`, `CloudKitSubscriptions.swift`, `CloudPendingDeleteQueue.swift`, `UserProfileMirror.swift`, `LibraryMirrorService.swift`, `SeedFriend.swift` ("Your Llama" synthetic seed friend + bundled-JSON recipe catalog)
 - Resources: `SeedRecipes.json` — 10 starter recipes the seed friend "owns"; decoded once into `LCRecipeShareV1` envelopes
 
@@ -101,7 +103,7 @@ Last refreshed: 2026-05-13 (session 6 — quota enforcement + Llama Pro Phase 1)
 
 **Web preview + Worker API** (`cloudflare-pages/`)
 - `functions/r/[id].js` — OG-tagged HTML preview; `functions/img/[id].js` — image proxy
-- `functions/api/parse.js` — Anthropic proxy; Phase 1 adds quota enforcement + KV parse-result cache for photo calls
+- `functions/api/parse.js` — Anthropic proxy; Phase 1: quota enforcement + KV parse-result cache for photo calls; Phase 2: model in cache key, upstream timing, structured usage logging (tokens, cost, cache hit rate) via `console.log` — no recipe text or raw user IDs in logs
 - `functions/api/usage.js` — read-only quota snapshot endpoint (GET)
 - `functions/api/usage/consume.js` — save-confirm endpoint (POST); increments monthly save counter
 - `lib/cloudkit.js` — CloudKit Web Services client (ECDSA P-256)
@@ -109,7 +111,7 @@ Last refreshed: 2026-05-13 (session 6 — quota enforcement + Llama Pro Phase 1)
 
 **Components / misc** (`Sources/Views/Components/`)
 - `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/` (includes `LlamaFloatModifier.swift` — `.llamaFloat()` reusable 4pt bob, 1.4s easeInOut, Reduce-Motion-aware; **250ms delayed start** so the bob doesn't compete with sheet/navigation transition frames; applied to `AccentColorPicker` llama preview and Friends empty-state llama)
-- `AccentColorPicker.swift`, `SavedToast.swift`, `RecipeImageView.swift` (async decode — see Performance invariants)
+- `AccentColorPicker.swift` — shows `signInLockedCard` ("Sign in to customize") in place of the picker when unsigned; `commitSelection()` is a no-op when unsigned. Both call sites inject `.environment(userAccount)`. `SavedToast.swift`, `RecipeImageView.swift` (async decode — see Performance invariants)
 - Lib: `ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `SwipeBack.swift`, `AppMetadata.swift`
 
 ---
@@ -134,14 +136,16 @@ Last refreshed: 2026-05-13 (session 6 — quota enforcement + Llama Pro Phase 1)
 - **HEIC → JPEG before CloudKit upload** (`ImageProcessing.transcodeHEICToJPEGForSharing`). Local SwiftData stays HEIC.
 - **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` — 25 MB cap; referenced by both main app and share extension.
 - **`AccentColorPicker` commits on `.onDisappear`** — driving it earlier desyncs `UIColorPickerViewController`.
+- **Unsigned user accent is always terracotta** — `AppearanceSettings.applySignedOut()` uses `isForcingDefault` to skip `persist()` + mirror push, preserving the stored preference. Never call `resetToDefault()` on sign-out (that erases UserDefaults). `LlamasCookbookApp` drives this via `.onAppear` + `.onChange(of: userAccount.status.isSignedIn)`.
+- **`ImportFromPhotoView` quota countdowns use `TimelineView(.everyMinute)`** — both the pill text and the blocked-card "Resets in X" row update live. `timeRemaining(until:from:)` is a static helper on the view.
 - **Custom back buttons** (`RecipeDetailView`, `FriendLibraryView`, `FriendRecipeDetailView`) use `.navigationBarBackButtonHidden(true)` + `.enableSwipeBack()`. `RecipeEditorView` intentionally omits `.enableSwipeBack()` — Cancel/Save pattern, data-loss risk.
 - **CI Xcode toolchain**: `macos-26` ships beta `.app`s; CI renames them `_disabled_…` and re-pins both `DEVELOPER_DIR` and `PATH`. Setting only `DEVELOPER_DIR` leaves sub-tools on the beta; TestFlight rejects beta-built archives.
 - **AI import parser chain**: `RecipeAIParser.parseBestOf` → `AnthropicRecipeParser` (Cloudflare Worker proxy at `llamascookbook.pages.dev/api/parse`) → Apple Intelligence fallback → regex baseline. `AnthropicRecipeParser.isConfigured = true` unconditionally — no key in binary or Keychain. API key lives in Cloudflare env only. **Photo import passes `preferHighQuality: true` → Sonnet 4.6. Link import uses default → Haiku 4.5.** Both use `temperature: 0`, `max_tokens: 4096`. Shared system prompt: `RecipeAIParser.instructions`.
 - **Photo-import quota** — enforced server-side in the Cloudflare Worker (`/api/parse`, `/api/usage`, `/api/usage/consume`). Free cap: 5 saves/month. Pro cap: 30 saves/month. Daily parse rate limit: 5 attempts/user/day. KV namespace `LLAMAS_QUOTA` must be bound in the Cloudflare Pages dashboard. The iOS client sends `x-llamas-user` (SIWA sub from Keychain), `x-llamas-tz` (IANA timezone), and `x-llamas-import-kind: photo` on every vision call and consume call. Text/link/paste imports do NOT send these headers and are NOT gated. **Consume is fire-and-forget** — save to SwiftData first, then POST `/api/usage/consume`; a 402 race response shows a soft "this one's on us" banner but does NOT undelete the recipe.
 - **`VisionParseOutcome`** is the return type of `AnthropicRecipeParser.parseImages` and `RecipeAIParser.parseImages`. It carries `draft: DraftRecipe?`, `cacheHit: Bool`, and `error: VisionParseError?`. Non-nil `.error` means the Worker rejected the call (auth/quota/daily-limit) and the caller must NOT fall through to the OCR path — it should refresh `QuotaService` and let the exhausted-state UI take over.
 - **`QuotaService`** is `@MainActor @Observable`, injected via environment from `LlamasCookbookApp`. `refresh(force: false)` respects a 60-second cache; `refresh(force: true)` always fetches. `consume()` returns `ConsumeResult` — `.race` triggers the "this one's on us" banner in `PhotoImportPreviewView`.
-- **Parse-result cache**: Worker caches vision responses in KV keyed by `parseCache:<promptVersion>:<contentHash>`. `PROMPT_VERSION = "v1"` — bump in `parse.js` whenever `RecipeAIParser.instructions` changes. Cache hits skip the daily parse counter but still pre-check monthly quota.
-- **Photo-import flow is vision-first**: `ImportFromPhotoView.runOCR` prepares each captured page in two formats in parallel (`.aiVision` 1568px JPEG, `.ocr` 2560px JPEG/HEIC), then tries `RecipeAIParser.parseImages` (Sonnet vision via the same Cloudflare proxy) before falling back to the OCR + text path (`RecipeOCRImporter.recognize` → `parseBestOf`). Vision sees layout (two-column cookbook pages, sidebars), reads handwriting and stylized fonts, and is immune to OCR character confusions — it now wins on every photo path that can reach the network. Banner-mode "Edit as text" handoff remains the final fallback when both vision and OCR-text fail the title+ingredients+steps quality gate. **Anthropic vision rejects HEIC** — `ImageProcessing.Target.aiVision` forces JPEG output via `forcesJPEGOutput`. Vision request timeout is 60s (vs 30s for text); same 429/529 backoff schedule as the text path. Vision call uses the same cached system prompt as the text path so cache entries are shared across import shapes.
+- **Parse-result cache**: Worker caches vision responses in KV keyed by `parseCache:<promptVersion>:model=<model>:<contentHash>` — model is included so Haiku and Sonnet results are stored separately (prep for routed cascade). `PROMPT_VERSION = "v1"` — bump in `parse.js` whenever `RecipeAIParser.instructions` changes. Cache hits skip the daily parse counter but still pre-check monthly quota.
+- **Photo-import flow** — `ImportFromPhotoView.runImport` prepares pages in two formats in parallel (`.aiVision` pixel-capped JPEG ≤1568px long edge AND ≤1.2MP; `.ocr` 2560px). Three-stage cascade: (1) on-device OCR + `RecipeImporter.parse` → `localPhotoParseConfident` gate (≥3 ingredients with qty/unit, ≥2 steps ≤220 chars, explicit section label in text) — free if confident; (2) Sonnet vision via Cloudflare proxy (`RecipeAIParser.parseImages`) — basic title+ingredients+steps gate; (3) OCR text reused for `parseBestOf(preferHighQuality:true)` fallback. User-entered "What are we cookin'?" title can rescue weak-title parses at any stage. Processing overlay stays visible while running; auto-advances to preview if keyboard is down, shows "Ready! / Review Recipe" card if user is typing. Banner "Edit as text" is the final fallback. **Anthropic vision rejects HEIC** — `aiVision` forces JPEG via `forcesJPEGOutput`. Vision timeout 60s; same 429/529 backoff as text. OCR text is computed once and reused by the AI fallback — never recognized twice.
 
 ---
 

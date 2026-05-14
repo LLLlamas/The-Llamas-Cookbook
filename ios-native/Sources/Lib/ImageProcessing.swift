@@ -108,10 +108,30 @@ enum ImageProcessing {
 
         let outputType = target.forcesJPEGOutput ? UTType.jpeg : pickOutputType(for: imageSource)
 
+        // For .aiVision, satisfy both the 1568px long-edge cap AND a ~1.2 MP
+        // pixel cap so Anthropic doesn't server-resize common portrait shots.
+        // Server-side downscaling increases time-to-first-token without
+        // giving the model more signal. Other targets keep the simple cap.
+        let maxPixelSize: Int
+        if case .aiVision = target,
+           let props = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+           let w = props[kCGImagePropertyPixelWidth] as? Int,
+           let h = props[kCGImagePropertyPixelHeight] as? Int,
+           w > 0, h > 0 {
+            let scale = min(
+                1.0,
+                1568.0 / Double(max(w, h)),
+                sqrt(1_200_000.0 / Double(w * h))
+            )
+            maxPixelSize = max(1, Int((Double(max(w, h)) * scale).rounded(.down)))
+        } else {
+            maxPixelSize = target.maxLongEdgePixels
+        }
+
         let thumbOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: target.maxLongEdgePixels,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCache: false,
         ]
         guard let thumb = CGImageSourceCreateThumbnailAtIndex(

@@ -14,6 +14,18 @@ import UIKit
 ///   into the appropriate exhausted-state UI without showing a banner.
 /// - Per-session attempt counter passed to `PhotoImportPreviewView` so
 ///   the cache-hit hint appears on the 2nd+ attempt in a session.
+///
+/// Phase 2 additions:
+/// - Processing overlay shows an optional "What are we cookin'?" title
+///   field while the import runs, masking perceived latency.
+/// - Smart auto-advance: if the keyboard is down when processing finishes,
+///   the preview sheet opens automatically; if the user is still typing,
+///   a "Ready! / Review Recipe" state appears instead so their input is
+///   never interrupted.
+/// - Local OCR preflight: Vision OCR runs first; a strict confidence gate
+///   skips the paid Sonnet call entirely for clean printed pages.
+/// - User-entered title can rescue local parses that have strong
+///   ingredients/steps but a missing or weak extracted title.
 struct ImportFromPhotoView: View {
     var onSaved: (Recipe) -> Void = { _ in }
 
@@ -34,6 +46,17 @@ struct ImportFromPhotoView: View {
     /// Counts how many parse attempts the user has made in this sheet session.
     /// Resets when the sheet is dismissed and re-presented.
     @State private var sessionAttemptCount = 0
+
+    // MARK: Phase 2 state
+
+    /// Optional title the user types while the import processes.
+    @State private var titleInput: String = ""
+    /// Tracks whether the title field keyboard is up.
+    @FocusState private var titleFieldFocused: Bool
+    /// Non-nil when processing finished while the keyboard was up.
+    /// The overlay shows a "Ready! / Review Recipe" card until the user
+    /// taps through — auto-advance is suppressed so typing isn't interrupted.
+    @State private var readyPayload: PreviewPayload? = nil
 
     // MARK: - Body
 
@@ -74,7 +97,7 @@ struct ImportFromPhotoView: View {
         .llamaBackground()
         .navigationTitle("Import From Photo")
         .navigationBarTitleDisplayMode(.inline)
-        .interactiveDismissDisabled(ocrInProgress)
+        .interactiveDismissDisabled(ocrInProgress || readyPayload != nil)
         .tint(appearance.accentColor)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -83,7 +106,7 @@ struct ImportFromPhotoView: View {
                         .foregroundStyle(appearance.accentColor)
                         .accentTextOutline()
                 }
-                .disabled(ocrInProgress)
+                .disabled(ocrInProgress || readyPayload != nil)
             }
         }
         .fullScreenCover(isPresented: $showingScanner) {
@@ -138,26 +161,20 @@ struct ImportFromPhotoView: View {
                 .environment(appearance)
         }
         .overlay {
-            if ocrInProgress {
+            if ocrInProgress || readyPayload != nil {
                 ZStack {
                     Color.black.opacity(0.35).ignoresSafeArea()
-                    VStack(spacing: AppSpacing.md) {
-                        LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
-                        Text(ocrPageStatus ?? "Reading your recipe…")
-                            .font(AppFont.body)
-                            .foregroundStyle(AppColor.textPrimary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 240)
+                    if let payload = readyPayload {
+                        readyCard(payload: payload)
+                    } else {
+                        processingCard
                     }
-                    .padding(AppSpacing.xl)
-                    .background(AppColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-                    .shadow(color: AppColor.shadow, radius: 18, y: 6)
                 }
                 .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2),  value: ocrInProgress)
+        .animation(.easeInOut(duration: 0.2),  value: readyPayload != nil)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: errorBanner)
         .animation(.easeInOut(duration: 0.25), value: capturedPages.isEmpty)
         .onAppear {
@@ -166,7 +183,99 @@ struct ImportFromPhotoView: View {
         .onDisappear {
             editor.hasUnsavedChanges = false
             sessionAttemptCount = 0
+            titleInput = ""
+            readyPayload = nil
         }
+    }
+
+    // MARK: - Processing overlay
+
+    private var processingCard: some View {
+        VStack(spacing: AppSpacing.md) {
+            LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
+            Text(ocrPageStatus ?? "Reading your recipe…")
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textPrimary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 240)
+
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                Text("What are we cookin'?")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppColor.textSecondary)
+                TextField("Recipe title", text: $titleInput)
+                    .font(.system(size: 16))
+                    .focused($titleFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit { titleFieldFocused = false }
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.sm + 2)
+                    .background(AppColor.surfaceSunken)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+            }
+            .frame(width: 240)
+        }
+        .padding(AppSpacing.xl)
+        .background(AppColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        .shadow(color: AppColor.shadow, radius: 18, y: 6)
+    }
+
+    private func readyCard(payload: PreviewPayload) -> some View {
+        VStack(spacing: AppSpacing.md) {
+            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
+                .opacity(0.9)
+            Text("Ready!")
+                .font(.system(size: 22, weight: .bold, design: .serif))
+                .foregroundStyle(AppColor.textPrimary)
+
+            // Show whatever title we have: draft title or user-entered.
+            let displayTitle: String = {
+                let dt = payload.draft.title.trimmed
+                return dt.isEmpty ? titleInput.trimmed : dt
+            }()
+            if !displayTitle.isEmpty {
+                Text(displayTitle)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 240)
+            }
+
+            Button {
+                Haptics.impact(.medium)
+                // Re-apply user title at tap time in case they kept typing
+                // after the draft was computed.
+                var finalDraft = payload.draft
+                let currentTitle = titleInput.trimmed
+                if finalDraft.title.trimmed.isEmpty && !currentTitle.isEmpty {
+                    finalDraft.title = currentTitle
+                }
+                let finalPayload = PreviewPayload(
+                    draft: finalDraft,
+                    cacheHit: payload.cacheHit,
+                    sessionAttemptIndex: payload.sessionAttemptIndex
+                )
+                readyPayload = nil
+                capturedPages = []
+                preview = finalPayload
+            } label: {
+                Text("Review Recipe")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AppColor.onAccent)
+                    .frame(width: 240)
+                    .padding(.vertical, AppSpacing.sm + 4)
+                    .background(appearance.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(AppSpacing.xl)
+        .background(AppColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        .shadow(color: AppColor.shadow, radius: 18, y: 6)
     }
 
     // MARK: - Quota state helpers
@@ -689,13 +798,15 @@ struct ImportFromPhotoView: View {
         }
     }
 
-    // MARK: - Import runner (vision-first, OCR fallback)
+    // MARK: - Import runner (OCR preflight → vision → OCR+AI fallback)
 
     @MainActor
     private func runImport(on pages: [CapturedPage]) async {
         guard !pages.isEmpty else { return }
         ocrInProgress = true
-        errorBanner = nil
+        titleInput    = ""
+        readyPayload  = nil
+        errorBanner   = nil
         defer {
             ocrInProgress = false
             ocrPageStatus = nil
@@ -715,60 +826,83 @@ struct ImportFromPhotoView: View {
             return
         }
 
-        // Increment session attempt counter before calling vision.
-        // This is what determines whether the cache-hit hint shows.
         sessionAttemptCount += 1
-
         ocrPageStatus = "Reading the recipe…"
+
+        // ── Phase 2: Local OCR preflight ──────────────────────────────────────
+        // Run on-device Vision OCR first. For clean printed pages with explicit
+        // section labels the deterministic parser can produce a confident draft
+        // at zero API cost. The OCR text is reused in the AI fallback below so
+        // we never recognize the same images twice.
+        var prefetchedOCRText: String? = nil
+        if !ocrImages.isEmpty {
+            let ocrText = await RecipeOCRImporter.recognize(ocrImages)
+            if !ocrText.isEmpty {
+                prefetchedOCRText = ocrText
+                var localDraft = RecipeImporter.parse(ocrText)
+                // User title rescues a locally-parsed draft whose content is
+                // strong but whose title OCR'd poorly or is empty.
+                if localDraft.title.trimmed.isEmpty {
+                    localDraft = withUserTitleApplied(localDraft)
+                }
+                if localPhotoParseConfident(localDraft, ocrText: ocrText) {
+                    finishImport(draft: localDraft, cacheHit: false)
+                    return
+                }
+            }
+        }
+
+        // ── Sonnet vision (primary paid path) ─────────────────────────────────
         let visionOutcome: VisionParseOutcome = visionImages.isEmpty
             ? VisionParseOutcome()
             : await RecipeAIParser.parseImages(visionImages, sourceUrl: nil)
 
-        // Handle quota/auth errors from the Worker — refresh quota and switch
-        // into the appropriate blocked state rather than falling through to OCR.
+        // Handle quota / auth errors — refresh quota snapshot and let the
+        // blocked-card UI appear once it lands; do not fall through to OCR.
         if let err = visionOutcome.error {
             Task { await quotaService.refresh(force: true) }
             switch err {
             case .authRequired:
-                // Shouldn't reach here (the sign-in nudge blocks the UI),
-                // but handle defensively.
                 errorBanner = ErrorBanner(
                     kind: .error,
                     message: "Sign in with Apple to import from photos.",
                     actionTitle: nil, action: nil
                 )
             case .quotaExhausted, .dailyLimitHit:
-                // The blocked card will appear once the refreshed snapshot lands.
                 break
             }
             return
         }
 
         if let draft = visionOutcome.draft, photoImportConfident(draft) {
-            capturedPages = []
-            preview = PreviewPayload(
-                draft: draft,
-                cacheHit: visionOutcome.cacheHit,
-                sessionAttemptIndex: sessionAttemptCount
-            )
+            var finalDraft = draft
+            if finalDraft.title.trimmed.isEmpty {
+                finalDraft = withUserTitleApplied(finalDraft)
+            }
+            finishImport(draft: finalDraft, cacheHit: visionOutcome.cacheHit)
             return
         }
 
-        // OCR + text-AI fallback.
-        ocrPageStatus = "Reading the recipe…"
-        let ocrText   = ocrImages.isEmpty ? "" : await RecipeOCRImporter.recognize(ocrImages)
+        // ── OCR + text-AI fallback ────────────────────────────────────────────
+        // Reuse the OCR text from the preflight if available; otherwise
+        // run recognition now (happens when visionImages was empty).
+        let ocrText: String
+        if let precomputed = prefetchedOCRText {
+            ocrText = precomputed
+        } else {
+            ocrText = ocrImages.isEmpty ? "" : await RecipeOCRImporter.recognize(ocrImages)
+        }
+
         let textDraft: DraftRecipe? = ocrText.isEmpty
             ? nil
             : await RecipeAIParser.parseBestOf(ocrText, sourceUrl: nil, preferHighQuality: true)
 
         if let t = textDraft, photoImportConfident(t) {
-            capturedPages = []
-            // OCR fallback: no cache-hit, use sessionAttemptCount for context.
-            preview = PreviewPayload(
-                draft: t,
-                cacheHit: false,
-                sessionAttemptIndex: sessionAttemptCount
-            )
+            var finalDraft = t
+            if finalDraft.title.trimmed.isEmpty {
+                finalDraft = withUserTitleApplied(finalDraft)
+            }
+            finishImport(draft: finalDraft, cacheHit: false)
             return
         }
 
@@ -792,6 +926,69 @@ struct ImportFromPhotoView: View {
         )
     }
 
+    // MARK: - Finish import (smart auto-advance)
+
+    /// Called when a usable draft is ready. Auto-advances to the preview sheet
+    /// if the keyboard is down; shows the "Ready! / Review Recipe" card if the
+    /// user is still typing so their input isn't interrupted.
+    @MainActor
+    private func finishImport(draft: DraftRecipe, cacheHit: Bool) {
+        let payload = PreviewPayload(
+            draft: draft,
+            cacheHit: cacheHit,
+            sessionAttemptIndex: sessionAttemptCount
+        )
+        if titleFieldFocused {
+            // Keyboard is up — store the payload and show the Ready! card.
+            // The defer block in runImport will set ocrInProgress = false,
+            // and the overlay condition (ocrInProgress || readyPayload != nil)
+            // keeps it visible in the Ready! state.
+            readyPayload = payload
+        } else {
+            capturedPages = []
+            preview       = payload
+        }
+    }
+
+    // MARK: - Confidence gates
+
+    /// Stricter gate for locally-parsed (no AI) photo drafts.
+    /// Requires explicit section labels in the OCR text as a signal that
+    /// the page has clear structure the deterministic parser can trust.
+    private func localPhotoParseConfident(_ draft: DraftRecipe, ocrText: String) -> Bool {
+        guard !draft.title.trimmed.isEmpty else { return false }
+        guard draft.ingredients.count >= 3 else { return false }
+        guard draft.steps.count >= 2 else { return false }
+        guard draft.steps.allSatisfy({ $0.text.count <= 220 }) else { return false }
+        let hasQtyOrUnit = draft.ingredients.contains {
+            !$0.quantity.trimmed.isEmpty || !$0.unit.trimmed.isEmpty
+        }
+        guard hasQtyOrUnit else { return false }
+        let lower = ocrText.lowercased()
+        return lower.contains("ingredients") ||
+            lower.contains("directions") ||
+            lower.contains("instructions") ||
+            lower.contains("method") ||
+            lower.contains("preparation")
+    }
+
+    /// Basic gate used for AI-parsed photo drafts (Sonnet / OCR+AI fallback).
+    private func photoImportConfident(_ draft: DraftRecipe) -> Bool {
+        !draft.title.trimmed.isEmpty && !draft.ingredients.isEmpty && !draft.steps.isEmpty
+    }
+
+    // MARK: - User title helper
+
+    /// Returns a copy of `draft` with the title field set to `titleInput`
+    /// if the draft's own title is empty and the user typed something.
+    private func withUserTitleApplied(_ draft: DraftRecipe) -> DraftRecipe {
+        let typed = titleInput.trimmed
+        guard !typed.isEmpty, draft.title.trimmed.isEmpty else { return draft }
+        var modified = draft
+        modified.title = typed
+        return modified
+    }
+
     // MARK: - Page preparation
 
     private func preparePages(_ pages: [CapturedPage]) async -> [PreparedPage] {
@@ -812,10 +1009,6 @@ struct ImportFromPhotoView: View {
             for await (idx, prep) in group { ordered[idx] = prep }
             return ordered
         }
-    }
-
-    private func photoImportConfident(_ draft: DraftRecipe) -> Bool {
-        !draft.title.trimmed.isEmpty && !draft.ingredients.isEmpty && !draft.steps.isEmpty
     }
 
     // MARK: - Local types
