@@ -379,7 +379,16 @@ enum RecipeAIParser {
     empty — do not invent one from flavors or ingredients. Do not turn \
     an ingredient line like "2 frying chickens split" into fabricated \
     steps like "fry chickens" unless the instruction text itself says \
-    to do that.
+    to do that. Do not substitute synonyms — preserve the source's exact \
+    vocabulary in every field. "Keep" must stay "Keep", not "Store". \
+    "Mix" must stay "Mix", not "Combine". "Add" must stay "Add", not \
+    "Place". The only permissible word correction is the OCR \
+    number/character substitution listed in rule 15 and the handwritten \
+    letter-form correction in rule 29. Do not infer specific ingredient \
+    names into vague step language: if the source says "alternating \
+    liquid" or "add liquid alternately", copy those words exactly — do \
+    not replace "liquid" with a named ingredient (e.g., "milk") even if \
+    that ingredient appears in the ingredient list.
 
     1. Title: the dish name. Usually the first non-empty line. Strip \
        social-media decorations like @handles, #hashtags, emoji runs, \
@@ -562,6 +571,19 @@ enum RecipeAIParser {
         Expand it everywhere — step text and ingredient names. \
         "Season w/ salt & pepper" → "Season with salt & pepper". \
         "Rub well w/ marg." → "Rub well with margarine". Apply silently.
+    29. Handwritten word-form and multi-line title correction: (a) When \
+        a word in a handwritten title is not a recognizable English word \
+        but closely resembles one under common handwriting letterform \
+        confusions, correct it to the most plausible word given context. \
+        Common confusions: capital M read as "Ne" ("Nerey" → "Merry"), \
+        "ei" read as "i" ("Cheistmas" → "Christmas"), "rn" fusing into \
+        "m", u↔n, I↔l. Apply only when the corrected word is a real \
+        English word and context confirms it (e.g., holiday ingredients \
+        confirm "Christmas"). (b) Handwritten titles often span two \
+        lines — the dish name on line 1 and a descriptor or type word \
+        indented on line 2 (e.g., "Merry Christmas" on line 1, \
+        "Cookies" indented below). Include ALL title-area lines in the \
+        title field. Do not truncate at the first line break.
 
     Worked example #1 (TikTok caption):
 

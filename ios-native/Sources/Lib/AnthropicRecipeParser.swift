@@ -400,8 +400,18 @@ enum AnthropicRecipeParser {
                         toolJson: &toolJson,
                         accumulator: &accumulator
                     )
-                    if !pendingEvents.isEmpty {
-                        await applyEventsOnMainActor(pendingEvents, to: streamingState)
+                    for event in pendingEvents {
+                        await applyEventOnMainActor(event, to: streamingState)
+                        // Stagger ingredient and step reveals so they tick in
+                        // one at a time even when Anthropic delivers content in
+                        // a burst — gives the progressive-reveal animation
+                        // enough time to render each row individually.
+                        switch event {
+                        case .ingredient, .step:
+                            try? await Task.sleep(for: .milliseconds(55))
+                        default:
+                            break
+                        }
                     }
                 }
                 currentEventName = "message"
@@ -464,6 +474,14 @@ enum AnthropicRecipeParser {
         default:
             return []
         }
+    }
+
+    @MainActor
+    private static func applyEventOnMainActor(
+        _ event: StreamingRecipeEvent,
+        to state: StreamingRecipeState
+    ) {
+        state.applyEvent(event)
     }
 
     @MainActor
