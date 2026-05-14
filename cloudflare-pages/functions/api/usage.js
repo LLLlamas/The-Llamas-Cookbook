@@ -13,7 +13,7 @@
 
 const FREE_CAP    = 5;
 const PRO_CAP     = 30;
-const DAILY_LIMIT = 5;
+const DAILY_LIMIT = 999; // TEMP: disabled for testing — restore to 5 before App Store submission
 
 export async function onRequestGet(context) {
   const { request, env } = context;
