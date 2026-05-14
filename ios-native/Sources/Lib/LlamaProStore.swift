@@ -53,7 +53,10 @@ final class LlamaProStore {
     // MARK: - Purchase
 
     func purchase() async {
-        guard let product else { return }
+        guard let product else {
+            purchaseError = "Subscription unavailable — please try again in a moment."
+            return
+        }
         isPurchasing   = true
         purchaseError  = nil
         defer { isPurchasing = false }

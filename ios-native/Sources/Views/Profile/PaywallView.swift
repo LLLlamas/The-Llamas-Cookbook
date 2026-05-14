@@ -111,24 +111,18 @@ struct PaywallView: View {
                     ProgressView()
                         .tint(AppColor.onAccent)
                 } else {
-                    Text(proStore.product != nil ? "Subscribe" : "Coming Soon")
+                    Text("Subscribe")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(
-                            proStore.product != nil
-                                ? AppColor.onAccent
-                                : AppColor.onAccent.opacity(0.5)
-                        )
+                        .foregroundStyle(AppColor.onAccent)
                 }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppSpacing.md)
-            .background(
-                appearance.accentColor.opacity(proStore.product != nil ? 1 : 0.4)
-            )
+            .background(appearance.accentColor)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         }
         .buttonStyle(.plain)
-        .disabled(proStore.isPurchasing || proStore.product == nil)
+        .disabled(proStore.isPurchasing)
     }
 
     private var legalText: some View {
