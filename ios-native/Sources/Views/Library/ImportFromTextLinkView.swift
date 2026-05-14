@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Merged text-paste + URL-fetch import path. A single sheet with
