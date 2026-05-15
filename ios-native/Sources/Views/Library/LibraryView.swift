@@ -492,7 +492,6 @@ struct LibraryView: View {
             Text("All  ·  \(recipes.count)")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
-                .accentTextOutline()
             // Sort glyph (not a chevron) signals the long-press menu
             // is a *sort* picker rather than a generic dropdown — the
             // tap action is "go home", which the chip label itself
@@ -500,7 +499,6 @@ struct LibraryView: View {
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(isActive ? AppColor.onAccent : appearance.categoryAccentColor)
-                .accentTextOutline()
         }
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, AppSpacing.xs + 2)
@@ -673,12 +671,10 @@ private struct FilterChip: View {
                     Image(systemName: iconName)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(isActive ? AppColor.onAccent : accent)
-                        .accentTextOutline()
                 }
                 Text(label)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
-                    .accentTextOutline()
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
@@ -690,7 +686,7 @@ private struct FilterChip: View {
             .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
             .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
-        .buttonStyle(.lifted)
+        .buttonStyle(RecipeCardButtonStyle())
     }
 }
 
