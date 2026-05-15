@@ -894,8 +894,7 @@ struct RecipeDetailView: View {
                 .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.8)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: AppColor.shadow, radius: 5, x: 0, y: 2)
-        .shadow(color: AppColor.shadowSoft, radius: 1, x: 0, y: 0.5)
+        .liftedCard()
     }
 
     /// Lightbulb-tinted italic callout — matches Cook Mode's per-step
@@ -954,6 +953,7 @@ struct RecipeDetailView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
         }
+        .buttonStyle(.lifted)
     }
 
     /// Photos entry-point. Shows the first two gallery photos as 72pt
@@ -1448,6 +1448,7 @@ private struct TagPill: View {
             .background(AppColor.surface)
             .overlay(Capsule().stroke(AppColor.divider, lineWidth: 1))
             .clipShape(Capsule())
+            .liftedCard()
     }
 }
 
@@ -1582,8 +1583,7 @@ private struct StepDetailRow: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 3)
-        .shadow(color: AppColor.shadowSoft, radius: 1.5, x: 0, y: 0.5)
+        .liftedCard()
     }
 
     /// Compact pill button under the step text. Only shown when the
@@ -1613,7 +1613,7 @@ private struct StepDetailRow: View {
             )
             .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
         .padding(.leading, 28 + AppSpacing.md)
         .accessibilityLabel(stepPhotoBytes.count == 1
             ? "View step \(idx + 1) photo"

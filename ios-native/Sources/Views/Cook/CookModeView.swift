@@ -415,7 +415,7 @@ struct CookModeView: View {
             )
             .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
     }
 
     private var phaseSubtitle: String {
@@ -737,9 +737,8 @@ struct CookModeView: View {
             .padding(.vertical, AppSpacing.sm + 2)
             .background(appearance.accentColor)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-            .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
         .accessibilityLabel("Timer running, \(ClockFormat.mmss(secondsLeft)) left, tap to adjust or cancel")
     }
 
@@ -766,6 +765,7 @@ struct CookModeView: View {
                     .background(appearance.accentColor)
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 }
+                .buttonStyle(.lifted)
             } else {
                 Button {
                     recipe.markCooked()
@@ -790,6 +790,7 @@ struct CookModeView: View {
                     .background(AppColor.success)
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 }
+                .buttonStyle(.lifted)
             }
         }
         .padding(.horizontal, AppSpacing.lg)

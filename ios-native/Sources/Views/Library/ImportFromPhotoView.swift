@@ -28,11 +28,10 @@ private let photoImportSignposter = OSSignposter(subsystem: "com.llamascookbook.
 ///   the cache-hit hint appears on the 2nd+ attempt in a session.
 ///
 /// Phase 3 (streaming reveal):
-/// - Sonnet vision response streams as SSE. After the OCR preflight
-///   (≤1 s), the preview sheet pops immediately with pulsing skeleton
-///   placeholders — the processing overlay is gone. Anthropic's TTFB
-///   for vision (5–10 s) passes with the skeleton visible; then title,
-///   ingredients, and steps tick in progressively. Save enables on
+/// - Sonnet vision response streams as SSE. The processing overlay stays
+///   visible during OCR preflight and Anthropic TTFB (5–10 s). The moment
+///   the title is extracted from the stream, a full-screen preview covers
+///   the import view and content ticks in progressively. Save enables on
 ///   `message_stop`.
 /// - The legacy "What are we cookin'?" title input and Ready/Review state
 ///   were removed once streaming made the perceived-speed need obsolete.
@@ -141,7 +140,7 @@ struct ImportFromPhotoView: View {
                 pickedItems = []
             }
         }
-        .sheet(item: $preview) { payload in
+        .fullScreenCover(item: $preview) { payload in
             PhotoImportPreviewView(
                 draft: payload.draft,
                 streamingState: payload.streamingState,
@@ -191,9 +190,9 @@ struct ImportFromPhotoView: View {
 
     // MARK: - Processing overlay
 
-    /// Shown while we're waiting for image prep + OCR preflight only (~1 s).
-    /// Dismisses as soon as the preview sheet pops — which happens before
-    /// the Anthropic call starts, so the skeleton UI is visible during TTFB.
+    /// Shown during image prep, OCR preflight, and Anthropic TTFB.
+    /// Dismissed the moment the title is extracted from the Sonnet stream —
+    /// at which point the full-screen preview takes over and content ticks in.
     private var processingCard: some View {
         VStack(spacing: AppSpacing.md) {
             LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
@@ -277,7 +276,7 @@ struct ImportFromPhotoView: View {
                         .background(appearance.accentColor)
                         .clipShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.lifted)
                 }
 
                 Spacer(minLength: 0)
@@ -505,7 +504,7 @@ struct ImportFromPhotoView: View {
                         strokeColor: nil
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.lifted)
             }
 
             PhotosPicker(
@@ -523,6 +522,7 @@ struct ImportFromPhotoView: View {
                     strokeColor: appearance.accentColor
                 )
             }
+            .liftedCard()
         }
     }
 

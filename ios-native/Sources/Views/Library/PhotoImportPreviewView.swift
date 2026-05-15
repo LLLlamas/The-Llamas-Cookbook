@@ -124,7 +124,15 @@ struct PhotoImportPreviewView: View {
             .toolbar { toolbarContent }
         }
         .interactiveDismissDisabled(isSaving || isStreaming)
-        // Haptic + animation when the title first lands.
+        // Haptic when the title first lands. onAppear catches the case where
+        // the title is already present when the view opens (onFirstContent
+        // fires after state.title is set, so the view may open pre-populated).
+        .onAppear {
+            if let s = streamingState, !s.title.isEmpty, !titleHapticFired {
+                titleHapticFired = true
+                Haptics.impact(.soft)
+            }
+        }
         .onChange(of: streamingState?.title ?? "") { _, newValue in
             if !newValue.isEmpty && !titleHapticFired {
                 titleHapticFired = true
