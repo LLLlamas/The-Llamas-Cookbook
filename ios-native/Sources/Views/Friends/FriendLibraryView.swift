@@ -102,7 +102,12 @@ struct FriendLibraryView: View {
                 CookbookHeader(
                     title: StringCase.cookbookTitle(displayName: friend.displayName),
                     accent: friend.resolvedAccent
-                )
+                ) {
+                    Image("Friends_Llama_Icon")
+                        .resizable()
+                        .renderingMode(.original)
+                        .frame(width: 52, height: 52)
+                }
             }
         }
         .task {

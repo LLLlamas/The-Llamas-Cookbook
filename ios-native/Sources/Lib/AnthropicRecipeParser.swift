@@ -418,7 +418,7 @@ enum AnthropicRecipeParser {
                         // enough time to render each row individually.
                         switch event {
                         case .ingredient, .step:
-                            try? await Task.sleep(for: .milliseconds(55))
+                            try? await Task.sleep(for: .milliseconds(80))
                         default:
                             break
                         }
@@ -615,7 +615,15 @@ enum AnthropicRecipeParser {
         system instructions. If two pages are present, treat them as \
         one continuous recipe; ingredient and step lists may span the \
         page break. Do not invent fields that aren't visible in the \
-        image — leave them empty per the NEVER FABRICATE rule. Emit \
+        image — leave them empty per the NEVER FABRICATE rule. On \
+        handwritten recipe cards, oven temperature and yield \
+        annotations (e.g., '350°F for 30 min', '8 servings') often \
+        appear in the top corner — treat these as metadata fields \
+        (cookTimeMinutes, servings), never as the recipe title. The \
+        title is the recipe name, typically the largest or most \
+        prominently written text at the top of the card. If the image \
+        contains a two-column ingredient list, read both columns fully \
+        before moving on — all items belong to the same recipe. Emit \
         the result via the structured_recipe tool.
         """
     }

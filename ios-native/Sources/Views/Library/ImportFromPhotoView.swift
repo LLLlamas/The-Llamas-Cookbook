@@ -880,7 +880,15 @@ struct ImportFromPhotoView: View {
         }
 
         // Stream completed successfully with a confident draft.
-        if let draft = visionOutcome.draft, photoImportConfident(draft) {
+        if var draft = visionOutcome.draft, photoImportConfident(draft) {
+            // Cross-reference against the on-device OCR to strip any
+            // ingredient Sonnet invented with no textual basis in the image.
+            // Uses a lenient 75% threshold to avoid false positives from
+            // imperfect OCR; the streaming preview may briefly show an
+            // item that disappears on finalisation — intentional.
+            if let ocrText = prefetchedOCRText {
+                RecipeAIParser.filterVisionHallucinations(from: &draft, ocrText: ocrText.lowercased())
+            }
             cacheHit = visionOutcome.cacheHit
             accepted = true
             branch = state.hasFirstContent
@@ -916,7 +924,7 @@ struct ImportFromPhotoView: View {
             // Drive content into the streaming state one item at a time so the
             // tick-in transitions fire progressively, matching the Sonnet path.
             // applyEvent flips status → .streaming so the skeleton fades and
-            // each row springs in as it lands. 55 ms stagger matches Sonnet cadence.
+            // each row springs in as it lands.
             if !t.title.isEmpty           { state.applyEvent(.title(t.title)) }
             if !t.summary.isEmpty         { state.applyEvent(.summary(t.summary)) }
             if !t.servings.isEmpty        { state.applyEvent(.servings(t.servings)) }
@@ -924,11 +932,11 @@ struct ImportFromPhotoView: View {
             if !t.prepTimeMinutes.isEmpty { state.applyEvent(.prepTimeMinutes(t.prepTimeMinutes)) }
             for ing in t.ingredients {
                 state.applyEvent(.ingredient(ing))
-                try? await Task.sleep(for: .milliseconds(55))
+                try? await Task.sleep(for: .milliseconds(120))
             }
             for step in t.steps {
                 state.applyEvent(.step(step))
-                try? await Task.sleep(for: .milliseconds(55))
+                try? await Task.sleep(for: .milliseconds(120))
             }
             state.completeStream(finalDraft: t, cacheHit: false)
             return

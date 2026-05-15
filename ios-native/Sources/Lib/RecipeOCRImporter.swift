@@ -251,8 +251,73 @@ enum RecipeOCRImporter {
         s = repairHandwritingMisreads(s)
         s = collapseWhitespace(s)
         s = deHyphenate(s)
+        s = demoteCornerMetadata(s)
         return s
     }
+
+    /// True when a line is *only* card-corner metadata — oven
+    /// temperature, cook/prep time, or yield — with no recipe-name
+    /// words. Handwritten cards routinely place "350°F for 30 min." or
+    /// "8 servings" in the top corner at the same height as the title;
+    /// when Vision sorts observations by Y coordinate the corner line
+    /// can land before the title, so the parser picks the garbled
+    /// metadata as the recipe name.
+    ///
+    /// Three conditions, all required: short (≤ 6 words), carries a
+    /// temperature / time / yield pattern, and contains no run of 4+
+    /// lowercase letters that isn't a metadata unit word — that last
+    /// check is what lets a real title word disqualify the line.
+    static func looksLikeCardCornerMetadata(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+
+        let words = trimmed.split(whereSeparator: { $0 == " " })
+        guard words.count <= 6 else { return false }
+
+        let hasTemp = (try? #/\d{2,4}\s*°?\s*[fFcC]/#.firstMatch(in: trimmed)) != nil
+        let hasYield = (try? #/(?i)\d+\s*(?:servings|portions|makes|yields|people)/#.firstMatch(in: trimmed)) != nil
+        let hasTime = (try? #/(?i)\d+\s*(?:min|minute|hour|hr)/#.firstMatch(in: trimmed)) != nil
+        guard hasTemp || hasYield || hasTime else { return false }
+
+        // Any lowercase letter run longer than 3 chars that isn't a
+        // metadata unit word is a real title word — disqualify the line.
+        for run in trimmed.lowercased().split(whereSeparator: { !$0.isLetter }) {
+            guard run.count > 3 else { continue }
+            if !cornerMetadataUnitWords.contains(String(run)) { return false }
+        }
+        return true
+    }
+
+    /// When the first non-empty line of the cleaned OCR text is pure
+    /// card-corner metadata, move it to the end of the text so the
+    /// regex parser picks the real title from the line below it. The
+    /// metadata stays visible to the AI for `cookTimeMinutes` /
+    /// `servings` extraction — it's relocated, never dropped.
+    private static func demoteCornerMetadata(_ s: String) -> String {
+        let lines = s
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard let firstIdx = lines.firstIndex(where: {
+            !$0.trimmingCharacters(in: .whitespaces).isEmpty
+        }) else { return s }
+        guard looksLikeCardCornerMetadata(lines[firstIdx]) else { return s }
+
+        var remaining = lines
+        let metadataLine = remaining.remove(at: firstIdx)
+        return remaining.joined(separator: "\n") + "\n\n" + metadataLine
+    }
+
+    /// Words allowed inside a corner-metadata line without disqualifying
+    /// it as a title-bearing line. Restricted to temperature / time /
+    /// yield vocabulary so any other ≥4-char word marks the line as a
+    /// real title.
+    private static let cornerMetadataUnitWords: Set<String> = [
+        "min", "mins", "minute", "minutes", "hour", "hours",
+        "servings", "serving", "serves", "portions", "portion",
+        "makes", "yield", "yields", "people",
+        "degrees", "degree", "fahrenheit", "celsius",
+    ]
 
     /// Smart quotes are common in cookbook printing. `’` (U+2019)
     /// blocks regex matches that expect `'` (don't, possessives).

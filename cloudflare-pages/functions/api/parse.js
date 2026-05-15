@@ -29,7 +29,7 @@
 //   LLAMAS_QUOTA       (KV namespace binding)
 
 const ANTHROPIC_URL  = 'https://api.anthropic.com/v1/messages';
-const PROMPT_VERSION = 'v2'; // Bump when RecipeAIParser.instructions changes
+const PROMPT_VERSION = 'v3'; // Bump when RecipeAIParser.instructions changes
 const FREE_CAP       = 5;
 const PRO_CAP        = 30;
 

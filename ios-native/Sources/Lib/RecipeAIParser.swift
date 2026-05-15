@@ -218,7 +218,29 @@ enum RecipeAIParser {
     ) -> DraftRecipe? {
         guard var ai = ai else { return regex }
 
+        // Hoist sourceTokens so both ingredient and step guards can use it.
+        let lowerSource = sourceText.lowercased()
         let sourceTokens = sourceSupportTokens(sourceText)
+
+        // Drop AI ingredients with no textual basis in the source — the
+        // model occasionally invents plausible-sounding pantry items
+        // (e.g. "bouillon garlic pack") that never appeared on the card.
+        // If every ingredient is filtered out, the AI draft is junk;
+        // discard it so the regex pipeline takes over.
+        if !ai.ingredients.isEmpty {
+            let kept = ai.ingredients.filter {
+                !ingredientLooksHallucinated($0, sourceText: lowerSource)
+            }
+            if kept.isEmpty { return regex }
+            ai.ingredients = kept
+        }
+
+        // Drop steps with no textual basis (≥70% tokens absent). Guard
+        // keeps at least 2 steps so the draft stays usable.
+        let keptSteps = ai.steps.filter { !stepLooksHallucinated($0.text, sourceTokens: sourceTokens) }
+        if keptSteps.count >= 2 {
+            ai.steps = keptSteps
+        }
         guard let regex = regex else {
             let hasUnsupportedTitle = titleLooksInferred(ai.title, sourceTokens: sourceTokens)
             let hasUnsupportedStep = ai.steps.contains {
@@ -291,6 +313,70 @@ enum RecipeAIParser {
         guard tokens.count >= 2 else { return false }
         let missingCount = tokens.filter { !sourceTokens.contains($0) }.count
         return missingCount > 0 && missingCount * 3 >= tokens.count
+    }
+
+    /// True when an AI-emitted ingredient name has no textual basis in
+    /// the source — more than 40% of its significant tokens (≥ 4 chars)
+    /// are absent from the source text. Catches invented pantry items
+    /// like "bouillon garlic pack" that the model fills in from culinary
+    /// priors rather than reading off the card. `sourceText` must be
+    /// pre-lowercased by the caller.
+    private static func ingredientLooksHallucinated(
+        _ ingredient: DraftIngredient,
+        sourceText: String
+    ) -> Bool {
+        let tokens = ingredient.name
+            .lowercased()
+            .components(separatedBy: CharacterSet.letters.inverted)
+            .filter { $0.count >= 4 }
+        guard !tokens.isEmpty else { return false }
+        let missingCount = tokens.filter { !sourceText.contains($0) }.count
+        return missingCount * 5 > tokens.count * 2
+    }
+
+    /// Filters ingredients from a Sonnet vision draft that have no textual
+    /// basis in the on-device OCR text. Uses a high threshold (75%+ tokens
+    /// absent) so OCR noise doesn't incorrectly remove ingredients Sonnet
+    /// correctly read from the image — only catches egregious inventions
+    /// where no significant token appears anywhere in the OCR output.
+    /// Call with a pre-lowercased `ocrText`.
+    static func filterVisionHallucinations(from draft: inout DraftRecipe, ocrText: String) {
+        guard !draft.ingredients.isEmpty else { return }
+        let kept = draft.ingredients.filter { !visionIngredientFabricated($0, ocrText: ocrText) }
+        if !kept.isEmpty {
+            draft.ingredients = kept
+        }
+    }
+
+    /// True when a vision-path ingredient name has no presence in the OCR
+    /// text — 75%+ of its significant tokens (≥4 chars) are absent. Higher
+    /// bar than `ingredientLooksHallucinated` because OCR is noisy and may
+    /// have garbled words that Sonnet correctly read from the image.
+    private static func visionIngredientFabricated(
+        _ ingredient: DraftIngredient,
+        ocrText: String
+    ) -> Bool {
+        let tokens = ingredient.name
+            .lowercased()
+            .components(separatedBy: CharacterSet.letters.inverted)
+            .filter { $0.count >= 4 }
+        guard !tokens.isEmpty else { return false }
+        let missingCount = tokens.filter { !ocrText.contains($0) }.count
+        return missingCount * 4 > tokens.count * 3
+    }
+
+    /// True when a step contains ≥70% tokens absent from the source — a
+    /// higher bar than `stepLooksUnsupported` (33%) so recipe steps that
+    /// legitimately paraphrase source text aren't removed. Requires ≥3
+    /// tokens for meaningful signal.
+    private static func stepLooksHallucinated(
+        _ step: String,
+        sourceTokens: Set<String>
+    ) -> Bool {
+        let tokens = supportTokens(step)
+        guard tokens.count >= 3 else { return false }
+        let missingCount = tokens.filter { !sourceTokens.contains($0) }.count
+        return missingCount * 10 >= tokens.count * 7
     }
 
     private static func sourceSupportTokens(_ text: String) -> Set<String> {
@@ -388,7 +474,19 @@ enum RecipeAIParser {
     names into vague step language: if the source says "alternating \
     liquid" or "add liquid alternately", copy those words exactly — do \
     not replace "liquid" with a named ingredient (e.g., "milk") even if \
-    that ingredient appears in the ingredient list.
+    that ingredient appears in the ingredient list. \
+    Four specific fabrication patterns to avoid: \
+    (A) Do not add pantry staples you expect the dish to contain (salt, \
+    oil, butter, water, flour) unless they are explicitly written in the \
+    source — omission is intentional and must be preserved. \
+    (B) Do not complete a partial ingredient list — if you can read 6 \
+    of 12 items, emit exactly those 6; do not fill in the rest. \
+    (C) Do not strengthen vague ingredient names: "liquid" stays \
+    "liquid", not "milk"; "fat" stays "fat", not "butter"; "cheese" \
+    stays "cheese" unless a specific type is stated. \
+    (D) For image input: if an ingredient or step is unclear or \
+    partially obscured, transcribe only what is legible; write partial \
+    text rather than a plausible guess for the missing portion.
 
     1. Title: the dish name. Usually the first non-empty line. Strip \
        social-media decorations like @handles, #hashtags, emoji runs, \
@@ -584,6 +682,15 @@ enum RecipeAIParser {
         indented on line 2 (e.g., "Merry Christmas" on line 1, \
         "Cookies" indented below). Include ALL title-area lines in the \
         title field. Do not truncate at the first line break.
+    30. Two-column ingredient layout on handwritten cards and index \
+        cards: Some recipe cards list ingredients in two side-by-side \
+        columns (e.g., left column: quantities 1–4; right column: \
+        quantities 5–8). Read BOTH columns completely and include ALL \
+        items as ingredients before proceeding to the steps section. \
+        Do not stop after the left column. If amounts or items from the \
+        right column appear interleaved with the left column in the OCR \
+        text (a common artifact of left-to-right scan ordering), still \
+        collect all of them as one unified ingredient list.
 
     Worked example #1 (TikTok caption):
 

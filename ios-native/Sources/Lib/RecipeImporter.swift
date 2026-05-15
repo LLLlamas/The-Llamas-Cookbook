@@ -210,9 +210,28 @@ enum RecipeImporter {
     /// model's title output. The model is *told* to strip "Recipe👇"
     /// and trailing emoji runs, but small on-device models drift; this
     /// is the deterministic fallback.
+    ///
+    /// Returns `""` when the cleaned title is a filename (a path
+    /// separator plus an image extension) — handwritten-card OCR / AI
+    /// drift occasionally hands back the source image's filename as a
+    /// title. An empty return signals callers to fall back to the next
+    /// candidate rather than displaying a file path.
     static func cleanTitle(_ s: String) -> String {
-        stripTitleLabel(s)
+        let cleaned = stripTitleLabel(s)
+        if cleaned.contains("/"), looksLikeImageFilename(cleaned) {
+            return ""
+        }
+        return cleaned
     }
+
+    private static func looksLikeImageFilename(_ s: String) -> Bool {
+        let lower = s.lowercased()
+        return imageFilenameExtensions.contains { lower.hasSuffix($0) }
+    }
+
+    private static let imageFilenameExtensions: [String] = [
+        ".jpg", ".jpeg", ".png", ".heic", ".webp", ".gif", ".tiff", ".bmp",
+    ]
 
     /// Returns true when a parsed caption has enough content to be a
     /// recipe, not just a social blurb that happened to mention food.
