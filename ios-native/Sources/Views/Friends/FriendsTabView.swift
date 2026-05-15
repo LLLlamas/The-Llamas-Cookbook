@@ -78,18 +78,17 @@ struct FriendsTabView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .tint(appearance.cookbookTitleAccentColor)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Image("Friends_Llama_Icon")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 28, height: 28)
-                    }
                     ToolbarItem(placement: .principal) {
                         CookbookHeader(
                             title: friendsTitle,
                             accent: appearance.cookbookTitleAccentColor,
                             glowActive: appearance.isAccentGlowActive(.header)
-                        )
+                        ) {
+                            Image("Friends_Llama_Icon")
+                                .resizable()
+                                .renderingMode(.original)
+                                .frame(width: 52, height: 52)
+                        }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {

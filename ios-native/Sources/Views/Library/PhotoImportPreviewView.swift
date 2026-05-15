@@ -139,8 +139,8 @@ struct PhotoImportPreviewView: View {
                 Haptics.impact(.soft)
             }
         }
-        // Animate ingredient/step arrival with springs. Driven by count so
-        // every new row triggers the insertion transition.
+        // Animate content arrival. Driven by count/empty changes so each new
+        // row triggers its insertion transition as events land from the stream.
         .animation(.spring(response: 0.4, dampingFraction: 0.75),
                    value: effectiveDraft.ingredients.count)
         .animation(.spring(response: 0.5, dampingFraction: 0.8),
@@ -462,7 +462,7 @@ struct PhotoImportPreviewView: View {
         performSave(withOverrideTitle: nil)
     }
 
-    private func performSave(withOverrideTitle overrideTitle: String?) {
+        private func performSave(withOverrideTitle overrideTitle: String?) {
         guard !isSaving else { return }
         isSaving = true
 
@@ -492,19 +492,18 @@ struct PhotoImportPreviewView: View {
             case .save:        onSaved(recipe)
             case .saveForEdit: onSavedForEdit(recipe)
             }
-            dismiss()
+            // Do NOT call dismiss() here — the onSaved/onSavedForEdit closures
+            // call dismiss() on ImportFromPhotoView, which tears down the entire
+            // sheet hierarchy (including this fullScreenCover) in one animation.
+            // Calling dismiss() here first would flash ImportFromPhotoView briefly.
         }
     }
 }
 
 // MARK: - Tick-in transition modifier
 
-/// View modifier used to build the insertion side of the streaming
-/// reveal transition. Spring-animated by the parent's
-/// `.animation(.spring(...), value: count)` modifier on the containing
-/// `ForEach`. Keeping it as a `ViewModifier` (rather than a built-in
-/// `.move(edge:)` transition) lets us use a small fixed offset that
-/// reads as a "tick in" rather than a slide-across-the-screen feel.
+/// Offset + opacity modifier for the streaming insertion transition.
+/// Spring-driven by the parent `.animation(.spring(...), value: count)`.
 private struct TickIn: ViewModifier {
     var offsetX: CGFloat = 0
     var offsetY: CGFloat = 0
@@ -515,3 +514,4 @@ private struct TickIn: ViewModifier {
             .offset(x: offsetX, y: offsetY)
     }
 }
+

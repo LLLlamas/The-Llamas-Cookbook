@@ -331,6 +331,7 @@ struct ImportFromTextLinkView: View {
             .opacity(canFetch ? 1 : 0.4)
         }
         .disabled(!canFetch)
+        .buttonStyle(.lifted)
     }
 
     private func pasteSection(parsed: DraftRecipe) -> some View {

@@ -846,6 +846,22 @@ struct ImportFromPhotoView: View {
             }
         }
 
+        // 2-second hard cap on the overlay. If Anthropic TTFB exceeds 2 s,
+        // pop the blank preview anyway so the user isn't staring at the llama.
+        // Content fills in as events arrive; onFirstContent is a no-op if
+        // preview is already set.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard self.preview == nil else { return }
+            self.ocrInProgress = false
+            self.preview = PreviewPayload(
+                draft: DraftRecipe(),
+                streamingState: state,
+                cacheHit: false,
+                sessionAttemptIndex: sessionIndex
+            )
+        }
+
         let visionInterval = photoImportSignposter.beginInterval("visionStreaming")
         let visionStart = Date()
         let visionOutcome: VisionParseOutcome = visionImages.isEmpty

@@ -530,12 +530,8 @@ private struct FriendRecipeCard: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: Self.shadowHue.opacity(0.18), radius: 2.5, x: 0, y: 1)
-        .shadow(color: Self.shadowHue.opacity(0.12), radius: 9, x: 0, y: 4)
-        .shadow(color: Self.shadowHue.opacity(0.06), radius: 24, x: 0, y: 12)
+        .liftedCard()
     }
-
-    private static let shadowHue: Color = Color(red: 0.40, green: 0.30, blue: 0.20)
 
     private var thumbnail: some View {
         Group {

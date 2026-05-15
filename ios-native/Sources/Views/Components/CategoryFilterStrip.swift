@@ -55,7 +55,6 @@ struct CategoryFilterStrip: View {
             Text("All  ·  \(totalCount)")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
-                .accentTextOutline()
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
                 .background(isActive ? accent : AppColor.surface)
@@ -64,7 +63,7 @@ struct CategoryFilterStrip: View {
                 )
                 .clipShape(Capsule())
         }
-        .buttonStyle(.lifted)
+        .buttonStyle(.scaleOnly)
     }
 
     private func pill(label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -72,7 +71,6 @@ struct CategoryFilterStrip: View {
             Text(label)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
-                .accentTextOutline()
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
                 .background(isActive ? accent : AppColor.surface)
@@ -81,6 +79,6 @@ struct CategoryFilterStrip: View {
                 )
                 .clipShape(Capsule())
         }
-        .buttonStyle(.lifted)
+        .buttonStyle(.scaleOnly)
     }
 }

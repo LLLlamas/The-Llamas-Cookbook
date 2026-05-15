@@ -848,14 +848,12 @@ struct RecipeDetailView: View {
             Circle()
                 .fill(appearance.detailIngredientsAccentColor)
                 .frame(width: 6, height: 6)
-                .accentTextOutline()
 
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 if !display.quantity.isEmpty {
                     Text(display.quantity)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(appearance.detailIngredientsAccentColor)
-                        .accentTextOutline()
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
@@ -864,7 +862,6 @@ struct RecipeDetailView: View {
                     Text(display.unit)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(appearance.detailIngredientsAccentColor.opacity(0.75))
-                        .accentTextOutline()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }

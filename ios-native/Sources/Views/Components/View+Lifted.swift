@@ -24,3 +24,18 @@ struct LiftedButtonStyle: ButtonStyle {
 extension ButtonStyle where Self == LiftedButtonStyle {
     static var lifted: LiftedButtonStyle { LiftedButtonStyle() }
 }
+
+/// Scale-only press feedback with no drop shadow. Use for filter chips
+/// and other small pill buttons where a shadow would create a halo effect
+/// around the pill stroke.
+struct ScaleOnlyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == ScaleOnlyButtonStyle {
+    static var scaleOnly: ScaleOnlyButtonStyle { ScaleOnlyButtonStyle() }
+}

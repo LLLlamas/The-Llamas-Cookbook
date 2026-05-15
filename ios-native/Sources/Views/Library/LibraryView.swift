@@ -686,7 +686,7 @@ private struct FilterChip: View {
             .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
             .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
-        .buttonStyle(RecipeCardButtonStyle())
+        .buttonStyle(.scaleOnly)
     }
 }
 
