@@ -51,7 +51,6 @@ struct ProfileView: View {
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(FriendsStore.self) private var friendsStore
-    @Environment(LlamaProStore.self) private var proStore
     @Environment(\.dismiss) private var dismiss
 
     /// All recipes — used only to derive `lastCookedRecipe` for the
@@ -282,22 +281,11 @@ struct ProfileView: View {
     /// re-renders the title automatically.
     private var header: some View {
         VStack(spacing: AppSpacing.sm) {
-            if proStore.isPro {
-                Image("Llama-Pro-Icon-Profile-Crown")
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 96, height: 96)
-                    .shadow(
-                        color: appearance.accentColor.opacity(0.45),
-                        radius: 96 * 0.0643,
-                        x: 0,
-                        y: 96 * 0.05
-                    )
-                    .accessibilityHidden(true)
-            } else {
-                LlamaLogo(size: 96, shadowColor: appearance.accentColor)
-            }
+            LlamaLogoOrCrown(
+                size: 96,
+                accent: appearance.accentColor,
+                crownAsset: "Llama-Pro-Icon-Profile-Crown"
+            )
             Text(headerTitle)
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(appearance.accentColor)
@@ -414,7 +402,7 @@ struct ProfileView: View {
                     Button {
                         nameDraft = identity.displayName
                         isEditingName = true
-                        DispatchQueue.main.async { nameFieldFocused = true }
+                        Task { @MainActor in nameFieldFocused = true }
                     } label: {
                         Image(systemName: "pencil")
                             .font(.system(size: 16, weight: .semibold))
@@ -428,14 +416,7 @@ struct ProfileView: View {
                 }
             }
         }
-        .padding(AppSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .surfaceCard()
     }
 
     // MARK: - Last cooked
@@ -572,22 +553,37 @@ struct ProfileView: View {
     }
 
     private var emptyRequestsBody: some View {
-        VStack(spacing: AppSpacing.xs) {
-            Text("No new requests.")
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textSecondary)
-            Text("Friend requests will appear here.")
-                .font(AppFont.caption)
-                .foregroundStyle(AppColor.textTertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, AppSpacing.lg)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
+        EmptyStateCard(
+            title: "No new requests.",
+            subtitle: "Friend requests will appear here."
         )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    /// Centered two-line placeholder card — a body-weight title over a
+    /// caption-weight subtitle, on a surface fill with a divider
+    /// stroke. Used for the empty Requests and Friends sections.
+    private struct EmptyStateCard: View {
+        let title: String
+        let subtitle: String
+
+        var body: some View {
+            VStack(spacing: AppSpacing.xs) {
+                Text(title)
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textSecondary)
+                Text(subtitle)
+                    .font(AppFont.caption)
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, AppSpacing.lg)
+            .background(AppColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(AppColor.divider, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        }
     }
 
     private func requestRow(request: FriendsStore.PendingRequest) -> some View {
@@ -682,22 +678,10 @@ struct ProfileView: View {
     }
 
     private var emptyFriendsBody: some View {
-        VStack(spacing: AppSpacing.xs) {
-            Text("No friends yet.")
-                .font(AppFont.body)
-                .foregroundStyle(AppColor.textSecondary)
-            Text("Tap + to find someone you know.")
-                .font(AppFont.caption)
-                .foregroundStyle(AppColor.textTertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, AppSpacing.lg)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
+        EmptyStateCard(
+            title: "No friends yet.",
+            subtitle: "Tap + to find someone you know."
         )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     private func friendRow(friend: UserProfileSnapshot) -> some View {
@@ -738,7 +722,7 @@ struct ProfileView: View {
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(AppColor.textTertiary)
                             if let title = friend.lastCookedTitle, !title.isEmpty {
-                                Text("\(Text("Currently Cooking: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(resolvedAccent(for: friend)))")
+                                Text("\(Text("Currently Cooking: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(friend.resolvedAccent))")
                                     .font(AppFont.caption)
                                     .lineLimit(1)
                             } else {
@@ -779,17 +763,6 @@ struct ProfileView: View {
                 }
             }
         }
-    }
-
-    /// Decode the friend's saved accent hex, falling back to the
-    /// local user's accent if missing or malformed. Used for the
-    /// "Cooking: <title>" subtitle so the cooked-recipe title pops
-    /// in the friend's color rather than borrowing yours.
-    private func resolvedAccent(for friend: UserProfileSnapshot) -> Color {
-        if let hex = friend.accentHex, let parsed = Color(hex: hex) {
-            return parsed
-        }
-        return appearance.accentColor
     }
 
     // MARK: - Settings sheet (cog menu)
@@ -859,57 +832,80 @@ struct ProfileView: View {
     /// success/failure counts so the user can confirm the recovery
     /// actually worked.
     private var republishLibraryRow: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text("LIBRARY SYNC")
-                .eyebrowStyle(AppColor.textTertiary)
-            HStack(spacing: AppSpacing.sm) {
-                if let message = republishResultMessage {
-                    Image(systemName: republishSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(republishSucceeded ? AppColor.success : AppColor.destructive)
-                    Text(message)
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                        .textSelection(.enabled)
-                } else {
-                    Text("Re-upload all your recipes so friends can see them in your cookbook.")
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(3)
-                }
-                Spacer(minLength: AppSpacing.sm)
-                Button {
-                    Task { await republishLibrary() }
-                } label: {
-                    if isRepublishingLibrary {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 32, height: 32)
-                    } else {
-                        Image(systemName: "icloud.and.arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
-                            .frame(width: 32, height: 32)
-                            .background(AppColor.surfaceSunken)
-                            .clipShape(Circle())
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isRepublishingLibrary)
-                .accessibilityLabel("Re-publish library to cloud")
-            }
+        SettingsSyncRow(
+            eyebrow: "LIBRARY SYNC",
+            resultMessage: republishResultMessage,
+            resultSucceeded: republishSucceeded,
+            prompt: "Re-upload all your recipes so friends can see them in your cookbook.",
+            isBusy: isRepublishingLibrary,
+            buttonIcon: "icloud.and.arrow.up",
+            accent: appearance.accentColor,
+            buttonAccessibilityLabel: "Re-publish library to cloud"
+        ) {
+            Task { await republishLibrary() }
         }
-        .padding(AppSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    /// Shared chrome for the two CloudKit diagnostic rows in the
+    /// settings sheet — `cloudSyncRow` and `republishLibraryRow`. Both
+    /// render an eyebrow, an inline result (success/failure icon +
+    /// selectable message) or a fallback prompt, and a circular
+    /// action button that swaps to a spinner while in flight.
+    private struct SettingsSyncRow: View {
+        let eyebrow: String
+        let resultMessage: String?
+        let resultSucceeded: Bool
+        let prompt: String
+        let isBusy: Bool
+        let buttonIcon: String
+        let accent: Color
+        let buttonAccessibilityLabel: String
+        let action: () -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                Text(eyebrow)
+                    .eyebrowStyle(AppColor.textTertiary)
+                HStack(spacing: AppSpacing.sm) {
+                    if let resultMessage {
+                        Image(systemName: resultSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(resultSucceeded ? AppColor.success : AppColor.destructive)
+                        Text(resultMessage)
+                            .font(AppFont.caption)
+                            .foregroundStyle(AppColor.textSecondary)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                            .textSelection(.enabled)
+                    } else {
+                        Text(prompt)
+                            .font(AppFont.caption)
+                            .foregroundStyle(AppColor.textSecondary)
+                            .lineLimit(3)
+                    }
+                    Spacer(minLength: AppSpacing.sm)
+                    Button(action: action) {
+                        if isBusy {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 32, height: 32)
+                        } else {
+                            Image(systemName: buttonIcon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(accent)
+                                .frame(width: 32, height: 32)
+                                .background(AppColor.surfaceSunken)
+                                .clipShape(Circle())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isBusy)
+                    .accessibilityLabel(buttonAccessibilityLabel)
+                }
+            }
+            .surfaceCard()
+        }
     }
 
     private func republishLibrary() async {
@@ -940,57 +936,18 @@ struct ProfileView: View {
     /// user can self-diagnose iCloud-not-signed-in, missing-schema-
     /// field, or network failures without an Xcode console.
     private func cloudSyncRow(identity: UserAccount.UserIdentity) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text("CLOUD SYNC")
-                .eyebrowStyle(AppColor.textTertiary)
-            HStack(spacing: AppSpacing.sm) {
-                if let message = resyncResultMessage {
-                    Image(systemName: resyncSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(resyncSucceeded ? AppColor.success : AppColor.destructive)
-                    Text(message)
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                        .textSelection(.enabled)
-                } else {
-                    Text("Push your profile to CloudKit so friends can find you in search.")
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                        .lineLimit(3)
-                }
-                Spacer(minLength: AppSpacing.sm)
-                Button {
-                    Task { await resyncProfile(identity: identity) }
-                } label: {
-                    if isResyncingProfile {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 32, height: 32)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
-                            .frame(width: 32, height: 32)
-                            .background(AppColor.surfaceSunken)
-                            .clipShape(Circle())
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isResyncingProfile)
-                .accessibilityLabel("Re-sync profile to cloud")
-            }
+        SettingsSyncRow(
+            eyebrow: "CLOUD SYNC",
+            resultMessage: resyncResultMessage,
+            resultSucceeded: resyncSucceeded,
+            prompt: "Push your profile to CloudKit so friends can find you in search.",
+            isBusy: isResyncingProfile,
+            buttonIcon: "arrow.clockwise",
+            accent: appearance.accentColor,
+            buttonAccessibilityLabel: "Re-sync profile to cloud"
+        ) {
+            Task { await resyncProfile(identity: identity) }
         }
-        .padding(AppSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
     private func resyncProfile(identity: UserAccount.UserIdentity) async {
@@ -1084,11 +1041,8 @@ struct ProfileView: View {
     /// firstRecipe(atOrAfter:) behavior so taps on dimmed letters
     /// remain useful instead of no-ops.
     private func firstFriend(atOrAfter letter: String) -> UserProfileSnapshot? {
-        guard let startIndex = LetterIndex.allLetters.firstIndex(of: letter) else { return nil }
-        let populated = populatedFriendLetters
-        for candidate in LetterIndex.allLetters[startIndex...] where populated.contains(candidate) {
-            return friendsStore.friends.first { LetterIndex.bucket(for: $0.displayName) == candidate }
+        LetterIndex.firstItem(in: friendsStore.friends, atOrAfter: letter) {
+            LetterIndex.bucket(for: $0.displayName)
         }
-        return nil
     }
 }

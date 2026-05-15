@@ -35,20 +35,19 @@ struct LlamasCookbookApp: App {
     /// (sound + banner while Cook Mode is minimized) keeps working.
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    init() {
-        // UIKit tint (keyboard Return key, text cursors, selection handles,
-        // navigation back chevron when SwiftUI delegates to UIKit chrome)
-        // is owned by `AppearanceSettings` — its init+didSet push the
-        // current accent into `UIView.appearance().tintColor` so the
-        // user's pick propagates to UIKit surfaces alongside SwiftUI's
-        // own `.tint()` modifier.
-
-        // AlarmKit auth is requested lazily from `CookModeView.onAppear`
-        // — prompting at cold launch (before the user has any concept of
-        // a "cooking timer") would feel mysterious. The first time they
-        // open Cook Mode is when the dialog earns its keep.
-
-    }
+    // No `init()` is needed — the two cold-launch concerns are owned
+    // elsewhere:
+    //
+    // - UIKit tint (keyboard Return key, text cursors, selection
+    //   handles, navigation back chevron when SwiftUI delegates to
+    //   UIKit chrome) is owned by `AppearanceSettings` — its
+    //   init+didSet push the current accent into
+    //   `UIView.appearance().tintColor` so the user's pick propagates
+    //   to UIKit surfaces alongside SwiftUI's own `.tint()` modifier.
+    // - AlarmKit auth is requested lazily from `CookModeView.onAppear`
+    //   — prompting at cold launch (before the user has any concept of
+    //   a "cooking timer") would feel mysterious. The first time they
+    //   open Cook Mode is when the dialog earns its keep.
 
     var body: some Scene {
         WindowGroup {
@@ -149,9 +148,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        // Slice 6 — kick off the APNs registration handshake so
-        // CloudKit's silent CKQuerySubscription pushes can reach
-        // the app. iOS calls back through one of the two
+        // Kick off the APNs registration handshake so CloudKit's
+        // silent CKQuerySubscription pushes can reach the app.
+        // iOS calls back through one of the two
         // `didRegister…` / `didFailToRegister…` methods below;
         // CloudKit auto-routes pushes via the device token, so
         // we don't have to do anything with the token ourselves.

@@ -127,9 +127,9 @@ final class UserAccount {
                 displayName: mirroredName,
                 accentHex: mirroredAccent
             )
-            // Slice 6 — register friend / import subscriptions
-            // immediately after the mirror cache lands. Sequenced
-            // (not parallel) because subscription registration
+            // Register friend / import subscriptions immediately
+            // after the mirror cache lands. Sequenced (not
+            // parallel) because subscription registration
             // depends on `UserProfileMirror.cachedRecordID`
             // being populated, and `bindAfterSignIn` is the call
             // that populates it. Idempotent — also fired by
@@ -184,8 +184,8 @@ final class UserAccount {
         // different Apple ID (or a fresh re-sign-in) gets a fresh
         // bulk-publish opportunity for that user's library.
         LibraryMirrorService.resetBulkPublishMarker()
-        // Slice 6 — best-effort unsubscribe so the previous user's
-        // pushes don't keep firing against this device's APNs token
+        // Best-effort unsubscribe so the previous user's pushes
+        // don't keep firing against this device's APNs token
         // after sign-out. Cloud-side cleanup is silent on failure
         // (orphaned subscriptions are cheap; CloudKit eventually
         // GCs them), and the local subscription registration marker
@@ -233,23 +233,23 @@ final class UserAccount {
             // it adds a new record type.
             await UserProfileMirror.deleteOnAccountDeletion()
             if let me = cascadeUserID {
-                // Slice 2 cascade: every Friendship record this user
+                // Cascade: every Friendship record this user
                 // appears in. Includes pending requests in either
                 // direction so the recipient / requester sees them
                 // vanish silently on their next refresh.
                 await CloudKitService.deleteAllFriendships(for: me)
-                // Slice 3 cascade: every PublishedRecipe record this
+                // Cascade: every PublishedRecipe record this
                 // user owns. Friends viewing this user's library
                 // would otherwise see stale records pointing at a
                 // now-orphaned ownerID until the records expired.
                 await CloudKitService.deleteAllPublishedRecipes(ownerID: me)
-                // Slice 6 cascade: every RecipeImport audit row
-                // this user appears on (either as importer or as
-                // chain-root creator). Hard-delete — see the
-                // doc comment on `deleteAllRecipeImports` for the
+                // Cascade: every RecipeImport audit row this user
+                // appears on (either as importer or as chain-root
+                // creator). Hard-delete — see the doc comment on
+                // `deleteAllRecipeImports` for the
                 // hard-delete-vs-anonymize tradeoff.
                 await CloudKitService.deleteAllRecipeImports(for: me)
-                // Slice 6 cascade: best-effort unsubscribe of the
+                // Cascade: best-effort unsubscribe of the
                 // CKQuerySubscriptions registered at sign-in.
                 // Silent on failure — orphaned subscriptions are
                 // cheap server-side state that CloudKit will

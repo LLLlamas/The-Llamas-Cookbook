@@ -33,7 +33,7 @@ extension Recipe {
             lines.append("")
         }
 
-        if let preface = trimmedNote(prefaceNote) {
+        if let preface = prefaceNote.trimmedIfNonEmpty {
             lines.append("Note: \(preface)")
             lines.append("")
         }
@@ -46,19 +46,19 @@ extension Recipe {
                 // Per-step special note rides indented under the step
                 // it belongs to so the structure stays obvious in
                 // plain text.
-                if let stepNote = trimmedNote(s.specialNote) {
+                if let stepNote = s.specialNote.trimmedIfNonEmpty {
                     lines.append("   Note: \(stepNote)")
                 }
             }
             lines.append("")
         }
 
-        if let epilogue = trimmedNote(epilogueNote) {
+        if let epilogue = epilogueNote.trimmedIfNonEmpty {
             lines.append("Note: \(epilogue)")
             lines.append("")
         }
 
-        if let general = trimmedNote(generalNote) {
+        if let general = generalNote.trimmedIfNonEmpty {
             lines.append("Note: \(general)")
             lines.append("")
         }
@@ -68,11 +68,5 @@ extension Recipe {
         }
 
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func trimmedNote(_ value: String?) -> String? {
-        guard let v = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !v.isEmpty else { return nil }
-        return v
     }
 }

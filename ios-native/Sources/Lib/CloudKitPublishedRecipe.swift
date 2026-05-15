@@ -194,8 +194,8 @@ extension CloudKitService {
         record["recipeTitle"] = recipeTitle as NSString
         record["updatedAt"] = Date() as NSDate
 
-        // Slice 5 chain attribution: when the publisher imported
-        // this recipe from someone else, carry the chain-root
+        // Chain attribution: when the publisher imported this
+        // recipe from someone else, carry the chain-root
         // identifiers forward so a downstream importer can preserve
         // the chain. nil for own-authored recipes; CKRecord with a
         // nil value explicitly removes the field, which is the

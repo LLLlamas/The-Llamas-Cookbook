@@ -843,9 +843,9 @@ enum RecipeShare {
         return recipe
     }
 
-    /// Slice 5 entry point — creates a fresh local Recipe from a
-    /// friend's `PublishedRecipe` envelope and stamps the chain-
-    /// attribution fields. Distinct from `materialize` above so the
+    /// Friend-import entry point — creates a fresh local Recipe
+    /// from a friend's `PublishedRecipe` envelope and stamps the
+    /// chain-attribution fields. Distinct from `materialize` above so the
     /// file/link share path's attribution (`sharedBy`/`sharedAt`/
     /// `sourceShareID`) and the friend-import path's attribution
     /// (`originalCreator*` / `originalSharer*` / `originalRecipeID`

@@ -308,7 +308,7 @@ struct RecipeImportPreviewView: View {
 
     // MARK: helpers
 
-    /// Renders "Originally shared by Lorenzo · Apr 27" when both
+    /// Renders "Originally shared by Lorenzo · Apr 27, 2026" when both
     /// fields are present; "Originally shared by Lorenzo" alone when
     /// only the name is set; nil when sharedBy is empty/nil (matches
     /// Recipe-Sharing.md §15 test #14 — empty-name share emits no
@@ -319,11 +319,8 @@ struct RecipeImportPreviewView: View {
     /// a future-dated provenance line ("shared by X · Jan 1 2099").
     private var provenanceLine: String? {
         guard let by = RecipeShare.cappedDisplayName(envelope.share.sharedBy) else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
         let safeDate = min(envelope.share.createdAt, Date())
-        let dateString = formatter.string(from: safeDate)
-        return "Originally shared by \(by) · \(dateString)"
+        return "Originally shared by \(by) · \(Formatters.date.string(from: safeDate))"
     }
 
     /// Recipe-level notes in canonical surface order: preface, then

@@ -63,13 +63,6 @@ struct FriendRecipeDetailView: View {
         publishedDetail?.envelope
     }
 
-    private var friendAccent: Color {
-        if let hex = friend.accentHex, let color = Color(hex: hex) {
-            return color
-        }
-        return AppColor.accent
-    }
-
     /// Whether the "Add to my book" action should be enabled.
     /// Disabled during in-flight load (no envelope yet) and during
     /// the import itself (no double-fire). The materialize is
@@ -95,7 +88,7 @@ struct FriendRecipeDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .enableSwipeBack()
-        .tint(friendAccent)
+        .tint(friend.resolvedAccent)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -104,7 +97,7 @@ struct FriendRecipeDetailView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(friendAccent)
+                        .foregroundStyle(friend.resolvedAccent)
                         .accentTextOutline()
                         .frame(width: 30, height: 30)
                 }
@@ -124,7 +117,7 @@ struct FriendRecipeDetailView: View {
                 } label: {
                     Image(systemName: "square.and.arrow.down")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(canImport ? friendAccent : AppColor.textTertiary)
+                        .foregroundStyle(canImport ? friend.resolvedAccent : AppColor.textTertiary)
                         .accentTextOutline()
                 }
                 .disabled(!canImport)
@@ -190,7 +183,7 @@ struct FriendRecipeDetailView: View {
             AppColor.background.opacity(0.85)
                 .ignoresSafeArea()
             VStack(spacing: AppSpacing.md) {
-                LlamaProgressIndicator(size: 80, accent: friendAccent)
+                LlamaProgressIndicator(size: 80, accent: friend.resolvedAccent)
                 Text("Adding to your book…")
                     .font(AppFont.body)
                     .foregroundStyle(AppColor.textSecondary)
@@ -250,7 +243,7 @@ struct FriendRecipeDetailView: View {
                     .foregroundStyle(AppColor.onAccent)
                     .padding(.horizontal, AppSpacing.lg)
                     .padding(.vertical, AppSpacing.sm)
-                    .background(friendAccent)
+                    .background(friend.resolvedAccent)
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -297,7 +290,7 @@ struct FriendRecipeDetailView: View {
             // AirDrop import.
             Text(StringCase.titleCase(envelope.recipe.title))
                 .font(AppFont.recipeTitle)
-                .foregroundStyle(friendAccent)
+                .foregroundStyle(friend.resolvedAccent)
                 .accentTextOutline()
                 .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
 
@@ -365,7 +358,7 @@ struct FriendRecipeDetailView: View {
                 ForEach(sorted, id: \.id) { ing in
                     HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
                         Circle()
-                            .fill(friendAccent.opacity(0.5))
+                            .fill(friend.resolvedAccent.opacity(0.5))
                             .frame(width: 5, height: 5)
                             .padding(.top, 6)
                         Text(formatIngredient(ing))
@@ -389,7 +382,7 @@ struct FriendRecipeDetailView: View {
                             Text("\(idx + 1).")
                                 .font(AppFont.body)
                                 .fontWeight(.semibold)
-                                .foregroundStyle(friendAccent)
+                                .foregroundStyle(friend.resolvedAccent)
                                 .frame(width: 24, alignment: .leading)
                             Text(step.text)
                                 .font(AppFont.body)
@@ -445,7 +438,7 @@ struct FriendRecipeDetailView: View {
             .padding(.bottom, 6)
             .background(alignment: .bottom) {
                 Capsule()
-                    .fill(friendAccent.opacity(0.55))
+                    .fill(friend.resolvedAccent.opacity(0.55))
                     .frame(height: 2)
             }
             .padding(.top, AppSpacing.lg)
@@ -457,8 +450,8 @@ struct FriendRecipeDetailView: View {
             .font(.system(size: 13, weight: .medium))
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
-            .foregroundStyle(friendAccent)
-            .overlay(Capsule().stroke(friendAccent.opacity(0.45), lineWidth: 1))
+            .foregroundStyle(friend.resolvedAccent)
+            .overlay(Capsule().stroke(friend.resolvedAccent.opacity(0.45), lineWidth: 1))
             .clipShape(Capsule())
     }
 
@@ -627,9 +620,9 @@ struct FriendRecipeDetailView: View {
             showImportOverlay = false
         }
 
-        // Slice 6 audit write — fire-and-forget so a network blip
-        // doesn't delay the post-import navigation. The chip on
-        // the original creator's detail view depends on this row
+        // Audit write — fire-and-forget so a network blip doesn't
+        // delay the post-import navigation. The chip on the
+        // original creator's detail view depends on this row
         // landing, but a missed write only under-counts by one
         // (acceptable for a delight surface). Captured locals
         // make the detached task `Sendable`-safe — `newRecipe`

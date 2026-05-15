@@ -60,7 +60,7 @@ struct AddFriendSheet: View {
                 // Surface the keyboard immediately — the user came
                 // here to type a name, no reason to make them tap
                 // the field first.
-                DispatchQueue.main.async { searchFieldFocused = true }
+                Task { @MainActor in searchFieldFocused = true }
             }
             .onDisappear {
                 searchTask?.cancel()

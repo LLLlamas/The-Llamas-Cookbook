@@ -28,7 +28,7 @@ struct RecipeDetailView: View {
     @State private var showingAppearance = false
     @State private var showingSourdough = false
     @State private var showingPhotoCarousel = false
-    /// Slice 6 — "Imported by N" tap target. Sheet lists every
+    /// "Imported by N" tap target. Sheet lists every
     /// `RecipeImport` audit row for this recipe (sorted newest
     /// first) so the user can see exactly which friends added
     /// it to their cookbook + when. Only ever rendered for
@@ -42,7 +42,7 @@ struct RecipeDetailView: View {
     /// `.medium` whenever the sheet is dismissed so the next open
     /// always starts compact.
     @State private var importersDetent: PresentationDetent = .medium
-    /// Slice 6 — tap target for the "Originally shared by"
+    /// Tap target for the "Originally shared by"
     /// caption on imported recipes. Sheet shows the chain root,
     /// import date, and (when chain length > 1) the
     /// intermediate sharer. Only ever non-nil for imported
@@ -67,11 +67,11 @@ struct RecipeDetailView: View {
     // MARK: - Share state
     //
     // Three transports surfaced in the share Menu (file, link, text);
-    // see Recipe-Sharing.md §7. Tap a menu item → `triggerShare(_:)`
-    // → straight to the share sheet via `executeShare(_:)`. The sender
-    // display name is read from `OwnerProfile.userName` at envelope-
-    // build time; an empty value ships `sharedBy: nil` and the
-    // recipient's Detail hides the provenance line entirely.
+    // see Recipe-Sharing.md §7. Tap a menu item → `executeShare(_:)`
+    // → straight to the share sheet. The sender display name is read
+    // from `OwnerProfile.userName` at envelope-build time; an empty
+    // value ships `sharedBy: nil` and the recipient's Detail hides
+    // the provenance line entirely.
 
     /// Ready-to-share payload. Wrapped in a sum type so the cleanup
     /// path (`onComplete` of `ShareSheet`) can distinguish the file
@@ -82,8 +82,6 @@ struct RecipeDetailView: View {
     /// True while we're uploading the envelope to CloudKit. Drives a
     /// blocking loading overlay so the user doesn't tap "Share recipe"
     /// and stare at nothing for the second or two an upload takes.
-    /// Slice 2 of the cloud-share rollout (Implementing-User-Sign-In.md
-    /// §0 architecture pivot 2026-04-28).
     @State private var isPreparingCloudShare = false
 
     @State private var showCloudShareUnavailable = false
@@ -119,19 +117,19 @@ struct RecipeDetailView: View {
                     // Recipe-Sharing.md §8.3 ("a cookbook-from-Mom is a
                     // cookbook-from-Mom even after you tweak the salt
                     // amount") — otherwise we surface the local
-                    // "Added MM/DD/YYYY" stamp here so it has a home
+                    // "Added <date>" stamp here so it has a home
                     // since the bottom signature row was removed.
                     //
-                    // Slice 6 — when the line is provenance (recipe
-                    // was imported), wrap it in a button that opens
+                    // When the line is provenance (recipe was
+                    // imported), wrap it in a button that opens
                     // the attribution sheet (chain root, import date,
                     // optional "via [Sharer]" hop). Local "Added
-                    // MM/DD/YYYY" stays static text — there's nothing
+                    // <date>" stays static text — there's nothing
                     // to drill into.
                     topMetadataLineView
 
-                    // Slice 6 — "Imported by N" chip. Own-authored
-                    // recipes only (the attribution path is mutually
+                    // "Imported by N" chip. Own-authored recipes
+                    // only (the attribution path is mutually
                     // exclusive). Tap opens the importers list.
                     // Refreshed via stale-while-revalidate on appear
                     // and on each recipe-import push.
@@ -184,7 +182,7 @@ struct RecipeDetailView: View {
                     if !sortedSteps.isEmpty {
                         section("Steps") {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                if let preface = trimmedNote(recipe.prefaceNote) {
+                                if let preface = recipe.prefaceNote.trimmedIfNonEmpty {
                                     noteCallout(preface)
                                 }
                                 ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { idx, step in
@@ -195,15 +193,9 @@ struct RecipeDetailView: View {
                                             captions: stepCaptions
                                         )
                                     }
-                                    .scrollTransition(.interactive, axis: .vertical) { content, phase in
-                                        let v = phase.value
-                                        let scale = 1.0 + 0.04 * (1 - abs(v)) - 0.04 * abs(v)
-                                        return content
-                                            .scaleEffect(scale)
-                                            .opacity(1.0 - 0.08 * abs(v))
-                                    }
+                                    .cardScrollTransition()
                                 }
-                                if let epilogue = trimmedNote(recipe.epilogueNote) {
+                                if let epilogue = recipe.epilogueNote.trimmedIfNonEmpty {
                                     noteCallout(epilogue)
                                 }
                             }
@@ -213,17 +205,17 @@ struct RecipeDetailView: View {
                         // has no steps yet but the user attached one.
                         section("Notes") {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                if let preface = trimmedNote(recipe.prefaceNote) {
+                                if let preface = recipe.prefaceNote.trimmedIfNonEmpty {
                                     noteCallout(preface)
                                 }
-                                if let epilogue = trimmedNote(recipe.epilogueNote) {
+                                if let epilogue = recipe.epilogueNote.trimmedIfNonEmpty {
                                     noteCallout(epilogue)
                                 }
                             }
                         }
                     }
 
-                    if let general = trimmedNote(recipe.generalNote) {
+                    if let general = recipe.generalNote.trimmedIfNonEmpty {
                         section("General") {
                             noteCallout(general)
                         }
@@ -351,7 +343,7 @@ struct RecipeDetailView: View {
                         // unavailable / upload-failed surfaces a friendly
                         // "try again later" alert and aborts.
                         Button {
-                            triggerShare(.url)
+                            executeShare(.url)
                         } label: {
                             Label("Share recipe", systemImage: "square.and.arrow.up")
                         }
@@ -360,7 +352,7 @@ struct RecipeDetailView: View {
                         // provenance, so the envelope's `sharedBy` field is
                         // irrelevant for this transport.
                         Button {
-                            triggerShare(.text)
+                            executeShare(.text)
                         } label: {
                             Label("Share as text", systemImage: "doc.plaintext")
                         }
@@ -399,10 +391,10 @@ struct RecipeDetailView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingImporters) {
-            // Slice 6 — chain-root recipe id is `recipe.id` for
-            // own-authored recipes. The chip never renders for
-            // imported recipes, so this fork is the only one we
-            // need. FriendsStore + NavigationContext + UserAccount
+            // Chain-root recipe id is `recipe.id` for own-authored
+            // recipes. The chip never renders for imported recipes,
+            // so this fork is the only one we need. FriendsStore +
+            // NavigationContext + UserAccount
             // are re-injected so a row tap can push the importer's
             // cookbook (and onward into a friend recipe detail)
             // without a missing-environment crash — sheets break
@@ -429,7 +421,7 @@ struct RecipeDetailView: View {
             if !isShowing { importersDetent = .medium }
         }
         .sheet(isPresented: $showingAttribution) {
-            // Slice 6 — only ever presented for imported recipes
+            // Only ever presented for imported recipes
             // (`originalCreator*` non-nil). Reads the chain via
             // the local Recipe's denormalized fields so the sheet
             // works offline.
@@ -460,10 +452,10 @@ struct RecipeDetailView: View {
             navContext.detailedRecipeID = recipe.id
         }
         .task(id: recipe.id) {
-            // Slice 6 stale-while-revalidate refresh of the
-            // "Imported by N" chip. Triggers once on first
-            // appear, and again whenever the user navigates to
-            // a different recipe (the `id:` parameter restarts
+            // Stale-while-revalidate refresh of the "Imported by
+            // N" chip. Triggers once on first appear, and again
+            // whenever the user navigates to a different recipe
+            // (the `id:` parameter restarts
             // the task on identity change). Seed `cachedImportCount`
             // from `ImportCountCache` first so the chip renders
             // its last-known value instantly, then fan in the
@@ -476,10 +468,10 @@ struct RecipeDetailView: View {
         .onReceive(NotificationCenter.default.publisher(
             for: CloudKitSubscriptions.didFireNotification
         )) { note in
-            // Slice 6 — re-fetch the import count when a push
-            // arrives signaling a new RecipeImport row. Don't
-            // gate by recipe match (the push payload doesn't
-            // include record fields) — re-fetch unconditionally
+            // Re-fetch the import count when a push arrives
+            // signaling a new RecipeImport row. Don't gate by
+            // recipe match (the push payload doesn't include
+            // record fields) — re-fetch unconditionally
             // and let the cache-vs-fresh comparison decide
             // whether to re-render. Cheap (one network call,
             // dedup'd on identical values).
@@ -611,13 +603,13 @@ struct RecipeDetailView: View {
         }
     }
 
-    // MARK: - Slice 6 chip + provenance tap
+    // MARK: - Import-count chip + provenance tap
 
     /// True for recipes the local user authored — drives the
     /// "Imported by N" chip + the importers-list sheet path. The
     /// canonical signal is "this Recipe wasn't materialized from
-    /// a friend's PublishedRecipe," which we read from the slice
-    /// 5 attribution fields:
+    /// a friend's PublishedRecipe," which we read from the
+    /// attribution fields:
     ///
     /// - `originalCreatorUserRecordName == nil` → never imported,
     ///   user authored from scratch (Write / Text / Link / Photo).
@@ -715,14 +707,11 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// Just the local "Added MM/DD/YYYY" half of the eyebrow —
+    /// Just the local "Added <date>" half of the eyebrow —
     /// `topMetadataLineView` reaches for this when `provenanceLine`
     /// is nil (recipe is locally authored).
     private var addedDateLine: String {
-        let dateString = recipe.createdAt.formatted(
-            .dateTime.month(.twoDigits).day(.twoDigits).year()
-        )
-        return "Added \(dateString)"
+        "Added \(Formatters.date.string(from: recipe.createdAt))"
     }
 
     /// Stale-while-revalidate fetch of the import count.
@@ -910,15 +899,8 @@ struct RecipeDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
-    private func trimmedNote(_ value: String?) -> String? {
-        guard let v = value?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else {
-            return nil
-        }
-        return v
-    }
-
     private var hasOrphanStepNotes: Bool {
-        trimmedNote(recipe.prefaceNote) != nil || trimmedNote(recipe.epilogueNote) != nil
+        recipe.prefaceNote.trimmedIfNonEmpty != nil || recipe.epilogueNote.trimmedIfNonEmpty != nil
     }
 
     private func sourceLink(url: String) -> some View {
@@ -978,7 +960,7 @@ struct RecipeDetailView: View {
                         VStack(spacing: 2) {
                             Text("+\(remainingCount)")
                                 .font(.system(size: 16, weight: .semibold))
-                            Text(remainingCount == 1 ? "more" : "more")
+                            Text("more")
                                 .font(.system(size: 10, weight: .medium))
                         }
                         .foregroundStyle(appearance.accentColor)
@@ -1191,16 +1173,16 @@ struct RecipeDetailView: View {
 
     // MARK: - Provenance
 
-    /// "Originally shared by Lorenzo · Apr 27" when both name and date
-    /// are present; "Originally shared by Lorenzo" alone when only the
-    /// name is set; nil for locally-authored recipes. Stamped at
+    /// "Originally shared by Lorenzo · Apr 27, 2026" when both name and
+    /// date are present; "Originally shared by Lorenzo" alone when only
+    /// the name is set; nil for locally-authored recipes. Stamped at
     /// materialize time and never cleared by `Recipe.apply(_:)` — the
     /// editor leaves it alone so credit survives local edits.
     /// Display-name cap is enforced here as a render-side defense for
     /// envelopes from older app versions that predate the encode-side
     /// cap.
     ///
-    /// **Two-source resolution.** Slice 5's friend-import path
+    /// **Two-source resolution.** The friend-import path
     /// stamps `originalCreatorDisplayName` + `importedAt`; the
     /// older file/link share path stamps `sharedBy` + `sharedAt`.
     /// We prefer the friend-import fields (they're the canonical
@@ -1229,28 +1211,18 @@ struct RecipeDetailView: View {
         guard let at = date else {
             return "Originally shared by \(by)"
         }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return "Originally shared by \(by) · \(formatter.string(from: at))"
+        return "Originally shared by \(by) · \(Formatters.date.string(from: at))"
     }
 
     // MARK: - Share flow
 
-    /// Menu-tap entry point. The sender display name comes from
-    /// `OwnerProfile.userName` directly — when empty, the envelope
-    /// ships `sharedBy: nil` and the recipient's Detail hides the
-    /// provenance line entirely.
-    private func triggerShare(_ action: ShareAction) {
-        executeShare(action)
-    }
-
-    /// Routes the user-picked transport to the right builder. The
-    /// `.url` path is async — we probe iCloud first and prefer the
-    /// cloud-permalink form (short URL, photos included) when
-    /// available, falling back to the local self-contained URL form
-    /// (lzma-compressed, photos stripped) when iCloud is signed out
-    /// or upload fails. `.file` and `.text` stay synchronous since
-    /// they don't depend on network.
+    /// Menu-tap entry point — routes the user-picked transport to the
+    /// right builder. The `.url` path is async: we probe iCloud first
+    /// and prefer the cloud-permalink form (short URL, photos
+    /// included) when available, falling back to the local
+    /// self-contained URL form (lzma-compressed, photos stripped)
+    /// when iCloud is signed out or upload fails. `.file` and `.text`
+    /// stay synchronous since they don't depend on network.
     private func executeShare(_ action: ShareAction) {
         switch action {
         case .file:

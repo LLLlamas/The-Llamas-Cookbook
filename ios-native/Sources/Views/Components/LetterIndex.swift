@@ -214,4 +214,24 @@ extension LetterIndex {
         let upper = String(first).uppercased()
         return upper.range(of: "^[A-Z]$", options: .regularExpression) != nil ? upper : "#"
     }
+
+    /// Walk `letters` forward from `letter` and return the first `item`
+    /// whose `bucket` matches the first populated letter at or after
+    /// `letter`. Keeps taps on empty/dimmed letters useful — `#` with
+    /// no non-letter items falls through to A. Shared by the Library
+    /// and Friends scrub strips; pass the caller's own bucketing
+    /// function so each list keeps its existing bucket semantics.
+    static func firstItem<Item>(
+        in items: [Item],
+        atOrAfter letter: String,
+        letters: [String] = LetterIndex.allLetters,
+        bucket: (Item) -> String
+    ) -> Item? {
+        guard let startIndex = letters.firstIndex(of: letter) else { return nil }
+        let populated = Set(items.map(bucket))
+        for candidate in letters[startIndex...] where populated.contains(candidate) {
+            return items.first { bucket($0) == candidate }
+        }
+        return nil
+    }
 }

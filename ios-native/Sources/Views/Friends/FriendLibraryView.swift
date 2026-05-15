@@ -44,13 +44,6 @@ struct FriendLibraryView: View {
     /// library's tag filter.
     @State private var categoryFilter: String? = nil
 
-    private var friendAccent: Color {
-        if let hex = friend.accentHex, let color = Color(hex: hex) {
-            return color
-        }
-        return AppColor.accent
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             friendHeader
@@ -69,7 +62,7 @@ struct FriendLibraryView: View {
                 totalCount: summaries.count,
                 countFor: { tag in summaries.filter { $0.tags.contains(tag) }.count },
                 selection: $categoryFilter,
-                accent: friendAccent
+                accent: friend.resolvedAccent
             )
             .background(AppColor.background)
             .overlay(alignment: .bottom) {
@@ -85,7 +78,7 @@ struct FriendLibraryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .enableSwipeBack()
-        .tint(friendAccent)
+        .tint(friend.resolvedAccent)
         .toolbar {
             if showsBackButton {
                 ToolbarItem(placement: .topBarLeading) {
@@ -95,7 +88,7 @@ struct FriendLibraryView: View {
                     } label: {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(friendAccent)
+                            .foregroundStyle(friend.resolvedAccent)
                             .accentTextOutline()
                             .frame(width: 30, height: 30)
                     }
@@ -104,11 +97,11 @@ struct FriendLibraryView: View {
             }
             ToolbarItem(placement: .principal) {
                 // Friend cookbook surfaces tint in the friend's accent
-                // (CLAUDE.md › UX guardrails) — pass `friendAccent`,
-                // not the local user's appearance.accentColor.
+                // (CLAUDE.md › UX guardrails) — pass the friend's
+                // resolved accent, not the local user's accentColor.
                 CookbookHeader(
                     title: StringCase.cookbookTitle(displayName: friend.displayName),
-                    accent: friendAccent
+                    accent: friend.resolvedAccent
                 )
             }
         }
@@ -132,7 +125,7 @@ struct FriendLibraryView: View {
         HStack(alignment: .top, spacing: AppSpacing.sm) {
             Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(friendAccent)
+                .foregroundStyle(friend.resolvedAccent)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Sign in to connect with friends")
@@ -146,10 +139,10 @@ struct FriendLibraryView: View {
         }
         .padding(AppSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(friendAccent.opacity(0.07))
+        .background(friend.resolvedAccent.opacity(0.07))
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(friendAccent.opacity(0.3), lineWidth: 1)
+                .stroke(friend.resolvedAccent.opacity(0.3), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
@@ -201,7 +194,7 @@ struct FriendLibraryView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AppColor.textTertiary)
             if let title = friend.lastCookedTitle, !title.isEmpty {
-                Text("\(Text(friend.isCookingNow ? "Currently Cooking: " : "Last cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(friendAccent))")
+                Text("\(Text(friend.isCookingNow ? "Currently Cooking: " : "Last cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(friend.resolvedAccent))")
                     .font(AppFont.caption)
                     .lineLimit(1)
             } else if friend.isCookingNow {
@@ -216,7 +209,7 @@ struct FriendLibraryView: View {
             }
             AccentDot(
                 hex: friend.accentHex,
-                fallback: friendAccent,
+                fallback: friend.resolvedAccent,
                 isGlowing: friend.isCookingNow,
                 outlineWhenIdle: true
             )
@@ -274,17 +267,11 @@ struct FriendLibraryView: View {
                             } label: {
                                 FriendRecipeCard(
                                     summary: summary,
-                                    accent: friendAccent
+                                    accent: friend.resolvedAccent
                                 )
                             }
                             .buttonStyle(.plain)
-                            .scrollTransition(.interactive, axis: .vertical) { content, phase in
-                                let v = phase.value
-                                let scale = 1.0 + 0.04 * (1 - abs(v)) - 0.04 * abs(v)
-                                return content
-                                    .scaleEffect(scale)
-                                    .opacity(1.0 - 0.08 * abs(v))
-                            }
+                            .cardScrollTransition()
                             .id(summary.id)
                         }
                     }
@@ -304,7 +291,7 @@ struct FriendLibraryView: View {
                 LetterIndex(
                     letters: LetterIndex.allLetters,
                     populated: populatedLetters,
-                    accent: friendAccent,
+                    accent: friend.resolvedAccent,
                     externalHighlightLetter: nil
                 ) { letter in
                     guard let target = firstSummary(atOrAfter: letter) else { return }
@@ -330,7 +317,7 @@ struct FriendLibraryView: View {
             .padding(.horizontal, AppSpacing.lg)
             .padding(.vertical, AppSpacing.sm)
             .background(AppColor.surface)
-            .foregroundStyle(friendAccent)
+            .foregroundStyle(friend.resolvedAccent)
             .overlay(
                 RoundedRectangle(cornerRadius: AppRadius.md)
                     .stroke(AppColor.divider, lineWidth: 1)
@@ -375,7 +362,7 @@ struct FriendLibraryView: View {
         VStack(spacing: AppSpacing.sm) {
             Image(systemName: "book.closed")
                 .font(.system(size: 36, weight: .regular))
-                .foregroundStyle(friendAccent.opacity(0.5))
+                .foregroundStyle(friend.resolvedAccent.opacity(0.5))
             Text("\(friend.displayName) hasn't shared any recipes yet.")
                 .font(AppFont.body)
                 .foregroundStyle(AppColor.textSecondary)
@@ -403,7 +390,7 @@ struct FriendLibraryView: View {
                     .foregroundStyle(AppColor.onAccent)
                     .padding(.horizontal, AppSpacing.lg)
                     .padding(.vertical, AppSpacing.sm)
-                    .background(friendAccent)
+                    .background(friend.resolvedAccent)
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -458,12 +445,6 @@ private struct FriendRecipeCard: View {
     let summary: PublishedRecipeSummary
     let accent: Color
 
-    private static let shortDate: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "M/d/yy"
-        return f
-    }()
-
     /// Shared `UIFont` for the description row. Mirrors
     /// `RecipeCardView.summaryFont` so own-library and friend-library
     /// cards measure and render the description identically.
@@ -495,7 +476,7 @@ private struct FriendRecipeCard: View {
 
                 Spacer(minLength: AppSpacing.xs)
 
-                Text("Updated \(Self.shortDate.string(from: summary.updatedAt))")
+                Text("Updated \(Formatters.date.string(from: summary.updatedAt))")
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(AppColor.textTertiary)
                     .monospacedDigit()

@@ -150,14 +150,14 @@ struct FriendsTabView: View {
                             recipeCount: recipeCounts[friend.userRecordName],
                             cookThumbnail: cookThumbnails[friend.userRecordName],
                             totalSaves: friendTotalSaves[friend.userRecordName],
-                            friendsSince: friendsStore.friendsSinceByID[friend.userRecordName],
-                            fallbackAccent: appearance.accentColor
+                            friendsSince: friendsStore.friendsSinceByID[friend.userRecordName]
                         )
                     }
                     .buttonStyle(.plain)
                     .task(id: friend.userRecordName) {
-                        await loadCountIfNeeded(for: friend)
-                        await loadTotalSavesIfNeeded(for: friend)
+                        async let count: Void = loadCountIfNeeded(for: friend)
+                        async let saves: Void = loadTotalSavesIfNeeded(for: friend)
+                        _ = await (count, saves)
                     }
                 }
             }
@@ -312,7 +312,6 @@ private struct FriendCardView: View {
     /// Nil for legacy accepted records that predate the field — the
     /// line collapses silently in that case.
     let friendsSince: Date?
-    let fallbackAccent: Color
 
     /// Bottom-left thumbnail size. Same 52pt frame as before — the
     /// slot moved from the trailing edge to under the cooking line,
@@ -324,13 +323,6 @@ private struct FriendCardView: View {
     /// Mirrors `AccentDot`'s `pulse` flag and animation curve so the
     /// inline dot and the border breathe in sync.
     @State private var pulse: Bool = false
-
-    private var friendAccent: Color {
-        if let hex = friend.accentHex, let color = Color(hex: hex) {
-            return color
-        }
-        return fallbackAccent
-    }
 
     /// Has the friend cooked something we know the title of? Drives
     /// fallback selection in the thumbnail slot — `LlamaLogo` for "they
@@ -355,13 +347,13 @@ private struct FriendCardView: View {
             HStack(spacing: AppSpacing.xs) {
                 AccentDot(
                     hex: friend.accentHex,
-                    fallback: fallbackAccent,
+                    fallback: AppColor.accent,
                     isGlowing: friend.isCookingNow,
                     outlineWhenIdle: true
                 )
                 Text(friend.displayName)
                     .font(.system(size: 24, weight: .bold, design: .serif))
-                    .foregroundStyle(friendAccent)
+                    .foregroundStyle(friend.resolvedAccent)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .accentTextOutline()
@@ -381,7 +373,7 @@ private struct FriendCardView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "book.closed.fill")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(friendAccent)
+                        .foregroundStyle(friend.resolvedAccent)
                     Text(count == 1 ? "1 Recipe" : "\(count) Recipes")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(AppColor.textTertiary)
@@ -433,7 +425,7 @@ private struct FriendCardView: View {
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
                 .strokeBorder(
-                    friendAccent.opacity(
+                    friend.resolvedAccent.opacity(
                         friend.isCookingNow ? (pulse ? 0.95 : 0.65) : 0.5
                     ),
                     lineWidth: friend.isCookingNow ? (pulse ? 2.5 : 2.0) : 1.5
@@ -457,7 +449,7 @@ private struct FriendCardView: View {
     /// 1. Saves > 0 → bookmark glyph + count, matching the chip
     ///    `RecipeDetailView` uses for "Imported by N" so the two
     ///    surfaces share a visual vocabulary for save activity.
-    /// 2. Otherwise → "Friends since: M/D/YY" using the friendship's
+    /// 2. Otherwise → "Friends since: <date>" using the friendship's
     ///    `acceptedAt` date (when status flipped to accepted, i.e.
     ///    when the friendship actually began). Falls back to empty
     ///    if the date is unavailable (legacy records that predate
@@ -470,28 +462,17 @@ private struct FriendCardView: View {
             HStack(spacing: 4) {
                 Image(systemName: "bookmark.fill")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(friendAccent)
+                    .foregroundStyle(friend.resolvedAccent)
                 Text(saves == 1 ? "1 Save" : "\(saves) Saves")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
             }
         } else if let since = friendsSince {
-            Text("Friends since: \(Self.shortDate.string(from: since))")
+            Text("Friends since: \(Formatters.date.string(from: since))")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(AppColor.textTertiary)
         }
     }
-
-    /// Shared formatter — `M/d/yy` matches the short-date convention
-    /// used by `RecipeCardView` and `FriendLibraryView` for compact
-    /// card metadata. Fixed format (rather than `dateStyle: .short`)
-    /// so the line stays narrow enough to coexist with the cooking
-    /// eyebrow on a half-width grid cell across locales.
-    private static let shortDate: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "M/d/yy"
-        return f
-    }()
 
     @ViewBuilder
     private var cookingLine: some View {
@@ -500,7 +481,7 @@ private struct FriendCardView: View {
                 Image(systemName: "fork.knife")
                     .font(AppFont.caption)
                     .foregroundStyle(AppColor.textTertiary)
-                Text("\(Text(friend.isCookingNow ? "Cooking: " : "Last Cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(friendAccent))")
+                Text("\(Text(friend.isCookingNow ? "Cooking: " : "Last Cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(title).fontWeight(.semibold).foregroundStyle(friend.resolvedAccent))")
                     .font(AppFont.caption)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -538,11 +519,11 @@ private struct FriendCardView: View {
                     cornerRadius: AppRadius.md
                 ) {
                     RoundedRectangle(cornerRadius: AppRadius.md)
-                        .fill(friendAccent.opacity(0.12))
+                        .fill(friend.resolvedAccent.opacity(0.12))
                 }
             } else {
                 RoundedRectangle(cornerRadius: AppRadius.md)
-                    .fill(friendAccent.opacity(0.12))
+                    .fill(friend.resolvedAccent.opacity(0.12))
                     .overlay(fallbackLlama)
             }
         }
@@ -568,14 +549,14 @@ private struct FriendCardView: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .foregroundStyle(friendAccent)
+                .foregroundStyle(friend.resolvedAccent)
                 .padding(7)
         } else {
             Image("Friends_Llama_Icon")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .foregroundStyle(friendAccent)
+                .foregroundStyle(friend.resolvedAccent)
                 .padding(7)
         }
     }

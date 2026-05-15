@@ -194,25 +194,18 @@ struct RecipeCardView: View {
 
     private var dateStack: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text("Added \(Self.shortDate.string(from: recipe.createdAt))")
+            Text("Added \(Formatters.date.string(from: recipe.createdAt))")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(AppColor.textSecondary)
                 .monospacedDigit()
             if let last = recipe.lastCookedAt {
-                Text("Last cooked on \(Self.shortDate.string(from: last))")
+                Text("Last cooked on \(Formatters.date.string(from: last))")
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(AppColor.textTertiary)
                     .monospacedDigit()
             }
         }
     }
-
-    /// Shared formatter — M/d/yy keeps the card's right side compact.
-    private static let shortDate: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "M/d/yy"
-        return f
-    }()
 
     /// Shared `UIFont` for the description row. Drives both the
     /// `ShrinkingDescriptionView` measurement pass and its rendered

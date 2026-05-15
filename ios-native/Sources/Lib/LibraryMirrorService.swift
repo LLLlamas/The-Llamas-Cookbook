@@ -73,9 +73,9 @@ final class LibraryMirrorService {
     /// canceled and replaced with this one — net effect: one upload
     /// `uploadDebounce` after the user stops mashing Save.
     ///
-    /// Slice 5 chain attribution: the published envelope's
-    /// `sharedBy` and the parent record's `originalCreatorID` /
-    /// `originalRecipeID` fields are all derived from the local
+    /// Chain attribution: the published envelope's `sharedBy` and
+    /// the parent record's `originalCreatorID` / `originalRecipeID`
+    /// fields are all derived from the local
     /// recipe's `originalCreator*` / `originalRecipeID` fields. For
     /// own-authored recipes those are nil; for recipes the user
     /// imported from a friend they carry the chain root's identity

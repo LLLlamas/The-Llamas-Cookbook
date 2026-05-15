@@ -157,10 +157,10 @@ struct LibraryView: View {
                 .presentationDragIndicator(.visible)
         }
         .onChange(of: navContext.pendingImportedRecipeID) { _, newID in
-            // Slice 5 — when a friend's recipe is imported (signal
-            // set by `FriendRecipeDetailView.performImport`),
-            // dismiss the Profile sheet so the friend's nav stack
-            // tears down. RootView's mirror observer handles the
+            // When a friend's recipe is imported (signal set by
+            // `FriendRecipeDetailView.performImport`), dismiss the
+            // Profile sheet so the friend's nav stack tears down.
+            // RootView's mirror observer handles the
             // Detail-push side of the same signal.
             if newID != nil {
                 showingProfile = false
@@ -252,19 +252,7 @@ struct LibraryView: View {
                                     Label("Delete", systemImage: "trash")
                                 }
                             }
-                            // Continuous scroll-focus zoom: the card
-                            // closest to the scroll view's vertical
-                            // center renders at 1.04, and cards above/
-                            // below taper to 0.96 with a faint opacity
-                            // dim. `.interactive` updates per-frame as
-                            // the user drags.
-                            .scrollTransition(.interactive, axis: .vertical) { content, phase in
-                                let v = phase.value
-                                let scale = 1.0 + 0.04 * (1 - abs(v)) - 0.04 * abs(v)
-                                return content
-                                    .scaleEffect(scale)
-                                    .opacity(1.0 - 0.08 * abs(v))
-                            }
+                            .cardScrollTransition()
                             .id(recipe.id)
                         }
                     }
@@ -362,12 +350,11 @@ struct LibraryView: View {
     /// populated letter after it. Keeps taps on empty letters useful
     /// instead of no-ops.
     private func firstRecipe(atOrAfter letter: String) -> Recipe? {
-        guard let startIndex = Self.allLetters.firstIndex(of: letter) else { return nil }
-        let populated = populatedLetters
-        for candidate in Self.allLetters[startIndex...] where populated.contains(candidate) {
-            return filtered.first { Self.sectionLetter(for: $0) == candidate }
-        }
-        return nil
+        LetterIndex.firstItem(
+            in: filtered,
+            atOrAfter: letter,
+            letters: Self.allLetters
+        ) { Self.sectionLetter(for: $0) }
     }
 
     private static func sectionLetter(for recipe: Recipe) -> String {

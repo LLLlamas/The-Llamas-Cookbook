@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-14 (session 12 — LlamaProStore compile fixes: `nonisolated(unsafe)` on `transactionUpdateTask` for deinit; replaced removed `Transaction.isExpired` with `expirationDate`-based check).
+Last refreshed: 2026-05-15 (session 13 — DRY/cleanup pass: extracted shared helpers `cardScrollTransition`, `surfaceCard`, `LlamaLogoOrCrown`, `Formatters.date`, `Optional<String>.trimmedIfNonEmpty`, `UserProfileSnapshot.resolvedAccent`, `LetterIndex.firstItem`; see "Shared helpers & extensions". All date display now uses `.medium` style).
 
 ---
 
@@ -113,6 +113,17 @@ Last refreshed: 2026-05-14 (session 12 — LlamaProStore compile fixes: `nonisol
 - `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`, `LlamaIntro/` (includes `LlamaFloatModifier.swift` — `.llamaFloat()` reusable 4pt bob, 1.4s easeInOut, Reduce-Motion-aware; **250ms delayed start** so the bob doesn't compete with sheet/navigation transition frames; applied to `AccentColorPicker` llama preview and Friends empty-state llama)
 - `AccentColorPicker.swift` — shows `signInLockedCard` ("Sign in to customize") in place of the picker when unsigned; `commitSelection()` is a no-op when unsigned. Both call sites inject `.environment(userAccount)`. `SavedToast.swift`, `RecipeImageView.swift` (async decode — see Performance invariants)
 - Lib: `ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `SwipeBack.swift`, `AppMetadata.swift`
+
+**Shared helpers & extensions** — reuse these; do **not** re-inline the patterns they replace.
+- `View.cardScrollTransition()` (`Components/View+CardScrollTransition.swift`) — the continuous scroll-focus zoom (scale + opacity taper) for card lists. Used by `LibraryView`, `FriendLibraryView`, `RecipeDetailView` step list. Replaces the verbatim inline `.scrollTransition(.interactive, axis: .vertical)` block.
+- `View.surfaceCard(cornerRadius:)` (`Components/View+SurfaceCard.swift`) — the standard settings/info-card chrome: `AppSpacing.md` padding + full-width leading frame + `AppColor.surface` fill + 1pt `AppColor.divider` stroke + rounded clip. Apply to a content view; do not re-write the chrome chain by hand.
+- `LlamaLogoOrCrown(size:accent:crownAsset:)` (`Components/LlamaLogoOrCrown.swift`) — the brand llama, swapped for its crowned Pro variant when `LlamaProStore.isPro`. Reads `LlamaProStore` from `@Environment` (call sites must inject it). `crownAsset` defaults to `Llama-Pro-Icon-Crown`; the Profile header passes `Llama-Pro-Icon-Profile-Crown`. Use instead of hand-writing the `proStore.isPro ?` Pro-Crown / `LlamaLogo` branch.
+- `Formatters.date` (`Lib/Formatters.swift`) — the single shared `DateFormatter`. **All date display uses `.medium` style** ("May 4, 2026") via this formatter. Never allocate a `DateFormatter()` in rendering code; never define a per-view `static let shortDate`.
+- `Optional<String>.trimmedIfNonEmpty` (`Lib/String+Extensions.swift`) — trimmed value when non-empty, `nil` otherwise. Replaces per-file private `trimmedNote(_:)` helpers.
+- `UserProfileSnapshot.resolvedAccent` (`Lib/CloudKitUserProfile.swift`) — **canonical** friend-accent resolver: `accentHex` → `Color`, falling back to `AppColor.accent`. Every friend-tinted surface reads through this; never inline hex→Color-with-fallback again.
+- `LetterIndex.firstItem(in:atOrAfter:letters:bucket:)` (`Components/LetterIndex.swift`) — generic "first item at or after letter" scrub traversal. Pass the caller's own bucketing closure. Used by `LibraryView` and `ProfileView` scrub strips.
+- `ProfileView.SettingsSyncRow` — private; the shared chrome for the two CloudKit diagnostic rows (`cloudSyncRow`, `republishLibraryRow`) in the settings sheet.
+- `ProfileView.EmptyStateCard(title:subtitle:)` — private; the centered two-line empty-state placeholder for the Requests and Friends sections.
 
 ---
 

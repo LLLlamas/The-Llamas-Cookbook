@@ -30,9 +30,9 @@ final class NavigationContext {
     /// once the Detail push completes. nil at all other times.
     var pendingHighlightRecipeID: UUID?
 
-    /// Slice 5 signal — set by `FriendRecipeDetailView`'s import
-    /// handler after the imported recipe lands in SwiftData. Two
-    /// observers react to a non-nil value:
+    /// Friend-import signal — set by `FriendRecipeDetailView`'s
+    /// import handler after the imported recipe lands in SwiftData.
+    /// Two observers react to a non-nil value:
     ///
     /// 1. `LibraryView` dismisses the Profile sheet (which is the
     ///    presentation root of the friend-browse flow), so the

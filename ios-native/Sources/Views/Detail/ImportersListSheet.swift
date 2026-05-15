@@ -99,14 +99,7 @@ struct ImportersListSheet: View {
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AppSpacing.md)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .surfaceCard()
     }
 
     private var headerSubtitle: String {
@@ -273,7 +266,7 @@ struct ImportersListSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
     }
 
-    /// Relative-date formatter — "2h ago", "3d ago", "Apr 14".
+    /// Relative-date formatter — "2h ago", "3d ago", "Apr 14, 2026".
     /// Switches to absolute past 7 days so older imports stay
     /// readable; relative inside that window for the "this is
     /// happening recently" delight surface.
@@ -284,9 +277,7 @@ struct ImportersListSheet: View {
             formatter.unitsStyle = .abbreviated
             return formatter.localizedString(for: date, relativeTo: Date())
         }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
-        return formatter.string(from: date)
+        return Formatters.date.string(from: date)
     }
 
     // MARK: - Fetch

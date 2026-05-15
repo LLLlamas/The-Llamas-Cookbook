@@ -15,7 +15,6 @@ struct AccentColorPicker: View {
     // re-injection actually takes effect for the preview section.
     @Environment(AppearanceSettings.self) private var settings
     @Environment(UserAccount.self)        private var userAccount
-    @Environment(LlamaProStore.self)      private var proStore
     @Environment(\.dismiss)              private var dismiss
 
     private var isSignedIn: Bool { userAccount.status.isSignedIn }
@@ -135,25 +134,8 @@ struct AccentColorPicker: View {
 
     private var preview: some View {
         VStack(spacing: -6) {
-            Group {
-                if proStore.isPro {
-                    Image("Llama-Pro-Icon-Crown")
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 140, height: 140)
-                        .shadow(
-                            color: pickerColor.opacity(0.45),
-                            radius: 140 * 0.0643,
-                            x: 0,
-                            y: 140 * 0.05
-                        )
-                        .accessibilityHidden(true)
-                } else {
-                    LlamaLogo(size: 140, shadowColor: pickerColor)
-                }
-            }
-            .llamaFloat()
+            LlamaLogoOrCrown(size: 140, accent: pickerColor)
+                .llamaFloat()
 
             Text("Sample Recipe Title")
                 .font(AppFont.recipeTitle)

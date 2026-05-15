@@ -1,5 +1,6 @@
 import Foundation
 import CloudKit
+import SwiftUI
 
 /// Remote snapshot of a user's `UserProfile` record from the public
 /// CloudKit database. Returned by `CloudKitService.fetchUserProfile`;
@@ -31,6 +32,14 @@ struct UserProfileSnapshot: Identifiable, Hashable {
     var isCookingNow: Bool {
         guard let started = cookingStartedAt else { return false }
         return Date().timeIntervalSince(started) < 6 * 3600
+    }
+
+    /// Canonical accent resolver — the friend's saved `accentHex`
+    /// decoded to a `Color`, falling back to `AppColor.accent` when the
+    /// hex is missing or malformed. Every friend-tinted surface reads
+    /// through this; callers must not re-inline hex→Color conversion.
+    var resolvedAccent: Color {
+        accentHex.flatMap { Color(hex: $0) } ?? AppColor.accent
     }
 
     /// Decode a CloudKit record into a snapshot. Used by both

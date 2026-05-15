@@ -3,8 +3,7 @@ import SwiftData
 
 /// Sheet showing chain attribution for an imported recipe.
 /// Reached from the "Originally shared by …" caption in
-/// `RecipeDetailView` (slice 6's deferred tap target from
-/// slice 5).
+/// `RecipeDetailView`.
 ///
 /// **Three slots, one shape:**
 ///
@@ -15,10 +14,10 @@ import SwiftData
 ///    and pops back without dismissing first. Non-friends
 ///    render as plain text.
 ///
-/// 2. **Imported on** — `Recipe.importedAt`, formatted long-
-///    style so the date reads as a record rather than a
-///    timestamp. Falls back to the older `sharedAt` field for
-///    legacy file/link share imports that predate slice 5.
+/// 2. **Imported on** — `Recipe.importedAt`, formatted as a
+///    date so it reads as a record rather than a timestamp.
+///    Falls back to the older `sharedAt` field for legacy
+///    file/link share imports that predate chain attribution.
 ///
 /// 3. **Chain hop** — when `originalSharer != originalCreator`
 ///    the recipe passed through one or more intermediate
@@ -74,14 +73,7 @@ struct AttributionSheet: View {
                 creatorNameRow(displayName: creatorDisplayName, accentHex: nil)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AppSpacing.md)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .surfaceCard()
     }
 
     /// Render path when the creator is a current friend — wraps the
@@ -135,14 +127,7 @@ struct AttributionSheet: View {
                 .foregroundStyle(AppColor.textPrimary)
                 .lineLimit(1)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AppSpacing.md)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .surfaceCard()
     }
 
     // MARK: - Chain section
@@ -162,22 +147,15 @@ struct AttributionSheet: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AppSpacing.md)
-        .background(AppColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.md)
-                .stroke(AppColor.divider, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .surfaceCard()
     }
 
     // MARK: - Resolution helpers
 
-    /// Slice 5 fields preferred (canonical chain attribution);
-    /// fall back to the older file/link share fields for
-    /// legacy imports that predate the social slice. Same
-    /// two-source resolution `RecipeDetailView.provenanceLine`
+    /// Chain-attribution fields preferred (canonical chain
+    /// attribution); fall back to the older file/link share
+    /// fields for legacy imports that predate chain attribution.
+    /// Same two-source resolution `RecipeDetailView.provenanceLine`
     /// uses, kept aligned so both surfaces always agree.
     private var creatorDisplayName: String {
         if let friend = friendsStore.friends.first(where: {
@@ -212,9 +190,7 @@ struct AttributionSheet: View {
 
     private var formattedImportDate: String {
         let date = recipe.importedAt ?? recipe.sharedAt ?? recipe.createdAt
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM d, yyyy"
-        return formatter.string(from: date)
+        return Formatters.date.string(from: date)
     }
 
     /// "via Sharer" line, only when the chain has at least one
