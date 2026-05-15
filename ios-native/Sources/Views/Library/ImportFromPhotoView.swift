@@ -855,15 +855,15 @@ struct ImportFromPhotoView: View {
         }
         photoImportSignposter.endInterval("visionStreaming", visionInterval)
 
-        // Handle quota / auth errors — dismiss preview, refresh snapshot.
-        // Auth errors block entirely; quota/daily-limit fall through to the
-        // OCR+AI fallback so testing can continue without the server cap.
+        // Handle quota / auth errors. Auth blocks entirely; quota/daily-limit
+        // keep the speculative preview open and fall through to OCR+AI so
+        // the skeleton transitions directly to content (no dismiss/reappear).
         if let err = visionOutcome.error {
             Task { await quotaService.refresh(force: true) }
-            preview = nil
-            state.fail()
             switch err {
             case .authRequired:
+                preview = nil
+                state.fail()
                 errorBanner = ErrorBanner(
                     kind: .error,
                     message: "Sign in with Apple to import from photos.",
@@ -876,7 +876,7 @@ struct ImportFromPhotoView: View {
             case .dailyLimitHit:
                 branch = .dailyLimitHit
             }
-            // quota/daily-limit: fall through to OCR+AI text fallback
+            // quota/daily-limit: fall through with skeleton still visible
         }
 
         // Stream completed successfully with a confident draft.
@@ -891,9 +891,10 @@ struct ImportFromPhotoView: View {
         }
 
         // ── OCR + text-AI fallback ────────────────────────────────────────────
-        // Stream produced nothing usable — dismiss the speculative preview.
-        preview = nil
-        state.cancel()
+        // Keep the speculative preview open — skeleton stays visible while OCR
+        // runs. On success, push the draft into the existing streaming state so
+        // the sheet transitions skeleton → content without dismiss/reappear.
+        // Only dismiss if OCR also fails (nothing to show).
         let fallbackStart = Date()
         let ocrText: String
         if let precomputed = prefetchedOCRText {
@@ -912,9 +913,13 @@ struct ImportFromPhotoView: View {
         if let t = textDraft, photoImportConfident(t) {
             branch = .ocrTextFallback
             accepted = true
-            finishImport(draft: t, cacheHit: false, streamingState: nil)
+            state.completeStream(finalDraft: t, cacheHit: false)
             return
         }
+
+        // OCR also failed — now dismiss the speculative preview and show the error.
+        preview = nil
+        state.cancel()
 
         guard !ocrText.isEmpty else {
             errorBanner = ErrorBanner(
