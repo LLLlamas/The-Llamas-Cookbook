@@ -223,6 +223,11 @@ enum RecipeOCRImporter {
             "Pizza","Pasta","Risotto","Soup","Stew","Salad","Sandwich",
             "Burger","Taco","Tacos","Burrito","Burritos","Quesadilla",
             "Enchilada","Enchiladas","Casserole","Curry","Stir-fry",
+            "Spaghetti","spaghetti","Lasagna","lasagna","Lasagne",
+            "Fettuccine","fettuccine","Linguine","linguine","Penne",
+            "Rigatoni","rigatoni","Macaroni","macaroni","Gnocchi",
+            "Ravioli","ravioli","Tortellini","Carbonara","Bolognese",
+            "Marinara","Alfredo","Primavera","Cacciatore",
         ]
         words += [
             "Preheat","Combine","Knead","Refrigerate","Bake","Roast",

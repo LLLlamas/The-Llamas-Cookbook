@@ -348,10 +348,13 @@ enum RecipeAIParser {
         }
     }
 
-    /// True when a vision-path ingredient name has no presence in the OCR
-    /// text — 75%+ of its significant tokens (≥4 chars) are absent. Higher
-    /// bar than `ingredientLooksHallucinated` because OCR is noisy and may
-    /// have garbled words that Sonnet correctly read from the image.
+    /// True when a vision-path ingredient name has no presence anywhere in
+    /// the OCR text — ALL significant tokens (≥4 chars) are absent. The
+    /// 100% bar avoids false positives: OCR often misses the bottom portion
+    /// of a card, so a real ingredient like "sweet basil" would have "sweet"
+    /// matched against "5c chopped sweet onion" even if the OCR missed the
+    /// line containing "sweet basil" itself. Only catches pure fabrications
+    /// where every token is completely absent from the whole captured text.
     private static func visionIngredientFabricated(
         _ ingredient: DraftIngredient,
         ocrText: String
@@ -360,9 +363,9 @@ enum RecipeAIParser {
             .lowercased()
             .components(separatedBy: CharacterSet.letters.inverted)
             .filter { $0.count >= 4 }
-        guard !tokens.isEmpty else { return false }
+        guard tokens.count >= 2 else { return false }
         let missingCount = tokens.filter { !ocrText.contains($0) }.count
-        return missingCount * 4 > tokens.count * 3
+        return missingCount == tokens.count
     }
 
     /// True when a step contains ≥70% tokens absent from the source — a

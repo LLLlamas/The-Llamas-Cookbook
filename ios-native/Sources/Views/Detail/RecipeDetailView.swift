@@ -103,18 +103,15 @@ struct RecipeDetailView: View {
         }
     }
 
-    private var accent: Color     { appearance.recipeListAccentColor }
-    private var glowActive: Bool  { appearance.isAccentGlowActive(.recipeList) }
-
     var body: some View {
         ScrollView {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
                     Text(StringCase.titleCase(recipe.title))
                         .font(AppFont.recipeTitle)
-                        .foregroundStyle(accent)
+                        .foregroundStyle(appearance.detailTitleAccentColor)
                         .accentTextOutline()
                         .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
-                        .accentGlow(when: glowActive, color: accent)
+                        .accentGlow(when: appearance.isDetailGlowActive(.title), color: appearance.detailTitleAccentColor)
 
                     // One eyebrow line under the title. Provenance wins
                     // when the recipe came from someone else — see
@@ -167,7 +164,12 @@ struct RecipeDetailView: View {
                     }
 
                     if !sortedIngredients.isEmpty {
-                        section("Ingredients", accessory: { ingredientAccessories }) {
+                        section("Ingredients",
+                                headingColor: appearance.detailIngredientsHeadingAccentColor,
+                                headingGlow: appearance.isDetailGlowActive(.ingredientsHeading),
+                                containerGlow: appearance.isDetailGlowActive(.ingredients),
+                                containerGlowColor: appearance.detailIngredientsAccentColor,
+                                accessory: { ingredientAccessories }) {
                             VStack(spacing: AppSpacing.sm) {
                                 ForEach(sortedIngredients) { ingredient in
                                     ingredientRow(ingredient)
@@ -184,7 +186,11 @@ struct RecipeDetailView: View {
                     }
 
                     if !sortedSteps.isEmpty {
-                        section("Steps") {
+                        section("Steps",
+                                headingColor: appearance.detailStepsHeadingAccentColor,
+                                headingGlow: appearance.isDetailGlowActive(.stepsHeading),
+                                containerGlow: appearance.isDetailGlowActive(.steps),
+                                containerGlowColor: appearance.detailStepsAccentColor) {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
                                 if let preface = recipe.prefaceNote.trimmedIfNonEmpty {
                                     noteCallout(preface)
@@ -288,10 +294,10 @@ struct RecipeDetailView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(accent)
+                        .foregroundStyle(appearance.detailNavAccentColor)
                         .accentTextOutline()
                         .frame(width: 30, height: 30)
-                        .accentGlow(when: glowActive, color: accent)
+                        .accentGlow(when: appearance.isDetailGlowActive(.nav), color: appearance.detailNavAccentColor)
                 }
                 .accessibilityLabel("Back")
             }
@@ -335,11 +341,11 @@ struct RecipeDetailView: View {
                     } label: {
                         Image(systemName: recipe.favorite ? "heart.fill" : "heart")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(accent)
+                            .foregroundStyle(appearance.detailNavAccentColor)
                             .accentTextOutline()
                             .frame(width: 30, height: 30)
                             .offset(y: 1)
-                            .accentGlow(when: glowActive, color: accent)
+                            .accentGlow(when: appearance.isDetailGlowActive(.nav), color: appearance.detailNavAccentColor)
                     }
                     .accessibilityLabel(recipe.favorite ? "Unfavorite" : "Favorite")
                     Menu {
@@ -365,10 +371,10 @@ struct RecipeDetailView: View {
                     } label: {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(accent)
+                            .foregroundStyle(appearance.detailNavAccentColor)
                             .accentTextOutline()
                             .frame(width: 30, height: 30)
-                            .accentGlow(when: glowActive, color: accent)
+                            .accentGlow(when: appearance.isDetailGlowActive(.nav), color: appearance.detailNavAccentColor)
                     }
                     .accessibilityLabel("Share recipe")
                     Button {
@@ -376,10 +382,10 @@ struct RecipeDetailView: View {
                     } label: {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(accent)
+                            .foregroundStyle(appearance.detailNavAccentColor)
                             .accentTextOutline()
                             .frame(width: 30, height: 30)
-                            .accentGlow(when: glowActive, color: accent)
+                            .accentGlow(when: appearance.isDetailGlowActive(.nav), color: appearance.detailNavAccentColor)
                     }
                     .accessibilityLabel("Edit recipe")
                 }
@@ -585,9 +591,14 @@ struct RecipeDetailView: View {
     @ViewBuilder
     private func section<Content: View, Accessory: View>(
         _ title: String,
+        headingColor: Color? = nil,
+        headingGlow: Bool = false,
+        containerGlow: Bool = false,
+        containerGlowColor: Color? = nil,
         @ViewBuilder accessory: () -> Accessory = { EmptyView() },
         @ViewBuilder content: () -> Content
     ) -> some View {
+        let hColor = headingColor ?? appearance.accentColor
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
@@ -600,9 +611,9 @@ struct RecipeDetailView: View {
                     .padding(.bottom, 6)
                     .background(alignment: .bottom) {
                         Capsule()
-                            .fill(accent.opacity(0.55))
+                            .fill(hColor.opacity(0.55))
                             .frame(height: 2)
-                            .accentGlow(when: glowActive, color: accent)
+                            .accentGlow(when: headingGlow, color: hColor)
                     }
                 Spacer(minLength: AppSpacing.sm)
                 accessory()
@@ -610,6 +621,7 @@ struct RecipeDetailView: View {
             .padding(.top, AppSpacing.lg)
             content()
         }
+        .accentGlow(when: containerGlow, color: containerGlowColor ?? appearance.accentColor)
     }
 
     // MARK: - Import-count chip + provenance tap
@@ -661,11 +673,11 @@ struct RecipeDetailView: View {
                     Text(importCounterLabel)
                         .font(.system(size: 13, weight: .semibold))
                 }
-                .foregroundStyle(appearance.accentColor)
+                .foregroundStyle(appearance.detailProvenanceAccentColor)
                 .padding(.horizontal, AppSpacing.sm + 2)
                 .padding(.vertical, AppSpacing.xs + 1)
-                .background(appearance.accentColor.opacity(0.10))
-                .overlay(Capsule().stroke(appearance.accentColor.opacity(0.35), lineWidth: 1))
+                .background(appearance.detailProvenanceAccentColor.opacity(0.10))
+                .overlay(Capsule().stroke(appearance.detailProvenanceAccentColor.opacity(0.35), lineWidth: 1))
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -696,14 +708,15 @@ struct RecipeDetailView: View {
                 HStack(spacing: 4) {
                     Text(provenance)
                         .font(AppFont.eyebrow)
-                        .foregroundStyle(appearance.accentColor)
+                        .foregroundStyle(appearance.detailProvenanceAccentColor)
                         .accentTextOutline()
                         .lineLimit(1)
                     Image(systemName: "info.circle")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor.opacity(0.6))
+                        .foregroundStyle(appearance.detailProvenanceAccentColor.opacity(0.6))
                         .accentTextOutline()
                 }
+                .accentGlow(when: appearance.isDetailGlowActive(.provenance), color: appearance.detailProvenanceAccentColor)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(provenance)
@@ -791,11 +804,12 @@ struct RecipeDetailView: View {
                 Text("Conversions")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(appearance.accentColor)
+            .foregroundStyle(appearance.detailChipsAccentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, AppSpacing.xs + 1)
-            .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1))
+            .overlay(Capsule().stroke(appearance.detailChipsAccentColor, lineWidth: 1))
             .clipShape(Capsule())
+            .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open kitchen conversions reference")
@@ -812,11 +826,12 @@ struct RecipeDetailView: View {
                 Text("Sourdough")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(appearance.accentColor)
+            .foregroundStyle(appearance.detailChipsAccentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, AppSpacing.xs + 1)
-            .overlay(Capsule().stroke(appearance.accentColor, lineWidth: 1))
+            .overlay(Capsule().stroke(appearance.detailChipsAccentColor, lineWidth: 1))
             .clipShape(Capsule())
+            .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open sourdough feeding calculator")
@@ -831,7 +846,7 @@ struct RecipeDetailView: View {
         // stay anchored on the right even when there's no measurement.
         return HStack(alignment: .center, spacing: AppSpacing.sm + 2) {
             Circle()
-                .fill(appearance.accentColor)
+                .fill(appearance.detailIngredientsAccentColor)
                 .frame(width: 6, height: 6)
                 .accentTextOutline()
 
@@ -839,7 +854,7 @@ struct RecipeDetailView: View {
                 if !display.quantity.isEmpty {
                     Text(display.quantity)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor)
+                        .foregroundStyle(appearance.detailIngredientsAccentColor)
                         .accentTextOutline()
                         .monospacedDigit()
                         .lineLimit(1)
@@ -848,7 +863,7 @@ struct RecipeDetailView: View {
                 if !display.unit.isEmpty {
                     Text(display.unit)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(appearance.accentColor.opacity(0.75))
+                        .foregroundStyle(appearance.detailIngredientsAccentColor.opacity(0.75))
                         .accentTextOutline()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
@@ -1112,10 +1127,10 @@ struct RecipeDetailView: View {
             .foregroundStyle(AppColor.onAccent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppSpacing.md)
-            .background(accent)
+            .background(appearance.detailCookBarAccentColor)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-            .shadow(color: accent.opacity(glowActive ? 0.45 : 0), radius: glowActive ? 16 : 0)
-            .animation(.easeInOut(duration: 0.14), value: glowActive)
+            .shadow(color: appearance.detailCookBarAccentColor.opacity(appearance.isDetailGlowActive(.cookBar) ? 0.45 : 0), radius: appearance.isDetailGlowActive(.cookBar) ? 16 : 0)
+            .animation(.easeInOut(duration: 0.14), value: appearance.isDetailGlowActive(.cookBar))
         }
         .padding(.horizontal, AppSpacing.lg)
         .padding(.top, AppSpacing.xs)
@@ -1509,7 +1524,7 @@ private struct StepDetailRow: View {
             HStack(alignment: .center, spacing: AppSpacing.md) {
                 Text("\(idx + 1).")
                     .font(AppFont.sectionHeading)
-                    .foregroundStyle(appearance.accentColor)
+                    .foregroundStyle(appearance.detailStepsAccentColor)
                     .accentTextOutline()
                     .monospacedDigit()
                     .frame(minWidth: 28, alignment: .leading)
@@ -1523,7 +1538,7 @@ private struct StepDetailRow: View {
                 if step.needsTimer {
                     Image(systemName: "timer")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(appearance.accentColor.opacity(0.85))
+                        .foregroundStyle(appearance.detailStepsAccentColor.opacity(0.85))
                         .accentTextOutline()
                 }
             }
@@ -1588,12 +1603,12 @@ private struct StepDetailRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .accentTextOutline()
             }
-            .foregroundStyle(appearance.accentColor)
+            .foregroundStyle(appearance.detailStepsAccentColor)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
             .background(AppColor.surface)
             .overlay(
-                Capsule().stroke(appearance.accentColor.opacity(0.45), lineWidth: 1)
+                Capsule().stroke(appearance.detailStepsAccentColor.opacity(0.45), lineWidth: 1)
             )
             .clipShape(Capsule())
         }

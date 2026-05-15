@@ -85,6 +85,7 @@ final class StreamingRecipeState {
             firstContentFired = true
             firstContentAt   = Date()
             onFirstContent?()
+            onFirstContent   = nil  // break the retain cycle; fires exactly once
         }
     }
 

@@ -18,6 +18,21 @@ final class AppearanceSettings {
         case bottomNav = 4
     }
 
+    /// Nine-zone cascade for RecipeDetailView. Fires in parallel with
+    /// the library cascade — separate state so rawValue ordering doesn't
+    /// cross-contaminate between the two ripples.
+    enum DetailTransitionStage: Int, Equatable {
+        case nav = 0
+        case title = 1
+        case provenance = 2
+        case ingredientsHeading = 3
+        case chips = 4
+        case ingredients = 5
+        case stepsHeading = 6
+        case steps = 7
+        case cookBar = 8
+    }
+
     private static let storageKey = "userAccentHex"
 
     /// Suppress mirror pushes during rehydrate-from-UserDefaults so a
@@ -34,6 +49,9 @@ final class AppearanceSettings {
     private var accentTransitionGeneration: Int = 0
 
     var accentTransitionStage: AccentTransitionStage?
+    var detailTransitionStage: DetailTransitionStage?
+
+    // MARK: - Library cascade colors
 
     var cookbookTitleAccentColor: Color {
         transitionColor(for: .header)
@@ -54,6 +72,18 @@ final class AppearanceSettings {
     var bottomNavAccentColor: Color {
         transitionColor(for: .bottomNav)
     }
+
+    // MARK: - Detail cascade colors
+
+    var detailNavAccentColor: Color            { transitionColorForDetail(.nav) }
+    var detailTitleAccentColor: Color          { transitionColorForDetail(.title) }
+    var detailProvenanceAccentColor: Color     { transitionColorForDetail(.provenance) }
+    var detailIngredientsHeadingAccentColor: Color { transitionColorForDetail(.ingredientsHeading) }
+    var detailChipsAccentColor: Color          { transitionColorForDetail(.chips) }
+    var detailIngredientsAccentColor: Color    { transitionColorForDetail(.ingredients) }
+    var detailStepsHeadingAccentColor: Color   { transitionColorForDetail(.stepsHeading) }
+    var detailStepsAccentColor: Color          { transitionColorForDetail(.steps) }
+    var detailCookBarAccentColor: Color        { transitionColorForDetail(.cookBar) }
 
     var accentColor: Color = AppColor.accent {
         didSet {
@@ -87,6 +117,10 @@ final class AppearanceSettings {
 
     func isAccentGlowActive(_ stage: AccentTransitionStage) -> Bool {
         accentTransitionStage == stage
+    }
+
+    func isDetailGlowActive(_ stage: DetailTransitionStage) -> Bool {
+        detailTransitionStage == stage
     }
 
     init() {
@@ -148,22 +182,48 @@ final class AppearanceSettings {
         return previousAccentColor
     }
 
+    private func transitionColorForDetail(_ stage: DetailTransitionStage) -> Color {
+        guard let previousAccentColor,
+              let detailTransitionStage,
+              detailTransitionStage.rawValue < stage.rawValue
+        else {
+            return accentColor
+        }
+        return previousAccentColor
+    }
+
     private func startAccentTransition(from oldColor: Color) {
         guard oldColor.toHex != accentColor.toHex else { return }
 
         accentTransitionGeneration &+= 1
         let generation = accentTransitionGeneration
         previousAccentColor = oldColor
-        accentTransitionStage = .header
 
+        // Library cascade — fires left-to-right across the library UI
+        accentTransitionStage = .header
         scheduleAccentStage(.categories, generation: generation, after: 0.22)
-        scheduleAccentStage(.recipeList, generation: generation, after: 0.44)
-        scheduleAccentStage(.plusButton, generation: generation, after: 0.66)
-        scheduleAccentStage(.bottomNav, generation: generation, after: 0.88)
+        scheduleAccentStage(.recipeList,  generation: generation, after: 0.44)
+        scheduleAccentStage(.plusButton,  generation: generation, after: 0.66)
+        scheduleAccentStage(.bottomNav,   generation: generation, after: 0.88)
+
+        // Detail cascade — fires top-to-bottom through RecipeDetailView,
+        // interleaved with the library cascade but driven by separate state
+        // so rawValue ordering can't cross-contaminate between the two ripples.
+        detailTransitionStage = .nav
+        scheduleDetailStage(.title,              generation: generation, after: 0.12)
+        scheduleDetailStage(.provenance,         generation: generation, after: 0.24)
+        scheduleDetailStage(.ingredientsHeading, generation: generation, after: 0.38)
+        scheduleDetailStage(.chips,              generation: generation, after: 0.49)
+        scheduleDetailStage(.ingredients,        generation: generation, after: 0.59)
+        scheduleDetailStage(.stepsHeading,       generation: generation, after: 0.69)
+        scheduleDetailStage(.steps,              generation: generation, after: 0.79)
+        scheduleDetailStage(.cookBar,            generation: generation, after: 0.86)
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) { [weak self] in
             guard let self, self.accentTransitionGeneration == generation else { return }
             self.previousAccentColor = nil
             self.accentTransitionStage = nil
+            self.detailTransitionStage = nil
         }
     }
 
@@ -175,6 +235,17 @@ final class AppearanceSettings {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.accentTransitionGeneration == generation else { return }
             self.accentTransitionStage = stage
+        }
+    }
+
+    private func scheduleDetailStage(
+        _ stage: DetailTransitionStage,
+        generation: Int,
+        after delay: TimeInterval
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.accentTransitionGeneration == generation else { return }
+            self.detailTransitionStage = stage
         }
     }
 

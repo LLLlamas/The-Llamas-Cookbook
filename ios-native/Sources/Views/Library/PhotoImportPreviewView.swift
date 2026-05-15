@@ -8,12 +8,11 @@ import SwiftData
 ///    the OCR + text-AI fallback path — anywhere the draft is fully formed
 ///    before the preview opens.
 ///
-/// 2. **Streaming mode** (`streamingState != nil`): pops as soon as the
-///    Sonnet vision response begins streaming. Title / ingredients / steps
-///    tick into the preview in real time as Anthropic emits each completed
-///    JSON sub-value via the SSE accumulator. Skeleton placeholders pulse
-///    for sections that haven't started arriving yet. Save is disabled
-///    until `streamingState.status == .completed`, at which point
+/// 2. **Streaming mode** (`streamingState != nil`): the sheet is held back
+///    in `ImportFromPhotoView` until the first Sonnet token arrives so the
+///    processing overlay covers the TTFB gap. The preview opens with content
+///    already ticking in — no blank skeleton period. Save is disabled until
+///    `streamingState.status == .completed`, at which point
 ///    `streamingState.finalDraft` becomes the canonical draft to persist.
 ///
 /// Toolbar mirrors the share-recipient screen exactly: principal title set
@@ -50,7 +49,6 @@ struct PhotoImportPreviewView: View {
     @State private var showRaceBanner        = false
     @State private var pendingMode: SaveMode = .save
     @State private var titleHapticFired      = false
-    @State private var skeletonPulse         = false
 
     private enum SaveMode { case save, saveForEdit }
 
@@ -126,9 +124,6 @@ struct PhotoImportPreviewView: View {
             .toolbar { toolbarContent }
         }
         .interactiveDismissDisabled(isSaving || isStreaming)
-        .onAppear {
-            skeletonPulse = true
-        }
         // Haptic + animation when the title first lands.
         .onChange(of: streamingState?.title ?? "") { _, newValue in
             if !newValue.isEmpty && !titleHapticFired {
@@ -218,21 +213,7 @@ struct PhotoImportPreviewView: View {
                     removal:   .opacity
                 ))
                 .id("title-\(title.hashValue)")
-        } else if isStreaming {
-            titleSkeleton
         }
-    }
-
-    private var titleSkeleton: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(AppColor.surfaceSunken)
-            .frame(height: 36)
-            .frame(maxWidth: 240, alignment: .leading)
-            .opacity(skeletonPulse ? 0.55 : 1.0)
-            .animation(
-                .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
-                value: skeletonPulse
-            )
     }
 
     @ViewBuilder
@@ -295,12 +276,6 @@ struct PhotoImportPreviewView: View {
                         ))
                 }
             }
-        } else if isStreaming {
-            VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                sectionHeading("Ingredients")
-                ForEach(0..<3, id: \.self) { _ in ingredientSkeletonRow }
-            }
-            .transition(.opacity)
         }
     }
 
@@ -314,24 +289,6 @@ struct PhotoImportPreviewView: View {
                 .font(AppFont.ingredient)
                 .foregroundStyle(AppColor.textPrimary)
         }
-    }
-
-    private var ingredientSkeletonRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
-            Circle()
-                .fill(appearance.accentColor.opacity(0.2))
-                .frame(width: 5, height: 5)
-                .padding(.top, 6)
-            RoundedRectangle(cornerRadius: 4)
-                .fill(AppColor.surfaceSunken)
-                .frame(height: 14)
-                .frame(maxWidth: 220, alignment: .leading)
-        }
-        .opacity(skeletonPulse ? 0.5 : 1.0)
-        .animation(
-            .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
-            value: skeletonPulse
-        )
     }
 
     // MARK: - Steps
@@ -352,12 +309,6 @@ struct PhotoImportPreviewView: View {
                         ))
                 }
             }
-        } else if isStreaming {
-            VStack(alignment: .leading, spacing: AppSpacing.md) {
-                sectionHeading("Steps")
-                ForEach(0..<2, id: \.self) { idx in stepSkeletonRow(idx: idx) }
-            }
-            .transition(.opacity)
         }
     }
 
@@ -382,30 +333,6 @@ struct PhotoImportPreviewView: View {
                     .transition(.opacity)
             }
         }
-    }
-
-    private func stepSkeletonRow(idx: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
-            Text("\(idx + 1).")
-                .font(AppFont.body)
-                .fontWeight(.semibold)
-                .foregroundStyle(appearance.accentColor.opacity(0.3))
-                .frame(width: 24, alignment: .leading)
-            VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(AppColor.surfaceSunken)
-                    .frame(height: 14)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(AppColor.surfaceSunken)
-                    .frame(height: 14)
-                    .frame(maxWidth: 180, alignment: .leading)
-            }
-        }
-        .opacity(skeletonPulse ? 0.5 : 1.0)
-        .animation(
-            .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
-            value: skeletonPulse
-        )
     }
 
     // MARK: - Notes

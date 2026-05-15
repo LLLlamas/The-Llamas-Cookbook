@@ -824,21 +824,27 @@ struct ImportFromPhotoView: View {
         }
 
         // ── Sonnet streaming vision ───────────────────────────────────────────
-        // Pop the preview NOW — before the Anthropic call — so the overlay
-        // shows for only the OCR preflight time (~0.5-1 s). The user sees
-        // pulsing skeleton placeholders while Anthropic processes the image
-        // (5–10 s TTFB); content ticks in progressively as events arrive.
+        // Keep the processing overlay visible during Anthropic TTFB (5–10 s).
+        // The preview sheet pops the moment the first token arrives so the user
+        // sees content materialise immediately — no blank skeleton period.
+        // For cache-hit paths where no streaming events fire, we pop manually
+        // in the success branch below.
         let state = StreamingRecipeState()
         streamingState = state
         let sessionIndex = sessionAttemptCount
         capturedPages = []
-        preview = PreviewPayload(
-            draft: DraftRecipe(),
-            streamingState: state,
-            cacheHit: false,
-            sessionAttemptIndex: sessionIndex
-        )
-        ocrInProgress = false
+        ocrPageStatus = "Asking the llama…"
+        state.onFirstContent = {
+            self.ocrInProgress = false
+            if self.preview == nil {
+                self.preview = PreviewPayload(
+                    draft: DraftRecipe(),
+                    streamingState: state,
+                    cacheHit: false,
+                    sessionAttemptIndex: sessionIndex
+                )
+            }
+        }
 
         let visionInterval = photoImportSignposter.beginInterval("visionStreaming")
         let visionStart = Date()
@@ -881,11 +887,6 @@ struct ImportFromPhotoView: View {
 
         // Stream completed successfully with a confident draft.
         if var draft = visionOutcome.draft, photoImportConfident(draft) {
-            // Cross-reference against the on-device OCR to strip any
-            // ingredient Sonnet invented with no textual basis in the image.
-            // Uses a lenient 75% threshold to avoid false positives from
-            // imperfect OCR; the streaming preview may briefly show an
-            // item that disappears on finalisation — intentional.
             if let ocrText = prefetchedOCRText {
                 RecipeAIParser.filterVisionHallucinations(from: &draft, ocrText: ocrText.lowercased())
             }
@@ -894,6 +895,16 @@ struct ImportFromPhotoView: View {
             branch = state.hasFirstContent
                 ? .visionStream
                 : (visionOutcome.cacheHit ? .visionCacheHit : .visionBufferedComplete)
+            // Cache hits skip streaming so onFirstContent never fires — pop manually.
+            if preview == nil {
+                ocrInProgress = false
+                preview = PreviewPayload(
+                    draft: DraftRecipe(),
+                    streamingState: state,
+                    cacheHit: visionOutcome.cacheHit,
+                    sessionAttemptIndex: sessionIndex
+                )
+            }
             state.completeStream(finalDraft: draft, cacheHit: visionOutcome.cacheHit)
             return
         }
