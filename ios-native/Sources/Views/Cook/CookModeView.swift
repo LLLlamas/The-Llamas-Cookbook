@@ -5,6 +5,7 @@ import UIKit
 struct CookModeView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
+    @Environment(LlamaProStore.self) private var proStore
 
     let recipe: Recipe
     /// Identity of the cook this view is rendering. Captured at init
@@ -348,7 +349,7 @@ struct CookModeView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
 
-            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
+            LlamaLogoOrCrown(size: 72, accent: appearance.accentColor)
         }
         .padding(.horizontal, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)

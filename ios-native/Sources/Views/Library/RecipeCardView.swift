@@ -149,7 +149,7 @@ struct RecipeCardView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: AppRadius.md)
                         .fill(AppColor.accentSoft.opacity(0.5))
-                    LlamaLogo(size: 56, shadowColor: accent)
+                    LlamaLogoOrCrown(size: 56, accent: accent)
                 }
             }
         }

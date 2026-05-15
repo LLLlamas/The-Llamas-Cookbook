@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(UserAccount.self) private var userAccount
     @Environment(FriendsStore.self) private var friendsStore
+    @Environment(LlamaProStore.self) private var proStore
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @State private var session = CookingSession()
@@ -192,7 +193,7 @@ struct RootView: View {
                 Label {
                     Text("Home")
                 } icon: {
-                    Image("Home_Llama_Icon")
+                    Image(proStore.isPro ? "Llama-Pro-Icon-Crown" : "Home_Llama_Icon")
                 }
             }
             .tag(AppTab.home)
@@ -210,7 +211,7 @@ struct RootView: View {
                 Label {
                     Text("Friends")
                 } icon: {
-                    Image("Friends_Llama_Icon")
+                    Image(proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
                 }
             }
             .tag(AppTab.friends)
@@ -228,7 +229,7 @@ struct RootView: View {
                 Label {
                     Text("Me")
                 } icon: {
-                    Image("Profile_Llama_Icon")
+                    Image(proStore.isPro ? "Llama-Pro-Icon-Profile-Crown" : "Profile_Llama_Icon")
                 }
             }
             .tag(AppTab.me)
@@ -517,6 +518,7 @@ struct RootView: View {
                 .environment(appearance)
                 .environment(session)
                 .environment(editor)
+                .environment(proStore)
             }
         }
         .sheet(item: editorBinding) { sheet in

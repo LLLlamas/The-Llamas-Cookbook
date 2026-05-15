@@ -5,7 +5,7 @@ struct EmptyLibraryView: View {
 
     var body: some View {
         VStack(spacing: AppSpacing.lg) {
-            LlamaLogo(size: 140, shadowColor: appearance.accentColor)
+            LlamaLogoOrCrown(size: 140, accent: appearance.accentColor)
             Text("No recipes yet")
                 .font(AppFont.sectionHeading)
                 .foregroundStyle(AppColor.textPrimary)

@@ -309,7 +309,7 @@ struct RecipeDetailView: View {
                     Haptics.selection()
                     showingAppearance = true
                 } label: {
-                    LlamaLogo(size: 72, shadowColor: appearance.accentColor)
+                    LlamaLogoOrCrown(size: 72, accent: appearance.accentColor)
                         .frame(width: 72, height: 72)
                         // Breathe the logo in both directions inside
                         // the navigation bar — bottom needs the most

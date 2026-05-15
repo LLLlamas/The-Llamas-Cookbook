@@ -84,7 +84,7 @@ struct FriendsTabView: View {
                             accent: appearance.cookbookTitleAccentColor,
                             glowActive: appearance.isAccentGlowActive(.header)
                         ) {
-                            Image("Friends_Llama_Icon")
+                            Image(proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
                                 .resizable()
                                 .renderingMode(.original)
                                 .frame(width: 52, height: 52)
@@ -324,6 +324,8 @@ private struct FriendCardView: View {
     /// chain) is unchanged so the visual "card slot" stays familiar.
     private static let thumbnailSize: CGFloat = 52
 
+    @Environment(LlamaProStore.self) private var proStore
+
     /// Pulse driver for the cooking-now border (lineWidth + opacity).
     /// Mirrors `AccentDot`'s `pulse` flag and animation curve so the
     /// inline dot and the border breathe in sync.
@@ -556,7 +558,7 @@ private struct FriendCardView: View {
                 .foregroundStyle(friend.resolvedAccent)
                 .padding(7)
         } else {
-            Image("Friends_Llama_Icon")
+            Image(proStore.isPro && SeedFriend.isSeed(friend) ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()

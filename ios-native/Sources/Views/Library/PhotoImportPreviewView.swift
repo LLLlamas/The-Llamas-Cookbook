@@ -447,7 +447,7 @@ struct PhotoImportPreviewView: View {
         .padding(AppSpacing.xl)
         .background(AppColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .shadow(color: AppColor.shadow, radius: 18, y: 6)
+        .shadow(color: AppColor.shadow, radius: 48, y: 8)
     }
 
     private var raceBanner: some View {

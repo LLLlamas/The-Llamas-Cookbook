@@ -95,7 +95,7 @@ struct LibraryView: View {
                         // toolbar slot now coexists with a trailing
                         // profile button; the previous logo+title pair
                         // overflowed when the right side was occupied.
-                        LlamaLogo(size: 52, shadowColor: appearance.cookbookTitleAccentColor)
+                        LlamaLogoOrCrown(size: 52, accent: appearance.cookbookTitleAccentColor)
                             .shadow(
                                 color: appearance.cookbookTitleAccentColor.opacity(appearance.isAccentGlowActive(.header) ? 0.14 : 0),
                                 radius: appearance.isAccentGlowActive(.header) ? 9 : 0
@@ -110,7 +110,7 @@ struct LibraryView: View {
                     Haptics.selection()
                     showingProfile = true
                 } label: {
-                    Image("Profile_Llama_Icon")
+                    Image(proStore.isPro ? "Llama-Pro-Icon-Profile-Crown" : "Profile_Llama_Icon")
                         .renderingMode(.original)
                         .resizable()
                         .interpolation(.high)

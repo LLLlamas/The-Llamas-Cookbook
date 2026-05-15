@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-15 (session 13 — DRY/cleanup pass: extracted shared helpers `cardScrollTransition`, `surfaceCard`, `LlamaLogoOrCrown`, `Formatters.date`, `Optional<String>.trimmedIfNonEmpty`, `UserProfileSnapshot.resolvedAccent`, `LetterIndex.firstItem`; see "Shared helpers & extensions". All date display now uses `.medium` style).
+Last refreshed: 2026-05-15 (session 14 — Pro crown rollout across all llama surfaces; see "Llama Pro crown surfaces" below).
 
 ---
 
@@ -117,7 +117,7 @@ Last refreshed: 2026-05-15 (session 13 — DRY/cleanup pass: extracted shared he
 **Shared helpers & extensions** — reuse these; do **not** re-inline the patterns they replace.
 - `View.cardScrollTransition()` (`Components/View+CardScrollTransition.swift`) — continuous scroll-focus zoom for card lists: center card peaks at **1.04** scale (subtle 3D pop), off-center cards taper to ~0.96 with opacity dim. Formula: `scaleEffect(1.04 - 0.08 * abs(phase.value))`. Used by `LibraryView`, `FriendLibraryView`, `RecipeDetailView` step list.
 - `View.surfaceCard(cornerRadius:)` (`Components/View+SurfaceCard.swift`) — the standard settings/info-card chrome: `AppSpacing.md` padding + full-width leading frame + `AppColor.surface` fill + 1pt `AppColor.divider` stroke + rounded clip. Apply to a content view; do not re-write the chrome chain by hand.
-- `LlamaLogoOrCrown(size:accent:crownAsset:)` (`Components/LlamaLogoOrCrown.swift`) — the brand llama, swapped for its crowned Pro variant when `LlamaProStore.isPro`. Reads `LlamaProStore` from `@Environment` (call sites must inject it). `crownAsset` defaults to `Llama-Pro-Icon-Crown`; the Profile header passes `Llama-Pro-Icon-Profile-Crown`. Use instead of hand-writing the `proStore.isPro ?` Pro-Crown / `LlamaLogo` branch.
+- `LlamaLogoOrCrown(size:accent:crownAsset:)` (`Components/LlamaLogoOrCrown.swift`) — the brand llama, swapped for its crowned Pro variant when `LlamaProStore.isPro`. Reads `LlamaProStore` from `@Environment` (call sites must inject it). `crownAsset` defaults to `Llama-Pro-Icon-Crown`; the Profile header and cook mode pass the default; `RecipeDetailView` principal also uses the default. For surfaces that have a context-specific crown asset (Friends, Profile tab button), use an inline `Image(proStore.isPro ? "Context-Crown" : "Base")` instead. Use `LlamaLogoOrCrown` instead of hand-writing the `proStore.isPro ?` Pro-Crown / `LlamaLogo` branch.
 - `Formatters.date` (`Lib/Formatters.swift`) — the single shared `DateFormatter`. **All date display uses `.medium` style** ("May 4, 2026") via this formatter. Never allocate a `DateFormatter()` in rendering code; never define a per-view `static let shortDate`.
 - `Optional<String>.trimmedIfNonEmpty` (`Lib/String+Extensions.swift`) — trimmed value when non-empty, `nil` otherwise. Replaces per-file private `trimmedNote(_:)` helpers.
 - `UserProfileSnapshot.resolvedAccent` (`Lib/CloudKitUserProfile.swift`) — **canonical** friend-accent resolver: `accentHex` → `Color`, falling back to `AppColor.accent`. Every friend-tinted surface reads through this; never inline hex→Color-with-fallback again.
@@ -214,6 +214,19 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 **Keychain** (`KeychainStore.swift`): `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable.
 
 ---
+
+## Llama Pro crown surfaces
+
+When `LlamaProStore.isPro`, every llama surface swaps to its crowned variant. The three crown assets are:
+- `Llama-Pro-Icon-Crown` — generic (home tab, recipe detail principal, cook mode, recipe-card placeholder, empty-library state)
+- `Llama-Pro-Icon-Friends-Crown` — friends context (friends tab bar icon, friends CookbookHeader top-left, "Your Llama" seed-friend card fallback thumbnail)
+- `Llama-Pro-Icon-Profile-Crown` — profile context (profile tab bar icon, library top-right profile button, profile page header)
+
+Implementation pattern:
+- `LlamaLogoOrCrown(size:accent:)` — use for `LlamaLogo` replacements (handles isPro internally).
+- `Image(proStore.isPro ? "Context-Crown" : "Base")` — use for named-image conditionals (tab bar icons, profile button, friends header icon, seed friend card).
+
+`RootView` owns `@Environment(LlamaProStore.self) private var proStore` and must re-inject `.environment(proStore)` into every `fullScreenCover` / `sheet` that contains llama surfaces (currently: `CookModeView` fullScreenCover). `CookModeView` and `FriendCardView` also declare `@Environment(LlamaProStore.self) private var proStore` directly. All other call sites inherit it from the app-level injection.
 
 ## UX guardrails
 
