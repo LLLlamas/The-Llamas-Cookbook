@@ -108,6 +108,7 @@ struct ImportHelpView: View {
                 .stroke(AppColor.divider, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .liftedCard()
     }
 
     private func exampleLine(_ text: String, emphasis: Bool = false) -> some View {

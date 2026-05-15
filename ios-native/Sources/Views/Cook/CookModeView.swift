@@ -518,6 +518,7 @@ struct CookModeView: View {
                             .stroke(struck ? AppColor.success : AppColor.divider, lineWidth: 1)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .liftedCard()
                 }
                 .buttonStyle(.plain)
             }
@@ -582,6 +583,7 @@ struct CookModeView: View {
                         )
                 )
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                .liftedCard()
                 .contentShape(Rectangle())
                 .onTapGesture {
                     handleStepTap(step)
@@ -698,7 +700,7 @@ struct CookModeView: View {
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .accentTextOutline()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
     }
 
     private var floatingTimerBar: some View {

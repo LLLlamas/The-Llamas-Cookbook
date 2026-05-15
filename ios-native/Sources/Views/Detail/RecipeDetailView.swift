@@ -811,7 +811,7 @@ struct RecipeDetailView: View {
             .clipShape(Capsule())
             .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
         .accessibilityLabel("Open kitchen conversions reference")
     }
 
@@ -833,7 +833,7 @@ struct RecipeDetailView: View {
             .clipShape(Capsule())
             .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
         .accessibilityLabel("Open sourdough feeding calculator")
     }
 
@@ -995,7 +995,7 @@ struct RecipeDetailView: View {
                         RoundedRectangle(cornerRadius: AppRadius.md)
                             .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
                     )
-                    .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+                    .liftedCard()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("View \(remainingCount) more photo\(remainingCount == 1 ? "" : "s")")
@@ -1047,7 +1047,7 @@ struct RecipeDetailView: View {
                 RoundedRectangle(cornerRadius: AppRadius.md)
                     .stroke(AppColor.divider.opacity(0.7), lineWidth: 0.5)
             )
-            .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+            .liftedCard()
         }
         .buttonStyle(.plain)
         .accessibilityLabel(image == nil ? "Add photos" : "Photo \(index + 1)")
@@ -1132,6 +1132,7 @@ struct RecipeDetailView: View {
             .shadow(color: appearance.detailCookBarAccentColor.opacity(appearance.isDetailGlowActive(.cookBar) ? 0.45 : 0), radius: appearance.isDetailGlowActive(.cookBar) ? 16 : 0)
             .animation(.easeInOut(duration: 0.14), value: appearance.isDetailGlowActive(.cookBar))
         }
+        .buttonStyle(.lifted)
         .padding(.horizontal, AppSpacing.lg)
         .padding(.top, AppSpacing.xs)
         .padding(.bottom, AppSpacing.xs)

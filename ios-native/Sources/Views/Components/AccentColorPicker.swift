@@ -130,6 +130,7 @@ struct AccentColorPicker: View {
                 .stroke(AppColor.divider, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .liftedCard()
     }
 
     private var preview: some View {

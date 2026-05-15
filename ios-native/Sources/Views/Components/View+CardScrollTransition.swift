@@ -8,7 +8,7 @@ extension View {
     func cardScrollTransition() -> some View {
         scrollTransition(.interactive, axis: .vertical) { content, phase in
             content
-                .scaleEffect(1.0 - 0.04 * abs(phase.value))
+                .scaleEffect(1.04 - 0.08 * abs(phase.value))
                 .opacity(1.0 - 0.08 * abs(phase.value))
         }
     }

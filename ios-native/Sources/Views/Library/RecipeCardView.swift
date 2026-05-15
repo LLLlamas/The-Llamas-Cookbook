@@ -120,21 +120,10 @@ struct RecipeCardView: View {
         // re-compositing the full layer tree per drag frame — the
         // primary fix for scroll jank on cards with photos + glow.
         .drawingGroup()
-        // 3-layer warm-brown shadow stack: close contact (grounds the
-        // card), mid body (gives it weight), far ambient (room/
-        // atmosphere). Cumulative effect is "floating just above the
-        // page" without any single layer reading as a chunky drop
-        // shadow. Hue matches AppColor.shadow's warm brown.
-        .shadow(color: Self.shadowHue.opacity(0.18), radius: 2.5, x: 0, y: 1)
-        .shadow(color: Self.shadowHue.opacity(0.12), radius: 9, x: 0, y: 4)
-        .shadow(color: Self.shadowHue.opacity(0.06), radius: 24, x: 0, y: 12)
+        // Shared elevation shadow — applied after `.drawingGroup()` so
+        // it composites against the card's single flat Metal texture.
+        .liftedCard()
     }
-
-    /// Warm-brown shadow base — same RGB as `AppColor.shadow` /
-    /// `shadowSoft`, but exposed without baked-in opacity so the
-    /// 3-layer stack can pick its own per-layer alphas (0.18 / 0.12 /
-    /// 0.06) instead of stacking pre-attenuated colors.
-    private static let shadowHue: Color = Color(red: 0.40, green: 0.30, blue: 0.20)
 
     // MARK: - Right rail thumbnail
 

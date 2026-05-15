@@ -431,8 +431,7 @@ private struct FriendCardView: View {
                     lineWidth: friend.isCookingNow ? (pulse ? 2.5 : 2.0) : 1.5
                 )
         )
-        .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 4)
-        .shadow(color: AppColor.shadowSoft, radius: 2, x: 0, y: 1)
+        .liftedCard()
         .animation(
             friend.isCookingNow
                 ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)

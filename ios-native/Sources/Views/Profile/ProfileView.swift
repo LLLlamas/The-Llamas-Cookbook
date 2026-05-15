@@ -612,7 +612,7 @@ struct ProfileView: View {
                             .stroke(AppColor.divider, lineWidth: 1)
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.lifted)
             Button {
                 Haptics.success()
                 Task { await friendsStore.acceptRequest(request) }
@@ -625,7 +625,7 @@ struct ProfileView: View {
                     .background(appearance.accentColor)
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.lifted)
         }
         .padding(AppSpacing.sm + 2)
         .background(AppColor.surface)
@@ -905,6 +905,7 @@ struct ProfileView: View {
                 }
             }
             .surfaceCard()
+            .liftedCard()
         }
     }
 

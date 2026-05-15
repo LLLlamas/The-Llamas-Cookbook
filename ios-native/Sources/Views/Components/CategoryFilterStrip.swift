@@ -64,7 +64,7 @@ struct CategoryFilterStrip: View {
                 )
                 .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
     }
 
     private func pill(label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -81,6 +81,6 @@ struct CategoryFilterStrip: View {
                 )
                 .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
     }
 }

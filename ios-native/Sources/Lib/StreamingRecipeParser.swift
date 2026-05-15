@@ -70,23 +70,32 @@ final class StreamingRecipeState {
     }
 
     func applyEvent(_ event: StreamingRecipeEvent) {
-        let wasEmpty = !hasFirstContent
         switch event {
-        case .title(let t):           title = t
+        case .title(let t):
+            title = t
+            // Fire as soon as the title lands — drives the overlay dismiss + preview pop.
+            // Fallback: first ingredient fires it if the model emits no title.
+            if !firstContentFired && !t.isEmpty {
+                firstContentFired = true
+                firstContentAt   = Date()
+                onFirstContent?()
+                onFirstContent   = nil
+            }
         case .summary(let s):         summary = s
         case .servings(let s):        servings = s
         case .cookTimeMinutes(let c): cookTimeMinutes = c
         case .prepTimeMinutes(let p): prepTimeMinutes = p
-        case .ingredient(let i):      ingredients.append(i)
+        case .ingredient(let i):
+            ingredients.append(i)
+            if !firstContentFired {
+                firstContentFired = true
+                firstContentAt   = Date()
+                onFirstContent?()
+                onFirstContent   = nil
+            }
         case .step(let s):            steps.append(s)
         }
         status = .streaming
-        if wasEmpty && hasFirstContent && !firstContentFired {
-            firstContentFired = true
-            firstContentAt   = Date()
-            onFirstContent?()
-            onFirstContent   = nil  // break the retain cycle; fires exactly once
-        }
     }
 
     func completeStream(finalDraft: DraftRecipe, cacheHit: Bool) {

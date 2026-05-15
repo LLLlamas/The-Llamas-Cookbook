@@ -433,7 +433,7 @@ struct LibraryView: View {
         } label: {
             allChipLabel
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.lifted)
         .contextMenu {
             Button {
                 Haptics.selection()
@@ -608,6 +608,7 @@ struct LibraryView: View {
                 )
                 .shadow(color: .black.opacity(0.10), radius: 4, y: 2)
         }
+        .buttonStyle(.lifted)
         .padding(AppSpacing.xl)
         // When Cook Mode is minimized, the resume pill at the bottom
         // would otherwise overlap the FAB. Push it up just enough to
@@ -689,6 +690,7 @@ private struct FilterChip: View {
             .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
             .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
+        .buttonStyle(.lifted)
     }
 }
 
