@@ -54,6 +54,7 @@ struct LibraryView: View {
     /// writes the raw value directly.
     @AppStorage("library.sort.v1") private var sortRawValue: String = LibrarySort.aToZ.rawValue
     @State private var deletingRecipe: Recipe?
+    @State private var deletingIDs: Set<UUID> = []
     @State private var showingAppearance = false
     @State private var showingProfile = false
     /// Bump-token consumed by `recipeList`'s ScrollViewReader to scroll
@@ -188,18 +189,22 @@ struct LibraryView: View {
         ) { recipe in
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
-                // Drop any active cook for this recipe BEFORE the
-                // delete fires so CookingSession doesn't end up
-                // holding a SwiftData fault to a deleted @Model.
                 session.cleanupCooks(forDeletedRecipeID: recipe.id)
-                // Tear down the cloud-side mirror for this recipe so
-                // friends stop seeing it in `FriendLibraryView`. Fired
-                // before the local delete so the recipeID capture
-                // happens against a still-live @Model. Best-effort.
                 LibraryMirrorService.shared.deleteRecipe(recipeID: recipe.id)
                 ImportCountCache.clear(for: recipe.id)
-                modelContext.delete(recipe)
+                // Shrink the card to nothing first, then delete from
+                // SwiftData so the space-collapse doesn't compete with
+                // the shrink animation.
+                let id = recipe.id
+                deletingIDs.insert(id)
                 deletingRecipe = nil
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(260))
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        modelContext.delete(recipe)
+                    }
+                    deletingIDs.remove(id)
+                }
             }
         } message: { recipe in
             Text("\"\(recipe.title)\" will be permanently removed.")
@@ -253,6 +258,12 @@ struct LibraryView: View {
                                 }
                             }
                             .cardScrollTransition()
+                            .scaleEffect(deletingIDs.contains(recipe.id) ? 0.001 : 1.0)
+                            .opacity(deletingIDs.contains(recipe.id) ? 0 : 1)
+                            .animation(
+                                .spring(response: 0.25, dampingFraction: 0.75),
+                                value: deletingIDs.contains(recipe.id)
+                            )
                             .id(recipe.id)
                         }
                     }

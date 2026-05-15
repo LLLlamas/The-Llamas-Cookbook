@@ -24,9 +24,9 @@ enum StreamingRecipeEvent: Equatable {
 /// `@Observable` state that the streaming preview UI binds to. Created
 /// by `ImportFromPhotoView.runImport` before the Sonnet call; the
 /// `parseImagesStreaming` function fills it as bytes arrive. The
-/// `onFirstContent` closure fires exactly once when the first content
-/// event lands — used by the caller to dismiss the processing overlay
-/// and pop `PhotoImportPreviewView`.
+/// `onFirstContent` closure fires exactly once when the title token
+/// lands — available for timing instrumentation; the overlay dismiss
+/// is driven by `PhotoImportPreviewView` observing `title.isEmpty`.
 @Observable
 @MainActor
 final class StreamingRecipeState {

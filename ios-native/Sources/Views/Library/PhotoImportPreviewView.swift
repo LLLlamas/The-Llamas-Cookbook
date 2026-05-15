@@ -4,16 +4,17 @@ import SwiftData
 /// Read-only preview of an imported `DraftRecipe`. Operates in two modes:
 ///
 /// 1. **Final-draft mode** (`streamingState == nil`): renders the full draft
-///    immediately. Used by the local-accept path, the cache-hit path, and
-///    the OCR + text-AI fallback path — anywhere the draft is fully formed
-///    before the preview opens.
+///    immediately. Used by the local-accept path and the OCR + text-AI
+///    fallback path — anywhere the draft is fully formed before the preview
+///    opens.
 ///
-/// 2. **Streaming mode** (`streamingState != nil`): the sheet is held back
-///    in `ImportFromPhotoView` until the first Sonnet token arrives so the
-///    processing overlay covers the TTFB gap. The preview opens with content
-///    already ticking in — no blank skeleton period. Save is disabled until
-///    `streamingState.status == .completed`, at which point
-///    `streamingState.finalDraft` becomes the canonical draft to persist.
+/// 2. **Streaming mode** (`streamingState != nil`): the preview opens
+///    immediately when the Sonnet path begins (blank content). A
+///    "Asking the llama…" overlay covers the blank view during TTFB; it
+///    dismisses the instant the title token arrives and the title's
+///    insertion transition plays. Content ticks in progressively from there.
+///    Save is disabled until `streamingState.status == .completed`, at which
+///    point `streamingState.finalDraft` becomes the canonical draft to persist.
 ///
 /// Toolbar mirrors the share-recipient screen exactly: principal title set
 /// to "Import From Photo", Cancel left, Edit + Save right. Save surfaces
@@ -86,7 +87,23 @@ struct PhotoImportPreviewView: View {
         return draft
     }
 
-    private var showCacheHint: Bool { cacheHit && sessionAttemptIndex >= 2 }
+    private var showCacheHint: Bool {
+        // cacheHit on the payload is always false (created before we know);
+        // read the resolved value from streamingState once completeStream fires.
+        let hit = streamingState?.cacheHit ?? cacheHit
+        return hit && sessionAttemptIndex >= 2
+    }
+
+    /// True while we're waiting for the first title token from Sonnet.
+    /// Drives the "Asking the llama…" overlay that covers the blank preview.
+    private var showProcessingOverlay: Bool {
+        guard let s = streamingState else { return false }
+        guard s.title.isEmpty else { return false }
+        switch s.status {
+        case .cancelled, .failed, .completed: return false
+        default: return true
+        }
+    }
 
     private var canSave: Bool {
         guard !isSaving else { return false }
@@ -124,6 +141,19 @@ struct PhotoImportPreviewView: View {
             .toolbar { toolbarContent }
         }
         .interactiveDismissDisabled(isSaving || isStreaming)
+        // "Asking the llama…" overlay — shown while Sonnet TTFB is in progress
+        // (title not yet extracted). Fades out the instant the title token
+        // arrives, then the title's insertion transition plays immediately.
+        .overlay {
+            if showProcessingOverlay {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    llamaProcessingCard
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: showProcessingOverlay)
         // Haptic when the title first lands. onAppear catches the case where
         // the title is already present when the view opens (onFirstContent
         // fires after state.title is set, so the view may open pre-populated).
@@ -404,6 +434,20 @@ struct PhotoImportPreviewView: View {
                 .stroke(appearance.accentColor.opacity(0.3), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    private var llamaProcessingCard: some View {
+        VStack(spacing: AppSpacing.md) {
+            LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
+            Text("Asking the llama…")
+                .font(AppFont.body)
+                .foregroundStyle(AppColor.textPrimary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(AppSpacing.xl)
+        .background(AppColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        .shadow(color: AppColor.shadow, radius: 18, y: 6)
     }
 
     private var raceBanner: some View {

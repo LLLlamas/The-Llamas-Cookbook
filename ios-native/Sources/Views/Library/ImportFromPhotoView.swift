@@ -824,43 +824,20 @@ struct ImportFromPhotoView: View {
         }
 
         // ── Sonnet streaming vision ───────────────────────────────────────────
-        // Keep the processing overlay visible during Anthropic TTFB (5–10 s).
-        // The preview sheet pops the moment the first token arrives so the user
-        // sees content materialise immediately — no blank skeleton period.
-        // For cache-hit paths where no streaming events fire, we pop manually
-        // in the success branch below.
+        // Pop the preview immediately — the "Asking the llama…" overlay lives
+        // inside PhotoImportPreviewView and dismisses the instant the title
+        // token arrives, so content ticks in right away with no blank gap.
         let state = StreamingRecipeState()
         streamingState = state
         let sessionIndex = sessionAttemptCount
         capturedPages = []
-        ocrPageStatus = "Asking the llama…"
-        state.onFirstContent = {
-            self.ocrInProgress = false
-            if self.preview == nil {
-                self.preview = PreviewPayload(
-                    draft: DraftRecipe(),
-                    streamingState: state,
-                    cacheHit: false,
-                    sessionAttemptIndex: sessionIndex
-                )
-            }
-        }
-
-        // 2-second hard cap on the overlay. If Anthropic TTFB exceeds 2 s,
-        // pop the blank preview anyway so the user isn't staring at the llama.
-        // Content fills in as events arrive; onFirstContent is a no-op if
-        // preview is already set.
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            guard self.preview == nil else { return }
-            self.ocrInProgress = false
-            self.preview = PreviewPayload(
-                draft: DraftRecipe(),
-                streamingState: state,
-                cacheHit: false,
-                sessionAttemptIndex: sessionIndex
-            )
-        }
+        ocrInProgress = false
+        preview = PreviewPayload(
+            draft: DraftRecipe(),
+            streamingState: state,
+            cacheHit: false,
+            sessionAttemptIndex: sessionIndex
+        )
 
         let visionInterval = photoImportSignposter.beginInterval("visionStreaming")
         let visionStart = Date()
@@ -911,16 +888,6 @@ struct ImportFromPhotoView: View {
             branch = state.hasFirstContent
                 ? .visionStream
                 : (visionOutcome.cacheHit ? .visionCacheHit : .visionBufferedComplete)
-            // Cache hits skip streaming so onFirstContent never fires — pop manually.
-            if preview == nil {
-                ocrInProgress = false
-                preview = PreviewPayload(
-                    draft: DraftRecipe(),
-                    streamingState: state,
-                    cacheHit: visionOutcome.cacheHit,
-                    sessionAttemptIndex: sessionIndex
-                )
-            }
             state.completeStream(finalDraft: draft, cacheHit: visionOutcome.cacheHit)
             return
         }
