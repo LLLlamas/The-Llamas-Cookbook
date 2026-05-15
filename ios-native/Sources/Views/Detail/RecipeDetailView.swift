@@ -19,6 +19,7 @@ struct RecipeDetailView: View {
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(UserAccount.self) private var userAccount
+    @Environment(LlamaProStore.self) private var proStore
 
     let recipe: Recipe
 
@@ -393,6 +394,7 @@ struct RecipeDetailView: View {
             AccentColorPicker()
                 .environment(appearance)
                 .environment(userAccount)
+                .environment(proStore)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }

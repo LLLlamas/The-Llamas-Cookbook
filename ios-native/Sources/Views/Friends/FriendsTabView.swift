@@ -26,6 +26,7 @@ struct FriendsTabView: View {
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(UserAccount.self) private var userAccount
+    @Environment(LlamaProStore.self) private var proStore
 
     @State private var showingAddFriend = false
     @State private var recipeCounts: [String: Int] = [:]
@@ -70,7 +71,7 @@ struct FriendsTabView: View {
         } else {
             grid
                 .llamaBackground(
-                    asset: "Friends_Llama_Icon_Large",
+                    asset: proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon_Large",
                     tint: isBelowSocialThreshold ? appearance.cookbookTitleAccentColor : .clear
                 )
                 .navigationTitle(friendsTitle)

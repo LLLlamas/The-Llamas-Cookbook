@@ -51,6 +51,7 @@ struct ProfileView: View {
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(FriendsStore.self) private var friendsStore
+    @Environment(LlamaProStore.self) private var proStore
     @Environment(\.dismiss) private var dismiss
 
     /// All recipes — used only to derive `lastCookedRecipe` for the
@@ -281,7 +282,22 @@ struct ProfileView: View {
     /// re-renders the title automatically.
     private var header: some View {
         VStack(spacing: AppSpacing.sm) {
-            LlamaLogo(size: 96, shadowColor: appearance.accentColor)
+            if proStore.isPro {
+                Image("Llama-Pro-Icon-Profile-Crown")
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 96, height: 96)
+                    .shadow(
+                        color: appearance.accentColor.opacity(0.45),
+                        radius: 96 * 0.0643,
+                        x: 0,
+                        y: 96 * 0.05
+                    )
+                    .accessibilityHidden(true)
+            } else {
+                LlamaLogo(size: 96, shadowColor: appearance.accentColor)
+            }
             Text(headerTitle)
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(appearance.accentColor)

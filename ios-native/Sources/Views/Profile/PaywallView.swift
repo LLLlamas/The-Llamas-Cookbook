@@ -7,6 +7,8 @@ struct PaywallView: View {
     @Environment(LlamaProStore.self)      private var proStore
     @Environment(QuotaService.self)       private var quotaService
 
+    @State private var isLoadingProduct = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -57,6 +59,12 @@ struct PaywallView: View {
             .llamaBackground()
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)
+            .task {
+                guard proStore.product == nil else { return }
+                isLoadingProduct = true
+                await proStore.loadProduct()
+                isLoadingProduct = false
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button { dismiss() } label: {
@@ -107,7 +115,7 @@ struct PaywallView: View {
             Task { await proStore.purchase() }
         } label: {
             ZStack {
-                if proStore.isPurchasing {
+                if proStore.isPurchasing || isLoadingProduct {
                     ProgressView()
                         .tint(AppColor.onAccent)
                 } else {
@@ -122,7 +130,7 @@ struct PaywallView: View {
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         }
         .buttonStyle(.plain)
-        .disabled(proStore.isPurchasing)
+        .disabled(proStore.isPurchasing || isLoadingProduct)
     }
 
     private var legalText: some View {

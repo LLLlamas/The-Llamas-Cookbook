@@ -39,6 +39,7 @@ struct LibraryView: View {
     // presentations (per CLAUDE.md › "Re-inject environments into
     // covers"). LibraryView itself doesn't consume FriendsStore.
     @Environment(FriendsStore.self) private var friendsStore
+    @Environment(LlamaProStore.self) private var proStore
     @Query(sort: \Recipe.title, order: .forward) private var recipes: [Recipe]
 
     @State private var filter: LibraryFilter = .all
@@ -138,6 +139,7 @@ struct LibraryView: View {
             AccentColorPicker()
                 .environment(appearance)
                 .environment(userAccount)
+                .environment(proStore)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -150,6 +152,7 @@ struct LibraryView: View {
                 .environment(ownerProfile)
                 .environment(appearance)
                 .environment(friendsStore)
+                .environment(proStore)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }

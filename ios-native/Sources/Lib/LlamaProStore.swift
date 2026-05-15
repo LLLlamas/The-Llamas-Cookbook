@@ -41,7 +41,7 @@ final class LlamaProStore {
 
     // MARK: - Product
 
-    private func loadProduct() async {
+    func loadProduct() async {
         do {
             let loaded = try await Product.products(for: [Self.productID])
             product = loaded.first
