@@ -193,7 +193,11 @@ struct RootView: View {
                 Label {
                     Text("Home")
                 } icon: {
-                    Image(proStore.isPro ? "Llama-Pro-Icon-Crown" : "Home_Llama_Icon")
+                    if proStore.isPro {
+                        proTabIcon(named: proStore.plan == .yearly ? "Llama-Pro-Icon-Crown-Sunglasses" : "Llama-Pro-Icon-Crown")
+                    } else {
+                        Image("Home_Llama_Icon")
+                    }
                 }
             }
             .tag(AppTab.home)
@@ -211,7 +215,11 @@ struct RootView: View {
                 Label {
                     Text("Friends")
                 } icon: {
-                    Image(proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
+                    if proStore.isPro {
+                        proTabIcon(named: proStore.plan == .yearly ? "Llama-Pro-Icon-Friends-Crown-Sunglasses" : "Llama-Pro-Icon-Friends-Crown")
+                    } else {
+                        Image("Friends_Llama_Icon")
+                    }
                 }
             }
             .tag(AppTab.friends)
@@ -229,7 +237,11 @@ struct RootView: View {
                 Label {
                     Text("Me")
                 } icon: {
-                    Image(proStore.isPro ? "Llama-Pro-Icon-Profile-Crown" : "Profile_Llama_Icon")
+                    if proStore.isPro {
+                        proTabIcon(named: proStore.plan == .yearly ? "Llama-Pro-Icon-Profile-Crown-Sunglasses" : "Llama-Pro-Icon-Profile-Crown")
+                    } else {
+                        Image("Profile_Llama_Icon")
+                    }
                 }
             }
             .tag(AppTab.me)
@@ -958,6 +970,20 @@ struct RootView: View {
     private func lookupRecipe(_ id: UUID) -> Recipe? {
         let descriptor = FetchDescriptor<Recipe>(predicate: #Predicate { $0.id == id })
         return try? modelContext.fetch(descriptor).first
+    }
+
+    /// Returns a pre-scaled `Image` for Pro crown assets so they fit the tab
+    /// bar's ~26pt icon slot. The crown PNGs are sized for header/logo use
+    /// (~96pt+) and UIKit won't reliably downscale them to tab bar dimensions.
+    private func proTabIcon(named name: String) -> Image {
+        guard let ui = UIImage(named: name) else { return Image(name) }
+        let size = CGSize(width: 26, height: 26)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let resized = renderer.image { ctx in
+            ctx.cgContext.interpolationQuality = .high
+            ui.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return Image(uiImage: resized.withRenderingMode(.alwaysOriginal))
     }
 
     /// Parses `llamascookbook://cook/<uuid>` and returns the UUID, or

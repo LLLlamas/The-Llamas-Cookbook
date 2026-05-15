@@ -110,7 +110,7 @@ struct LibraryView: View {
                     Haptics.selection()
                     showingProfile = true
                 } label: {
-                    Image(proStore.isPro ? "Llama-Pro-Icon-Profile-Crown" : "Profile_Llama_Icon")
+                    Image(proStore.plan == .yearly ? "Llama-Pro-Icon-Profile-Crown-Sunglasses" : proStore.isPro ? "Llama-Pro-Icon-Profile-Crown" : "Profile_Llama_Icon")
                         .renderingMode(.original)
                         .resizable()
                         .interpolation(.high)

@@ -6,12 +6,28 @@ import CryptoKit
 @Observable
 final class LlamaProStore {
 
-    static let productID = "com.llamascookbook.app.pro.monthly"
+    enum Plan {
+        case none, monthly, yearly
+        var isPro: Bool { self != .none }
+        var displayLabel: String {
+            switch self {
+            case .none:    return ""
+            case .monthly: return "Llama Pro Monthly"
+            case .yearly:  return "Llama Pro Yearly"
+            }
+        }
+    }
 
-    private(set) var isPro:          Bool     = false
-    private(set) var product:        Product? = nil
+    static let monthlyProductID = "com.llamascookbook.app.pro.monthly"
+    static let yearlyProductID  = "com.llamascookbook.app.pro.yearly"
+
+    private(set) var plan:           Plan     = .none
+    private(set) var monthlyProduct: Product? = nil
+    private(set) var yearlyProduct:  Product? = nil
     private(set) var isPurchasing:   Bool     = false
     private(set) var purchaseError:  String?  = nil
+
+    var isPro: Bool { plan.isPro }
 
     nonisolated(unsafe) private var transactionUpdateTask: Task<Void, Never>?
 
@@ -25,17 +41,14 @@ final class LlamaProStore {
 
     // MARK: - Startup
 
-    /// Load the App Store product and verify existing entitlements.
-    /// Call once from LlamasCookbookApp on first appear.
     func start() async {
         async let productLoad: Void  = loadProduct()
         async let entitlements: Void = checkCurrentEntitlements()
         _ = await (productLoad, entitlements)
     }
 
-    /// Called on sign-out — clears local Pro status without touching StoreKit.
     func signOut() {
-        isPro = false
+        plan = .none
         purchaseError = nil
     }
 
@@ -43,22 +56,19 @@ final class LlamaProStore {
 
     func loadProduct() async {
         do {
-            let loaded = try await Product.products(for: [Self.productID])
-            product = loaded.first
+            let loaded = try await Product.products(for: [Self.monthlyProductID, Self.yearlyProductID])
+            monthlyProduct = loaded.first(where: { $0.id == Self.monthlyProductID })
+            yearlyProduct  = loaded.first(where: { $0.id == Self.yearlyProductID })
         } catch {
-            // Product unavailable until App Store Connect setup is complete.
+            // Products unavailable until App Store Connect setup is complete.
         }
     }
 
     // MARK: - Purchase
 
-    func purchase() async {
-        guard let product else {
-            purchaseError = "Subscription unavailable — please try again in a moment."
-            return
-        }
-        isPurchasing   = true
-        purchaseError  = nil
+    func purchase(_ product: Product) async {
+        isPurchasing  = true
+        purchaseError = nil
         defer { isPurchasing = false }
 
         do {
@@ -71,7 +81,7 @@ final class LlamaProStore {
             case .success(let verification):
                 let transaction = try checkVerified(verification)
                 await activateOnServer(jws: verification.jwsRepresentation)
-                isPro = true
+                plan = transaction.productID == Self.yearlyProductID ? .yearly : .monthly
                 await transaction.finish()
             case .userCancelled, .pending:
                 break
@@ -100,15 +110,21 @@ final class LlamaProStore {
     // MARK: - Entitlements
 
     func checkCurrentEntitlements() async {
-        var hasPro = false
+        var detected: Plan = .none
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
-            if transaction.productID == Self.productID {
-                hasPro = true
+            switch transaction.productID {
+            case Self.yearlyProductID:
+                detected = .yearly
                 await activateOnServer(jws: result.jwsRepresentation)
+            case Self.monthlyProductID:
+                if detected == .none { detected = .monthly }
+                await activateOnServer(jws: result.jwsRepresentation)
+            default:
+                break
             }
         }
-        isPro = hasPro
+        plan = detected
     }
 
     // MARK: - Transaction listener
@@ -118,11 +134,22 @@ final class LlamaProStore {
             for await result in Transaction.updates {
                 guard let self else { break }
                 guard case .verified(let transaction) = result else { continue }
-                guard transaction.productID == Self.productID else { continue }
+                let isYearly = transaction.productID == Self.yearlyProductID
+                let isMonthly = transaction.productID == Self.monthlyProductID
+                guard isYearly || isMonthly else { continue }
                 let active = transaction.revocationDate == nil &&
                              (transaction.expirationDate.map { $0 > Date.now } ?? true)
                 await self.activateOnServer(jws: result.jwsRepresentation)
-                await MainActor.run { self.isPro = active }
+                await MainActor.run {
+                    if active {
+                        self.plan = isYearly ? .yearly : .monthly
+                    } else {
+                        let currentPlan = self.plan
+                        if (isYearly && currentPlan == .yearly) || (isMonthly && currentPlan == .monthly) {
+                            self.plan = .none
+                        }
+                    }
+                }
                 await transaction.finish()
             }
         }
@@ -130,9 +157,6 @@ final class LlamaProStore {
 
     // MARK: - Server sync
 
-    /// Notifies the Cloudflare Worker so the server-side KV pro flag is kept
-    /// in sync. Fire-and-forget — local StoreKit entitlement is authoritative
-    /// on the client; the server flag gates quota enforcement.
     private func activateOnServer(jws: String) async {
         guard let userId = KeychainStore.read(.appleSub) else { return }
         var req = URLRequest(url: URL(string: "https://llamascookbook.pages.dev/api/usage/activate-pro")!)
@@ -154,15 +178,11 @@ final class LlamaProStore {
         }
     }
 
-    /// Deterministic UUID from the SIWA sub for `.appAccountToken`.
-    /// SHA-256 the sub UTF-8, take first 16 bytes, apply UUID v4 variant bits
-    /// so the result is a structurally valid UUID. The server re-derives this
-    /// to verify the token in the JWS payload matches the calling user.
     static func appAccountToken(for siwaSubOrNil: String?) -> UUID? {
         guard let sub = siwaSubOrNil, !sub.isEmpty else { return nil }
         var bytes = Array(SHA256.hash(data: Data(sub.utf8)).prefix(16))
-        bytes[6] = (bytes[6] & 0x0f) | 0x40  // version 4
-        bytes[8] = (bytes[8] & 0x3f) | 0x80  // RFC 4122 variant
+        bytes[6] = (bytes[6] & 0x0f) | 0x40
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
         return UUID(uuid: (
             bytes[0],  bytes[1],  bytes[2],  bytes[3],
             bytes[4],  bytes[5],  bytes[6],  bytes[7],

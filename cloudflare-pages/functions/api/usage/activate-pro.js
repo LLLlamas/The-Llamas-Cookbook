@@ -24,10 +24,13 @@
 // Since the KV flag TTL is bounded by expiresDate, the worst case is a
 // few days of unearned Pro access; acceptable for Phase 2.
 
-const BUNDLE_ID  = 'com.llamascookbook.app';
-const PRODUCT_ID = 'com.llamascookbook.app.pro.monthly';
-const PRO_CAP    = 30;
-const FREE_CAP   = 5;
+const BUNDLE_ID   = 'com.llamascookbook.app';
+const PRODUCT_IDS = new Set([
+  'com.llamascookbook.app.pro.monthly',
+  'com.llamascookbook.app.pro.yearly',
+]);
+const PRO_CAP  = 30;
+const FREE_CAP = 5;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -71,7 +74,7 @@ export async function onRequestPost(context) {
   if (payload.bundleId !== BUNDLE_ID) {
     return Response.json({ error: 'wrong_bundle' }, { status: 400 });
   }
-  if (payload.productId !== PRODUCT_ID) {
+  if (!PRODUCT_IDS.has(payload.productId)) {
     return Response.json({ error: 'wrong_product' }, { status: 400 });
   }
 

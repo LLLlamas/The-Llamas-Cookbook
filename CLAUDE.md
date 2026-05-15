@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-15 (session 14 — Pro crown rollout across all llama surfaces; see "Llama Pro crown surfaces" below).
+Last refreshed: 2026-05-15 (session 15 — yearly subscription, Pro badge in profile, sunglasses crown tier; see "Llama Pro crown surfaces" below).
 
 ---
 
@@ -217,16 +217,33 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 
 ## Llama Pro crown surfaces
 
-When `LlamaProStore.isPro`, every llama surface swaps to its crowned variant. The three crown assets are:
+Three subscription tiers drive three icon tiers: **free** → base llama; **Pro Monthly** → crown; **Pro Yearly** → crown + sunglasses.
+
+`LlamaProStore.Plan` enum: `.none` (free), `.monthly`, `.yearly`. `isPro` is `plan != .none`. `plan.displayLabel` → `""` / `"Llama Pro Monthly"` / `"Llama Pro Yearly"` — rendered as a small badge under the llama in `ProfileView.header`.
+
+Product IDs:
+- `com.llamascookbook.app.pro.monthly` → `LlamaProStore.monthlyProductID`
+- `com.llamascookbook.app.pro.yearly` → `LlamaProStore.yearlyProductID`
+
+Crown assets (monthly tier):
 - `Llama-Pro-Icon-Crown` — generic (home tab, recipe detail principal, cook mode, recipe-card placeholder, empty-library state)
-- `Llama-Pro-Icon-Friends-Crown` — friends context (friends tab bar icon, friends CookbookHeader top-left, "Your Llama" seed-friend card fallback thumbnail)
+- `Llama-Pro-Icon-Friends-Crown` — friends context (friends tab bar icon, friends CookbookHeader top-left, watermark, "Your Llama" seed-friend card)
 - `Llama-Pro-Icon-Profile-Crown` — profile context (profile tab bar icon, library top-right profile button, profile page header)
 
-Implementation pattern:
-- `LlamaLogoOrCrown(size:accent:)` — use for `LlamaLogo` replacements (handles isPro internally).
-- `Image(proStore.isPro ? "Context-Crown" : "Base")` — use for named-image conditionals (tab bar icons, profile button, friends header icon, seed friend card).
+Crown + sunglasses assets (yearly tier — same surface mapping, `*-Sunglasses` suffix):
+- `Llama-Pro-Icon-Crown-Sunglasses`
+- `Llama-Pro-Icon-Friends-Crown-Sunglasses`
+- `Llama-Pro-Icon-Profile-Crown-Sunglasses`
 
-`RootView` owns `@Environment(LlamaProStore.self) private var proStore` and must re-inject `.environment(proStore)` into every `fullScreenCover` / `sheet` that contains llama surfaces (currently: `CookModeView` fullScreenCover). `CookModeView` and `FriendCardView` also declare `@Environment(LlamaProStore.self) private var proStore` directly. All other call sites inherit it from the app-level injection.
+Implementation pattern:
+- `LlamaLogoOrCrown(size:accent:crownAsset:yearlyCrownAsset:)` — use for `LlamaLogo` replacements; handles `plan` internally. `crownAsset` defaults to `Llama-Pro-Icon-Crown`; `yearlyCrownAsset` defaults to `Llama-Pro-Icon-Crown-Sunglasses`. Profile header passes explicit context-specific values for both params.
+- `Image(proStore.plan == .yearly ? "X-Crown-Sunglasses" : proStore.isPro ? "X-Crown" : "X")` — 3-way conditional for named-image call sites (tab bar icons, profile button, friends header icon, watermark, seed friend card).
+
+`PaywallView` shows a yearly/monthly plan picker (yearly pre-selected as "Best value"). Subscribe button calls `proStore.purchase(product)` with the selected plan's product. `proStore.yearlyProduct` / `proStore.monthlyProduct` are separate `Product?` properties loaded in `loadProduct()`.
+
+`RootView` owns `@Environment(LlamaProStore.self) private var proStore` and must re-inject `.environment(proStore)` into every `fullScreenCover` / `sheet` that contains llama surfaces (currently: `CookModeView` fullScreenCover). `CookModeView`, `FriendCardView`, and `ProfileView` also declare `@Environment(LlamaProStore.self) private var proStore` directly. All other call sites inherit it from the app-level injection.
+
+`activate-pro.js` accepts both product IDs via `PRODUCT_IDS` Set; TTL is derived from `expiresDate` in the JWS so yearly subscriptions get the correct longer TTL automatically.
 
 ## UX guardrails
 

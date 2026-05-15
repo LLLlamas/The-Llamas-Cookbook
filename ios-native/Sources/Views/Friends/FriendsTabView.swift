@@ -71,7 +71,7 @@ struct FriendsTabView: View {
         } else {
             grid
                 .llamaBackground(
-                    asset: proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon_Large",
+                    asset: proStore.plan == .yearly ? "Llama-Pro-Icon-Friends-Crown-Sunglasses" : proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon_Large",
                     tint: isBelowSocialThreshold ? appearance.cookbookTitleAccentColor : .clear
                 )
                 .navigationTitle(friendsTitle)
@@ -84,7 +84,7 @@ struct FriendsTabView: View {
                             accent: appearance.cookbookTitleAccentColor,
                             glowActive: appearance.isAccentGlowActive(.header)
                         ) {
-                            Image(proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
+                            Image(proStore.plan == .yearly ? "Llama-Pro-Icon-Friends-Crown-Sunglasses" : proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
                                 .resizable()
                                 .renderingMode(.original)
                                 .frame(width: 52, height: 52)
@@ -558,7 +558,7 @@ private struct FriendCardView: View {
                 .foregroundStyle(friend.resolvedAccent)
                 .padding(7)
         } else {
-            Image(proStore.isPro && SeedFriend.isSeed(friend) ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
+            Image(SeedFriend.isSeed(friend) && proStore.plan == .yearly ? "Llama-Pro-Icon-Friends-Crown-Sunglasses" : SeedFriend.isSeed(friend) && proStore.isPro ? "Llama-Pro-Icon-Friends-Crown" : "Friends_Llama_Icon")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()

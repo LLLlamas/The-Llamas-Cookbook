@@ -1,23 +1,23 @@
 import SwiftUI
 
 /// The brand llama, swapped for its crowned Pro variant when the user
-/// has Llama Pro. Plain state delegates to `LlamaLogo`; the Pro state
-/// renders the crown asset with a proportional accent drop shadow
-/// (radius and y-offset scale with `size` so the shadow reads the same
-/// at any logo size).
+/// has Llama Pro. Monthly Pro shows the crown; Yearly Pro shows the
+/// crown-and-sunglasses variant. Plain state delegates to `LlamaLogo`.
 ///
-/// `crownAsset` defaults to the picker-surface crown — the Profile
-/// header passes its own `Llama-Pro-Icon-Profile-Crown` variant.
+/// Shadow radius and y-offset scale with `size` so the shadow reads
+/// the same at any logo size.
 struct LlamaLogoOrCrown: View {
     let size: CGFloat
     var accent: Color
-    var crownAsset: String = "Llama-Pro-Icon-Crown"
+    var crownAsset: String       = "Llama-Pro-Icon-Crown"
+    var yearlyCrownAsset: String = "Llama-Pro-Icon-Crown-Sunglasses"
 
     @Environment(LlamaProStore.self) private var proStore
 
     var body: some View {
         if proStore.isPro {
-            Image(crownAsset)
+            let asset = proStore.plan == .yearly ? yearlyCrownAsset : crownAsset
+            Image(asset)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)

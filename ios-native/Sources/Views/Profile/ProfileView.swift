@@ -51,6 +51,7 @@ struct ProfileView: View {
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(FriendsStore.self) private var friendsStore
+    @Environment(LlamaProStore.self) private var proStore
     @Environment(\.dismiss) private var dismiss
 
     /// All recipes — used only to derive `lastCookedRecipe` for the
@@ -284,7 +285,8 @@ struct ProfileView: View {
             LlamaLogoOrCrown(
                 size: 96,
                 accent: appearance.accentColor,
-                crownAsset: "Llama-Pro-Icon-Profile-Crown"
+                crownAsset: "Llama-Pro-Icon-Profile-Crown",
+                yearlyCrownAsset: "Llama-Pro-Icon-Profile-Crown-Sunglasses"
             )
             Text(headerTitle)
                 .font(AppFont.recipeTitle)
@@ -293,6 +295,12 @@ struct ProfileView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .padding(.horizontal, AppSpacing.md)
+            if proStore.isPro {
+                Text(proStore.plan.displayLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(appearance.accentColor)
+                    .accentTextOutline()
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, AppSpacing.md)
