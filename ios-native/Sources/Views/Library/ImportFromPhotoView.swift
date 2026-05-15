@@ -913,6 +913,23 @@ struct ImportFromPhotoView: View {
         if let t = textDraft, photoImportConfident(t) {
             branch = .ocrTextFallback
             accepted = true
+            // Drive content into the streaming state one item at a time so the
+            // tick-in transitions fire progressively, matching the Sonnet path.
+            // applyEvent flips status → .streaming so the skeleton fades and
+            // each row springs in as it lands. 55 ms stagger matches Sonnet cadence.
+            if !t.title.isEmpty           { state.applyEvent(.title(t.title)) }
+            if !t.summary.isEmpty         { state.applyEvent(.summary(t.summary)) }
+            if !t.servings.isEmpty        { state.applyEvent(.servings(t.servings)) }
+            if !t.cookTimeMinutes.isEmpty { state.applyEvent(.cookTimeMinutes(t.cookTimeMinutes)) }
+            if !t.prepTimeMinutes.isEmpty { state.applyEvent(.prepTimeMinutes(t.prepTimeMinutes)) }
+            for ing in t.ingredients {
+                state.applyEvent(.ingredient(ing))
+                try? await Task.sleep(for: .milliseconds(55))
+            }
+            for step in t.steps {
+                state.applyEvent(.step(step))
+                try? await Task.sleep(for: .milliseconds(55))
+            }
             state.completeStream(finalDraft: t, cacheHit: false)
             return
         }

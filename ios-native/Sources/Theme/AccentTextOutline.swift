@@ -35,4 +35,16 @@ extension View {
     func accentTextOutline() -> some View {
         modifier(AccentTextOutline())
     }
+
+    /// Momentary glow pulse for the accent-color-change ripple sequence.
+    /// Pair `active` with `AppearanceSettings.isAccentGlowActive(_:)` and
+    /// `color` with the corresponding staged accent color (e.g.
+    /// `appearance.recipeListAccentColor`). Safe to stack on top of
+    /// `.accentTextOutline()` — shadows are additive.
+    func accentGlow(when active: Bool, color: Color) -> some View {
+        self
+            .shadow(color: color.opacity(active ? 0.16 : 0), radius: active ? 7  : 0)
+            .shadow(color: color.opacity(active ? 0.07 : 0), radius: active ? 14 : 0)
+            .animation(.easeInOut(duration: 0.14), value: active)
+    }
 }

@@ -103,14 +103,18 @@ struct RecipeDetailView: View {
         }
     }
 
+    private var accent: Color     { appearance.recipeListAccentColor }
+    private var glowActive: Bool  { appearance.isAccentGlowActive(.recipeList) }
+
     var body: some View {
         ScrollView {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
                     Text(StringCase.titleCase(recipe.title))
                         .font(AppFont.recipeTitle)
-                        .foregroundStyle(appearance.accentColor)
+                        .foregroundStyle(accent)
                         .accentTextOutline()
                         .shadow(color: AppColor.shadow, radius: 2, x: 0, y: 1.5)
+                        .accentGlow(when: glowActive, color: accent)
 
                     // One eyebrow line under the title. Provenance wins
                     // when the recipe came from someone else — see
@@ -284,9 +288,10 @@ struct RecipeDetailView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(appearance.accentColor)
+                        .foregroundStyle(accent)
                         .accentTextOutline()
                         .frame(width: 30, height: 30)
+                        .accentGlow(when: glowActive, color: accent)
                 }
                 .accessibilityLabel("Back")
             }
@@ -330,10 +335,11 @@ struct RecipeDetailView: View {
                     } label: {
                         Image(systemName: recipe.favorite ? "heart.fill" : "heart")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(appearance.accentColor)
+                            .foregroundStyle(accent)
                             .accentTextOutline()
                             .frame(width: 30, height: 30)
                             .offset(y: 1)
+                            .accentGlow(when: glowActive, color: accent)
                     }
                     .accessibilityLabel(recipe.favorite ? "Unfavorite" : "Favorite")
                     Menu {
@@ -359,9 +365,10 @@ struct RecipeDetailView: View {
                     } label: {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(appearance.accentColor)
+                            .foregroundStyle(accent)
                             .accentTextOutline()
                             .frame(width: 30, height: 30)
+                            .accentGlow(when: glowActive, color: accent)
                     }
                     .accessibilityLabel("Share recipe")
                     Button {
@@ -369,9 +376,10 @@ struct RecipeDetailView: View {
                     } label: {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(appearance.accentColor)
+                            .foregroundStyle(accent)
                             .accentTextOutline()
                             .frame(width: 30, height: 30)
+                            .accentGlow(when: glowActive, color: accent)
                     }
                     .accessibilityLabel("Edit recipe")
                 }
@@ -592,8 +600,9 @@ struct RecipeDetailView: View {
                     .padding(.bottom, 6)
                     .background(alignment: .bottom) {
                         Capsule()
-                            .fill(appearance.accentColor.opacity(0.55))
+                            .fill(accent.opacity(0.55))
                             .frame(height: 2)
+                            .accentGlow(when: glowActive, color: accent)
                     }
                 Spacer(minLength: AppSpacing.sm)
                 accessory()
@@ -1103,8 +1112,10 @@ struct RecipeDetailView: View {
             .foregroundStyle(AppColor.onAccent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppSpacing.md)
-            .background(appearance.accentColor)
+            .background(accent)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .shadow(color: accent.opacity(glowActive ? 0.45 : 0), radius: glowActive ? 16 : 0)
+            .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
         .padding(.horizontal, AppSpacing.lg)
         .padding(.top, AppSpacing.xs)
