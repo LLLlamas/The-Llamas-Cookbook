@@ -217,7 +217,7 @@ struct ImportFromPhotoView: View {
     private var isMonthlyExhausted: Bool { snapshot?.isMonthlyExhausted ?? false }
 
     /// True when the user cannot start a new import attempt right now.
-    private var isInputBlocked: Bool { isDailyLimitHit || isMonthlyExhausted }
+    private var isInputBlocked: Bool { false }
 
     /// "4h 23m", "1d 6h", "18d", "soon" — used in the pill and blocked cards.
     private static func timeRemaining(until target: Date, from now: Date) -> String {
@@ -244,21 +244,43 @@ struct ImportFromPhotoView: View {
     @ViewBuilder
     private var quotaPill: some View {
         if let s = snapshot {
-            TimelineView(.everyMinute) { context in
-                HStack(spacing: AppSpacing.xs) {
-                    if s.isPro {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 11, weight: .semibold))
+            HStack(spacing: AppSpacing.sm) {
+                TimelineView(.everyMinute) { context in
+                    HStack(spacing: AppSpacing.xs) {
+                        if s.isPro {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        Text(pillText(s, now: context.date))
+                            .font(.system(size: 13, weight: .semibold))
                     }
-                    Text(pillText(s, now: context.date))
-                        .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(pillForeground(s))
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.xs + 2)
+                    .background(pillBackground(s))
+                    .clipShape(Capsule())
                 }
-                .foregroundStyle(pillForeground(s))
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.xs + 2)
-                .background(pillBackground(s))
-                .clipShape(Capsule())
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !s.isPro {
+                    Button {
+                        showingPaywall = true
+                    } label: {
+                        HStack(spacing: AppSpacing.xs) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Llama Pro")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(AppColor.onAccent)
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.vertical, AppSpacing.xs + 2)
+                        .background(appearance.accentColor)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 0)
             }
         }
     }
@@ -833,8 +855,9 @@ struct ImportFromPhotoView: View {
         }
         photoImportSignposter.endInterval("visionStreaming", visionInterval)
 
-        // Handle quota / auth errors — dismiss preview, refresh snapshot,
-        // let blocked-card UI appear; do not fall through to OCR.
+        // Handle quota / auth errors — dismiss preview, refresh snapshot.
+        // Auth errors block entirely; quota/daily-limit fall through to the
+        // OCR+AI fallback so testing can continue without the server cap.
         if let err = visionOutcome.error {
             Task { await quotaService.refresh(force: true) }
             preview = nil
@@ -847,12 +870,13 @@ struct ImportFromPhotoView: View {
                     actionTitle: nil, action: nil
                 )
                 branch = .authRequired
+                return
             case .quotaExhausted:
                 branch = .quotaExhausted
             case .dailyLimitHit:
                 branch = .dailyLimitHit
             }
-            return
+            // quota/daily-limit: fall through to OCR+AI text fallback
         }
 
         // Stream completed successfully with a confident draft.
