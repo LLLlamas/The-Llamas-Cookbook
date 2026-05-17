@@ -114,24 +114,15 @@ export async function onRequestPost(context) {
   // ── Return updated QuotaSnapshot ──────────────────────────────────────────
 
   const localYYYYMM = getLocalYYYYMM(tz);
-  const localDate   = getLocalDate(tz);
-  const [savesStr, parsesStr] = await Promise.all([
-    quota.get(`saves:${userId}:${localYYYYMM}`),
-    quota.get(`parseAttempts:${userId}:${localDate}`),
-  ]);
-
+  const savesStr    = await quota.get(`saves:${userId}:${localYYYYMM}`);
   const used        = parseInt(savesStr ?? '0', 10);
-  const dailyParses = parseInt(parsesStr ?? '0', 10);
 
   return Response.json({
-    plan:              'pro',
-    limit:             PRO_CAP,
+    plan:      'pro',
+    limit:     PRO_CAP,
     used,
-    remaining:         Math.max(0, PRO_CAP - used),
-    resetAt:           nextMonthResetUTC(tz).toISOString(),
-    dailyParsesUsed:   dailyParses,
-    dailyParseLimit:   5,
-    dailyParseResetAt: nextLocalMidnightUTC(tz).toISOString(),
+    remaining: Math.max(0, PRO_CAP - used),
+    resetAt:   nextMonthResetUTC(tz).toISOString(),
   });
 }
 

@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-15 (session 15 — yearly subscription, Pro badge in profile, sunglasses crown tier; see "Llama Pro crown surfaces" below).
+Last refreshed: 2026-05-15 (session 15 — yearly subscription, Pro badge in profile, sunglasses crown tier, proTabIcon tab bar fix; see "Llama Pro crown surfaces" below).
 
 ---
 
@@ -237,7 +237,8 @@ Crown + sunglasses assets (yearly tier — same surface mapping, `*-Sunglasses` 
 
 Implementation pattern:
 - `LlamaLogoOrCrown(size:accent:crownAsset:yearlyCrownAsset:)` — use for `LlamaLogo` replacements; handles `plan` internally. `crownAsset` defaults to `Llama-Pro-Icon-Crown`; `yearlyCrownAsset` defaults to `Llama-Pro-Icon-Crown-Sunglasses`. Profile header passes explicit context-specific values for both params.
-- `Image(proStore.plan == .yearly ? "X-Crown-Sunglasses" : proStore.isPro ? "X-Crown" : "X")` — 3-way conditional for named-image call sites (tab bar icons, profile button, friends header icon, watermark, seed friend card).
+- `Image(proStore.plan == .yearly ? "X-Crown-Sunglasses" : proStore.isPro ? "X-Crown" : "X")` — 3-way conditional for named-image call sites (profile button, friends header icon, watermark, seed friend card).
+- **Tab bar crown icons must use `proTabIcon(named:)` (private to `RootView`)** — crown assets are header/logo sized (~96–140pt); UIKit does not reliably downscale them to the ~26pt tab bar slot. `proTabIcon` pre-renders via `UIGraphicsImageRenderer(size: CGSize(width: 26, height: 26))` at high interpolation before passing to the tabItem. Free-tier icons (`Home_Llama_Icon`, `Friends_Llama_Icon`, `Profile_Llama_Icon`) are already tab-bar sized and do not need this treatment. **Never revert tab bar Pro icons to a bare `Image(name)` call.**
 
 `PaywallView` shows a yearly/monthly plan picker (yearly pre-selected as "Best value"). Subscribe button calls `proStore.purchase(product)` with the selected plan's product. `proStore.yearlyProduct` / `proStore.monthlyProduct` are separate `Product?` properties loaded in `loadProduct()`.
 

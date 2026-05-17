@@ -9,6 +9,7 @@ struct PaywallView: View {
 
     @State private var selectedPlan: LlamaProStore.Plan = .yearly
     @State private var isLoadingProducts = false
+    @State private var showNoRestoreAlert = false
 
     var body: some View {
         NavigationStack {
@@ -41,7 +42,13 @@ struct PaywallView: View {
                     }
 
                     Button {
-                        Task { await proStore.restore() }
+                        Task {
+                            let wasPro = proStore.isPro
+                            await proStore.restore()
+                            if !proStore.isPro && !wasPro {
+                                showNoRestoreAlert = true
+                            }
+                        }
                     } label: {
                         Text("Restore Purchases")
                             .font(AppFont.caption)
@@ -50,6 +57,11 @@ struct PaywallView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(proStore.isPurchasing)
+                    .alert("No Purchases Found", isPresented: $showNoRestoreAlert) {
+                        Button("OK", role: .cancel) { }
+                    } message: {
+                        Text("No active Llama Pro subscription was found for this Apple Account.")
+                    }
 
                     legalText
 
@@ -162,8 +174,8 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
             PaywallFeatureRow(icon: "photo.stack",
                              text: "30 photo imports per month")
-            PaywallFeatureRow(icon: "cart",
-                             text: "Grocery list with Instacart integration (coming soon)")
+            PaywallFeatureRow(icon: "sparkles",
+                             text: "AI-powered recipe extraction from photos")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AppSpacing.sm)
@@ -201,11 +213,23 @@ struct PaywallView: View {
     // MARK: - Legal
 
     private var legalText: some View {
-        Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage anytime in Settings → Apple Account → Subscriptions.")
+        VStack(spacing: AppSpacing.sm) {
+            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage anytime in Settings → Apple Account → Subscriptions.")
+                .font(.system(size: 11))
+                .foregroundStyle(AppColor.textSecondary.opacity(0.7))
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: AppSpacing.md) {
+                Link("Privacy Policy",
+                     destination: URL(string: "https://llamascookbook.pages.dev/privacy")!)
+                Text("·")
+                Link("Terms of Use",
+                     destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+            }
             .font(.system(size: 11))
             .foregroundStyle(AppColor.textSecondary.opacity(0.7))
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, AppSpacing.sm)
+        }
+        .padding(.horizontal, AppSpacing.sm)
     }
 }
 

@@ -13,9 +13,8 @@
 //        "this one's on us" banner and keeps the recipe).
 // 401 → missing user header.
 
-const FREE_CAP    = 5;
-const PRO_CAP     = 30;
-const DAILY_LIMIT = 999; // TEMP: disabled for testing — restore to 5 before App Store submission
+const FREE_CAP = 5;
+const PRO_CAP  = 30;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -59,29 +58,17 @@ export async function onRequestPost(context) {
   // stay readable during timezone rollover windows).
   await quota.put(savesKey, String(newCount), { expirationTtl: 70 * 24 * 60 * 60 });
 
-  const localDate   = getLocalDate(tz);
-  const parsesStr   = await quota.get(`parseAttempts:${userId}:${localDate}`);
-  const dailyParses = parseInt(parsesStr ?? '0', 10);
-
   return Response.json({
-    plan:              isPro ? 'pro' : 'free',
-    limit:             cap,
-    used:              newCount,
-    remaining:         Math.max(0, cap - newCount),
-    resetAt:           nextMonthResetUTC(tz).toISOString(),
-    dailyParsesUsed:   dailyParses,
-    dailyParseLimit:   DAILY_LIMIT,
-    dailyParseResetAt: nextLocalMidnightUTC(tz).toISOString(),
+    plan:      isPro ? 'pro' : 'free',
+    limit:     cap,
+    used:      newCount,
+    remaining: Math.max(0, cap - newCount),
+    resetAt:   nextMonthResetUTC(tz).toISOString(),
   });
 }
 
 function freeStub() {
-  return {
-    plan: 'free', limit: FREE_CAP, used: 1, remaining: FREE_CAP - 1,
-    resetAt: new Date().toISOString(),
-    dailyParsesUsed: 1, dailyParseLimit: DAILY_LIMIT,
-    dailyParseResetAt: new Date().toISOString(),
-  };
+  return { plan: 'free', limit: FREE_CAP, used: 1, remaining: FREE_CAP - 1, resetAt: new Date().toISOString() };
 }
 
 // ── Shared timezone helpers ───────────────────────────────────────────────────

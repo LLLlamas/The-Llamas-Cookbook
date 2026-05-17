@@ -150,8 +150,6 @@ export async function onRequestPost(context) {
   }
 
   // ── 2. Cache miss: monthly quota pre-check ────────────────────────────────
-  // TEMP: daily parse limit disabled for testing. Re-enable by restoring the
-  // parseAttempts counter block before App Store submission.
 
   // Monthly quota pre-check (fails fast before burning Anthropic tokens).
   const quotaCheck = await checkMonthlyQuota(quota, userId, tz);

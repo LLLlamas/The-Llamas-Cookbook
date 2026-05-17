@@ -9,20 +9,95 @@
       1. NSPrivacyAccessedAPITypes — declarations for required-reason
          APIs we touch. Apple maintains the canonical list; reason
          codes (CA92.1, C617.1, etc.) match Apple's documented reasons.
-      2. NSPrivacyCollectedDataTypes — data we collect to a server we
-         control. Empty: every data point lives on-device (SwiftData,
-         Keychain, UserDefaults) or in the user's own iCloud
-         (CloudKit public DB for shared recipes — the user's iCloud,
-         not ours). Apple treats both as "user data on user device,"
-         not developer collection.
+      2. NSPrivacyCollectedDataTypes — data that leaves the device and
+         is processed by developer-controlled servers.
+
+      DATA FLOWS TO DEVELOPER SERVERS:
+      a) Photo-import path: JPEG image bytes + recipe text are sent to
+         llamascookbook.pages.dev/api/parse, which proxies them to the
+         Anthropic Claude API. Content is not stored on our servers after
+         the parse response is returned; it may be processed by Anthropic
+         per their data-use policy. A unique per-user identifier (derived
+         from the Sign in with Apple sub) is sent alongside for quota
+         tracking and is stored in Cloudflare KV.
+      b) Text/link-import path: recipe text or URL is sent to the same
+         proxy. No user identifier is sent for text/link paths.
+      c) Quota + Pro endpoints: the Sign in with Apple sub is sent as
+         x-llamas-user to /api/usage and /api/usage/activate-pro for
+         subscription state tracking.
+
+      CloudKit public-DB data (published recipes, social graph) lives in
+      the user's iCloud container — Apple treats this as user data on
+      user device, not developer collection, so it is not listed here.
     -->
 
     <key>NSPrivacyTracking</key>
     <false/>
     <key>NSPrivacyTrackingDomains</key>
     <array/>
+
     <key>NSPrivacyCollectedDataTypes</key>
-    <array/>
+    <array>
+        <!--
+          User ID: the Sign in with Apple sub is sent to our Cloudflare
+          Worker endpoints as x-llamas-user and stored in KV for quota
+          tracking and Pro subscription state. Linked to identity because
+          it is the SIWA identity token for the user's Apple Account.
+          Purpose: app functionality (quota enforcement, Pro entitlement).
+        -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeUserID</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+        <!--
+          Photos/Videos: JPEG image bytes from the user's photo library
+          or camera are sent to llamascookbook.pages.dev/api/parse for
+          AI-powered recipe extraction. Images are forwarded to Anthropic
+          and are not stored by Llamas Cookbook after the parse response
+          is returned. Not linked to identity (no user ID on image
+          payload). Purpose: app functionality (recipe import).
+        -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypePhotosOrVideos</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+        <!--
+          Other user content: recipe text and URLs submitted via the
+          text/link import path are sent to llamascookbook.pages.dev/api/parse
+          and forwarded to Anthropic for recipe extraction. Content is
+          not stored by Llamas Cookbook after parsing. Not linked to
+          identity (no user ID header on text/link calls).
+          Purpose: app functionality (recipe import).
+        -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+    </array>
 
     <key>NSPrivacyAccessedAPITypes</key>
     <array>

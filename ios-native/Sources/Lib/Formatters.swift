@@ -12,4 +12,11 @@ enum Formatters {
         f.timeStyle = .none
         return f
     }()
+
+    /// Short month+day, e.g. "Jun 1". Used for quota reset dates in ImportFromPhotoView.
+    static let shortMonthDay: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
 }

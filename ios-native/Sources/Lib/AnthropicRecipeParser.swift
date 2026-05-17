@@ -19,14 +19,12 @@ struct VisionParseOutcome {
 }
 
 /// Typed errors surfaced by the photo-import vision path.
-/// The UI maps each case to distinct messaging (auth gate, upsell card,
-/// daily-limit card). Network/parse failures stay nil (fallback to OCR).
+/// The UI maps each case to distinct messaging (auth gate, upsell card).
+/// Network/parse failures stay nil (fallback to OCR).
 enum VisionParseError: Equatable {
-    case authRequired    // 401 — no signed-in user
-    case quotaExhausted  // 402 — monthly cap hit
-    case dailyLimitHit   // 429 with error:"daily_parse_limit"
-    // 429 from Anthropic (rate limit) is NOT exposed here; it retries
-    // silently up to 3× and returns nil on exhaustion, falling back to OCR.
+    case authRequired   // 401 — no signed-in user
+    case quotaExhausted // 402 — monthly cap hit
+    // 429 from Anthropic (rate limit) retries silently up to 3× then falls back to OCR.
 }
 
 /// Anthropic Claude API client for recipe parsing.
@@ -263,10 +261,6 @@ enum AnthropicRecipeParser {
             return VisionParseOutcome(error: .quotaExhausted)
 
         case 429:
-            // Distinguish daily-parse-limit (Worker) from Anthropic rate-limit.
-            if let errorCode = extractErrorCode(from: data), errorCode == "daily_parse_limit" {
-                return VisionParseOutcome(error: .dailyLimitHit)
-            }
             // Anthropic rate-limit / overload: back off and retry.
             guard attempt < 2 else { return VisionParseOutcome() }
             let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
@@ -344,12 +338,6 @@ enum AnthropicRecipeParser {
             return VisionParseOutcome(error: .quotaExhausted)
 
         case 429:
-            // Drain bytes to inspect error code.
-            var data = Data()
-            for try await byte in bytes { data.append(byte) }
-            if let code = extractErrorCode(from: data), code == "daily_parse_limit" {
-                return VisionParseOutcome(error: .dailyLimitHit)
-            }
             // Anthropic rate-limit: back off and retry.
             guard attempt < 2 else { return VisionParseOutcome() }
             let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
@@ -492,14 +480,6 @@ enum AnthropicRecipeParser {
         for event in events {
             state.applyEvent(event)
         }
-    }
-
-    private static func extractErrorCode(from data: Data) -> String? {
-        guard
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let code = json["error"] as? String
-        else { return nil }
-        return code
     }
 
     // MARK: - Request body

@@ -5,32 +5,17 @@ import Foundation
 /// Current photo-import quota state for the signed-in user.
 /// Decoded from /api/usage and /api/usage/consume responses.
 struct QuotaSnapshot: Codable {
-    let plan:              String  // "free" | "pro"
-    let limit:             Int
-    let used:              Int
-    let remaining:         Int
-    let resetAt:           Date
-    let dailyParsesUsed:   Int
-    let dailyParseLimit:   Int
-    let dailyParseResetAt: Date
+    let plan:      String  // "free" | "pro"
+    let limit:     Int
+    let used:      Int
+    let remaining: Int
+    let resetAt:   Date
 
     var isPro:              Bool { plan == "pro" }
     var isMonthlyExhausted: Bool { remaining <= 0 }
-    var isDailyLimitHit:    Bool { dailyParsesUsed >= dailyParseLimit }
 
-    /// "Jun 1" — the local-timezone reset date formatted for display.
-    var resetDateFormatted: String {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f.string(from: resetAt)
-    }
-
-    /// "May 14" — the local-timezone daily-reset date formatted for display.
-    var dailyResetDateFormatted: String {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f.string(from: dailyParseResetAt)
-    }
+    /// "Jun 1" — the local-timezone monthly reset date formatted for display.
+    var resetDateFormatted: String { Formatters.shortMonthDay.string(from: resetAt) }
 }
 
 // MARK: - ConsumeResult

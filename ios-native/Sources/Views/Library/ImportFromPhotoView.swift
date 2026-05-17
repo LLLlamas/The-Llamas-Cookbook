@@ -18,12 +18,12 @@ private let photoImportSignposter = OSSignposter(subsystem: "com.llamascookbook.
 ///
 /// Phase 1 additions vs. original:
 /// - Quota pill at the top of the sheet (always visible when signed in).
-/// - Capture buttons are disabled when the monthly cap or daily parse
-///   limit is hit; exhausted-state card replaces the tips section.
+/// - Capture buttons are disabled when the monthly cap is hit;
+///   exhausted-state card replaces the tips section.
 /// - Sign-in nudge replaces capture buttons for unsigned users.
 /// - `runImport` handles `VisionParseOutcome` error cases:
-///   `.quotaExhausted` / `.dailyLimitHit` refresh the quota and switch
-///   into the appropriate exhausted-state UI without showing a banner.
+///   `.quotaExhausted` refreshes the quota and switches into the
+///   exhausted-state UI without showing a banner.
 /// - Per-session attempt counter passed to `PhotoImportPreviewView` so
 ///   the cache-hit hint appears on the 2nd+ attempt in a session.
 ///
@@ -212,11 +212,10 @@ struct ImportFromPhotoView: View {
 
     private var snapshot: QuotaSnapshot? { quotaService.snapshot }
 
-    private var isDailyLimitHit: Bool    { snapshot?.isDailyLimitHit    ?? false }
     private var isMonthlyExhausted: Bool { snapshot?.isMonthlyExhausted ?? false }
 
     /// True when the user cannot start a new import attempt right now.
-    private var isInputBlocked: Bool { false }
+    private var isInputBlocked: Bool { isMonthlyExhausted }
 
     /// "4h 23m", "1d 6h", "18d", "soon" — used in the pill and blocked cards.
     private static func timeRemaining(until target: Date, from now: Date) -> String {
@@ -285,10 +284,6 @@ struct ImportFromPhotoView: View {
     }
 
     private func pillText(_ s: QuotaSnapshot, now: Date) -> String {
-        if s.isDailyLimitHit {
-            let t = Self.timeRemaining(until: s.dailyParseResetAt, from: now)
-            return "Daily limit reached — resets in \(t)"
-        }
         if s.isMonthlyExhausted {
             let t = Self.timeRemaining(until: s.resetAt, from: now)
             if s.isPro {
@@ -315,7 +310,7 @@ struct ImportFromPhotoView: View {
     }
 
     private func pillForeground(_ s: QuotaSnapshot) -> Color {
-        if s.isDailyLimitHit || s.isMonthlyExhausted { return AppColor.destructive }
+        if s.isMonthlyExhausted { return AppColor.destructive }
         if (s.isPro && s.remaining <= 9) || (!s.isPro && s.remaining <= 2) {
             return AppColor.accentDeep
         }
@@ -323,7 +318,7 @@ struct ImportFromPhotoView: View {
     }
 
     private func pillBackground(_ s: QuotaSnapshot) -> Color {
-        if s.isDailyLimitHit || s.isMonthlyExhausted {
+        if s.isMonthlyExhausted {
             return AppColor.destructive.opacity(0.1)
         }
         if (s.isPro && s.remaining <= 9) || (!s.isPro && s.remaining <= 2) {
@@ -336,9 +331,7 @@ struct ImportFromPhotoView: View {
 
     @ViewBuilder
     private var exhaustedCard: some View {
-        if isDailyLimitHit {
-            dailyLimitCard
-        } else if isMonthlyExhausted {
+        if isMonthlyExhausted {
             if snapshot?.isPro == true {
                 proMonthlyLimitCard
             } else {
@@ -347,19 +340,10 @@ struct ImportFromPhotoView: View {
         }
     }
 
-    private var dailyLimitCard: some View {
-        blockedCard(
-            title: "Daily limit reached",
-            body: "You've made 5 photo parse attempts today. Paste or type recipes for free in the meantime.",
-            resetDate: snapshot?.dailyParseResetAt,
-            upgradeButton: nil
-        )
-    }
-
     private var freeMonthlyLimitCard: some View {
         blockedCard(
             title: "Out of free imports",
-            body: "You've saved 5 photo imports this month. Upgrade to Llama Pro for 30 photo imports per month, or paste / type recipes for free.\n\nComing soon to Pro: Grocery list with Instacart integration.",
+            body: "You've saved 5 photo imports this month. Upgrade to Llama Pro for 30 photo imports per month, or paste / type recipes for free.",
             resetDate: snapshot?.resetAt,
             upgradeButton: ("Upgrade to Llama Pro", { showingPaywall = true })
         )
@@ -678,6 +662,11 @@ struct ImportFromPhotoView: View {
                 tip("Avoid glossy-paper glare — angle the page slightly.")
                 tip("Tap the shutter when the page is in focus — you can retake before saving.")
             }
+            Divider().padding(.top, AppSpacing.xs)
+            Text("Photos are processed by AI to extract recipe content. Your image is not stored by Llamas Cookbook after extraction.")
+                .font(.system(size: 11))
+                .foregroundStyle(AppColor.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(AppSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -854,8 +843,8 @@ struct ImportFromPhotoView: View {
         }
         photoImportSignposter.endInterval("visionStreaming", visionInterval)
 
-        // Handle quota / auth errors. Auth blocks entirely; quota/daily-limit
-        // keep the speculative preview open and fall through to OCR+AI so
+        // Handle quota / auth errors. Auth blocks entirely; quota exhausted
+        // keeps the speculative preview open and falls through to OCR+AI so
         // the skeleton transitions directly to content (no dismiss/reappear).
         if let err = visionOutcome.error {
             Task { await quotaService.refresh(force: true) }
@@ -872,10 +861,8 @@ struct ImportFromPhotoView: View {
                 return
             case .quotaExhausted:
                 branch = .quotaExhausted
-            case .dailyLimitHit:
-                branch = .dailyLimitHit
             }
-            // quota/daily-limit: fall through with skeleton still visible
+            // quota: fall through with skeleton still visible
         }
 
         // Stream completed successfully with a confident draft.
@@ -1074,7 +1061,6 @@ struct ImportFromPhotoView: View {
         case visionCacheHit       // Worker served KV-cached assembled JSON
         case authRequired
         case quotaExhausted
-        case dailyLimitHit
         case ocrTextFallback
         case editAsTextFallback
         case ocrEmpty

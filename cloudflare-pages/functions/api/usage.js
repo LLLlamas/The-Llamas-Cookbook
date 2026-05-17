@@ -6,14 +6,13 @@
 //   x-llamas-tz    America/Los_Angeles  (IANA timezone)
 //
 // Response 200:
-//   { plan, limit, used, remaining, resetAt, dailyParsesUsed, dailyParseLimit, dailyParseResetAt }
+//   { plan, limit, used, remaining, resetAt }
 //
 // iOS client calls this on import-sheet open and after each consume call.
 // 60-second client-side cache prevents chatter; no auth beyond x-llamas-user.
 
-const FREE_CAP    = 5;
-const PRO_CAP     = 30;
-const DAILY_LIMIT = 999; // TEMP: disabled for testing — restore to 5 before App Store submission
+const FREE_CAP = 5;
+const PRO_CAP  = 30;
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -35,36 +34,21 @@ export async function onRequestGet(context) {
   const cap       = isPro ? PRO_CAP : FREE_CAP;
 
   const localYYYYMM = getLocalYYYYMM(tz);
-  const localDate   = getLocalDate(tz);
-
-  const [savesStr, parsesStr] = await Promise.all([
-    quota.get(`saves:${userId}:${localYYYYMM}`),
-    quota.get(`parseAttempts:${userId}:${localDate}`),
-  ]);
-
-  const used            = parseInt(savesStr ?? '0', 10);
-  const remaining       = Math.max(0, cap - used);
-  const dailyParsesUsed = parseInt(parsesStr ?? '0', 10);
+  const savesStr    = await quota.get(`saves:${userId}:${localYYYYMM}`);
+  const used        = parseInt(savesStr ?? '0', 10);
+  const remaining   = Math.max(0, cap - used);
 
   return Response.json({
-    plan:               isPro ? 'pro' : 'free',
-    limit:              cap,
+    plan:    isPro ? 'pro' : 'free',
+    limit:   cap,
     used,
     remaining,
-    resetAt:            nextMonthResetUTC(tz).toISOString(),
-    dailyParsesUsed,
-    dailyParseLimit:    DAILY_LIMIT,
-    dailyParseResetAt:  nextLocalMidnightUTC(tz).toISOString(),
+    resetAt: nextMonthResetUTC(tz).toISOString(),
   });
 }
 
 function freeStub() {
-  return {
-    plan: 'free', limit: FREE_CAP, used: 0, remaining: FREE_CAP,
-    resetAt: new Date().toISOString(),
-    dailyParsesUsed: 0, dailyParseLimit: DAILY_LIMIT,
-    dailyParseResetAt: new Date().toISOString(),
-  };
+  return { plan: 'free', limit: FREE_CAP, used: 0, remaining: FREE_CAP, resetAt: new Date().toISOString() };
 }
 
 // ── Shared timezone helpers (duplicated from parse.js — no shared module) ────

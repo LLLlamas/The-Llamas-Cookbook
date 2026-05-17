@@ -90,6 +90,11 @@ struct ImportFromTextLinkView: View {
 
                     actionRow(canPreview: canPreview)
 
+                    Text("Recipe content is processed by AI to extract structured data. Your text or URL is not stored by Llamas Cookbook after extraction.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+
                     Color.clear.frame(height: 32)
                 }
                 .padding(AppSpacing.lg)
