@@ -104,7 +104,7 @@ struct ImportFromPhotoView: View {
         .llamaBackground()
         .navigationTitle("Import From Photo")
         .navigationBarTitleDisplayMode(.inline)
-        .interactiveDismissDisabled(ocrInProgress)
+        .interactiveDismissDisabled(true)
         .tint(appearance.accentColor)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
