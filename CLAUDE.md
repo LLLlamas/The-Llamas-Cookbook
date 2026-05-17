@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-17 (session 16 — JS/Swift test suites added; quota.js DRY refactor; daily parse limit removed).
+Last refreshed: 2026-05-17 (session 17 — PaywallView llama crown, RecipeDetailView icon resize + navbar, terracotta tier pills).
 
 ---
 
@@ -219,14 +219,14 @@ Push subscriptions: `friendship-events-A-<me>`, `friendship-events-B-<me>`, `rec
 
 Three subscription tiers drive three icon tiers: **free** → base llama; **Pro Monthly** → crown; **Pro Yearly** → crown + sunglasses.
 
-`LlamaProStore.Plan` enum: `.none` (free), `.monthly`, `.yearly`. `isPro` is `plan != .none`. `plan.displayLabel` → `""` / `"Llama Pro Monthly"` / `"Llama Pro Yearly"` — rendered as a small badge under the llama in `ProfileView.header`.
+`LlamaProStore.Plan` enum: `.none` (free), `.monthly`, `.yearly`. `isPro` is `plan != .none`. `plan.displayLabel` → `""` / `"Llama Pro Monthly"` / `"Llama Pro Yearly"` — rendered as the plan pill label in `ProfileView.header`.
 
 Product IDs:
 - `com.llamascookbook.app.pro.monthly` → `LlamaProStore.monthlyProductID`
 - `com.llamascookbook.app.pro.yearly` → `LlamaProStore.yearlyProductID`
 
 Crown assets (monthly tier):
-- `Llama-Pro-Icon-Crown` — generic (home tab, recipe detail principal, cook mode, recipe-card placeholder, empty-library state)
+- `Llama-Pro-Icon-Crown` — generic (home tab, recipe detail principal, cook mode, recipe-card placeholder, empty-library state, paywall)
 - `Llama-Pro-Icon-Friends-Crown` — friends context (friends tab bar icon, friends CookbookHeader top-left, watermark, "Your Llama" seed-friend card)
 - `Llama-Pro-Icon-Profile-Crown` — profile context (profile tab bar icon, library top-right profile button, profile page header)
 
@@ -240,7 +240,11 @@ Implementation pattern:
 - `Image(proStore.plan == .yearly ? "X-Crown-Sunglasses" : proStore.isPro ? "X-Crown" : "X")` — 3-way conditional for named-image call sites (profile button, friends header icon, watermark, seed friend card).
 - **Tab bar crown icons must use `proTabIcon(named:)` (private to `RootView`)** — crown assets are header/logo sized (~96–140pt); UIKit does not reliably downscale them to the ~26pt tab bar slot. `proTabIcon` pre-renders via `UIGraphicsImageRenderer(size: CGSize(width: 26, height: 26))` at high interpolation before passing to the tabItem. Free-tier icons (`Home_Llama_Icon`, `Friends_Llama_Icon`, `Profile_Llama_Icon`) are already tab-bar sized and do not need this treatment. **Never revert tab bar Pro icons to a bare `Image(name)` call.**
 
-`PaywallView` shows a yearly/monthly plan picker (yearly pre-selected as "Best value"). Subscribe button calls `proStore.purchase(product)` with the selected plan's product. `proStore.yearlyProduct` / `proStore.monthlyProduct` are separate `Product?` properties loaded in `loadProduct()`.
+`PaywallView` shows a yearly/monthly plan picker (yearly pre-selected as "Best value"). Subscribe button calls `proStore.purchase(product)` with the selected plan's product. `proStore.yearlyProduct` / `proStore.monthlyProduct` are separate `Product?` properties loaded in `loadProduct()`. The llama at the top of `PaywallView` uses `LlamaLogoOrCrown(size: 96, accent: AppColor.accent)` — it reflects the user's current tier (base/crown/crown+sunglasses) and always uses the fixed terracotta accent, not the user's custom accent color.
+
+**`RecipeDetailView` principal toolbar icon**: `LlamaLogoOrCrown(size: 52, accent: appearance.accentColor)` with `.padding(.top, 32).padding(.bottom, 36)` — total bar height ~120pt. Do not increase the size back to 72pt (it read as oversized at that scale). The extra bottom padding clears the crown shadow's y-offset.
+
+**Plan pill + upgrade chips (ProfileView, ImportFromPhotoView)**: tier pills and upgrade chips always use `AppColor.accent` (terracotta `#C97C5D`), **not** `appearance.accentColor`. These are identity surfaces that should stay anchored to the brand color regardless of the user's chosen accent. Upgrade chip logic: `.none` → Monthly + Yearly chips; `.monthly` → Switch to Yearly chip only; `.yearly` → `EmptyView()` (no chips). Never show a "Switch to Yearly" chip to an already-yearly user.
 
 `RootView` owns `@Environment(LlamaProStore.self) private var proStore` and must re-inject `.environment(proStore)` into every `fullScreenCover` / `sheet` that contains llama surfaces (currently: `CookModeView` fullScreenCover). `CookModeView`, `FriendCardView`, and `ProfileView` also declare `@Environment(LlamaProStore.self) private var proStore` directly. All other call sites inherit it from the app-level injection.
 
@@ -266,6 +270,55 @@ Implementation pattern:
   - **Library**: header (T+0ms) → categories (220ms) → recipeList/cards (440ms) → + button (660ms) → bottom nav (880ms) → cleanup (1150ms).
   - **Detail** (9 zones, `DetailTransitionStage` in `AppearanceSettings`): nav icons (T+0ms) → title (120ms) → provenance/saved-by chip (240ms) → ingredients underline (380ms) → conversions+sourdough chips (490ms) → ingredient rows (590ms) → steps underline (690ms) → step numbers+timer icons (790ms) → Start Cooking bar (860ms) → cleanup (1150ms).
   - `accentGlow(when:color:)` (`AccentTextOutline.swift`) — double shadow at radius 7+14, opacity 0.16+0.07, easeInOut 0.14s. Glow on ingredient rows/step rows must be applied to the **section container** (outside `.drawingGroup()`), not individual row views — shadows inside a drawingGroup are clipped to the texture bounds. The `section(_:headingColor:headingGlow:containerGlow:containerGlowColor:accessory:content:)` helper carries all four stage params; defaults produce no glow for sections without a cascade zone (Notes, General, Reference).
+
+---
+
+## Testing
+
+### JavaScript (Cloudflare Workers)
+
+Runner: **Vitest v3**, Node ≥ 20. Run from `cloudflare-pages/`:
+
+```
+npm test          # one-shot (CI)
+npm run test:watch
+```
+
+Config: `cloudflare-pages/vitest.config.js` — `environment: 'node'` (Web Crypto `crypto.subtle` is available globally in Node 20+).
+
+Test file: `cloudflare-pages/test/quota.test.js` — 26 tests across 5 suites:
+- `quota constants` — `FREE_CAP`, `PRO_CAP`
+- `getLocalYYYYMM` — UTC, LA (PDT = UTC-7), UTC+8, IST (UTC+5:30), Nepal (UTC+5:45) edge cases
+- `nextMonthResetUTC` — year rollover, DST offset, half-hour offset (18:30 UTC for IST, 18:15 for Nepal)
+- `quota cap arithmetic` — remaining/exhausted formulas
+- `deriveAppAccountToken` — UUID format, version bit (4), variant nibble (8–11), determinism, cross-sub uniqueness
+
+**Shared module:** `cloudflare-pages/lib/quota.js` is the single source for `FREE_CAP`, `PRO_CAP`, `getLocalYYYYMM`, `nextMonthResetUTC`, `deriveAppAccountToken`. All four worker files import from it — never re-inline these. All date helpers accept an optional `now` parameter (default `new Date()`) so tests can inject fixed timestamps.
+
+### Swift (iOS)
+
+Runner: **XCTest**, wired via `LlamasCookbookNativeTests` target in `ios-native/project.yml`. After running `xcodegen`, the suite appears under the main scheme in Xcode (⌘U).
+
+Test files live in `ios-native/Tests/LlamasCookbookTests/`:
+
+| File | Covers |
+|---|---|
+| `LlamaProStoreTests.swift` | `Plan.isPro`, `Plan.displayLabel`, `appAccountToken` (nil/empty guard, UUID v4/variant bits, determinism, pinned SHA-256 derivation) |
+| `QuotaSnapshotTests.swift` | `isPro`, `isMonthlyExhausted` (zero/positive/negative remaining), `resetDateFormatted` |
+| `QuantityTests.swift` | `parse`, `format`, `scale`, `displayFormat`, `combine`; `ClockFormat.mmss`; `StringCase.cookbookTitle/friendsTitle/titleCase` |
+| `SourdoughCalculatorTests.swift` | 10-row table, ascending ratios, water==flour invariant, sum==total, `gramsValue`, `formatGrams`, `label`, `compactTimeRange` |
+| `FormattersTests.swift` | `shortMonthDay` ("MMM d") and `date` (.medium) formatters |
+| `StringExtensionsTests.swift` | `Optional<String>.trimmedIfNonEmpty` — nil, whitespace, newline, trim, internal space preservation |
+| `SeedFriendTests.swift` | `sentinelRecordName`, `isSeed` true/false, profile fields; **does not call `loadPayload()`** — safe in unit test bundle |
+| `RecipeImporterTests.swift` | `cleanTitle` (passthrough, "Title:" strip, "Recipe👇" strip, trailing emoji, image path → ""); `mergeOrphanDurationSteps` (glue, preserve, first-step kept, trailing comma cleanup) |
+
+**Target settings** (in `project.yml`):
+- `PRODUCT_BUNDLE_IDENTIFIER: com.llamascookbook.app.tests`
+- `GENERATE_INFOPLIST_FILE: YES`
+- `SWIFT_STRICT_CONCURRENCY: minimal`
+- `CODE_SIGN_STYLE: Automatic`
+
+**What's not tested (by design):** network calls (`QuotaService.refresh`, `LlamaProStore.purchase`), CloudKit operations, SwiftData persistence, StoreKit purchase flow, UI/SwiftUI views. These are integration-layer concerns; unit tests stay on pure logic.
 
 ---
 

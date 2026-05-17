@@ -309,16 +309,10 @@ struct RecipeDetailView: View {
                     Haptics.selection()
                     showingAppearance = true
                 } label: {
-                    LlamaLogoOrCrown(size: 72, accent: appearance.accentColor)
-                        .frame(width: 72, height: 72)
-                        // Breathe the logo in both directions inside
-                        // the navigation bar — bottom needs the most
-                        // because the drop shadow's y-offset extends
-                        // past the frame, but a hair of top padding
-                        // also keeps the mascot's head from kissing
-                        // the title-bar divider.
-                        .padding(.top, 22)
-                        .padding(.bottom, 22)
+                    LlamaLogoOrCrown(size: 52, accent: appearance.accentColor)
+                        .frame(width: 52, height: 52)
+                        .padding(.top, 32)
+                        .padding(.bottom, 36)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")

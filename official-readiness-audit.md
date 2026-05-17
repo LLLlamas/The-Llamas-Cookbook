@@ -2,13 +2,13 @@
 **Date:** 2026-05-17  
 **Auditor:** Claude Code (Sonnet 4.6)  
 **Scope:** Full codebase — iOS app, Cloudflare Workers, CloudKit schema, StoreKit/IAP, repo safety  
-**Status:** ✅ All launch blockers resolved. App is App Store submission ready.
+**Status:** ✅ All launch blockers resolved. Unit test suites added. App is App Store submission ready.
 
 ---
 
 ## Executive Summary
 
-The codebase is architecturally mature and well-structured. Twelve issues were identified and resolved in this session. Two were launch blockers (quota gate hardcoded off; daily limit system removed and replaced with cleaner monthly-only enforcement). Four were App Store compliance gaps (privacy manifest, paywall legal copy, missing security headers, AI processing disclosure). One was a code-quality violation (DateFormatter allocation in render code). Three were UX improvements for the Llama Pro purchase surface (plan pill in ProfileView, always-visible quota pill + upgrade chips in photo import, `PaywallView` initialPlan parameter). No secrets were found committed to the repo.
+The codebase is architecturally mature and well-structured. Twelve issues were identified and resolved across sessions 15–16. Two were launch blockers (quota gate hardcoded off; daily limit system removed and replaced with cleaner monthly-only enforcement). Four were App Store compliance gaps (privacy manifest, paywall legal copy, missing security headers, AI processing disclosure). One was a code-quality violation (DateFormatter allocation in render code). Three were UX improvements for the Llama Pro purchase surface (plan pill in ProfileView, always-visible quota pill + upgrade chips in photo import, `PaywallView` initialPlan parameter). Session 16 added a full unit test suite (JS + Swift) and DRY-refactored the Cloudflare Workers. No secrets were found committed to the repo.
 
 ---
 
@@ -105,6 +105,32 @@ The codebase is architecturally mature and well-structured. Twelve issues were i
 **12. `PaywallView` accepts `initialPlan` parameter**
 - File: `ios-native/Sources/Views/Profile/PaywallView.swift`
 - Added `init(initialPlan: LlamaProStore.Plan = .yearly)` — the yearly plan is pre-selected by default ("Best value"), but callers from the monthly upgrade chip pre-select `.monthly` so the user lands on the right card.
+
+---
+
+### 🔵 Test Coverage — Added (Session 16)
+
+**13. JavaScript unit tests — Cloudflare Workers quota logic**
+- New files: `cloudflare-pages/lib/quota.js`, `cloudflare-pages/test/quota.test.js`, `cloudflare-pages/package.json`, `cloudflare-pages/vitest.config.js`
+- **26 tests, all passing** (Vitest v3, Node 20). Run: `cd cloudflare-pages && npm test`
+- Covers: `FREE_CAP`/`PRO_CAP` constants; `getLocalYYYYMM` with UTC, LA (PDT = UTC-7), UTC+8, IST (UTC+5:30), Nepal (UTC+5:45) edge cases; `nextMonthResetUTC` year rollover + DST + half-hour offset cases; quota cap arithmetic; `deriveAppAccountToken` UUID format, version bit, RFC 4122 variant, determinism, cross-sub uniqueness.
+- Also DRY-refactored: all four worker files (`parse.js`, `usage.js`, `consume.js`, `activate-pro.js`) now import from `lib/quota.js` — the timezone helpers and `deriveAppAccountToken` no longer exist as duplicates across those files.
+
+**14. Swift XCTest suite — pure-logic layers**
+- New files: `ios-native/Tests/LlamasCookbookTests/` (8 files); target `LlamasCookbookNativeTests` added to `ios-native/project.yml`
+- Run: `xcodegen` to regenerate project, then ⌘U in Xcode.
+- Covers (pure logic only — no networking, CloudKit, StoreKit, or SwiftUI):
+
+| Test file | What's pinned |
+|---|---|
+| `LlamaProStoreTests` | `Plan.isPro`, `Plan.displayLabel`, `appAccountToken` nil/empty guard, UUID v4 + RFC 4122 variant bits, determinism, pinned SHA-256 derivation against manually computed value |
+| `QuotaSnapshotTests` | `isPro` free/pro, `isMonthlyExhausted` (0/positive/negative remaining), `resetDateFormatted` non-empty + month-sensitive |
+| `QuantityTests` | `parse` (nil, empty, whitespace, freeform, integer, fraction, mixed, decimal); `format`; `scale`; `displayFormat`; `combine`; `ClockFormat.mmss` (0, 7s, 90s, 754s, negative clamp); `StringCase` cookbookTitle/friendsTitle/titleCase |
+| `SourdoughCalculatorTests` | 10-row table, ascending ratios, water == flour for all ratios, sum == total for all ratios, `gramsValue` rounding, `formatGrams`, `label`, `compactTimeRange` |
+| `FormattersTests` | `shortMonthDay` non-empty + month-sensitive; `date` non-empty + year-present |
+| `StringExtensionsTests` | `trimmedIfNonEmpty` — nil, whitespace-only, newline-only, L+R trim, internal space preservation, already-trimmed |
+| `SeedFriendTests` | Sentinel == "your-llama-seed"; `isSeed(profile)` true; `isSeed(real user)` false; profile `displayName`, `accentHex`, `userRecordName`; stability across accesses (no `fatalError` from `loadPayload`) |
+| `RecipeImporterTests` | `cleanTitle`: passthrough, "Title:" strip, "Recipe👇" strip, trailing emoji strip, image path → ""; `mergeOrphanDurationSteps`: glue, preserve, first-step-kept, trailing comma cleanup |
 
 ---
 
@@ -215,4 +241,4 @@ These are not launch blockers but should be addressed after v1.0 ships:
 
 ---
 
-*Generated by Claude Code — architecture engineering skill. Verified against CLAUDE.md session 15 (2026-05-15).*
+*Generated by Claude Code — architecture engineering skill. Last updated session 16 (2026-05-17): JS + Swift test suites added, Cloudflare Workers DRY-refactored.*

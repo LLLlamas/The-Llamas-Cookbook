@@ -21,7 +21,7 @@ struct PaywallView: View {
                 VStack(spacing: AppSpacing.xl) {
                     Spacer().frame(height: AppSpacing.lg)
 
-                    LlamaLogo(size: 96, shadowColor: appearance.accentColor)
+                    LlamaLogoOrCrown(size: 96, accent: AppColor.accent)
                         .llamaFloat()
 
                     VStack(spacing: AppSpacing.xs) {

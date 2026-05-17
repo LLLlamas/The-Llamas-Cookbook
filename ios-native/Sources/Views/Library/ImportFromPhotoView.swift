@@ -290,12 +290,12 @@ struct ImportFromPhotoView: View {
         } label: {
             Text(label)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(appearance.accentColor)
+                .foregroundStyle(AppColor.accent)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
-                .background(appearance.accentColor.opacity(0.1))
+                .background(AppColor.accent.opacity(0.1))
                 .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(appearance.accentColor.opacity(0.35), lineWidth: 1))
+                .overlay(Capsule().strokeBorder(AppColor.accent.opacity(0.35), lineWidth: 1))
         }
         .buttonStyle(.lifted)
     }

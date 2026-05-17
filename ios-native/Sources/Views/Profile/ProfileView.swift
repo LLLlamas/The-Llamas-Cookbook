@@ -312,16 +312,16 @@ struct ProfileView: View {
 
     private var planPillRow: some View {
         HStack(spacing: AppSpacing.sm) {
-            // Plan label pill — always visible
+            // Plan label pill — always visible, always terracotta
             Text(planPillLabel)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(proStore.isPro ? AppColor.onAccent : appearance.accentColor)
+                .foregroundStyle(proStore.isPro ? AppColor.onAccent : AppColor.accent)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, 5)
-                .background(proStore.isPro ? appearance.accentColor : appearance.accentColor.opacity(0.12))
+                .background(proStore.isPro ? AppColor.accent : AppColor.accent.opacity(0.12))
                 .clipShape(Capsule())
 
-            // Upgrade chips — tier-appropriate
+            // Upgrade chips — tier-appropriate, no chip for yearly
             switch proStore.plan {
             case .none:
                 profileUpgradeChip("Monthly", plan: .monthly)
@@ -349,12 +349,11 @@ struct ProfileView: View {
         } label: {
             Text(label)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(appearance.accentColor)
+                .foregroundStyle(AppColor.accent)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, 5)
-                .background(appearance.accentColor.opacity(0.0))
                 .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(appearance.accentColor.opacity(0.5), lineWidth: 1))
+                .overlay(Capsule().strokeBorder(AppColor.accent.opacity(0.5), lineWidth: 1))
         }
         .buttonStyle(.scaleOnly)
     }
