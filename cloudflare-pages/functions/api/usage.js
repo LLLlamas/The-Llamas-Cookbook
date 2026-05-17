@@ -11,8 +11,7 @@
 // iOS client calls this on import-sheet open and after each consume call.
 // 60-second client-side cache prevents chatter; no auth beyond x-llamas-user.
 
-const FREE_CAP = 5;
-const PRO_CAP  = 30;
+import { FREE_CAP, PRO_CAP, getLocalYYYYMM, nextMonthResetUTC } from '../../lib/quota.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -51,51 +50,4 @@ function freeStub() {
   return { plan: 'free', limit: FREE_CAP, used: 0, remaining: FREE_CAP, resetAt: new Date().toISOString() };
 }
 
-// ── Shared timezone helpers (duplicated from parse.js — no shared module) ────
-
-function getLocalDate(tz) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
-}
-
-function getLocalYYYYMM(tz) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit',
-  }).format(new Date()).replace('-', '');
-}
-
-function getTimezoneOffsetMs(tz, date) {
-  const fmt = t => new Intl.DateTimeFormat('en-CA', {
-    timeZone: t,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(date);
-  const toParts = parts => {
-    const g = type => parseInt(parts.find(p => p.type === type)?.value ?? '0', 10);
-    return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second'));
-  };
-  return toParts(fmt(tz)) - toParts(fmt('UTC'));
-}
-
-function nextLocalMidnightUTC(tz) {
-  const localDate         = getLocalDate(tz);
-  const [y, m, d]         = localDate.split('-').map(Number);
-  const tomorrowLocal     = Date.UTC(y, m - 1, d + 1, 0, 0, 0);
-  const candidate         = new Date(tomorrowLocal);
-  const offsetMs          = getTimezoneOffsetMs(tz, candidate);
-  return new Date(tomorrowLocal - offsetMs);
-}
-
-function nextMonthResetUTC(tz) {
-  const localYM           = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit',
-  }).format(new Date());
-  const [y, m]            = localYM.split('-').map(Number);
-  const nextYear          = m === 12 ? y + 1 : y;
-  const nextMonth         = m === 12 ? 1 : m + 1;
-  const firstOfNextLocal  = Date.UTC(nextYear, nextMonth - 1, 1, 0, 0, 0);
-  const candidate         = new Date(firstOfNextLocal);
-  const offsetMs          = getTimezoneOffsetMs(tz, candidate);
-  return new Date(firstOfNextLocal - offsetMs);
-}
+// Timezone helpers live in ../../lib/quota.js.

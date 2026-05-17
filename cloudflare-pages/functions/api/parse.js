@@ -28,10 +28,10 @@
 //   ANTHROPIC_API_KEY  (encrypted)
 //   LLAMAS_QUOTA       (KV namespace binding)
 
+import { FREE_CAP, PRO_CAP, getLocalYYYYMM, nextMonthResetUTC } from '../../lib/quota.js';
+
 const ANTHROPIC_URL  = 'https://api.anthropic.com/v1/messages';
 const PROMPT_VERSION = 'v3'; // Bump when RecipeAIParser.instructions changes
-const FREE_CAP       = 5;
-const PRO_CAP        = 30;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -489,62 +489,4 @@ function hasValidToolUse(responseBody) {
   }
 }
 
-// ── Timezone / date helpers ───────────────────────────────────────────────────
-
-function getLocalDate(tz) {
-  // Returns "YYYY-MM-DD" in the given IANA timezone.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
-}
-
-function getLocalYYYYMM(tz) {
-  // Returns "YYYYMM" in the given IANA timezone.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit',
-  }).format(new Date()).replace('-', '');
-}
-
-function getTimezoneOffsetMs(tz, date) {
-  // Compute the UTC offset (in ms) for a timezone at a specific date by
-  // comparing the ISO representation at UTC vs. the given zone.
-  const fmt = t => new Intl.DateTimeFormat('en-CA', {
-    timeZone: t,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  }).formatToParts(date);
-
-  const toParts = parts => {
-    const g = type => parseInt(parts.find(p => p.type === type)?.value ?? '0', 10);
-    return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second'));
-  };
-
-  return toParts(fmt(tz)) - toParts(fmt('UTC'));
-}
-
-function nextLocalMidnightUTC(tz) {
-  // Returns a Date for the next local midnight in the given timezone.
-  const now       = new Date();
-  const localDate = getLocalDate(tz); // "2026-05-13"
-  // Build "start of tomorrow local" as a UTC Date approximation.
-  const [y, m, d] = localDate.split('-').map(Number);
-  const tomorrowLocal = Date.UTC(y, m - 1, d + 1, 0, 0, 0);
-  const candidate     = new Date(tomorrowLocal);
-  const offsetMs      = getTimezoneOffsetMs(tz, candidate);
-  return new Date(tomorrowLocal - offsetMs);
-}
-
-function nextMonthResetUTC(tz) {
-  // Returns a Date for the 1st of next month at 00:00 in the given timezone.
-  const localYM   = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit',
-  }).format(new Date());
-  const [y, m]    = localYM.split('-').map(Number);
-  const nextYear  = m === 12 ? y + 1 : y;
-  const nextMonth = m === 12 ? 1 : m + 1;
-  const firstOfNextLocal = Date.UTC(nextYear, nextMonth - 1, 1, 0, 0, 0);
-  const candidate        = new Date(firstOfNextLocal);
-  const offsetMs         = getTimezoneOffsetMs(tz, candidate);
-  return new Date(firstOfNextLocal - offsetMs);
-}
+// Timezone helpers live in ../../lib/quota.js.

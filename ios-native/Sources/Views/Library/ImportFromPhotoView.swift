@@ -46,15 +46,17 @@ struct ImportFromPhotoView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(UserAccount.self)   private var userAccount
     @Environment(QuotaService.self)  private var quotaService
+    @Environment(LlamaProStore.self) private var proStore
 
-    @State private var showingScanner   = false
+    @State private var showingScanner      = false
     @State private var pickedItems: [PhotosPickerItem] = []
-    @State private var ocrInProgress    = false
+    @State private var ocrInProgress       = false
     @State private var ocrPageStatus: String?
     @State private var preview: PreviewPayload?
     @State private var errorBanner: ErrorBanner?
     @State private var capturedPages: [CapturedPage] = []
-    @State private var showingPaywall   = false
+    @State private var showingPaywall      = false
+    @State private var paywallInitialPlan: LlamaProStore.Plan = .yearly
     /// Counts how many parse attempts the user has made in this sheet session.
     /// Resets when the sheet is dismissed and re-presented.
     @State private var sessionAttemptCount = 0
@@ -163,8 +165,10 @@ struct ImportFromPhotoView: View {
             .environment(quotaService)
         }
         .sheet(isPresented: $showingPaywall) {
-            PaywallView()
+            PaywallView(initialPlan: paywallInitialPlan)
                 .environment(appearance)
+                .environment(proStore)
+                .environment(quotaService)
         }
         .overlay {
             if ocrInProgress {
@@ -259,53 +263,52 @@ struct ImportFromPhotoView: View {
                     .clipShape(Capsule())
                 }
 
-                if !s.isPro {
-                    Button {
-                        showingPaywall = true
-                    } label: {
-                        HStack(spacing: AppSpacing.xs) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text("Llama Pro")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(AppColor.onAccent)
-                        .padding(.horizontal, AppSpacing.md)
-                        .padding(.vertical, AppSpacing.xs + 2)
-                        .background(appearance.accentColor)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.lifted)
-                }
+                upgradeChips
 
                 Spacer(minLength: 0)
             }
         }
     }
 
+    @ViewBuilder
+    private var upgradeChips: some View {
+        switch proStore.plan {
+        case .none:
+            upgradeChip("Monthly", plan: .monthly)
+            upgradeChip("Yearly", plan: .yearly)
+        case .monthly:
+            upgradeChip("Go Yearly", plan: .yearly)
+        case .yearly:
+            EmptyView()
+        }
+    }
+
+    private func upgradeChip(_ label: String, plan: LlamaProStore.Plan) -> some View {
+        Button {
+            paywallInitialPlan = plan
+            showingPaywall = true
+        } label: {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(appearance.accentColor)
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, AppSpacing.xs + 2)
+                .background(appearance.accentColor.opacity(0.1))
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(appearance.accentColor.opacity(0.35), lineWidth: 1))
+        }
+        .buttonStyle(.lifted)
+    }
+
     private func pillText(_ s: QuotaSnapshot, now: Date) -> String {
         if s.isMonthlyExhausted {
             let t = Self.timeRemaining(until: s.resetAt, from: now)
-            if s.isPro {
-                return "Llama Pro — 0 left, resets in \(t)"
-            } else {
-                return "0 imports left — resets in \(t)"
-            }
+            return "0 of \(s.limit) left — resets in \(t)"
         }
         if s.isPro {
-            let low = s.remaining <= 9
-            if low {
-                return "Llama Pro — \(s.remaining) of \(s.limit) left this month"
-            } else {
-                return "Llama Pro — \(s.remaining) of \(s.limit) left"
-            }
+            return "\(s.remaining) of \(s.limit) left"
         } else {
-            let low = s.remaining <= 2
-            if low {
-                return "\(s.remaining) free import\(s.remaining == 1 ? "" : "s") left — resets \(s.resetDateFormatted)"
-            } else {
-                return "\(s.remaining) free import\(s.remaining == 1 ? "" : "s") left this month"
-            }
+            return "\(s.remaining) of \(s.limit) free"
         }
     }
 

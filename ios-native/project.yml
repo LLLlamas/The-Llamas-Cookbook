@@ -115,3 +115,17 @@ targets:
         # Share-Extension-Plan.md §3.
         CODE_SIGN_ENTITLEMENTS: ShareExtension/LlamasCookbookShareExtension.entitlements
         PROVISIONING_PROFILE_SPECIFIER: "$(SHARE_EXT_PROFILE_NAME)"
+
+  LlamasCookbookNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/LlamasCookbookTests
+    dependencies:
+      - target: LlamasCookbookNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.llamascookbook.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: minimal
+        CODE_SIGN_STYLE: Automatic

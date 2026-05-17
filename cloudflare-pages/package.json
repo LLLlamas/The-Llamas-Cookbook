@@ -1,0 +1,14 @@
+{
+  "name": "llamas-cookbook-workers",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-15 (session 15 — yearly subscription, Pro badge in profile, sunglasses crown tier, proTabIcon tab bar fix; see "Llama Pro crown surfaces" below).
+Last refreshed: 2026-05-17 (session 16 — JS/Swift test suites added; quota.js DRY refactor; daily parse limit removed).
 
 ---
 

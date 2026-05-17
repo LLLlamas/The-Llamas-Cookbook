@@ -52,6 +52,7 @@ struct ProfileView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(LlamaProStore.self) private var proStore
+    @Environment(QuotaService.self) private var quotaService
     @Environment(\.dismiss) private var dismiss
 
     /// All recipes — used only to derive `lastCookedRecipe` for the
@@ -68,6 +69,8 @@ struct ProfileView: View {
     @State private var showingDeleteConfirm: Bool = false
     @State private var showingSettings: Bool = false
     @State private var showingAddFriend: Bool = false
+    @State private var showingPaywall: Bool = false
+    @State private var paywallInitialPlan: LlamaProStore.Plan = .yearly
     @State private var pendingFriendRemoval: UserProfileSnapshot? = nil
     @State private var letterScrollAnchor: String? = nil
     @FocusState private var nameFieldFocused: Bool
@@ -228,6 +231,12 @@ struct ProfileView: View {
                     .environment(appearance)
                     .environment(friendsStore)
             }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView(initialPlan: paywallInitialPlan)
+                    .environment(appearance)
+                    .environment(proStore)
+                    .environment(quotaService)
+            }
             .task {
                 userAccount.cancelInFlightSignIn()
                 await friendsStore.refresh()
@@ -295,15 +304,59 @@ struct ProfileView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .padding(.horizontal, AppSpacing.md)
-            if proStore.isPro {
-                Text(proStore.plan.displayLabel)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(appearance.accentColor)
-                    .accentTextOutline()
-            }
+            planPillRow
         }
         .frame(maxWidth: .infinity)
         .padding(.top, AppSpacing.md)
+    }
+
+    private var planPillRow: some View {
+        HStack(spacing: AppSpacing.sm) {
+            // Plan label pill — always visible
+            Text(planPillLabel)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(proStore.isPro ? AppColor.onAccent : appearance.accentColor)
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, 5)
+                .background(proStore.isPro ? appearance.accentColor : appearance.accentColor.opacity(0.12))
+                .clipShape(Capsule())
+
+            // Upgrade chips — tier-appropriate
+            switch proStore.plan {
+            case .none:
+                profileUpgradeChip("Monthly", plan: .monthly)
+                profileUpgradeChip("Yearly", plan: .yearly)
+            case .monthly:
+                profileUpgradeChip("Switch to Yearly", plan: .yearly)
+            case .yearly:
+                EmptyView()
+            }
+        }
+    }
+
+    private var planPillLabel: String {
+        switch proStore.plan {
+        case .none:    return "Llamas Free"
+        case .monthly: return "Llama Pro Monthly"
+        case .yearly:  return "Llama Pro Yearly"
+        }
+    }
+
+    private func profileUpgradeChip(_ label: String, plan: LlamaProStore.Plan) -> some View {
+        Button {
+            paywallInitialPlan = plan
+            showingPaywall = true
+        } label: {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(appearance.accentColor)
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, 5)
+                .background(appearance.accentColor.opacity(0.0))
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(appearance.accentColor.opacity(0.5), lineWidth: 1))
+        }
+        .buttonStyle(.scaleOnly)
     }
 
     private var headerTitle: String {

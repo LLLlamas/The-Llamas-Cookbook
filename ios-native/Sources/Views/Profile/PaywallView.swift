@@ -7,9 +7,13 @@ struct PaywallView: View {
     @Environment(LlamaProStore.self)      private var proStore
     @Environment(QuotaService.self)       private var quotaService
 
-    @State private var selectedPlan: LlamaProStore.Plan = .yearly
+    @State private var selectedPlan: LlamaProStore.Plan
     @State private var isLoadingProducts = false
     @State private var showNoRestoreAlert = false
+
+    init(initialPlan: LlamaProStore.Plan = .yearly) {
+        _selectedPlan = State(initialValue: initialPlan)
+    }
 
     var body: some View {
         NavigationStack {

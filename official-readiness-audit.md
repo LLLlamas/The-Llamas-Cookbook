@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The codebase is architecturally mature and well-structured. Nine issues were identified and resolved in this session. Three were launch blockers that had been intentionally disabled during testing and needed to be restored before submission. Four were App Store compliance gaps (privacy manifest, paywall legal copy, missing security headers, `activate-pro.js` JWS security). Two were code-quality violations of documented project invariants. No secrets were found committed to the repo.
+The codebase is architecturally mature and well-structured. Twelve issues were identified and resolved in this session. Two were launch blockers (quota gate hardcoded off; daily limit system removed and replaced with cleaner monthly-only enforcement). Four were App Store compliance gaps (privacy manifest, paywall legal copy, missing security headers, AI processing disclosure). One was a code-quality violation (DateFormatter allocation in render code). Three were UX improvements for the Llama Pro purchase surface (plan pill in ProfileView, always-visible quota pill + upgrade chips in photo import, `PaywallView` initialPlan parameter). No secrets were found committed to the repo.
 
 ---
 
@@ -17,16 +17,16 @@ The codebase is architecturally mature and well-structured. Nine issues were ide
 ### 🔴 Launch Blockers — Fixed
 
 **1. `isInputBlocked` hardcoded to `false` — quota UI never showed**
-- File: `ios-native/Sources/Views/Library/ImportFromPhotoView.swift:219`
+- File: `ios-native/Sources/Views/Library/ImportFromPhotoView.swift`
 - Was: `private var isInputBlocked: Bool { false }`
-- Now: `private var isInputBlocked: Bool { isDailyLimitHit || isMonthlyExhausted }`
-- Impact: The daily-limit and monthly-exhausted blocked cards were completely invisible to users even when they had hit their cap. Users could launch unlimited photo imports.
+- Now: `private var isInputBlocked: Bool { isMonthlyExhausted }`
+- Impact: The monthly-exhausted blocked card was completely invisible to users even when they had hit their cap. Users could launch unlimited photo imports.
 
-**2. Daily parse rate limit disabled in Cloudflare Workers**
-- Files: `cloudflare-pages/functions/api/parse.js`, `usage.js`, `consume.js`
-- `parse.js`: Added `DAILY_LIMIT = 5` constant + full `parseAttempts` check and increment block. The counter is written before forwarding to Anthropic so concurrent requests see the updated count.
-- `usage.js` + `consume.js`: Restored `DAILY_LIMIT = 5` (was `999` with `// TEMP` comments).
-- Impact: Without this, a single user could exhaust their entire monthly cap (5 or 30 imports) in a single session, burning Anthropic API spend and circumventing the quota system entirely.
+**2. Daily parse rate limit removed — monthly-only quota system**
+- Files: `cloudflare-pages/functions/api/parse.js`, `usage.js`, `consume.js`, `activate-pro.js`; `ios-native/Sources/Lib/QuotaService.swift`; `ios-native/Sources/Views/Library/ImportFromPhotoView.swift`; `ios-native/Sources/Lib/AnthropicRecipeParser.swift`
+- The daily rate limit system (`parseAttempts`, `DAILY_LIMIT`, `isDailyLimitHit`, `dailyLimitCard`, `VisionParseError.dailyLimitHit`) was present in code but never enforced (constants set to `999` with `// TEMP` comments). Rather than restore it, the decision was made to simplify to **monthly-only quota**. This reduces server round-trips, removes dead UI branches, and makes the user-facing model cleaner.
+- All daily tracking removed from: `parse.js` (no `parseAttempts` read/write), `usage.js` (response is `{ plan, limit, used, remaining, resetAt }` only), `consume.js` (monthly increment only), `activate-pro.js` (no `parseAttempts` in activation response), `QuotaSnapshot` (removed `dailyParsesUsed`, `dailyParseLimit`, `dailyParseResetAt`, `isDailyLimitHit`, `dailyResetDateFormatted`), `ImportFromPhotoView` (removed `isDailyLimitHit`, `dailyLimitCard`, `ImportBranch.dailyLimitHit`), `VisionParseError` (removed `.dailyLimitHit` case and `extractErrorCode` helper).
+- Impact: Quota enforcement is now a single monthly counter per user. Simpler, auditable, no dead code paths.
 
 **3. `PrivacyInfo.xcprivacy` — empty data types, misleading comment**
 - File: `ios-native/Resources/PrivacyInfo.xcprivacy`
@@ -77,9 +77,34 @@ The codebase is architecturally mature and well-structured. Nine issues were ide
 
 **9. `QuotaSnapshot` DateFormatter allocation in computed properties**
 - Files: `ios-native/Sources/Lib/Formatters.swift`, `ios-native/Sources/Lib/QuotaService.swift`
-- `resetDateFormatted` and `dailyResetDateFormatted` were allocating `DateFormatter()` inline on every call. This violates the documented CLAUDE.md invariant ("Never allocate a DateFormatter in rendering code") and is particularly costly inside `TimelineView(.everyMinute)`.
-- Added `Formatters.shortMonthDay: DateFormatter` as a `static let` in `Formatters.swift`.
-- Both properties now use `Formatters.shortMonthDay.string(from:)`.
+- `resetDateFormatted` was allocating `DateFormatter()` inline on every call. This violates the documented CLAUDE.md invariant ("Never allocate a DateFormatter in rendering code") and is particularly costly inside `TimelineView(.everyMinute)`.
+- Added `Formatters.shortMonthDay: DateFormatter` as a `static let` in `Formatters.swift` with `dateFormat = "MMM d"`.
+- `resetDateFormatted` now uses `Formatters.shortMonthDay.string(from:)`. The previously-existing `dailyResetDateFormatted` was removed along with the daily limit system.
+
+---
+
+### 🟢 UX Improvements — Added
+
+**10. Plan pill + contextual upgrade chips in ProfileView**
+- File: `ios-native/Sources/Views/Profile/ProfileView.swift`
+- Replaced the bare `Text(proStore.plan.displayLabel)` (Pro-only) with a `planPillRow` that is always visible:
+  - **Pill**: filled Capsule — "Llamas Free" (accent-tinted background), "Llama Pro Monthly" / "Llama Pro Yearly" (accent fill, onAccent text).
+  - **Upgrade chips**: Free users see "Monthly" + "Yearly" chips; monthly users see "Switch to Yearly"; yearly users see no chips.
+  - Chips open `PaywallView(initialPlan:)` with the matching plan pre-selected.
+- ProfileView now injects `quotaService` and all three environments into the paywall sheet.
+
+**11. Tier-aware upgrade chips and always-visible quota pill in ImportFromPhotoView**
+- File: `ios-native/Sources/Views/Library/ImportFromPhotoView.swift`
+- `pillText` now always renders remaining import count for all users:
+  - Free users under cap: "X of 5 free" → "1 of 5 free"
+  - Pro users under cap: "X of 30 left"
+  - Exhausted: "0 of Y left — resets in T"
+- Added `upgradeChips` @ViewBuilder below the pill for free users (Monthly + Yearly buttons) and monthly users (Yearly button) — tapping opens the paywall with the appropriate plan pre-selected.
+- Paywall sheet now injects `proStore` and `quotaService` (were missing; iOS 26 `@Observable` drops across `sheet` boundaries).
+
+**12. `PaywallView` accepts `initialPlan` parameter**
+- File: `ios-native/Sources/Views/Profile/PaywallView.swift`
+- Added `init(initialPlan: LlamaProStore.Plan = .yearly)` — the yearly plan is pre-selected by default ("Best value"), but callers from the monthly upgrade chip pre-select `.monthly` so the user lands on the right card.
 
 ---
 
@@ -126,10 +151,9 @@ The following were audited and confirmed to be correctly implemented. No changes
 - `pro:${userId}` KV entry TTL = `expiresDate - now + 2 day grace` for renewal propagation window. The iOS client calls `activate-pro` on every app open via `checkCurrentEntitlements`, keeping the entry fresh through renewals.
 
 ### Quota enforcement (end-to-end)
-- **Daily:** `parse.js` now checks and increments `parseAttempts:${userId}:${localDate}`. Counter expires in 2 days. Daily limit: 5 (both tiers).
-- **Monthly:** `parse.js` pre-check; `consume.js` increments after save. Free cap: 5. Pro cap: 30. Resets on first of local month.
-- **Cache hits:** Skip daily increment (no Anthropic call). Monthly pre-check still runs on cache hits (correct — prevents quota exhaustion via repeated cache hits).
-- **Client gate:** `ImportFromPhotoView.isInputBlocked` now correctly reflects `isDailyLimitHit || isMonthlyExhausted`. ✅
+- **Monthly only:** `parse.js` pre-checks `saves:${userId}:${localYYYYMM}` before forwarding to Anthropic. `consume.js` increments the counter after the user saves the recipe. Free cap: 5 saves/month. Pro cap: 30 saves/month. Resets on the first of the local calendar month (timezone-aware via `x-llamas-tz` header).
+- **Cache hits:** Monthly pre-check still runs before returning a cached result (correct — prevents quota exhaustion via repeated hits on the same photo).
+- **Client gate:** `ImportFromPhotoView.isInputBlocked` correctly reflects `isMonthlyExhausted`. When exhausted, the `freeMonthlyLimitCard` or `proMonthlyLimitCard` blocked card is shown and the photo picker is disabled. ✅
 - **`BYPASS_SECRET`:** Gated on env var being set. Confirm it is NOT set in the production Cloudflare Pages environment (only in local dev / wrangler).
 
 ---

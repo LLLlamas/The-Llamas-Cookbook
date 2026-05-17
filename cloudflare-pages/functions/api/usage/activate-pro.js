@@ -29,8 +29,7 @@ const PRODUCT_IDS = new Set([
   'com.llamascookbook.app.pro.monthly',
   'com.llamascookbook.app.pro.yearly',
 ]);
-const PRO_CAP  = 30;
-const FREE_CAP = 5;
+import { FREE_CAP, PRO_CAP, getLocalYYYYMM, nextMonthResetUTC, deriveAppAccountToken } from '../../../lib/quota.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -126,67 +125,4 @@ export async function onRequestPost(context) {
   });
 }
 
-// ── Token derivation ──────────────────────────────────────────────────────────
-// Mirrors LlamaProStore.appAccountToken(for:) in Swift:
-// SHA-256 of the SIWA sub → first 16 bytes → UUID v4 variant bits → UUID string.
-
-async function deriveAppAccountToken(userId) {
-  try {
-    const encoded = new TextEncoder().encode(userId);
-    const hashBuf = await crypto.subtle.digest('SHA-256', encoded);
-    const bytes   = new Uint8Array(hashBuf).slice(0, 16);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;  // version 4
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;  // RFC 4122 variant
-    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
-  } catch {
-    return null;
-  }
-}
-
-// ── Timezone / date helpers (duplicated from parse.js — no shared module) ─────
-
-function getLocalDate(tz) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
-}
-
-function getLocalYYYYMM(tz) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit',
-  }).format(new Date()).replace('-', '');
-}
-
-function getTimezoneOffsetMs(tz, date) {
-  const fmt = t => new Intl.DateTimeFormat('en-CA', {
-    timeZone: t,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(date);
-  const toParts = parts => {
-    const g = type => parseInt(parts.find(p => p.type === type)?.value ?? '0', 10);
-    return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second'));
-  };
-  return toParts(fmt(tz)) - toParts(fmt('UTC'));
-}
-
-function nextLocalMidnightUTC(tz) {
-  const localDate     = getLocalDate(tz);
-  const [y, m, d]     = localDate.split('-').map(Number);
-  const tomorrowLocal = Date.UTC(y, m - 1, d + 1, 0, 0, 0);
-  const candidate     = new Date(tomorrowLocal);
-  return new Date(tomorrowLocal - getTimezoneOffsetMs(tz, candidate));
-}
-
-function nextMonthResetUTC(tz) {
-  const localYM          = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit',
-  }).format(new Date());
-  const [y, m]           = localYM.split('-').map(Number);
-  const nextYear         = m === 12 ? y + 1 : y;
-  const nextMonth        = m === 12 ? 1 : m + 1;
-  const firstOfNextLocal = Date.UTC(nextYear, nextMonth - 1, 1, 0, 0, 0);
-  const candidate        = new Date(firstOfNextLocal);
-  return new Date(firstOfNextLocal - getTimezoneOffsetMs(tz, candidate));
-}
+// Token derivation and timezone helpers live in ../../../lib/quota.js.
