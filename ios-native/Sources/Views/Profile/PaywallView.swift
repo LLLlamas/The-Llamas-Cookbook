@@ -91,11 +91,12 @@ struct PaywallView: View {
                     }
                 }
             }
-            .onChange(of: proStore.isPro) { _, isPro in
-                if isPro {
-                    Task { await quotaService.refresh(force: true) }
-                    dismiss()
-                }
+            .onChange(of: proStore.plan) { _, _ in
+                // Fires on any tier change: free→monthly, free→yearly, monthly→yearly.
+                // Watching plan (not isPro) catches the monthly→yearly upgrade where
+                // isPro was already true and would never trigger.
+                Task { await quotaService.refresh(force: true) }
+                dismiss()
             }
         }
     }
@@ -104,16 +105,20 @@ struct PaywallView: View {
 
     private var planPicker: some View {
         VStack(spacing: AppSpacing.sm) {
+            // Always show yearly — it's the upgrade target for everyone.
             planCard(plan: .yearly,
                      title: "Yearly",
                      price: proStore.yearlyProduct?.displayPrice,
                      suffix: " / year",
                      badge: "Best value")
-            planCard(plan: .monthly,
-                     title: "Monthly",
-                     price: proStore.monthlyProduct?.displayPrice,
-                     suffix: " / month",
-                     badge: nil)
+            // Only show monthly if the user isn't already on a paid plan.
+            if proStore.plan == .none {
+                planCard(plan: .monthly,
+                         title: "Monthly",
+                         price: proStore.monthlyProduct?.displayPrice,
+                         suffix: " / month",
+                         badge: nil)
+            }
         }
     }
 

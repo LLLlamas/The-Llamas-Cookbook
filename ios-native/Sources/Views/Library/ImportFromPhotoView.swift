@@ -317,7 +317,7 @@ struct ImportFromPhotoView: View {
         if (s.isPro && s.remaining <= 9) || (!s.isPro && s.remaining <= 2) {
             return AppColor.accentDeep
         }
-        return appearance.accentColor
+        return AppColor.accent
     }
 
     private func pillBackground(_ s: QuotaSnapshot) -> Color {
@@ -327,7 +327,7 @@ struct ImportFromPhotoView: View {
         if (s.isPro && s.remaining <= 9) || (!s.isPro && s.remaining <= 2) {
             return AppColor.accentDeep.opacity(0.1)
         }
-        return appearance.accentColor.opacity(0.1)
+        return AppColor.accent.opacity(0.1)
     }
 
     // MARK: - Exhausted / blocked card
@@ -369,7 +369,7 @@ struct ImportFromPhotoView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
             HStack(spacing: AppSpacing.sm) {
-                LlamaLogo(size: 36, shadowColor: appearance.accentColor)
+                LlamaLogoOrCrown(size: 36, accent: AppColor.accent)
                 Text(title)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(AppColor.textPrimary)
@@ -458,7 +458,7 @@ struct ImportFromPhotoView: View {
 
     private var heroRow: some View {
         HStack(spacing: AppSpacing.md) {
-            LlamaLogo(size: 72, shadowColor: appearance.accentColor)
+            LlamaLogoOrCrown(size: 72, accent: AppColor.accent)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Import from a photo")
                     .font(.system(size: 20, weight: .bold, design: .serif))
