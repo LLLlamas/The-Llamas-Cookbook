@@ -102,23 +102,7 @@ struct FriendsTabView: View {
                         }
                         .accessibilityLabel("Add a friend")
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            Haptics.selection()
-                            Task { await friendsStore.refresh() }
-                        } label: {
-                            if friendsStore.isRefreshing {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(appearance.cookbookTitleAccentColor)
-                                    .accentTextOutline()
-                            }
-                        }
-                        .accessibilityLabel("Refresh friends")
-                        .disabled(friendsStore.isRefreshing)
-                    }
+
                 }
                 .sheet(isPresented: $showingAddFriend) {
                     AddFriendSheet()

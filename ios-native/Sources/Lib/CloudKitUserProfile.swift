@@ -10,7 +10,7 @@ import SwiftUI
 /// Frozen-in-time — call sites refresh by re-fetching, not by holding
 /// a reference. SwiftData's `@Model` machinery doesn't apply here;
 /// these records live in CloudKit, not the local store.
-struct UserProfileSnapshot: Identifiable, Hashable {
+struct UserProfileSnapshot: Identifiable, Hashable, Codable {
     let userRecordName: String
     let displayName: String
     let accentHex: String?

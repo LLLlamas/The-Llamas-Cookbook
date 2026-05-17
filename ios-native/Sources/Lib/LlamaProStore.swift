@@ -31,7 +31,33 @@ final class LlamaProStore {
 
     nonisolated(unsafe) private var transactionUpdateTask: Task<Void, Never>?
 
+    // MARK: - Plan cache
+
+    private static let planCacheKey = "llamaPro.cachedPlan"
+
+    // Persist plan to UserDefaults so crown surfaces are correct at the
+    // first rendered frame on every cold start, not after StoreKit responds.
+    // StoreKit's checkCurrentEntitlements() still runs async in start() and
+    // silently corrects stale values (e.g. an expired subscription).
+    private func setPlan(_ newPlan: Plan) {
+        plan = newPlan
+        let raw: String
+        switch newPlan {
+        case .none:    raw = "none"
+        case .monthly: raw = "monthly"
+        case .yearly:  raw = "yearly"
+        }
+        UserDefaults.standard.set(raw, forKey: Self.planCacheKey)
+    }
+
     init() {
+        if let raw = UserDefaults.standard.string(forKey: Self.planCacheKey) {
+            switch raw {
+            case "monthly": plan = .monthly
+            case "yearly":  plan = .yearly
+            default:        break
+            }
+        }
         transactionUpdateTask = listenForTransactionUpdates()
     }
 
@@ -48,7 +74,7 @@ final class LlamaProStore {
     }
 
     func signOut() {
-        plan = .none
+        setPlan(.none)
         purchaseError = nil
     }
 
@@ -81,7 +107,7 @@ final class LlamaProStore {
             case .success(let verification):
                 let transaction = try checkVerified(verification)
                 await activateOnServer(jws: verification.jwsRepresentation)
-                plan = transaction.productID == Self.yearlyProductID ? .yearly : .monthly
+                setPlan(transaction.productID == Self.yearlyProductID ? .yearly : .monthly)
                 await transaction.finish()
             case .userCancelled, .pending:
                 break
@@ -124,7 +150,7 @@ final class LlamaProStore {
                 break
             }
         }
-        plan = detected
+        setPlan(detected)
     }
 
     // MARK: - Transaction listener
@@ -142,11 +168,11 @@ final class LlamaProStore {
                 await self.activateOnServer(jws: result.jwsRepresentation)
                 await MainActor.run {
                     if active {
-                        self.plan = isYearly ? .yearly : .monthly
+                        self.setPlan(isYearly ? .yearly : .monthly)
                     } else {
                         let currentPlan = self.plan
                         if (isYearly && currentPlan == .yearly) || (isMonthly && currentPlan == .monthly) {
-                            self.plan = .none
+                            self.setPlan(.none)
                         }
                     }
                 }

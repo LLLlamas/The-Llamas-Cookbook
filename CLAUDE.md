@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-17 (session 17 — PaywallView llama crown, RecipeDetailView icon resize + navbar, terracotta tier pills).
+Last refreshed: 2026-05-17 (session 18 — UserDefaults caching for plan + friends, stale-while-revalidate, refresh button removed).
 
 ---
 
@@ -149,6 +149,9 @@ Last refreshed: 2026-05-17 (session 17 — PaywallView llama crown, RecipeDetail
 - **AlarmKit** owns cook-timer lock-screen alerts + Live Activity. Sound is always `AlertConfiguration.AlertSound.default`.
 - **HEIC → JPEG before CloudKit upload** (`ImageProcessing.transcodeHEICToJPEGForSharing`). Local SwiftData stays HEIC.
 - **`RecipeShareLimits.maxInboundBytes`** in `Sources/Shared/` — 25 MB cap; referenced by both main app and share extension.
+- **`LlamaProStore.plan` is cached to `UserDefaults.standard` under key `"llamaPro.cachedPlan"`** — read synchronously in `init()` so crown/sunglasses surfaces render correctly at the first frame on cold start, before StoreKit responds. `setPlan(_:)` is the internal setter for `plan` — **always use it instead of direct `plan = ...` assignment** so the cache stays in sync. StoreKit's `checkCurrentEntitlements()` still runs async in `start()` and silently corrects stale values (e.g. an expired subscription). `signOut()` calls `setPlan(.none)` which also clears the cache.
+- **`FriendsStore` friends list is cached to `UserDefaults.standard` under key `"friendsStore.cachedFriends"`** — `[UserProfileSnapshot]` encoded as JSON (synthesized `Codable`). Loaded synchronously in `init()` so friend cards are populated at first frame — stale-while-revalidate pattern. Only real CloudKit friends are cached; the seed friend is always prepended programmatically. `persistFriendsCache(_:)` writes after every successful `refresh()`. `clearOnSignOut()` removes the key so the next user sees a clean state. First install or first launch with no cache falls through to the existing network-first behavior.
+- **`UserProfileSnapshot` conforms to `Codable`** (synthesized — all 8 stored properties are primitive Swift types; computed properties `isCookingNow` and `resolvedAccent` are excluded automatically).
 - **`AccentColorPicker` commits on `.onDisappear`** — driving it earlier desyncs `UIColorPickerViewController`.
 - **Unsigned user accent is always terracotta** — `AppearanceSettings.applySignedOut()` uses `isForcingDefault` to skip `persist()` + mirror push, preserving the stored preference. Never call `resetToDefault()` on sign-out (that erases UserDefaults). `LlamasCookbookApp` drives this via `.onAppear` + `.onChange(of: userAccount.status.isSignedIn)`.
 - **`ImportFromPhotoView` quota countdowns use `TimelineView(.everyMinute)`** — both the pill text and the blocked-card "Resets in X" row update live. `timeRemaining(until:from:)` is a static helper on the view.

@@ -110,6 +110,34 @@ final class FriendsStore {
     @ObservationIgnored
     private var remotePushObserver: NSObjectProtocol?
 
+    // MARK: - Friends cache
+
+    private static let friendsCacheKey = "friendsStore.cachedFriends"
+
+    // On cold start: load the last-known friends list synchronously so cards
+    // appear populated immediately. The background refresh that fires from
+    // FriendsTabView's .task patches any deltas (presence, new/removed
+    // friends) within 1–3s. Seed friend is always prepended separately —
+    // only real CloudKit friends are cached here.
+    init() {
+        let cached = Self.loadFriendsCache()
+        if !cached.isEmpty {
+            friends = [SeedFriend.profile] + cached
+        }
+    }
+
+    private static func loadFriendsCache() -> [UserProfileSnapshot] {
+        guard let data = UserDefaults.standard.data(forKey: friendsCacheKey),
+              let decoded = try? JSONDecoder().decode([UserProfileSnapshot].self, from: data)
+        else { return [] }
+        return decoded
+    }
+
+    private func persistFriendsCache(_ realFriends: [UserProfileSnapshot]) {
+        guard let data = try? JSONEncoder().encode(realFriends) else { return }
+        UserDefaults.standard.set(data, forKey: Self.friendsCacheKey)
+    }
+
     /// Pending request with everything the UI needs to render:
     /// approve/deny target (`friendshipRecordName`) + requester
     /// avatar/name (`requester`).
@@ -307,6 +335,7 @@ final class FriendsStore {
         // a fresh install or a signed-out session, and gives the
         // grid a familiar anchor on every refresh.
         friends = [SeedFriend.profile] + newFriends
+        persistFriendsCache(newFriends)
         friendsSinceByID = newFriendsSince
         incomingRequests = newIncoming
         outgoingRequests = newOutgoing
@@ -516,6 +545,7 @@ final class FriendsStore {
         lastRefreshError = nil
         lastRefreshDiagnostic = nil
         lastRefreshAt = nil
+        UserDefaults.standard.removeObject(forKey: Self.friendsCacheKey)
     }
 
     // MARK: - Push observation
