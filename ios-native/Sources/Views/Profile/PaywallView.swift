@@ -77,6 +77,11 @@ struct PaywallView: View {
             .navigationBarTitleDisplayMode(.inline)
             .tint(appearance.accentColor)
             .task {
+                // Sync against actual StoreKit entitlements first. This catches
+                // the case where a subscription was purchased in a prior session
+                // but plan wasn't updated (e.g. the old isPro-based dismiss bug).
+                // If plan changes here, onChange(of: proStore.plan) dismisses below.
+                await proStore.checkCurrentEntitlements()
                 guard proStore.monthlyProduct == nil && proStore.yearlyProduct == nil else { return }
                 isLoadingProducts = true
                 await proStore.loadProduct()
