@@ -314,7 +314,7 @@ struct FriendLibraryView: View {
                     populated: populatedLetters,
                     accent: friend.resolvedAccent,
                     externalHighlightLetter: nil,
-                    scrollFocusLetter: scrollTicker.magnifyLetter
+                    scrollFocusLetter: nil
                 ) { letter in
                     guard let target = firstSummary(atOrAfter: letter) else { return }
                     Haptics.selection()
