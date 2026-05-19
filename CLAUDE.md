@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-17
+Last refreshed: 2026-05-18
 
 ---
 
@@ -183,6 +183,13 @@ Last refreshed: 2026-05-17
 
 ### AlarmKit
 - Cook-timer lock-screen alerts + Live Activity owned by AlarmKit. Sound always `AlertConfiguration.AlertSound.default`
+
+### Cook pills / bottom overlay clearance (`RecipeDetailView`)
+- `CookingPillsOverlay` (applied per-tab in `RootView`) uses `.overlay(alignment: .bottom)`, NOT `safeAreaInset` — the scroll view inside `RecipeDetailView` doesn't automatically know about the pill.
+- `RecipeDetailView` handles this with two layered mechanisms:
+  1. `safeAreaInset(edge: .bottom)` — renders `startCookingBar` when no active cooks; renders `Color.clear.frame(height: 70)` when cook mode is minimized (resume pill visible). This is the **primary** clearance: it shrinks the scroll view's scrollable region so content can never rest behind an overlay.
+  2. `.padding(.bottom, AppSpacing.xl + bottomOverlayClearance)` — adds runway so the Delete button clears the inset boundary. `bottomOverlayClearance` = 80 for the Start Cooking bar, 40 for the resume pill (safeAreaInset already handles the pill's footprint), 0 when Cook Mode is foregrounded.
+- The 70pt spacer = pill height (~54pt) + `CookingPillsOverlay` bottom gap (`AppSpacing.md` = 12pt) + 4pt air.
 
 ### CI
 - `macos-26` renames beta Xcode `.app`s `_disabled_…` and re-pins both `DEVELOPER_DIR` and `PATH` — setting only `DEVELOPER_DIR` leaves sub-tools on the beta; TestFlight rejects beta-built archives

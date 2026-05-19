@@ -263,19 +263,22 @@ struct RecipeDetailView: View {
             }
             .llamaBackground()
             // safeAreaInset shrinks the scroll view's visible area by the
-            // bar's height, so .scrollTransition fires above the pill rather
-            // than behind it.
+            // inset's height, so content never rests behind a bottom overlay.
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                // Hide the full-width Start Cooking bar whenever a cook
-                // session is already active — otherwise it collides
-                // visually with the resume pill at the bottom of the
-                // screen. The pill's green "+" button is the additive
-                // entry point for spawning a parallel cook from this
-                // recipe; replacing the existing session is intentionally
-                // not surfaced here (would require closing the active
-                // session first).
                 if session.activeCooks.isEmpty {
+                    // No active cooks — show the full-width Start Cooking bar.
+                    // Hiding it when a cook is active avoids collision with
+                    // the resume pill; the pill's green "+" is the additive
+                    // entry point for parallel cooks.
                     startCookingBar
+                } else if !session.isCookModeVisible {
+                    // Cook mode is minimized — the resume pill floats at the
+                    // bottom via CookingPillsOverlay (.overlay, not safeAreaInset),
+                    // so the scroll view doesn't know about it. A transparent
+                    // spacer matching the pill's visual footprint (~54pt pill
+                    // + 12pt bottom gap = ~66pt; 70pt gives a bit of air)
+                    // keeps content scrollable above the pill.
+                    Color.clear.frame(height: 70)
                 }
             }
         .overlay {
@@ -1138,15 +1141,14 @@ struct RecipeDetailView: View {
     private var sortedIngredients: [Ingredient] { recipe.sortedIngredients }
     private var sortedSteps: [RecipeStep] { recipe.sortedSteps }
 
-    /// Extra bottom padding needed so the Delete button clears whichever
-    /// bottom overlay is in play. Returns ~80pt when either the Start
-    /// Cooking bar (no active cooks) or the minimized cook resume pill
-    /// is visible; 0pt otherwise. The third-state Cook Mode full-screen
-    /// cover is on top of this view, so the Detail content isn't being
-    /// rendered to the user — the padding is harmless in that case.
+    /// Extra bottom padding so the Delete button clears whatever overlay
+    /// is in play. The primary clearance is now handled by safeAreaInset
+    /// (startCookingBar or the transparent 70pt spacer for the resume
+    /// pill). This value is layered on top of that, giving the Delete
+    /// button comfortable runway above the inset boundary.
     private var bottomOverlayClearance: CGFloat {
         if session.activeCooks.isEmpty { return 80 }       // Start Cooking bar
-        if !session.isCookModeVisible { return 80 }        // resume pill
+        if !session.isCookModeVisible { return 40 }        // resume pill — safeAreaInset handles primary clearance
         return 0
     }
 
