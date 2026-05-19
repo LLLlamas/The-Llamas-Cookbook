@@ -1,10 +1,10 @@
 import SwiftUI
 
 extension View {
-    /// Glossy "glare" overlay for card surfaces. Combines two light
+    /// Glossy "glare" overlay for card surfaces. Combines three light
     /// behaviors into a single, GPU-cheap overlay:
     ///
-    /// 1. **Sweep-in** — a bright diagonal streak slides across the card
+    /// 1. **Sweep-in** — a soft diagonal streak slides across the card
     ///    exactly once as it scrolls into view, then settles off-edge.
     ///    Driven by a one-shot `@State` animation fired from `onAppear`
     ///    (state mutates once per appearance, never per frame). Inside a
@@ -15,11 +15,18 @@ extension View {
     ///    "catches the light" as the user scrolls. Driven entirely by
     ///    `visualEffect`, which runs in SwiftUI's layout pass off the
     ///    main thread and never invalidates `body`.
+    /// 3. **Edge depth** — a static, always-on inner edge rim: a faint
+    ///    bright highlight along the top edge and a faint dark line along
+    ///    the bottom edge ("light from above"), so the card reads as a
+    ///    physically raised surface reinforcing its `.liftedCard()`
+    ///    shadow. NO state, NO animation, NO `visualEffect` — just a thin
+    ///    overlay stroke, free for scroll performance.
     ///
-    /// The streak is clipped to `RoundedRectangle(cornerRadius:)` so it
-    /// never bleeds past the card's rounded corners, and uses
-    /// `.blendMode(.plusLighter)` so it brightens rather than paints.
-    /// The whole overlay is `.allowsHitTesting(false)`.
+    /// All layers are clipped to `RoundedRectangle(cornerRadius:)` so
+    /// nothing bleeds past the card's rounded corners. The moving streak
+    /// uses `.blendMode(.plusLighter)` so it brightens rather than paints;
+    /// the edge rim composites normally. The whole overlay is
+    /// `.allowsHitTesting(false)`.
     ///
     /// Performance: pass the SAME `cornerRadius` the card clips to. Apply
     /// `cardGlare()` on top of a card that is itself flattened with
@@ -32,8 +39,10 @@ extension View {
     }
 }
 
-/// Backing modifier for `View.cardGlare(cornerRadius:)`. See that
-/// method's doc comment for the behavior contract and call-site rules.
+/// Backing modifier for `View.cardGlare(cornerRadius:)`. Renders the
+/// moving streak (sweep-in + scroll shine) and a static top/bottom edge
+/// depth rim. See that method's doc comment for the behavior contract
+/// and call-site rules.
 private struct CardGlareModifier: ViewModifier {
     let cornerRadius: CGFloat
 
@@ -52,6 +61,10 @@ private struct CardGlareModifier: ViewModifier {
                     // Clip the streak to the card's rounded silhouette
                     // so the highlight can never spill past the corners.
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                edgeDepth
                     .allowsHitTesting(false)
             }
             .onAppear {
@@ -77,8 +90,8 @@ private struct CardGlareModifier: ViewModifier {
             colors: [
                 .clear,
                 Color.white.opacity(0.0),
-                Color.white.opacity(0.55),
-                Color.white.opacity(0.16),
+                Color.white.opacity(0.30),
+                Color.white.opacity(0.09),
                 .clear
             ],
             startPoint: .init(x: 0.0, y: 0.0),
@@ -116,5 +129,31 @@ private struct CardGlareModifier: ViewModifier {
         // Modest travel so the shine reads as a gentle light-catch
         // rather than a second full sweep competing with the sweep-in.
         return normalized * width * 0.18
+    }
+
+    /// Static "raised object" edge depth. A single thin (1pt) inner
+    /// stroke filled with a vertical gradient — bright at the very top,
+    /// fully clear through the middle, subtly dark at the very bottom —
+    /// so the card reads as a physically raised surface lit from above.
+    ///
+    /// `strokeBorder` insets the stroke entirely within the shape, so the
+    /// rim never extends past the rounded corners. Always rendered: no
+    /// `@State`, no animation, no `visualEffect` — it costs one static
+    /// composited stroke and stays free during scrolling.
+    private var edgeDepth: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .strokeBorder(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.42),
+                        Color.white.opacity(0.0),
+                        Color.black.opacity(0.0),
+                        Color.black.opacity(0.16)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
     }
 }
