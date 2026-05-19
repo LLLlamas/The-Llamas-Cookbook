@@ -115,6 +115,8 @@ Last refreshed: 2026-05-18
 | Helper | File | Purpose |
 |---|---|---|
 | `View.cardScrollTransition()` | `Components/View+CardScrollTransition.swift` | Scroll-focus zoom on card lists |
+| `View.cardGlare(cornerRadius:)` | `Components/View+CardGlare.swift` | Glossy glare: sweep-in on entry + scroll-reactive shine, clipped to card shape |
+| `View.scrollSectionHaptic(section:ticker:)` + `ScrollSectionTicker` | `Components/ScrollSectionHaptic.swift` | Letter-scrubber tick while free-scrolling list rows or category-chip strips |
 | `View.surfaceCard(cornerRadius:)` | `Components/View+SurfaceCard.swift` | Settings/info card chrome |
 | `View.liftedCard()` | `Components/View+Lifted.swift` | Static drop shadow, non-interactive cards |
 | `.buttonStyle(.lifted)` | `Components/View+Lifted.swift` | Press-down shadow + 0.96 scale |
@@ -148,6 +150,8 @@ Last refreshed: 2026-05-18
 - `AccentColorPicker` commits on `.onDisappear` — driving it earlier desyncs `UIColorPickerViewController`
 - `.drawingGroup()` goes INSIDE `.clipShape()` / before outer shadows. Never apply to views using `.blur()` or `.regularMaterial`
 - `.buttonStyle(.lifted)` must NOT be applied inside `.drawingGroup()` — shadows clip to texture bounds
+- `cardGlare(cornerRadius:)` — apply AFTER the card's `.drawingGroup()` (it's a thin overlay); pass the SAME radius the card clips to so the streak stays inside the corners. Glare positioning runs entirely via `visualEffect` (layout-pass, no `body` invalidation) + a one-shot `onAppear` sweep — never per-frame `@State`
+- Scroll-list haptics: fire via `scrollSectionHaptic(section:ticker:)` per row, NOT inline. One `ScrollSectionTicker` per list (`@State`); call `ticker.reset()` on filter/sort change so a re-populated list doesn't tick on settle. The horizontal category-chip strips (`LibraryView.filterStrip`, `CategoryFilterStrip`) use the same modifier with their OWN per-strip ticker — never share with the recipe-list ticker, or moving focus between strip and list mis-ticks; reset on chip-set change
 
 ### Auth / Social
 - `UserProfileMirror.cachedRecordID()` is the canonical "is iCloud bound?" check — all social writes short-circuit when nil
@@ -163,6 +167,7 @@ Last refreshed: 2026-05-18
 ### Accent / Appearance
 - Unsigned user accent is always terracotta — `applySignedOut()` uses `isForcingDefault` flag, never `resetToDefault()` (erases stored prefs)
 - Plan pills and upgrade chips use `AppColor.accent` (terracotta `#C97C5D`), never `appearance.accentColor`
+- `AppearanceSettings.previewAccentColor` is the uncommitted live pick — set continuously from `AccentColorPicker`'s `pickerColor` so the cookbook title retints instantly (no wait for the `.onDisappear` commit). It has NO didSet side-effects and `AccentColorPicker.body` must never read it (would re-snapshot `UIColorPickerViewController`). `cookbookTitleAccentColor` returns it when non-nil; `commitSelection` clears it. Only set while signed in
 
 ### Photo Import
 - `ImportFromPhotoView` always sets `.interactiveDismissDisabled(true)` unconditionally — not just during OCR

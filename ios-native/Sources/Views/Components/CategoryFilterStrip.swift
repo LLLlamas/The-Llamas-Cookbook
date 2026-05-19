@@ -22,6 +22,12 @@ struct CategoryFilterStrip: View {
     @Binding var selection: String?
     let accent: Color
 
+    /// Fires the letter-scrubber tick as the user drags the horizontal
+    /// chip strip, so it feels consistent with scrolling the recipe
+    /// list. Owned by the strip and never shared with a list ticker.
+    /// Reset when the available category set changes wholesale.
+    @State private var stripTicker = ScrollSectionTicker()
+
     var body: some View {
         HStack(spacing: AppSpacing.xs) {
             allPill
@@ -35,12 +41,18 @@ struct CategoryFilterStrip: View {
                             Haptics.selection()
                             selection = isActive ? nil : tag
                         }
+                        .scrollSectionHaptic(section: tag, ticker: stripTicker)
                     }
                 }
                 .padding(.trailing, AppSpacing.lg)
                 .scrollTargetLayout()
             }
             .scrollTargetBehavior(.viewAligned)
+            .onChange(of: categories) { _, _ in
+                // Category set changed wholesale — clear the ticker so
+                // the re-laid-out strip settles silently.
+                stripTicker.reset()
+            }
         }
         .padding(.leading, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)

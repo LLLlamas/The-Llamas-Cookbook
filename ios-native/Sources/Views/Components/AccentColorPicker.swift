@@ -82,6 +82,20 @@ struct AccentColorPicker: View {
             .onAppear {
                 pickerColor = settings.accentColor
             }
+            .onChange(of: pickerColor) { _, newColor in
+                // Publish the live pick as an uncommitted preview so
+                // accent-tinted chrome behind the sheet (the cookbook
+                // title) retints immediately — and is already correct
+                // the instant the sheet begins to dismiss, instead of
+                // lagging until the `.onDisappear` commit below.
+                //
+                // Safe re: the picker invariant — `previewAccentColor`
+                // has no didSet side-effects and this view's body
+                // never reads it, so `UIColorPickerViewController` is
+                // never re-snapshotted (unlike a write to `accentColor`).
+                guard isSignedIn else { return }
+                settings.previewAccentColor = newColor
+            }
             .onDisappear {
                 commitSelection()
             }
@@ -91,6 +105,11 @@ struct AccentColorPicker: View {
     private func commitSelection() {
         // Unsigned users have no color picker, so there's nothing to commit.
         guard isSignedIn else { return }
+        // Clear the uncommitted preview now that the real commit (or a
+        // no-op confirm) is happening — the accent-color getters fall
+        // back to `accentColor` + the cascade logic from here on.
+        defer { settings.previewAccentColor = nil }
+
         let selectedHex = pickerColor.toHex
         let currentHex = settings.accentColor.toHex
         if selectedHex != nil, selectedHex == currentHex {

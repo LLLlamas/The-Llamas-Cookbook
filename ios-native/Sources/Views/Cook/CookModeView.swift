@@ -520,6 +520,9 @@ struct CookModeView: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                     .liftedCard()
+                    // Glossy glare — sweep-in + scroll-reactive shine.
+                    // Clip radius matches the row's `AppRadius.md`.
+                    .cardGlare(cornerRadius: AppRadius.md)
                 }
                 .buttonStyle(.plain)
             }
@@ -585,6 +588,9 @@ struct CookModeView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 .liftedCard()
+                // Glossy glare — sweep-in + scroll-reactive shine.
+                // Clip radius matches the step card's `AppRadius.md`.
+                .cardGlare(cornerRadius: AppRadius.md)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     handleStepTap(step)

@@ -120,6 +120,11 @@ struct RecipeCardView: View {
         // re-compositing the full layer tree per drag frame — the
         // primary fix for scroll jank on cards with photos + glow.
         .drawingGroup()
+        // Glossy glare — sweep-in on scroll entry + scroll-reactive
+        // shine. Applied AFTER `.drawingGroup()` so the streak overlay
+        // composites against the card's flat texture; its own clip
+        // matches the card's `AppRadius.lg` silhouette.
+        .cardGlare(cornerRadius: AppRadius.lg)
         // Shared elevation shadow — applied after `.drawingGroup()` so
         // it composites against the card's single flat Metal texture.
         .liftedCard()

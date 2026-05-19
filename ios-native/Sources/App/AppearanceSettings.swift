@@ -51,10 +51,27 @@ final class AppearanceSettings {
     var accentTransitionStage: AccentTransitionStage?
     var detailTransitionStage: DetailTransitionStage?
 
+    /// Live, uncommitted accent shown while `AccentColorPicker` is open.
+    /// Set continuously from the picker's local `pickerColor` so accent-
+    /// tinted chrome (the cookbook title in particular) retints in real
+    /// time AND is already correct the instant the sheet begins to
+    /// dismiss — without the visible lag of waiting for the picker's
+    /// `.onDisappear` commit.
+    ///
+    /// This is deliberately a SEPARATE property from `accentColor`:
+    /// writing `accentColor` mid-picker-session re-snapshots
+    /// `UIColorPickerViewController` and drops picks (see `accentColor`
+    /// didSet). `previewAccentColor` has no `didSet` side-effects — no
+    /// persist, no UIKit sync, no CloudKit mirror — so the picker
+    /// invariant stays intact. `AccentColorPicker.body` must NEVER read
+    /// this property, or `@Observable` would rebuild the picker subtree.
+    /// Cleared by `commitSelection` once the real accent is committed.
+    var previewAccentColor: Color?
+
     // MARK: - Library cascade colors
 
     var cookbookTitleAccentColor: Color {
-        transitionColor(for: .header)
+        previewAccentColor ?? transitionColor(for: .header)
     }
 
     var categoryAccentColor: Color {

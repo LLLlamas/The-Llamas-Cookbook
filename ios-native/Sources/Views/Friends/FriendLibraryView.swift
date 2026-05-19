@@ -43,6 +43,10 @@ struct FriendLibraryView: View {
     /// (Part 1 of the friend-parity work); same convention as the home
     /// library's tag filter.
     @State private var categoryFilter: String? = nil
+    /// Fires the letter-scrubber tick as the user free-scrolls across
+    /// section boundaries — same feel as the home library and the
+    /// `LetterIndex` strip. Reset on filter change.
+    @State private var scrollTicker = ScrollSectionTicker()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -277,6 +281,13 @@ struct FriendLibraryView: View {
                             }
                             .buttonStyle(.plain)
                             .cardScrollTransition()
+                            // Section-boundary scroll haptic — ticks
+                            // once per letter-section change, matching
+                            // the `LetterIndex` scrub feel.
+                            .scrollSectionHaptic(
+                                section: LetterIndex.bucket(for: summary.recipeTitle),
+                                ticker: scrollTicker
+                            )
                             .id(summary.id)
                         }
                     }
@@ -291,6 +302,11 @@ struct FriendLibraryView: View {
                 .scrollContentBackground(.hidden)
                 .refreshable {
                     await loadLibrary()
+                }
+                .onChange(of: categoryFilter) { _, _ in
+                    // A filter switch swaps the whole row set — clear
+                    // the ticker so the new list settles silently.
+                    scrollTicker.reset()
                 }
 
                 LetterIndex(
@@ -530,6 +546,10 @@ private struct FriendRecipeCard: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        // Glossy glare — same sweep-in + scroll-reactive shine as the
+        // home library's `RecipeCardView`, so a friend's cookbook reads
+        // as the same kind of surface. Clip radius matches the card's.
+        .cardGlare(cornerRadius: AppRadius.lg)
         .liftedCard()
     }
 

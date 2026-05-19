@@ -63,6 +63,16 @@ struct LibraryView: View {
     /// taps each register as a distinct value transition without a
     /// manual reset step.
     @State private var scrollToTopToken: Int = 0
+    /// Fires the letter-scrubber tick as the user free-scrolls across
+    /// section boundaries, so dragging the list feels identical to
+    /// dragging the `LetterIndex` strip. One ticker per list; reset on
+    /// filter change so a re-populated list doesn't tick on settle.
+    @State private var scrollTicker = ScrollSectionTicker()
+    /// Separate ticker for the horizontal category-chip strip — gives
+    /// the same one-tick-per-chip feel as the recipe list. Kept apart
+    /// from `scrollTicker` so moving focus between the strip and the
+    /// list never mis-ticks. Reset when the available tag set changes.
+    @State private var filterStripTicker = ScrollSectionTicker()
 
     private var sort: LibrarySort {
         LibrarySort(rawValue: sortRawValue) ?? .aToZ
@@ -258,6 +268,13 @@ struct LibraryView: View {
                                 }
                             }
                             .cardScrollTransition()
+                            // Section-boundary scroll haptic — ticks
+                            // once per letter-section change, matching
+                            // the `LetterIndex` scrub feel.
+                            .scrollSectionHaptic(
+                                section: Self.sectionLetter(for: recipe),
+                                ticker: scrollTicker
+                            )
                             .scaleEffect(deletingIDs.contains(recipe.id) ? 0.001 : 1.0)
                             .opacity(deletingIDs.contains(recipe.id) ? 0 : 1)
                             .animation(
@@ -320,6 +337,15 @@ struct LibraryView: View {
                 withAnimation(.easeInOut(duration: 0.45)) {
                     proxy.scrollTo(target.id, anchor: .top)
                 }
+            }
+            .onChange(of: filter) { _, _ in
+                // A filter switch swaps the whole row set — clear the
+                // ticker so the first row of the new list settles
+                // silently instead of firing a stray tick.
+                scrollTicker.reset()
+            }
+            .onChange(of: sortRawValue) { _, _ in
+                scrollTicker.reset()
             }
             .onChange(of: scrollToTopToken) { _, _ in
                 // "Go home" scroll-to-top — fired by the All chip and
@@ -404,6 +430,7 @@ struct LibraryView: View {
                         ) {
                             filter = filter == .favorites ? .all : .favorites
                         }
+                        .scrollSectionHaptic(section: "favorites", ticker: filterStripTicker)
                     }
 
                     ForEach(allTags, id: \.self) { tag in
@@ -417,12 +444,18 @@ struct LibraryView: View {
                         ) {
                             filter = filter == .tag(tag) ? .all : .tag(tag)
                         }
+                        .scrollSectionHaptic(section: "tag:\(tag)", ticker: filterStripTicker)
                     }
                 }
                 .padding(.trailing, AppSpacing.lg)
                 .scrollTargetLayout()
             }
             .scrollTargetBehavior(.viewAligned)
+            .onChange(of: allTags) { _, _ in
+                // The available chip set changed wholesale — clear the
+                // strip ticker so a re-laid-out strip settles silently.
+                filterStripTicker.reset()
+            }
         }
         .padding(.leading, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)
