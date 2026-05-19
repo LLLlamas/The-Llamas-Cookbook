@@ -20,6 +20,16 @@ struct LetterIndex: View {
     /// active — driven by external highlight signals (e.g. RootView's
     /// post-save library highlight). `nil` at all other times.
     let externalHighlightLetter: String?
+    /// Section letter of the topmost visible row while the user is
+    /// FREE-SCROLLING the list (no scrubber touch). Each change pulses
+    /// the compact magnify badge — a quick fade-in / brief hold /
+    /// fade-out — synced one-to-one with the scroll-haptic tick. A
+    /// separate channel from `externalHighlightLetter` so the transient
+    /// scroll pulse and the persistent post-save flash never clobber
+    /// each other; the scrubber drag and post-save flash both outrank
+    /// it (see `displayedActiveIndex` / `pulseIsVisible`). `nil` when
+    /// the list isn't being free-scrolled.
+    let scrollFocusLetter: String?
     let onSelect: (String) -> Void
 
     @State private var activeIndex: Int? = nil
@@ -28,12 +38,22 @@ struct LetterIndex: View {
     @State private var fadingHighlightLetter: String? = nil
     @State private var highlightBadgeOpacity: Double = 1.0
 
+    /// Letter currently rendered by the free-scroll pulse, including its
+    /// fade-out tail. Distinct from `scrollFocusLetter` so the badge
+    /// survives in the view tree while animating to opacity 0.
+    @State private var pulseLetter: String? = nil
+    @State private var pulseOpacity: Double = 0
+    /// Generation token — each new crossing bumps it so a stale
+    /// fade-out task can't dismiss a fresher pulse.
+    @State private var pulseGeneration = 0
+
     init(
         letters: [String],
         populated: Set<String>,
         accent: Color,
         glowActive: Bool = false,
         externalHighlightLetter: String?,
+        scrollFocusLetter: String? = nil,
         onSelect: @escaping (String) -> Void
     ) {
         self.letters = letters
@@ -41,6 +61,7 @@ struct LetterIndex: View {
         self.accent = accent
         self.glowActive = glowActive
         self.externalHighlightLetter = externalHighlightLetter
+        self.scrollFocusLetter = scrollFocusLetter
         self.onSelect = onSelect
     }
 
@@ -82,6 +103,19 @@ struct LetterIndex: View {
             return idx
         }
         return nil
+    }
+
+    /// The free-scroll pulse only shows when neither the scrubber drag
+    /// nor the post-save flash owns the badge — those two outrank it,
+    /// so the transient scroll feedback never fights a deliberate
+    /// gesture or the louder post-save animation.
+    private var pulseIndex: Int? {
+        guard activeIndex == nil,
+              externalHighlightLetter == nil,
+              fadingHighlightLetter == nil,
+              let letter = pulseLetter
+        else { return nil }
+        return letters.firstIndex(of: letter)
     }
 
     var body: some View {
@@ -126,6 +160,25 @@ struct LetterIndex: View {
                 .allowsHitTesting(false)
             }
         }
+        // Free-scroll pulse — its own overlay layer so it never shares
+        // state with the scrub / post-save badge above. Uses the compact
+        // `defaultBadge*` sizes (matching the scrubber's own magnify) and
+        // a self-driven opacity fade rather than a transition.
+        .overlay(alignment: .topTrailing) {
+            if let pulseIndex, letters.indices.contains(pulseIndex) {
+                magnifiedBadge(
+                    letter: letters[pulseIndex],
+                    size: defaultBadgeSize,
+                    fontSize: defaultBadgeFontSize
+                )
+                .opacity(pulseOpacity)
+                .offset(
+                    x: -stripWidth - 12,
+                    y: badgeYOffset(for: pulseIndex, badgeSize: defaultBadgeSize)
+                )
+                .allowsHitTesting(false)
+            }
+        }
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
@@ -159,6 +212,30 @@ struct LetterIndex: View {
             } else if new != nil {
                 fadingHighlightLetter = nil
                 highlightBadgeOpacity = 1.0
+            }
+        }
+        .onChange(of: scrollFocusLetter) { _, new in
+            // One pulse per section crossing — the same event that fires
+            // the scroll haptic. Quick fade-in, very brief hold, fade-out.
+            guard let new else { return }
+            pulseGeneration += 1
+            let generation = pulseGeneration
+            pulseLetter = new
+            withAnimation(.easeOut(duration: 0.12)) {
+                pulseOpacity = 1.0
+            }
+            Task { @MainActor in
+                // Hold briefly at full opacity, then fade out.
+                try? await Task.sleep(for: .milliseconds(160))
+                guard generation == pulseGeneration else { return }
+                withAnimation(.easeIn(duration: 0.28)) {
+                    pulseOpacity = 0
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+                // Only retire the letter if no fresher crossing arrived —
+                // otherwise the live pulse would blank mid-animation.
+                guard generation == pulseGeneration else { return }
+                pulseLetter = nil
             }
         }
     }

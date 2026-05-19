@@ -116,7 +116,8 @@ Last refreshed: 2026-05-18
 |---|---|---|
 | `View.cardScrollTransition()` | `Components/View+CardScrollTransition.swift` | Scroll-focus zoom on card lists |
 | `View.cardGlare(cornerRadius:)` | `Components/View+CardGlare.swift` | Glossy glare: sweep-in on entry + scroll-reactive shine, clipped to card shape |
-| `View.scrollSectionHaptic(section:ticker:)` + `ScrollSectionTicker` | `Components/ScrollSectionHaptic.swift` | Letter-scrubber tick while free-scrolling list rows or category-chip strips |
+| `View.scrollSectionHaptic(section:ticker:)` + `ScrollSectionTicker` | `Components/ScrollSectionHaptic.swift` | Per-section scroll tick — fires on (a) letter-section boundaries while free-scrolling cookbook list rows, and (b) each chip crossing on category/tag chip strips (`RecipeDetailView` / `FriendRecipeDetailView` tags). One `ScrollSectionTicker` per scroll surface, never shared; call `ticker.reset()` when the section/tag set changes wholesale. `ticker.magnifyLetter` is the observable `LetterIndex` magnify-pulse channel (set only on a real crossing, never on first report or `reset()`) |
+| `Haptics.*` | `Lib/Haptics.swift` | ALL haptic feedback. Every call site MUST go through a named `Haptics.*` function (`selection()`, `success()`, `warning()`, `impact(_:)`, `recipeSaved()`, `cookModeStarted()`, `timerAlmostDone()`) — never construct `UINotificationFeedbackGenerator` / `UIImpactFeedbackGenerator` / `UISelectionFeedbackGenerator` inline at a call site. Generators live only inside `Haptics.swift`; add a new named wrapper there if one is missing. Never fire from a `@ViewBuilder` body — only callbacks / `.onChange` / `.task` / `.onAppear` / button actions |
 | `View.surfaceCard(cornerRadius:)` | `Components/View+SurfaceCard.swift` | Settings/info card chrome |
 | `View.liftedCard()` | `Components/View+Lifted.swift` | Static drop shadow, non-interactive cards |
 | `.buttonStyle(.lifted)` | `Components/View+Lifted.swift` | Press-down shadow + 0.96 scale |
@@ -152,6 +153,7 @@ Last refreshed: 2026-05-18
 - `.buttonStyle(.lifted)` must NOT be applied inside `.drawingGroup()` — shadows clip to texture bounds
 - `cardGlare(cornerRadius:)` — apply AFTER the card's `.drawingGroup()` (it's a thin overlay); pass the SAME radius the card clips to so the streak stays inside the corners. Glare positioning runs entirely via `visualEffect` (layout-pass, no `body` invalidation) + a one-shot `onAppear` sweep — never per-frame `@State`
 - Scroll-list haptics: fire via `scrollSectionHaptic(section:ticker:)` per row, NOT inline. One `ScrollSectionTicker` per list (`@State`); call `ticker.reset()` on filter/sort change so a re-populated list doesn't tick on settle. The horizontal category-chip strips (`LibraryView.filterStrip`, `CategoryFilterStrip`) use the same modifier with their OWN per-strip ticker — never share with the recipe-list ticker, or moving focus between strip and list mis-ticks; reset on chip-set change
+- Scroll-driven `LetterIndex` magnify: feed `scrollTicker.currentSection` into `LetterIndex(scrollFocusLetter:)`. Each free-scroll section crossing pulses the compact magnify badge (quick fade-in / brief hold / fade-out), synced to the scroll-haptic tick. `scrollFocusLetter` is a SEPARATE channel from `externalHighlightLetter` — the transient scroll pulse and persistent post-save flash render in their own overlay layers with their own state; do not overload one for the other. Precedence: an active scrubber drag (`activeIndex`) and the post-save flash (`externalHighlightLetter`/its fading echo) BOTH outrank the scroll pulse — `pulseIndex` is `nil` whenever either owns the badge. Pulse is event-driven (one `withAnimation` per crossing), never per-frame `@State`
 
 ### Auth / Social
 - `UserProfileMirror.cachedRecordID()` is the canonical "is iCloud bound?" check — all social writes short-circuit when nil
@@ -188,6 +190,12 @@ Last refreshed: 2026-05-18
 
 ### AlarmKit
 - Cook-timer lock-screen alerts + Live Activity owned by AlarmKit. Sound always `AlertConfiguration.AlertSound.default`
+
+### Haptics (`Lib/Haptics.swift`)
+- All haptics route through the `Haptics` enum — never construct `UIImpactFeedbackGenerator` / `UINotificationFeedbackGenerator` / `CHHapticEngine` at a call site
+- Named moments: `recipeSaved()` (CoreHaptics save thud — used by editor save + photo-import save), `cookModeStarted()` / `timerAlmostDone()` (ascending light→medium→heavy ramps), plus `impact`/`selection`/`success`/`warning`
+- `recipeSaved()` is the canonical save feedback — text/link imports persist via `RecipeEditorView.save()`, so they already get the thud; do NOT fire it again in `ImportFromTextLinkView`
+- CoreHaptics engine is a lazily-warmed `@MainActor` singleton (`HapticEngineHost`); rebuilds silently on iOS reset, falls back to `UIImpact(.heavy)` when haptics are unavailable
 
 ### Cook pills / bottom overlay clearance (`RecipeDetailView`)
 - `CookingPillsOverlay` (applied per-tab in `RootView`) uses `.overlay(alignment: .bottom)`, NOT `safeAreaInset` — the scroll view inside `RecipeDetailView` doesn't automatically know about the pill.

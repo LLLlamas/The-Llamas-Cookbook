@@ -313,7 +313,8 @@ struct FriendLibraryView: View {
                     letters: LetterIndex.allLetters,
                     populated: populatedLetters,
                     accent: friend.resolvedAccent,
-                    externalHighlightLetter: nil
+                    externalHighlightLetter: nil,
+                    scrollFocusLetter: scrollTicker.magnifyLetter
                 ) { letter in
                     guard let target = firstSummary(atOrAfter: letter) else { return }
                     Haptics.selection()

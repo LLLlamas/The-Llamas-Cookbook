@@ -64,6 +64,12 @@ struct RecipeDetailView: View {
     /// with that step's photos in view-only mode.
     @State private var viewingStepImages: ViewingStepImages?
 
+    /// Dedicated ticker for the category/tag chip strip. One per view —
+    /// never shared with another scroll surface (see `ScrollSectionHaptic`).
+    /// Each chip reports its label as it scrolls into view, so scrubbing
+    /// past the tags row clicks once per chip.
+    @State private var hapticTicker = ScrollSectionTicker()
+
     // MARK: - Share state
     //
     // Three transports surfaced in the share Menu (file, link, text);
@@ -151,6 +157,7 @@ struct RecipeDetailView: View {
                             // New recipes write a sorted array on save.
                             ForEach(recipe.tags.sorted(), id: \.self) { tag in
                                 TagPill(label: StringCase.titleCase(tag))
+                                    .scrollSectionHaptic(section: tag, ticker: hapticTicker)
                             }
                         }
                     }
@@ -238,6 +245,7 @@ struct RecipeDetailView: View {
                     }
 
                     Button(role: .destructive) {
+                        Haptics.warning()
                         showingDeleteAlert = true
                     } label: {
                         HStack(spacing: AppSpacing.xs) {
@@ -1330,6 +1338,7 @@ struct RecipeDetailView: View {
                 return false
             }
             pendingShareItem = .url(url)
+            Haptics.success()
             return true
         } catch {
             Self.logger.error("uploadShare threw: \(AppMetadata.describeServerError(error), privacy: .public)")
@@ -1441,7 +1450,11 @@ private struct TagPill: View {
             .background(AppColor.surface)
             .overlay(Capsule().stroke(AppColor.divider, lineWidth: 1))
             .clipShape(Capsule())
-            .liftedCard()
+            // Toned-down lift — roughly half the `liftedCard()` shadow
+            // (0.13 opacity / radius 6) so the small category pills don't
+            // read as heavily as the larger ingredient/step cards. Same
+            // black color and y:3 offset as `liftedCard()`.
+            .shadow(color: .black.opacity(0.07), radius: 3, x: 0, y: 3)
     }
 }
 

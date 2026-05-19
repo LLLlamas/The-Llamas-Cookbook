@@ -30,23 +30,37 @@ import SwiftUI
 @Observable
 final class ScrollSectionTicker {
     /// Section key of the row most recently reported as the leading
-    /// (topmost) visible row. `nil` until the first report.
+    /// (topmost) visible row. Internal tracking value only — used to
+    /// dedupe reports. NOT the magnify-pulse channel: it changes on the
+    /// first report (`nil → "A"`), which would flash a stray pulse on
+    /// every list appearance. Observers wanting the pulse must use
+    /// `magnifyLetter` instead.
     @ObservationIgnored private var currentSection: String?
+    /// Letter the right-side `LetterIndex` strip should magnify on a
+    /// free-scroll crossing — the visual counterpart of the haptic tick.
+    /// Assigned ONLY on a real boundary crossing, in lockstep with
+    /// `Haptics.selection()` (after the first-report early-return), so it
+    /// never fires on the initial settle. `nil` until the first crossing
+    /// and after `reset()`. Mutated at most once per crossing, so
+    /// observing it costs nothing per frame.
+    private(set) var magnifyLetter: String?
     /// Suppresses the very first tick — entering the list shouldn't
     /// fire a haptic, only *crossing* a boundary should.
     @ObservationIgnored private var hasReported = false
 
     /// Reports that `section` is now the leading visible section.
-    /// Fires the scrubber tick when it differs from the last value.
-    /// Cheap and idempotent — safe to call from `onScrollVisibilityChange`.
+    /// Fires the scrubber tick (and the matching `magnifyLetter` pulse)
+    /// when it differs from the last value. Cheap and idempotent — safe
+    /// to call from `onScrollVisibilityChange`.
     @MainActor
     func report(section: String) {
         guard section != currentSection else { return }
         let isFirst = !hasReported
         currentSection = section
         hasReported = true
-        // No tick on initial settle — only on an actual crossing.
+        // No tick/pulse on initial settle — only on an actual crossing.
         guard !isFirst else { return }
+        magnifyLetter = section
         Haptics.selection()
     }
 
@@ -55,6 +69,7 @@ final class ScrollSectionTicker {
     @MainActor
     func reset() {
         currentSection = nil
+        magnifyLetter = nil
         hasReported = false
     }
 }

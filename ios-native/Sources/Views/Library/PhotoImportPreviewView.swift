@@ -531,7 +531,7 @@ struct PhotoImportPreviewView: View {
             let mode = pendingMode
             isSaving = false
             pendingMode = .save
-            Haptics.success()
+            Haptics.recipeSaved()
             switch mode {
             case .save:        onSaved(recipe)
             case .saveForEdit: onSavedForEdit(recipe)

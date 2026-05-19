@@ -581,6 +581,7 @@ struct ImportFromTextLinkView: View {
                 if let suggested = nextAvailableTitle(base: title) {
                     pendingDraft = draft
                     duplicateSuggestedTitle = suggested
+                    Haptics.warning()
                     showDuplicateAlert = true
                 } else {
                     parsedDraft = draft

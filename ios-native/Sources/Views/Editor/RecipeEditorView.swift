@@ -667,7 +667,7 @@ struct RecipeEditorView: View {
 
     private func save() {
         guard draft.canSave else { return }
-        Haptics.success()
+        Haptics.recipeSaved()
         let savedRecipe: Recipe
         if let existing = recipe {
             existing.apply(draft)

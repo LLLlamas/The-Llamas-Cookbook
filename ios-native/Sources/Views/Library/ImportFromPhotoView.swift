@@ -864,6 +864,7 @@ struct ImportFromPhotoView: View {
                 return
             case .quotaExhausted:
                 branch = .quotaExhausted
+                Haptics.warning()
             }
             // quota: fall through with skeleton still visible
         }

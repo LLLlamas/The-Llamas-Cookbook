@@ -56,6 +56,13 @@ struct FriendRecipeDetailView: View {
     @State private var showingDuplicateAlert = false
     @State private var duplicateRenameText = ""
 
+    /// Dedicated ticker for the category/tag chip strip. One per view —
+    /// never shared with another scroll surface (see `ScrollSectionHaptic`).
+    /// Each chip reports its label as it scrolls into view, so scrubbing
+    /// past the tags row clicks once per chip. `reset()` on each
+    /// `loadDetail()` since a refetch can swap the whole tag set.
+    @State private var hapticTicker = ScrollSectionTicker()
+
     /// Sugared accessor for the envelope half of `publishedDetail`,
     /// so the rendering code below reads `envelope` symmetrically
     /// to its slice 4 form.
@@ -272,6 +279,7 @@ struct FriendRecipeDetailView: View {
             FlowRow(spacing: AppSpacing.xs) {
                 ForEach(envelope.recipe.tags.sorted(), id: \.self) { tag in
                     tagChip(tag)
+                        .scrollSectionHaptic(section: tag, ticker: hapticTicker)
                 }
             }
         }
@@ -506,6 +514,10 @@ struct FriendRecipeDetailView: View {
 
     private func loadDetail() async {
         isLoading = true
+        // A refetch can swap the envelope wholesale (and with it the
+        // tag set), so re-arm the chip ticker — a re-populated FlowRow
+        // shouldn't tick on its initial settle.
+        hapticTicker.reset()
         defer {
             isLoading = false
             hasLoadedOnce = true

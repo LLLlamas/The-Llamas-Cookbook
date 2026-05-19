@@ -6,6 +6,7 @@ struct CookModeView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
     @Environment(LlamaProStore.self) private var proStore
+    @Environment(\.scenePhase) private var scenePhase
 
     let recipe: Recipe
     /// Identity of the cook this view is rendering. Captured at init
@@ -48,6 +49,11 @@ struct CookModeView: View {
     /// the viewer. Nil = no viewer; non-nil = present the read-only
     /// carousel with that step's photos.
     @State private var viewingStepImages: ViewingCookStepImages?
+    /// Cook IDs of timer instances that have already fired the
+    /// 3-seconds-left pre-alert ramp. A timer is keyed by `cookID`
+    /// since only one runs per cook at a time; cancelling / restarting
+    /// the timer clears the entry so the next countdown re-arms.
+    @State private var preAlertedTimers: Set<UUID> = []
 
     private enum Phase { case prep, cook }
 
@@ -182,6 +188,23 @@ struct CookModeView: View {
                 // the in-app `TimerReadyOverlay` for visual feedback.
             }
         }
+        // Pre-alert ramp the moment a running timer crosses 3 seconds
+        // left — a tactile "brace yourself" beat just before AlarmKit's
+        // own alert lands. `now` ticks every second from `tickTimer()`,
+        // so checking `secondsLeft` here catches the 3s threshold once.
+        // Gated to a foregrounded, on-screen Cook Mode: the lock-screen
+        // alert covers the backgrounded case, and a buzz on a minimized
+        // cook the user isn't looking at would just be noise.
+        .onChange(of: now) { _, _ in
+            guard timerEndsAt != nil,
+                  scenePhase == .active,
+                  session.isCookModeVisible,
+                  secondsLeft == 3,
+                  !preAlertedTimers.contains(cookID)
+            else { return }
+            preAlertedTimers.insert(cookID)
+            Haptics.timerAlmostDone()
+        }
         // Persist on every meaningful change so a kill / crash / forced
         // relaunch from a Live Activity tap can resume here. `now` is
         // deliberately not in this list — it ticks every second and the
@@ -207,6 +230,10 @@ struct CookModeView: View {
             if timerExpired {
                 TimerNotifications.cancel(cookID: cookID)
             }
+            // Ascending light → medium → heavy punch greeting the cook
+            // on every entry — same lifecycle as the title glow below
+            // (start, restore, pill-switch all rebuild via `.id(cookID)`).
+            Haptics.cookModeStarted()
             // One-shot title glow on every entry — start, restore, and
             // pill-switch all rebuild this view via `.id(cookID)` so
             // the highlight plays cleanly on each foregrounding. Spin
@@ -898,6 +925,8 @@ struct CookModeView: View {
         let endsAt = Date().addingTimeInterval(durationSeconds)
         timerEndsAt = endsAt
         now = Date()
+        // Re-arm the 3s pre-alert for this fresh countdown.
+        preAlertedTimers.remove(cookID)
         Haptics.impact(.medium)
 
         let stepNumber = (sortedSteps.firstIndex(where: { $0.id == stepId }) ?? 0) + 1
@@ -962,6 +991,9 @@ struct CookModeView: View {
         }
         now = Date()
         timerExpired = false
+        // Extending past 3s left should re-arm the pre-alert for the
+        // newly-lengthened countdown.
+        preAlertedTimers.remove(cookID)
         Haptics.impact(.medium)
         // Reschedule the AlarmKit alarm to match the new end time.
         // `schedule(...)` cancels the existing alarm under this cookID

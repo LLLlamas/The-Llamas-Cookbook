@@ -311,7 +311,8 @@ struct LibraryView: View {
                         populated: populatedLetters,
                         accent: appearance.recipeListAccentColor,
                         glowActive: appearance.isAccentGlowActive(.recipeList),
-                        externalHighlightLetter: highlightLetter
+                        externalHighlightLetter: highlightLetter,
+                        scrollFocusLetter: scrollTicker.magnifyLetter
                     ) { letter in
                         guard let target = firstRecipe(atOrAfter: letter) else { return }
                         Haptics.selection()

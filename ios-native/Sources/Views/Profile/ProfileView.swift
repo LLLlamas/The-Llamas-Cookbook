@@ -797,6 +797,7 @@ struct ProfileView: View {
             // nothing.
             if !SeedFriend.isSeed(friend) {
                 Button(role: .destructive) {
+                    Haptics.warning()
                     pendingFriendRemoval = friend
                 } label: {
                     Label("Remove friend", systemImage: "person.fill.xmark")
@@ -820,7 +821,7 @@ struct ProfileView: View {
 
                     VStack(spacing: AppSpacing.md) {
                         Button {
-                            Haptics.selection()
+                            Haptics.warning()
                             userAccount.signOut()
                             friendsStore.clearOnSignOut()
                             showingSettings = false
