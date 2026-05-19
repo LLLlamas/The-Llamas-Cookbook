@@ -520,28 +520,8 @@ struct ProfileView: View {
 
     private var requestsSection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            HStack(spacing: AppSpacing.sm) {
-                Text("REQUESTS (\(friendsStore.incomingRequests.count + friendsStore.outgoingRequestProfiles.count))")
-                    .eyebrowStyle(AppColor.textTertiary)
-                Spacer(minLength: 0)
-                Button {
-                    Haptics.selection()
-                    Task { await friendsStore.refresh() }
-                } label: {
-                    if friendsStore.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
-                            .accentTextOutline()
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh friends and requests")
-                .disabled(friendsStore.isRefreshing)
-            }
+            Text("REQUESTS (\(friendsStore.incomingRequests.count + friendsStore.outgoingRequestProfiles.count))")
+                .eyebrowStyle(AppColor.textTertiary)
 
             if friendsStore.incomingRequests.isEmpty && friendsStore.outgoingRequestProfiles.isEmpty {
                 emptyRequestsBody
