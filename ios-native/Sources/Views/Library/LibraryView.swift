@@ -255,9 +255,13 @@ struct LibraryView: View {
                     // its neighbors. Subtle on a still list; necessary
                     // mid-scroll.
                     LazyVStack(spacing: AppSpacing.md + 4) {
-                        ForEach(filtered) { recipe in
+                        ForEach(Array(filtered.enumerated()), id: \.element.id) { index, recipe in
                             NavigationLink(value: recipe) {
-                                RecipeCardView(recipe: recipe)
+                                // `index` drives the per-card glow stagger
+                                // during an accent-cascade so the list
+                                // ripples top → bottom (one card at a
+                                // time) before the plus button and tab bar.
+                                RecipeCardView(recipe: recipe, index: index)
                             }
                             .buttonStyle(RecipeCardButtonStyle())
                             .contextMenu {

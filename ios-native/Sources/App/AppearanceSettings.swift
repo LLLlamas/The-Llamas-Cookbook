@@ -11,6 +11,12 @@ import UIKit
 @Observable
 final class AppearanceSettings {
     enum AccentTransitionStage: Int, Equatable {
+        // Header + categories are a "page pre-roll" — both go live at
+        // t=0 so the visible chrome above the recipe list lights up as
+        // a single beat. The strictly-ordered sequence then runs
+        // through the recipe list (one card at a time, staggered locally
+        // inside `RecipeCardView`), then the plus button, then the
+        // bottom tab bar.
         case header = 0
         case categories = 1
         case recipeList = 2
@@ -50,6 +56,24 @@ final class AppearanceSettings {
 
     var accentTransitionStage: AccentTransitionStage?
     var detailTransitionStage: DetailTransitionStage?
+
+    /// Monotonically incremented every time a new accent cascade begins.
+    /// `RecipeCardView` observes this to schedule its own per-index glow
+    /// (top card glows first, each subsequent row delayed by
+    /// `recipeCardGlowStagger`). Using a token (rather than the
+    /// `.recipeList` flag directly) means each new cascade re-fires the
+    /// per-card stagger even if the recipe-list flag would otherwise
+    /// look unchanged from the card's local perspective.
+    var recipeCardCascadeToken: Int = 0
+
+    /// Per-card stagger for the recipe-list portion of the cascade.
+    /// Tuned so a typical visible run of 5–7 cards completes in ~0.30s.
+    static let recipeCardGlowStagger: TimeInterval = 0.05
+
+    /// How long each card's glow stays "on" before fading. Matches the
+    /// short pulse used by header / categories / plus / bottom-nav so
+    /// every surface in the sequence has the same visual weight.
+    static let recipeCardGlowHoldDuration: TimeInterval = 0.18
 
     /// Live, uncommitted accent shown while `AccentColorPicker` is open.
     /// Set continuously from the picker's local `pickerColor` so accent-
@@ -216,27 +240,44 @@ final class AppearanceSettings {
         let generation = accentTransitionGeneration
         previousAccentColor = oldColor
 
-        // Library cascade — fires left-to-right across the library UI
+        // Library cascade — strictly ordered, tightened for snap.
+        //
+        //   t=0.00   header + categories tint as the "page pre-roll"
+        //   t=0.05   recipeList stage activates → bumps
+        //            `recipeCardCascadeToken` so each visible
+        //            `RecipeCardView` schedules its own glow with an
+        //            index-based stagger (top card first). For ~6
+        //            visible cards at 0.05s stagger + 0.18s hold the
+        //            card cascade finishes around t=0.53.
+        //   t=0.55   plus button fires
+        //   t=0.72   bottom tab bar fires
+        //   t=0.95   clear all transition state
+        //
+        // The header / categories pre-roll is intentionally fast so the
+        // user perceives the strictly-ordered sequence as: cards (one
+        // by one) → plus → tab bar — matching Lorenzo's mental model.
         accentTransitionStage = .header
-        scheduleAccentStage(.categories, generation: generation, after: 0.22)
-        scheduleAccentStage(.recipeList,  generation: generation, after: 0.44)
-        scheduleAccentStage(.plusButton,  generation: generation, after: 0.66)
-        scheduleAccentStage(.bottomNav,   generation: generation, after: 0.88)
+        scheduleAccentStage(.categories,  generation: generation, after: 0.04)
+        scheduleAccentStage(.recipeList,  generation: generation, after: 0.10)
+        recipeCardCascadeToken &+= 1
+        scheduleAccentStage(.plusButton,  generation: generation, after: 0.55)
+        scheduleAccentStage(.bottomNav,   generation: generation, after: 0.72)
 
         // Detail cascade — fires top-to-bottom through RecipeDetailView,
         // interleaved with the library cascade but driven by separate state
         // so rawValue ordering can't cross-contaminate between the two ripples.
+        // Tightened to match the snappier library cascade.
         detailTransitionStage = .nav
-        scheduleDetailStage(.title,              generation: generation, after: 0.12)
-        scheduleDetailStage(.provenance,         generation: generation, after: 0.24)
-        scheduleDetailStage(.ingredientsHeading, generation: generation, after: 0.38)
-        scheduleDetailStage(.chips,              generation: generation, after: 0.49)
-        scheduleDetailStage(.ingredients,        generation: generation, after: 0.59)
-        scheduleDetailStage(.stepsHeading,       generation: generation, after: 0.69)
-        scheduleDetailStage(.steps,              generation: generation, after: 0.79)
-        scheduleDetailStage(.cookBar,            generation: generation, after: 0.86)
+        scheduleDetailStage(.title,              generation: generation, after: 0.06)
+        scheduleDetailStage(.provenance,         generation: generation, after: 0.13)
+        scheduleDetailStage(.ingredientsHeading, generation: generation, after: 0.21)
+        scheduleDetailStage(.chips,              generation: generation, after: 0.28)
+        scheduleDetailStage(.ingredients,        generation: generation, after: 0.35)
+        scheduleDetailStage(.stepsHeading,       generation: generation, after: 0.42)
+        scheduleDetailStage(.steps,              generation: generation, after: 0.49)
+        scheduleDetailStage(.cookBar,            generation: generation, after: 0.55)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) { [weak self] in
             guard let self, self.accentTransitionGeneration == generation else { return }
             self.previousAccentColor = nil
             self.accentTransitionStage = nil

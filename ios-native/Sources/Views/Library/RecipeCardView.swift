@@ -3,14 +3,23 @@ import SwiftUI
 struct RecipeCardView: View {
     @Environment(AppearanceSettings.self) private var appearance
     let recipe: Recipe
+    /// Row position in the visible recipe list. Drives the per-card
+    /// stagger during an accent-color cascade so cards glow one-by-one
+    /// from top to bottom rather than all at once. Defaults to 0 so
+    /// callers that don't pass an index (e.g. previews) still build.
+    var index: Int = 0
 
     private var accent: Color {
         appearance.recipeListAccentColor
     }
 
-    private var glowActive: Bool {
-        appearance.isAccentGlowActive(.recipeList)
-    }
+    /// Local one-shot glow flag, kicked by the cascade token. Each card
+    /// schedules its own on/off via Task with an index-based delay so
+    /// the list visually ripples top → bottom. The shared
+    /// `isAccentGlowActive(.recipeList)` flag still acts as a fallback
+    /// trigger (in case a card mounts mid-cascade and misses the token
+    /// flip), but the staggered per-card glow is what the user sees.
+    @State private var glowActive: Bool = false
 
     var body: some View {
         // Two-column layout: textual content on the left, a square photo
@@ -128,6 +137,26 @@ struct RecipeCardView: View {
         // Shared elevation shadow — applied after `.drawingGroup()` so
         // it composites against the card's single flat Metal texture.
         .liftedCard()
+        // Per-card staggered glow during an accent-cascade. The cascade
+        // token bumps once per commit; each card delays its own pulse
+        // by `index * recipeCardGlowStagger` so the list ripples top
+        // → bottom rather than flashing in unison. Kept off the
+        // shared `.recipeList` activation so the existing single-flag
+        // gating (used elsewhere e.g. `LetterIndex`) stays intact.
+        .onChange(of: appearance.recipeCardCascadeToken) { _, _ in
+            scheduleStaggeredGlow()
+        }
+    }
+
+    private func scheduleStaggeredGlow() {
+        let delay = Double(index) * AppearanceSettings.recipeCardGlowStagger
+        let hold = AppearanceSettings.recipeCardGlowHoldDuration
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            withAnimation(.easeInOut(duration: 0.14)) { glowActive = true }
+            try? await Task.sleep(for: .seconds(hold))
+            withAnimation(.easeInOut(duration: 0.14)) { glowActive = false }
+        }
     }
 
     // MARK: - Right rail thumbnail

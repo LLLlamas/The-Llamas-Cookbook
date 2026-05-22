@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Llamas Cookbook - Gather Around the Pot</title>
+    <style>
+      :root {
+        --ink: #4f2412;
+        --cream: #fff5df;
+        --copper: #c77b58;
+        --soup: #e47b4d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #f7ddb4;
+      }
+
+      .reel {
+        width: min(100vw, 56.25vh);
+        aspect-ratio: 9 / 16;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 50% 61%, rgba(255, 249, 230, 0.9), rgba(255, 249, 230, 0.12) 34%, transparent 54%),
+          linear-gradient(180deg, #fff1cf 0%, #f5d09f 58%, #9fc7ba 100%);
+      }
+
+      svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .llama-left,
+      .llama-center,
+      .llama-right,
+      .pot {
+        transform-box: fill-box;
+      }
+
+      .llama-left {
+        transform-origin: 50% 78%;
+        animation: gatherLeft 4s ease-in-out infinite;
+      }
+
+      .llama-center {
+        transform-origin: 50% 78%;
+        animation: gatherCenter 4s ease-in-out infinite;
+      }
+
+      .llama-right {
+        transform-origin: 50% 78%;
+        animation: gatherRight 4s ease-in-out infinite;
+      }
+
+      .pot {
+        transform-origin: 50% 92%;
+        animation: potArrive 4s ease-in-out infinite;
+      }
+
+      .blink {
+        animation: blink 4s linear infinite;
+        opacity: 0;
+      }
+
+      @keyframes gatherLeft {
+        0% {
+          opacity: 0;
+          transform: translate(-82px, 28px) scale(0.98);
+        }
+
+        28%,
+        88% {
+          opacity: 1;
+          transform: translate(0, 0) scale(1);
+        }
+
+        100% {
+          opacity: 0;
+          transform: translate(-18px, 8px) scale(0.995);
+        }
+      }
+
+      @keyframes gatherCenter {
+        0% {
+          opacity: 0;
+          transform: translateY(24px) scale(0.985);
+        }
+
+        20%,
+        88% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+
+        100% {
+          opacity: 0;
+          transform: translateY(8px) scale(0.995);
+        }
+      }
+
+      @keyframes gatherRight {
+        0% {
+          opacity: 0;
+          transform: translate(82px, 28px) scale(0.98);
+        }
+
+        28%,
+        88% {
+          opacity: 1;
+          transform: translate(0, 0) scale(1);
+        }
+
+        100% {
+          opacity: 0;
+          transform: translate(18px, 8px) scale(0.995);
+        }
+      }
+
+      @keyframes potArrive {
+        0% {
+          opacity: 0;
+          transform: translateY(34px) scale(0.98);
+        }
+
+        18%,
+        90% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+
+        100% {
+          opacity: 0;
+          transform: translateY(14px) scale(0.995);
+        }
+      }
+
+      @keyframes blink {
+        0%,
+        50%,
+        56%,
+        100% {
+          opacity: 0;
+        }
+
+        52%,
+        54% {
+          opacity: 0.9;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="reel" aria-label="Four-second animation of llama mascots gathering around a pot and blinking">
+      <svg viewBox="0 0 1080 1920" role="img" aria-labelledby="animation-title animation-desc">
+        <title id="animation-title">Llamas gather around a pot</title>
+        <desc id="animation-desc">Three crowned llama mascots gently gather around a calm cooking pot and blink.</desc>
+
+        <defs>
+          <clipPath id="llama-left-clip">
+            <rect x="62" y="552" width="392" height="872" rx="18" />
+          </clipPath>
+          <clipPath id="llama-center-clip">
+            <rect x="352" y="462" width="402" height="1002" rx="18" />
+          </clipPath>
+          <clipPath id="llama-right-clip">
+            <rect x="681" y="552" width="392" height="872" rx="18" />
+          </clipPath>
+          <linearGradient id="pot-fill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#8c7068" />
+            <stop offset="1" stop-color="#4b4244" />
+          </linearGradient>
+          <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="16" flood-color="#4f2412" flood-opacity="0.18" stdDeviation="13" />
+          </filter>
+        </defs>
+
+        <path d="M0 1370 C150 1314 308 1374 438 1396 C597 1423 756 1364 1080 1374 L1080 1920 L0 1920 Z" fill="#fff0c7" opacity="0.72" />
+        <ellipse cx="540" cy="1260" rx="420" ry="230" fill="#fff8e8" opacity="0.46" />
+
+        <g filter="url(#soft-shadow)">
+          <g class="llama-left" clip-path="url(#llama-left-clip)">
+            <image
+              href="../../../ios-native/Resources/Assets.xcassets/Llama-Pro-Icon-Friends-Crown-Sunglasses.png"
+              x="40"
+              y="484"
+              width="1000"
+              height="1000"
+              preserveAspectRatio="xMidYMid meet"
+            />
+          </g>
+          <g class="llama-right" clip-path="url(#llama-right-clip)">
+            <image
+              href="../../../ios-native/Resources/Assets.xcassets/Llama-Pro-Icon-Friends-Crown-Sunglasses.png"
+              x="40"
+              y="484"
+              width="1000"
+              height="1000"
+              preserveAspectRatio="xMidYMid meet"
+            />
+          </g>
+          <g class="llama-center" clip-path="url(#llama-center-clip)">
+            <image
+              href="../../../ios-native/Resources/Assets.xcassets/Llama-Pro-Icon-Friends-Crown-Sunglasses.png"
+              x="40"
+              y="484"
+              width="1000"
+              height="1000"
+              preserveAspectRatio="xMidYMid meet"
+            />
+          </g>
+        </g>
+
+        <g class="blink" fill="none" stroke="var(--cream)" stroke-linecap="round" stroke-width="8">
+          <path d="M268 806 Q297 816 326 806" />
+          <path d="M357 806 Q386 816 415 806" />
+          <path d="M477 796 Q517 808 557 796" />
+          <path d="M563 796 Q604 808 645 796" />
+          <path d="M690 806 Q728 816 766 806" />
+          <path d="M758 806 Q797 816 836 806" />
+        </g>
+
+        <g class="pot" filter="url(#soft-shadow)">
+          <ellipse cx="540" cy="1228" rx="256" ry="80" fill="#513328" opacity="0.13" />
+          <path d="M312 1136 C278 1138 252 1164 252 1198 C252 1234 278 1258 314 1258" fill="none" stroke="var(--ink)" stroke-linecap="round" stroke-width="20" />
+          <path d="M766 1136 C802 1138 828 1164 828 1198 C828 1234 802 1258 766 1258" fill="none" stroke="var(--ink)" stroke-linecap="round" stroke-width="20" />
+          <path d="M306 1138 C322 1358 402 1458 540 1458 C678 1458 758 1358 774 1138 Z" fill="url(#pot-fill)" stroke="var(--ink)" stroke-linejoin="round" stroke-width="19" />
+          <ellipse cx="540" cy="1138" rx="278" ry="102" fill="#f4ead8" stroke="var(--ink)" stroke-width="19" />
+          <ellipse cx="540" cy="1138" rx="216" ry="66" fill="var(--soup)" stroke="#8a3b21" stroke-width="8" />
+          <path d="M382 1238 C426 1338 490 1372 540 1372 C590 1372 654 1338 698 1238" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-width="25" opacity="0.26" />
+        </g>
+      </svg>
+    </main>
+  </body>
+</html>
