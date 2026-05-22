@@ -315,6 +315,8 @@ struct LibraryView: View {
                         populated: populatedLetters,
                         accent: appearance.recipeListAccentColor,
                         glowActive: appearance.isAccentGlowActive(.recipeList),
+                        previousAccent: appearance.cascadePreviousAccentColor,
+                        cascadeToken: appearance.letterIndexCascadeToken,
                         externalHighlightLetter: highlightLetter,
                         scrollFocusLetter: nil
                     ) { letter in
@@ -537,6 +539,12 @@ struct LibraryView: View {
     /// rendered as a label (the parent Button owns the tap).
     private var allChipLabel: some View {
         let isActive = filter == .all
+        // The All chip leads the accent-cascade — its own `.allChip`
+        // stage fires before `.header` / `.categories` so the user sees
+        // the most prominent control retint first, then the page
+        // chrome, then the rest of the category chips.
+        let allAccent = appearance.allChipAccentColor
+        let glow = appearance.isAccentGlowActive(.allChip)
         return HStack(spacing: AppSpacing.xs) {
             Text("All  ·  \(recipes.count)")
                 .font(.system(size: 13, weight: .medium))
@@ -547,20 +555,20 @@ struct LibraryView: View {
             // already implies.
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(isActive ? AppColor.onAccent : appearance.categoryAccentColor)
+                .foregroundStyle(isActive ? AppColor.onAccent : allAccent)
         }
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, AppSpacing.xs + 2)
-        .background(isActive ? appearance.categoryAccentColor : AppColor.surface)
+        .background(isActive ? allAccent : AppColor.surface)
         .overlay(
-            Capsule().stroke(isActive ? appearance.categoryAccentColor : AppColor.divider, lineWidth: 1)
+            Capsule().stroke(isActive ? allAccent : AppColor.divider, lineWidth: 1)
         )
         .clipShape(Capsule())
         .shadow(
-            color: appearance.categoryAccentColor.opacity(appearance.isAccentGlowActive(.categories) ? 0.10 : 0),
-            radius: appearance.isAccentGlowActive(.categories) ? 7 : 0
+            color: allAccent.opacity(glow ? 0.14 : 0),
+            radius: glow ? 9 : 0
         )
-        .animation(.easeInOut(duration: 0.14), value: appearance.isAccentGlowActive(.categories))
+        .animation(.easeInOut(duration: 0.14), value: glow)
     }
 
     private var emptyFilterState: some View {

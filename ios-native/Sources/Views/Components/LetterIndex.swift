@@ -16,6 +16,15 @@ struct LetterIndex: View {
     let populated: Set<String>
     let accent: Color
     let glowActive: Bool
+    /// Previous accent color held per-row during an accent-cascade so
+    /// the strip retints top → bottom in lockstep with the recipe list.
+    /// `nil` outside of an active cascade (or when the host doesn't
+    /// participate in the cascade, e.g. Friends list).
+    let previousAccent: Color?
+    /// Bump-token from the host's `AppearanceSettings`. When this
+    /// changes, each letter row schedules its own index-based color
+    /// advance + glow pulse — same trick as `RecipeCardView`.
+    let cascadeToken: Int
     /// Letter to flash the magnify badge on when no scrub gesture is
     /// active — driven by external highlight signals (e.g. RootView's
     /// post-save library highlight). `nil` at all other times.
@@ -52,6 +61,8 @@ struct LetterIndex: View {
         populated: Set<String>,
         accent: Color,
         glowActive: Bool = false,
+        previousAccent: Color? = nil,
+        cascadeToken: Int = 0,
         externalHighlightLetter: String?,
         scrollFocusLetter: String? = nil,
         onSelect: @escaping (String) -> Void
@@ -60,6 +71,8 @@ struct LetterIndex: View {
         self.populated = populated
         self.accent = accent
         self.glowActive = glowActive
+        self.previousAccent = previousAccent
+        self.cascadeToken = cascadeToken
         self.externalHighlightLetter = externalHighlightLetter
         self.scrollFocusLetter = scrollFocusLetter
         self.onSelect = onSelect
@@ -129,13 +142,17 @@ struct LetterIndex: View {
     private var strip: some View {
         VStack(spacing: 0) {
             ForEach(Array(letters.enumerated()), id: \.element) { index, letter in
-                Text(letter)
-                    .font(.system(size: 9, weight: .bold, design: .serif))
-                    .foregroundStyle(letterColor(for: letter, isActive: index == displayedActiveIndex))
-                    .accentTextOutline()
-                    .shadow(color: accent.opacity(glowActive ? 0.12 : 0), radius: glowActive ? 5 : 0)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: rowHeight)
+                LetterRow(
+                    letter: letter,
+                    index: index,
+                    isActive: index == displayedActiveIndex,
+                    isPopulated: populated.contains(letter),
+                    accent: accent,
+                    previousAccent: previousAccent,
+                    cascadeToken: cascadeToken,
+                    globalGlowActive: glowActive,
+                    rowHeight: rowHeight
+                )
             }
         }
         .frame(width: stripWidth)
@@ -240,11 +257,6 @@ struct LetterIndex: View {
         }
     }
 
-    private func letterColor(for letter: String, isActive: Bool) -> Color {
-        if isActive { return accent }
-        return accent.opacity(populated.contains(letter) ? 0.85 : 0.3)
-    }
-
     private func magnifiedBadge(letter: String, size: CGFloat, fontSize: CGFloat) -> some View {
         Text(letter)
             .font(.system(size: fontSize, weight: .heavy, design: .serif))
@@ -268,6 +280,71 @@ struct LetterIndex: View {
     private func badgeYOffset(for index: Int, badgeSize: CGFloat) -> CGFloat {
         let letterCenterY = verticalPadding + CGFloat(index) * rowHeight + rowHeight / 2
         return letterCenterY - badgeSize / 2
+    }
+}
+
+/// Single row inside the `LetterIndex` strip. Lifted to its own view so
+/// each letter owns the `@State` for its per-row accent override + glow
+/// pulse during an accent-cascade — the strip retints top → bottom in
+/// lockstep with the recipe cards rather than flipping in unison.
+private struct LetterRow: View {
+    let letter: String
+    let index: Int
+    let isActive: Bool
+    let isPopulated: Bool
+    let accent: Color
+    let previousAccent: Color?
+    let cascadeToken: Int
+    let globalGlowActive: Bool
+    let rowHeight: CGFloat
+
+    /// Old accent held locally until this row's index-staggered delay
+    /// expires (mirrors `RecipeCardView.heldAccentOverride`). `nil`
+    /// outside of an active cascade — at which point this row reads
+    /// `accent` directly.
+    @State private var heldAccentOverride: Color? = nil
+    /// Per-row glow pulse, sequenced by `cascadeToken`.
+    @State private var glowActive: Bool = false
+
+    private var effectiveAccent: Color {
+        heldAccentOverride ?? accent
+    }
+
+    var body: some View {
+        Text(letter)
+            .font(.system(size: 9, weight: .bold, design: .serif))
+            .foregroundStyle(color)
+            .accentTextOutline()
+            .shadow(
+                color: effectiveAccent.opacity((globalGlowActive || glowActive) ? 0.12 : 0),
+                radius: (globalGlowActive || glowActive) ? 5 : 0
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: rowHeight)
+            .onChange(of: cascadeToken) { _, _ in scheduleStaggeredAdvance() }
+    }
+
+    private var color: Color {
+        if isActive { return effectiveAccent }
+        return effectiveAccent.opacity(isPopulated ? 0.85 : 0.3)
+    }
+
+    private func scheduleStaggeredAdvance() {
+        let stagger = Double(index) * AppearanceSettings.letterIndexGlowStagger
+        let flipDelay = AppearanceSettings.recipeListFlipDelay
+        let hold = AppearanceSettings.letterIndexGlowHoldDuration
+        if let previousAccent {
+            heldAccentOverride = previousAccent
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(flipDelay + stagger))
+            withAnimation(.easeInOut(duration: 0.18)) {
+                heldAccentOverride = nil
+                glowActive = true
+            }
+            try? await Task.sleep(for: .seconds(hold))
+            withAnimation(.easeInOut(duration: 0.14)) { glowActive = false }
+        }
     }
 }
 

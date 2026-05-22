@@ -64,11 +64,27 @@ struct RecipeDetailView: View {
     /// with that step's photos in view-only mode.
     @State private var viewingStepImages: ViewingStepImages?
 
-    /// Dedicated ticker for the category/tag chip strip. One per view —
-    /// never shared with another scroll surface (see `ScrollSectionHaptic`).
-    /// Each chip reports its label as it scrolls into view, so scrubbing
-    /// past the tags row clicks once per chip.
+    /// Single ticker for the detail's vertical scroll surface. Per CLAUDE.md
+    /// ("one `ScrollSectionTicker` per scroll surface"), the tag pills AND
+    /// the major content sections (ingredients / steps / notes / general /
+    /// reference / delete) all funnel into this one ticker — the dedup
+    /// keys keep crossings distinct, so the user gets a tick on each tag
+    /// AND on each section boundary as they scroll. Section markers are
+    /// 1pt clear anchors so even sections taller than the viewport still
+    /// hit the 0.95 visibility threshold.
     @State private var hapticTicker = ScrollSectionTicker()
+
+    /// 1pt invisible anchor used to mark a vertical section boundary for
+    /// `scrollSectionHaptic`. A full section block (e.g. Ingredients with
+    /// 20 rows) can exceed viewport height and never report at threshold
+    /// 0.95; a 1pt anchor reliably does. Layout impact is negligible
+    /// because each major section already sits inside a VStack with
+    /// `AppSpacing.md` between children.
+    private func sectionAnchor(_ key: String) -> some View {
+        Color.clear
+            .frame(height: 1)
+            .scrollSectionHaptic(section: key, ticker: hapticTicker)
+    }
 
     // MARK: - Share state
     //
@@ -162,6 +178,7 @@ struct RecipeDetailView: View {
                         }
                     }
 
+                    sectionAnchor("photos")
                     photosButton
 
                     if !timeParts.isEmpty {
@@ -171,6 +188,7 @@ struct RecipeDetailView: View {
                     }
 
                     if !sortedIngredients.isEmpty {
+                        sectionAnchor("ingredients")
                         section("Ingredients",
                                 headingColor: appearance.detailIngredientsHeadingAccentColor,
                                 headingGlow: appearance.isDetailGlowActive(.ingredientsHeading),
@@ -193,6 +211,7 @@ struct RecipeDetailView: View {
                     }
 
                     if !sortedSteps.isEmpty {
+                        sectionAnchor("steps")
                         section("Steps",
                                 headingColor: appearance.detailStepsHeadingAccentColor,
                                 headingGlow: appearance.isDetailGlowActive(.stepsHeading),
@@ -218,6 +237,7 @@ struct RecipeDetailView: View {
                             }
                         }
                     } else if hasOrphanStepNotes {
+                        sectionAnchor("notes")
                         // Preface / epilogue still need a home if the recipe
                         // has no steps yet but the user attached one.
                         section("Notes") {
@@ -233,17 +253,20 @@ struct RecipeDetailView: View {
                     }
 
                     if let general = recipe.generalNote.trimmedIfNonEmpty {
+                        sectionAnchor("general")
                         section("General") {
                             noteCallout(general)
                         }
                     }
 
                     if let url = recipe.sourceUrl, !url.isEmpty {
+                        sectionAnchor("reference")
                         section("Reference") {
                             sourceLink(url: url)
                         }
                     }
 
+                    sectionAnchor("delete")
                     Button(role: .destructive) {
                         Haptics.warning()
                         showingDeleteAlert = true
@@ -469,6 +492,12 @@ struct RecipeDetailView: View {
             // the "Add to Cook Mode" green button next to the resume
             // pill when a session is already minimized.
             navContext.detailedRecipeID = recipe.id
+        }
+        .onChange(of: recipe.id) { _, _ in
+            // A different recipe is now displayed — clear the scroll
+            // ticker so the re-laid-out content doesn't tick on its
+            // initial settle into a fresh tag / section set.
+            hapticTicker.reset()
         }
         .task(id: recipe.id) {
             // Stale-while-revalidate refresh of the "Imported by

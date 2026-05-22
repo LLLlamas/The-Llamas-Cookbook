@@ -10,7 +10,12 @@ struct RecipeCardView: View {
     var index: Int = 0
 
     private var accent: Color {
-        appearance.recipeListAccentColor
+        // While the per-card cascade is in flight, hold the old hue
+        // locally until this row's index delay expires — that way the
+        // recipe list's title color genuinely retints top → bottom
+        // rather than flipping in unison the instant `.recipeList`
+        // activates globally.
+        heldAccentOverride ?? appearance.recipeListAccentColor
     }
 
     /// Local one-shot glow flag, kicked by the cascade token. Each card
@@ -20,6 +25,13 @@ struct RecipeCardView: View {
     /// trigger (in case a card mounts mid-cascade and misses the token
     /// flip), but the staggered per-card glow is what the user sees.
     @State private var glowActive: Bool = false
+
+    /// Snapshot of the previous accent, held during this card's stagger
+    /// window so the title color advance lands at `recipeListFlipDelay
+    /// + index * stagger` instead of the moment `.recipeList` activates
+    /// globally. Cleared by `scheduleStaggeredGlow` after the per-row
+    /// delay so the card falls back to `appearance.recipeListAccentColor`.
+    @State private var heldAccentOverride: Color? = nil
 
     var body: some View {
         // Two-column layout: textual content on the left, a square photo
@@ -149,11 +161,26 @@ struct RecipeCardView: View {
     }
 
     private func scheduleStaggeredGlow() {
-        let delay = Double(index) * AppearanceSettings.recipeCardGlowStagger
+        let stagger = Double(index) * AppearanceSettings.recipeCardGlowStagger
+        let flipDelay = AppearanceSettings.recipeListFlipDelay
         let hold = AppearanceSettings.recipeCardGlowHoldDuration
+        // Seed the override IMMEDIATELY with the prior accent so this
+        // row doesn't flash the new color when `.recipeList` activates
+        // globally (~`flipDelay` from now). The override clears at
+        // `flipDelay + stagger`, producing the top → bottom title-color
+        // wave the user sees.
+        if let previous = appearance.cascadePreviousAccentColor {
+            heldAccentOverride = previous
+        }
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(delay))
-            withAnimation(.easeInOut(duration: 0.14)) { glowActive = true }
+            try? await Task.sleep(for: .seconds(flipDelay + stagger))
+            // Animate the hand-off so the title color fades into the new
+            // hue rather than snapping — matches the per-card glow pulse
+            // length and the LetterIndex stagger feel.
+            withAnimation(.easeInOut(duration: 0.18)) {
+                heldAccentOverride = nil
+                glowActive = true
+            }
             try? await Task.sleep(for: .seconds(hold))
             withAnimation(.easeInOut(duration: 0.14)) { glowActive = false }
         }

@@ -56,12 +56,23 @@ struct FriendRecipeDetailView: View {
     @State private var showingDuplicateAlert = false
     @State private var duplicateRenameText = ""
 
-    /// Dedicated ticker for the category/tag chip strip. One per view —
-    /// never shared with another scroll surface (see `ScrollSectionHaptic`).
-    /// Each chip reports its label as it scrolls into view, so scrubbing
-    /// past the tags row clicks once per chip. `reset()` on each
-    /// `loadDetail()` since a refetch can swap the whole tag set.
+    /// Single ticker for the friend-detail's vertical scroll surface.
+    /// Per CLAUDE.md ("one `ScrollSectionTicker` per scroll surface"),
+    /// the tag pills AND the major content sections (photos / tags /
+    /// ingredients / steps / notes) all funnel into this one ticker —
+    /// dedup keys keep the crossings distinct. `reset()` on each
+    /// `loadDetail()` since a refetch swaps the whole envelope.
     @State private var hapticTicker = ScrollSectionTicker()
+
+    /// 1pt invisible anchor for a vertical section boundary. A full
+    /// section block (e.g. Steps with a dozen entries) can exceed
+    /// viewport height and never hit the 0.95 visibility threshold
+    /// `scrollSectionHaptic` requires; a 1pt anchor reliably does.
+    private func sectionAnchor(_ key: String) -> some View {
+        Color.clear
+            .frame(height: 1)
+            .scrollSectionHaptic(section: key, ticker: hapticTicker)
+    }
 
     /// Sugared accessor for the envelope half of `publishedDetail`,
     /// so the rendering code below reads `envelope` symmetrically
@@ -266,6 +277,7 @@ struct FriendRecipeDetailView: View {
         titleBlock(envelope)
         metaLine(envelope)
         if !galleryPhotos.isEmpty {
+            sectionAnchor("photos")
             photosStrip
         }
         if let summaryText = envelope.recipe.summary?
@@ -283,8 +295,17 @@ struct FriendRecipeDetailView: View {
                 }
             }
         }
+        if !envelope.recipe.ingredients.isEmpty {
+            sectionAnchor("ingredients")
+        }
         ingredientsSection(envelope)
+        if !envelope.recipe.steps.isEmpty {
+            sectionAnchor("steps")
+        }
         stepsSection(envelope)
+        if !collectedNotes(envelope).isEmpty {
+            sectionAnchor("notes")
+        }
         notesSection(envelope)
     }
 
