@@ -250,6 +250,13 @@ struct LibraryView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
+                    // Sentinel above the LazyVStack so "go home" scrolls
+                    // here instead of to the first card — provides the
+                    // breathing room under the chip-strip divider so the
+                    // focused-card scale-up + shadow don't crowd it.
+                    Color.clear
+                        .frame(height: AppSpacing.md)
+                        .id("__listTop")
                     // Spacing bumped slightly above AppSpacing.md so the
                     // focused card's 4% scale-up never visually overlaps
                     // its neighbors. Subtle on a still list; necessary
@@ -356,12 +363,14 @@ struct LibraryView: View {
             }
             .onChange(of: scrollToTopToken) { _, _ in
                 // "Go home" scroll-to-top — fired by the All chip and
-                // by a re-tap of the active Home tab. Resets the user's
-                // view to the first row so a tap from anywhere in a
-                // long scroll lands them back at the top of the library.
-                guard let first = filtered.first else { return }
+                // by a re-tap of the active Home tab. Targets the
+                // sentinel above the LazyVStack so the list's top
+                // padding stays visible as breathing room beneath the
+                // chip strip (scrolling to the first card itself
+                // pushes that padding offscreen).
+                guard !filtered.isEmpty else { return }
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                    proxy.scrollTo(first.id, anchor: .top)
+                    proxy.scrollTo("__listTop", anchor: .top)
                 }
             }
         }

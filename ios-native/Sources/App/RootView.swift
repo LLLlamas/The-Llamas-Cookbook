@@ -1184,7 +1184,8 @@ private struct CookPill: View {
                         Text(displayTitle)
                             .font(.system(size: 13, weight: .semibold, design: .serif))
                             .accentTextOutline()
-                            .lineLimit(2)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                             .minimumScaleFactor(0.75)
                             .multilineTextAlignment(.center)
                         // Always reserve space for the timer line so

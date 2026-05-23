@@ -130,7 +130,13 @@ final class AppearanceSettings {
     // MARK: - Library cascade colors
 
     var cookbookTitleAccentColor: Color {
-        previewAccentColor ?? transitionColor(for: .header)
+        // The title is already showing the new color from `previewAccentColor`
+        // by the time the user taps Done. After `commitSelection` clears
+        // `previewAccentColor`, `accentColor` is already the new value — return
+        // it directly so the cascade's "held previous" never briefly re-applies
+        // the old hue to the title. The header stage still fires for the llama
+        // glow and profile button; only the title color is excluded.
+        previewAccentColor ?? accentColor
     }
 
     var allChipAccentColor: Color {
