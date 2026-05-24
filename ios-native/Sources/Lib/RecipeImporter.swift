@@ -588,6 +588,17 @@ enum RecipeImporter {
             let candidate = String(match.output.1).trimmingCharacters(in: .whitespaces)
             if !candidate.isEmpty { s = candidate }
         }
+        // Handwritten cards routinely glue a yield onto the title with a
+        // dash: "Empanada Dough - 28 servings", "Brownies — 24". Strip the
+        // dash-suffixed yield so the title becomes the dish name only; the
+        // yield itself is recovered separately by the metadata extractor
+        // (regex `parseLabeled` / Sonnet's `servings` field on the vision
+        // path). Scoped to a trailing dash-plus-number-plus-unit shape so
+        // legitimate punctuation like "Mac n' Cheese - 4 ways" survives.
+        if let match = try? #/^(.+?)\s*[-–—]\s*\d+\s*(?:servings?|portions?|makes|yields?|people)\b.*$/#.wholeMatch(in: s) {
+            let candidate = String(match.output.1).trimmingCharacters(in: .whitespaces)
+            if !candidate.isEmpty { s = candidate }
+        }
         s = stripLeadingDecoration(s)
         s = stripBioMarker(s)
         while let last = s.last,

@@ -10,11 +10,18 @@ import SwiftData
 ///
 /// 2. **Streaming mode** (`streamingState != nil`): the preview opens
 ///    immediately when the Sonnet path begins (blank content). A
-///    "Asking the llama…" overlay covers the blank view during TTFB; it
-///    dismisses the instant the title token arrives and the title's
-///    insertion transition plays. Content ticks in progressively from there.
-///    Save is disabled until `streamingState.status == .completed`, at which
-///    point `streamingState.finalDraft` becomes the canonical draft to persist.
+///    "Asking the llama…" overlay covers the blank view during TTFB and
+///    dismisses on whichever of these happens first:
+///      - the title token arrives (the fast path; preview reveals to the
+///        title's insertion transition and content streams in), or
+///      - `overlayTimeoutSeconds` (4 s) elapses (the slow-network safety
+///        net; preview reveals to a pulsing skeleton for title /
+///        ingredients / steps and real rows replace the placeholders as
+///        the stream lands).
+///    Either way the user sees structure or content within 4 s instead
+///    of an indeterminate spinner. Save is disabled until
+///    `streamingState.status == .completed`, at which point
+///    `streamingState.finalDraft` becomes the canonical draft to persist.
 ///
 /// Toolbar mirrors the share-recipient screen exactly: principal title set
 /// to "Import From Photo", Cancel left, Edit + Save right. Save surfaces
@@ -50,6 +57,21 @@ struct PhotoImportPreviewView: View {
     @State private var showRaceBanner        = false
     @State private var pendingMode: SaveMode = .save
     @State private var titleHapticFired      = false
+    /// Flips true 4 s after the streaming preview opens. Caps the
+    /// "Asking the llama…" overlay so the user never sits on a static
+    /// llama for longer than that — at the timeout we dismiss the
+    /// overlay and reveal skeleton placeholders, then real content
+    /// ticks in as the stream lands. See `overlayTimeoutSeconds`.
+    @State private var overlayTimedOut       = false
+    @State private var overlayTimeoutTask: Task<Void, Never>? = nil
+
+    /// Maximum wall-clock seconds we keep the modal "Asking the llama…"
+    /// overlay up before falling through to the skeleton preview. The
+    /// observed Sonnet vision time-to-first-byte is 3–6 s on typical
+    /// networks; 4 s catches the slow tail without prematurely hiding
+    /// fast results (which usually arrive < 2 s after the preview opens
+    /// and dismiss the overlay via the title-token path naturally).
+    private static let overlayTimeoutSeconds: UInt64 = 4
 
     private enum SaveMode { case save, saveForEdit }
 
@@ -94,15 +116,30 @@ struct PhotoImportPreviewView: View {
         return hit && sessionAttemptIndex >= 2
     }
 
-    /// True while we're waiting for the first title token from Sonnet.
-    /// Drives the "Asking the llama…" overlay that covers the blank preview.
+    /// True while we're waiting for the first title token from Sonnet,
+    /// capped at `overlayTimeoutSeconds`. Past the cap we dismiss the
+    /// overlay regardless and let the skeleton stand in for the title /
+    /// ingredients / steps until real content lands.
     private var showProcessingOverlay: Bool {
         guard let s = streamingState else { return false }
         guard s.title.isEmpty else { return false }
+        if overlayTimedOut { return false }
         switch s.status {
         case .cancelled, .failed, .completed: return false
         default: return true
         }
+    }
+
+    /// True when the overlay is no longer covering the preview but real
+    /// content for a section hasn't arrived yet. Drives the shimmer
+    /// placeholder rendering in `titleBlock` / `ingredientsSection` /
+    /// `stepsSection` so the user sees structure (and motion) instead of a
+    /// blank canvas while the stream catches up. Only fires during active
+    /// streaming — collapses the instant the stream completes / cancels.
+    private var showSkeleton: Bool {
+        guard isStreaming else { return false }
+        guard !showProcessingOverlay else { return false }
+        return true
     }
 
     private var canSave: Bool {
@@ -162,6 +199,11 @@ struct PhotoImportPreviewView: View {
                 titleHapticFired = true
                 Haptics.impact(.soft)
             }
+            startOverlayTimeoutIfNeeded()
+        }
+        .onDisappear {
+            overlayTimeoutTask?.cancel()
+            overlayTimeoutTask = nil
         }
         .onChange(of: streamingState?.title ?? "") { _, newValue in
             if !newValue.isEmpty && !titleHapticFired {
@@ -169,6 +211,7 @@ struct PhotoImportPreviewView: View {
                 Haptics.impact(.soft)
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: showSkeleton)
         // Animate content arrival. Driven by count/empty changes so each new
         // row triggers its insertion transition as events land from the stream.
         .animation(.spring(response: 0.4, dampingFraction: 0.75),
@@ -251,6 +294,9 @@ struct PhotoImportPreviewView: View {
                     removal:   .opacity
                 ))
                 .id("title-\(title.hashValue)")
+        } else if showSkeleton {
+            SkeletonBlock(width: 260, height: 32, accent: appearance.accentColor)
+                .transition(.opacity)
         }
     }
 
@@ -314,8 +360,34 @@ struct PhotoImportPreviewView: View {
                         ))
                 }
             }
+        } else if showSkeleton {
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                sectionHeading("Ingredients")
+                ForEach(0..<3, id: \.self) { idx in
+                    skeletonIngredientRow(widths: skeletonIngredientWidths[idx])
+                }
+            }
+            .transition(.opacity)
         }
     }
+
+    private func skeletonIngredientRow(widths: (CGFloat, CGFloat)) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
+            Circle()
+                .fill(appearance.accentColor.opacity(0.35))
+                .frame(width: 5, height: 5)
+                .padding(.top, 6)
+            SkeletonBlock(width: widths.0, height: 14, accent: appearance.accentColor)
+            SkeletonBlock(width: widths.1, height: 14, accent: appearance.accentColor)
+        }
+    }
+
+    /// Per-row width pairs (measure block, name block) for the skeleton
+    /// ingredient list. Three rows of slightly different shapes look like
+    /// real ingredients rather than identical placeholders.
+    private let skeletonIngredientWidths: [(CGFloat, CGFloat)] = [
+        (48, 120), (60, 96), (40, 140),
+    ]
 
     private func ingredientRow(_ ing: DraftIngredient) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
@@ -347,8 +419,29 @@ struct PhotoImportPreviewView: View {
                         ))
                 }
             }
+        } else if showSkeleton {
+            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                sectionHeading("Steps")
+                ForEach(0..<2, id: \.self) { idx in
+                    skeletonStepRow(index: idx, width: skeletonStepWidths[idx])
+                }
+            }
+            .transition(.opacity)
         }
     }
+
+    private func skeletonStepRow(index: Int, width: CGFloat) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
+            Text("\(index + 1).")
+                .font(AppFont.body)
+                .fontWeight(.semibold)
+                .foregroundStyle(appearance.accentColor.opacity(0.45))
+                .frame(width: 24, alignment: .leading)
+            SkeletonBlock(width: width, height: 14, accent: appearance.accentColor)
+        }
+    }
+
+    private let skeletonStepWidths: [CGFloat] = [240, 180]
 
     private func stepRow(idx: Int, step: DraftStep) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
@@ -487,6 +580,24 @@ struct PhotoImportPreviewView: View {
         return measure.isEmpty ? ing.name : "\(measure) — \(ing.name)"
     }
 
+    // MARK: - Overlay timeout
+
+    /// Start (or restart) the timer that caps the "Asking the llama…"
+    /// overlay at `overlayTimeoutSeconds`. No-op when there's no streaming
+    /// state (final-draft mode) or when the title is already populated
+    /// (the overlay is already hidden via the title-token path).
+    private func startOverlayTimeoutIfNeeded() {
+        guard let s = streamingState else { return }
+        guard s.title.isEmpty else { return }
+        // Already armed for this presentation — don't double-schedule.
+        guard overlayTimeoutTask == nil else { return }
+        overlayTimeoutTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.overlayTimeoutSeconds * 1_000_000_000)
+            if Task.isCancelled { return }
+            overlayTimedOut = true
+        }
+    }
+
     // MARK: - Save
 
     private func saveToLibrary(mode: SaveMode) {
@@ -556,6 +667,31 @@ private struct TickIn: ViewModifier {
         content
             .opacity(opacity)
             .offset(x: offsetX, y: offsetY)
+    }
+}
+
+// MARK: - Skeleton block
+
+/// Pill-shaped placeholder that pulses between two opacities to signal
+/// "content arriving here." Used while the streaming preview is open but
+/// the title / ingredients / steps haven't streamed in yet (typically
+/// when the Sonnet TTFB exceeds the 4 s overlay cap). Pulse is a single
+/// `.repeatForever` opacity animation — no per-frame state, no timer.
+private struct SkeletonBlock: View {
+    let width: CGFloat
+    let height: CGFloat
+    let accent: Color
+    @State private var pulsing = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: height / 2)
+            .fill(accent.opacity(pulsing ? 0.18 : 0.32))
+            .frame(width: width, height: height)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                    pulsing = true
+                }
+            }
     }
 }
 

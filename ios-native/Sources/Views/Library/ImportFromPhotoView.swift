@@ -1009,8 +1009,18 @@ struct ImportFromPhotoView: View {
     }
 
     /// Basic gate used for AI-parsed photo drafts (Sonnet / OCR+AI fallback).
+    ///
+    /// Requires a title plus at least one of ingredients/steps. The earlier
+    /// "title AND ingredients AND steps" form rejected partial-but-useful
+    /// Sonnet drafts (e.g. an ingredient-only handwritten card it correctly
+    /// read but had no steps to extract) and dumped the user into the OCR
+    /// regex fallback — which on noisy handwritten input typically produces
+    /// worse output than the partial vision draft would have. The NEVER
+    /// FABRICATE rule in the system prompt means an empty section is a
+    /// deliberate truthful answer, not a parse failure.
     private func photoImportConfident(_ draft: DraftRecipe) -> Bool {
-        !draft.title.trimmed.isEmpty && !draft.ingredients.isEmpty && !draft.steps.isEmpty
+        guard !draft.title.trimmed.isEmpty else { return false }
+        return !draft.ingredients.isEmpty || !draft.steps.isEmpty
     }
 
     // MARK: - Page preparation
@@ -1019,13 +1029,18 @@ struct ImportFromPhotoView: View {
         await withTaskGroup(of: (Int, PreparedPage).self) { group in
             for (idx, page) in pages.enumerated() {
                 group.addTask {
-                    let raw = page.sourceData
-                        ?? page.image.jpegData(compressionQuality: 0.95)
-                    guard let raw else {
-                        return (idx, PreparedPage(vision: nil, ocr: nil))
+                    // Library path: raw photo bytes from `loadTransferable`,
+                    // single ImageIO decode + encode at the target format.
+                    // Camera path: no source bytes — encode the in-memory
+                    // `CGImage` directly to avoid a lossy JPEG round-trip
+                    // that measurably degrades handwriting recognition.
+                    if let raw = page.sourceData {
+                        async let vision = ImageProcessing.prepare(raw, for: .aiVision)
+                        async let ocr    = ImageProcessing.prepare(raw, for: .ocr)
+                        return (idx, PreparedPage(vision: await vision, ocr: await ocr))
                     }
-                    async let vision = ImageProcessing.prepare(raw, for: .aiVision)
-                    async let ocr    = ImageProcessing.prepare(raw, for: .ocr)
+                    async let vision = ImageProcessing.prepare(uiImage: page.image, for: .aiVision)
+                    async let ocr    = ImageProcessing.prepare(uiImage: page.image, for: .ocr)
                     return (idx, PreparedPage(vision: await vision, ocr: await ocr))
                 }
             }
