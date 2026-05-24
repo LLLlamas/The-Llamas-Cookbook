@@ -435,7 +435,22 @@ struct FriendLibraryView: View {
         // the seed JSON shipped empty (developer error caught at
         // build time).
         if SeedFriend.isSeed(friend) {
-            summaries = SeedFriend.librarySummaries()
+            let seeds = SeedFriend.librarySummaries()
+            // Pre-decode all 25 bundled hero JPEGs into the shared image
+            // cache off the main thread BEFORE assigning `summaries` (and
+            // therefore before LazyVStack realizes the cards). Each
+            // `RecipeImageView` runs a synchronous cache-warm check in its
+            // `init`, so by the time a grid cell's body evaluates the
+            // UIImage is already there — no placeholder flash, no
+            // tap-into-then-back round-trip to "wake up" the thumbnails.
+            // Without this, the LazyVStack churn at initial layout drops
+            // the @State update from each cell's own `.task(id:)` decode
+            // before it commits, leaving the placeholder visible until
+            // the user navigates into a recipe (which warms the cache as
+            // a side effect of decoding the hero photo in the detail view)
+            // and pops back.
+            RecipeImagePrewarm.prewarm(seeds.compactMap { $0.thumbnailData })
+            summaries = seeds
             loadError = nil
             return
         }

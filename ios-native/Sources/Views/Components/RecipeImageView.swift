@@ -121,3 +121,29 @@ extension RecipeImageView where Placeholder == EmptyView {
         }
     }
 }
+
+/// Batch-decodes a set of JPEG/HEIC payloads into the shared image cache
+/// off the main thread. Used by `FriendLibraryView` for the seed friend's
+/// 25 bundled thumbnails so the grid cards' `init` warm-cache check hits
+/// synchronously on first render — without this, each grid cell fires its
+/// own `.task(id:)` decode, and the LazyVStack cell-realization churn at
+/// initial layout can drop the @State update before it commits, leaving
+/// the placeholder visible until the user taps into a detail view (which
+/// warms the cache as a side effect of decoding the hero photo there) and
+/// pops back. Idempotent: cache hits are skipped. Fire-and-forget; the
+/// caller does not need to await completion — RecipeImageView's own
+/// `.task(id:)` decode is the fallback if the prewarm hasn't finished by
+/// the time a cell appears.
+enum RecipeImagePrewarm {
+    static func prewarm(_ datas: [Data]) {
+        guard !datas.isEmpty else { return }
+        Task.detached(priority: .userInitiated) {
+            for data in datas {
+                let key = data as NSData
+                if imageCache.object(forKey: key) != nil { continue }
+                guard let image = UIImage(data: data) else { continue }
+                imageCache.setObject(image, forKey: key)
+            }
+        }
+    }
+}
