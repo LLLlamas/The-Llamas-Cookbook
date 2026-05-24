@@ -30,6 +30,24 @@ testing/
 # Environment overrides
 .env
 .env*.local
+# Cloudflare Wrangler local dev state (secrets in .dev.vars, build cache in .wrangler/)
+.dev.vars
+.wrangler/
+
+# Local planning docs, design handoffs, prior audits — kept on disk for
+# reference but not shipped or shared in the repo. CLAUDE.md and README.md
+# remain at root (CLAUDE.md is the agent source of truth; README.md is the
+# GitHub front door). Add new planning notes to md_files/.
+md_files/
+
+# Editor / OS scratch
+.idea/
+.vscode/
+*.swp
+*~
+
+# Logs
+*.log
 
 # Claude Code agent definitions and agent memory — local tooling, not shared.
 # Agents live at user scope (~/.claude/agents/) so the project doesn't need a copy.

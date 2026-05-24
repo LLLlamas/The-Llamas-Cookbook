@@ -1,7 +1,11 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-24
+Last refreshed: 2026-05-24 (post-launch-audit pass 2)
+
+> **Planning docs / design handoffs / prior audits live in `md_files/`** —
+> gitignored, kept on disk for reference. Only `CLAUDE.md` (this file) and
+> `README.md` live at the repo root.
 
 ---
 
@@ -314,13 +318,20 @@ Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, Swift
 
 ## Open Work (Pre-App Store)
 
-- **BLOCKER — credentials hygiene**: delete `credentials/github-secrets.txt` + `credentials/ios/*.p12` + `credentials/ios/*.mobileprovision` and **rotate the ASC API key** in App Store Connect (it sat on a dev machine in cleartext base64; treat as exposed)
+Remaining before submission:
 - Verify Universal Links on real devices
 - Adopt Liquid Glass before iOS 27 removes `UIDesignRequiresCompatibility` opt-out
-- Server-side `Friendship(userA,userB)` uniqueness — currently client-side dedup only
-- Account-deletion cascade: `CloudPendingDeleteQueue` covers 5 record types; CKQuerySubscriptions is single-shot best-effort
 
-Recently resolved (2026-05-24 audit):
+Accepted-for-launch (documented limitations, not blockers):
+- **Server-side `Friendship(userA,userB)` uniqueness** — currently client-side dedup only (`CloudKitFriendship.swift` ll. 65–67, 148–154, 218–221 explicitly guard duplicate sends and dedupe symmetric reads). Race window between two devices is sub-second; collision produces a benign duplicate row that the next refresh's defensive dedup hides. Acceptable for initial launch scale; revisit if abuse appears or scale grows. Real fix would require a CF Worker write-proxy with CAS — meaningful new architecture, not a one-line patch.
+- **Account-deletion cascade** — `UserAccount.deleteAccount()` cascades through `deleteAuthoredShares` → `UserProfileMirror.deleteOnAccountDeletion` → `deleteAllFriendships` → `deleteAllPublishedRecipes` → `deleteAllRecipeImports` → `CloudKitSubscriptions.unregisterAll`, with `CloudPendingDeleteQueue` providing persistent retry across launches for the 5 record types. The subscription unregister is best-effort (orphaned subscriptions are cheap server-side state CloudKit GCs; APNs token rotates on reinstall). Meets App Store Review Guideline 5.1.1(v).
+
+Recently resolved (2026-05-24 audit pass 2):
+- **Credentials hygiene** — local `credentials/` directory deleted; ASC API key rotated; new secrets pushed to GitHub Actions
+- **Planning-doc relocation** — 29 design/audit/handoff `.md` files moved from repo root into `md_files/` (gitignored); only `CLAUDE.md` + `README.md` remain at root
+- **`.gitignore` hardening** — added `.dev.vars`, `.wrangler/`, `md_files/`, `.idea/`, `.vscode/`, `*.swp`, `*~`, `*.log`
+
+Recently resolved (2026-05-24 audit pass 1):
 - Privacy manifest populated (`UserID`, `PhotosOrVideos`, `OtherUserContent` with linked/tracking/purposes)
 - Anthropic key migration to CF Worker complete — no key in Swift binary or Keychain
 - `CookModeView` `.fullScreenCover` (TimerReadyOverlay) and `.sheet` (RunningTimerSheet) now re-inject `AppearanceSettings` (iOS 26 environment-drop fix)
