@@ -28,7 +28,17 @@
 //   ANTHROPIC_API_KEY  (encrypted)
 //   LLAMAS_QUOTA       (KV namespace binding)
 
-import { FREE_CAP, PRO_CAP, getLocalYYYYMM, nextMonthResetUTC } from '../../lib/quota.js';
+import {
+  FREE_CAP,
+  PRO_CAP,
+  getLocalYYYYMM,
+  getLocalDate,
+  nextMonthResetUTC,
+  nextLocalMidnightUTC,
+  TEXT_LINK_DAILY_CAP_ANON,
+  TEXT_LINK_DAILY_CAP_SIGNED,
+  TEXT_LINK_MAX_BODY_BYTES,
+} from '../../lib/quota.js';
 
 const ANTHROPIC_URL  = 'https://api.anthropic.com/v1/messages';
 const PROMPT_VERSION = 'v3'; // Bump when RecipeAIParser.instructions changes
@@ -44,8 +54,61 @@ export async function onRequestPost(context) {
   const importKind = request.headers.get('x-llamas-import-kind') ?? 'text';
 
   if (importKind !== 'photo') {
-    // Text / link / paste imports: forward unchanged, no quota.
+    // Text / link / paste imports.
+    //
+    // Abuse model: anonymous POSTs to this endpoint pre-launch were
+    // unbounded — every request hit Anthropic on our dime, no auth,
+    // no rate limit, no per-IP cap. We now enforce a per-identity
+    // daily cap (signed-in user ID if present, else Cloudflare client
+    // IP) and a hard body-size cap before forwarding.
+
+    const tz = request.headers.get('x-llamas-tz') ?? 'UTC';
+    const userId = request.headers.get('x-llamas-user');
+    const clientIp = request.headers.get('cf-connecting-ip') ?? 'unknown';
+    const identity = userId ? `user:${userId}` : `ip:${clientIp}`;
+    const cap = userId ? TEXT_LINK_DAILY_CAP_SIGNED : TEXT_LINK_DAILY_CAP_ANON;
+
+    // Test bypass: same secret as the photo path, dev-only.
+    const bypassSecret = env.BYPASS_SECRET;
+    const isBypass = bypassSecret && request.headers.get('x-llamas-bypass') === bypassSecret;
+
+    // Body-size pre-check via Content-Length (cheap, before allocation).
+    const contentLength = parseInt(request.headers.get('content-length') ?? '0', 10);
+    if (!isBypass && contentLength > TEXT_LINK_MAX_BODY_BYTES) {
+      return Response.json({ error: 'payload_too_large', limit: TEXT_LINK_MAX_BODY_BYTES }, { status: 413 });
+    }
+
     const body = await request.arrayBuffer();
+    // Defensive byte-length recheck — Content-Length can be absent or wrong.
+    if (!isBypass && body.byteLength > TEXT_LINK_MAX_BODY_BYTES) {
+      return Response.json({ error: 'payload_too_large', limit: TEXT_LINK_MAX_BODY_BYTES }, { status: 413 });
+    }
+
+    // Daily-cap check. Skipped under bypass secret OR when KV is unbound
+    // (dev environments without `wrangler` bindings — same behaviour as
+    // the photo path below, which fails open in that case with a warning).
+    const quota = env.LLAMAS_QUOTA;
+    if (!isBypass && quota) {
+      const dayKey = `textParse:${identity}:${getLocalDate(tz)}`;
+      const used = parseInt((await quota.get(dayKey)) ?? '0', 10);
+      if (used >= cap) {
+        const resetAt = nextLocalMidnightUTC(tz);
+        return Response.json({
+          error: 'rate_limited',
+          scope: userId ? 'user_daily' : 'ip_daily',
+          limit: cap,
+          used,
+          resetAt: resetAt.toISOString(),
+        }, { status: 429 });
+      }
+      // Increment counter BEFORE forwarding — if the user is abusing us,
+      // we want the counter to tick even on upstream failures. 26h TTL
+      // covers timezone-boundary races without retaining indefinitely.
+      await quota.put(dayKey, String(used + 1), { expirationTtl: 26 * 60 * 60 });
+    } else if (!isBypass && !quota) {
+      console.warn('LLAMAS_QUOTA KV not bound; skipping text/link rate limit');
+    }
+
     const upstream = await fetch(ANTHROPIC_URL, {
       method: 'POST',
       headers: buildAnthropicHeaders(request, apiKey),

@@ -191,6 +191,18 @@ enum AnthropicRecipeParser {
         // extended TTL — repeat imports in a meal-planning window (typically
         // 15-30 min between captures) hit the cache instead of the cold path.
         request.setValue("extended-cache-ttl-2025-04-11", forHTTPHeaderField: "anthropic-beta")
+        // Identity headers — the Worker enforces a per-user (or per-IP for
+        // anon) daily cap on text/link parses as an abuse gate. Sign-in is
+        // not required for text/link; signed-out users get a tighter cap
+        // keyed on Cloudflare client IP.
+        request.setValue("text", forHTTPHeaderField: "x-llamas-import-kind")
+        if let userId = KeychainStore.read(.appleSub) {
+            request.setValue(userId, forHTTPHeaderField: "x-llamas-user")
+        }
+        request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "x-llamas-tz")
+        #if DEBUG
+        request.setValue(AnthropicRecipeParser.testBypassSecret, forHTTPHeaderField: "x-llamas-bypass")
+        #endif
 
         request.httpBody = try buildBody(text: text, model: model)
 
@@ -201,9 +213,22 @@ enum AnthropicRecipeParser {
         case 200:
             return extractDraft(from: data, sourceUrl: sourceUrl)
 
-        case 429, 529:
-            // Anthropic rate-limit (429) or temporary overload (529).
-            // Back off and retry: 1 s then 3 s, 3 attempts total.
+        case 429:
+            // 429 can come from either Anthropic (upstream rate-limit) OR our
+            // Worker's per-identity daily cap. Both want the same behaviour at
+            // this layer: stop trying. The retry below only helps with the
+            // Anthropic case, but distinguishing them would require parsing
+            // the response body; treating both identically is safe — caller
+            // falls back to Apple Intelligence → regex unchanged.
+            guard attempt < 2 else { return nil }
+            let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
+            try await Task.sleep(nanoseconds: nanos)
+            return try await callAPI(
+                text: text, sourceUrl: sourceUrl, model: model, attempt: attempt + 1
+            )
+
+        case 529:
+            // Anthropic temporary overload — same retry schedule as 429 above.
             guard attempt < 2 else { return nil }
             let nanos: UInt64 = attempt == 0 ? 1_000_000_000 : 3_000_000_000
             try await Task.sleep(nanoseconds: nanos)
@@ -212,6 +237,7 @@ enum AnthropicRecipeParser {
             )
 
         default:
+            // Includes 413 (payload too large) — caller falls back gracefully.
             return nil
         }
     }

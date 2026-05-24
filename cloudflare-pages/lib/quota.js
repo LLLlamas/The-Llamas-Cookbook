@@ -8,6 +8,18 @@
 export const FREE_CAP = 5;
 export const PRO_CAP  = 30;
 
+// Per-day cap for text/link parse requests (abuse gate, not a feature limit).
+// Real users save a handful of recipes a day; these caps only catch farming.
+// Anon = no signed-in user, identified by Cloudflare-injected client IP.
+// Signed-in users get more headroom because the identity is harder to rotate.
+export const TEXT_LINK_DAILY_CAP_ANON   = 30;
+export const TEXT_LINK_DAILY_CAP_SIGNED = 100;
+
+// Hard server-side body-size cap for text/link parse requests.
+// iOS caps text at 15 000 chars (~15 KB); 60 KB gives generous headroom for
+// JSON overhead and unicode while still rejecting payload-abuse attempts.
+export const TEXT_LINK_MAX_BODY_BYTES = 60 * 1024;
+
 // ── Timezone helpers ──────────────────────────────────────────────────────────
 
 export function getLocalDate(tz, now = new Date()) {

@@ -2,8 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   FREE_CAP,
   PRO_CAP,
+  TEXT_LINK_DAILY_CAP_ANON,
+  TEXT_LINK_DAILY_CAP_SIGNED,
+  TEXT_LINK_MAX_BODY_BYTES,
   getLocalYYYYMM,
+  getLocalDate,
   nextMonthResetUTC,
+  nextLocalMidnightUTC,
   deriveAppAccountToken,
 } from '../lib/quota.js';
 
@@ -13,6 +18,86 @@ describe('quota constants', () => {
   it('FREE_CAP is 5', () => expect(FREE_CAP).toBe(5));
   it('PRO_CAP is 30', () => expect(PRO_CAP).toBe(30));
   it('PRO_CAP > FREE_CAP', () => expect(PRO_CAP).toBeGreaterThan(FREE_CAP));
+
+  it('TEXT_LINK_DAILY_CAP_ANON is 30', () => expect(TEXT_LINK_DAILY_CAP_ANON).toBe(30));
+  it('TEXT_LINK_DAILY_CAP_SIGNED is 100', () => expect(TEXT_LINK_DAILY_CAP_SIGNED).toBe(100));
+  it('signed-in cap is higher than anon cap', () => {
+    expect(TEXT_LINK_DAILY_CAP_SIGNED).toBeGreaterThan(TEXT_LINK_DAILY_CAP_ANON);
+  });
+  it('TEXT_LINK_MAX_BODY_BYTES is 60 KB', () => {
+    expect(TEXT_LINK_MAX_BODY_BYTES).toBe(60 * 1024);
+  });
+  it('body cap comfortably exceeds the iOS 15 000-char text cap', () => {
+    // 15 000 UTF-8 chars worst-case ~60 000 bytes for full 4-byte glyphs,
+    // but real recipe text is ~1.1 bytes/char average; 60 KB is generous.
+    expect(TEXT_LINK_MAX_BODY_BYTES).toBeGreaterThan(15_000);
+  });
+});
+
+// ── getLocalDate ──────────────────────────────────────────────────────────────
+// This is the key used in KV for the per-day text/link rate-limit counter.
+// A wrong date shifts the reset boundary and lets abuse straddle midnight.
+
+describe('getLocalDate', () => {
+  it('returns YYYY-MM-DD for UTC', () => {
+    const now = new Date('2026-05-17T12:00:00Z');
+    expect(getLocalDate('UTC', now)).toBe('2026-05-17');
+  });
+
+  it('returns 10-character ISO date with dashes', () => {
+    const now = new Date('2026-05-17T12:00:00Z');
+    expect(getLocalDate('UTC', now)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('crosses date boundary correctly in negative offsets', () => {
+    // 2026-05-17T03:00:00Z = 2026-05-16T20:00 PDT — still May 16 in LA
+    const now = new Date('2026-05-17T03:00:00Z');
+    expect(getLocalDate('America/Los_Angeles', now)).toBe('2026-05-16');
+    expect(getLocalDate('UTC', now)).toBe('2026-05-17');
+  });
+
+  it('crosses date boundary correctly in positive offsets', () => {
+    // 2026-05-16T19:00:00Z = 2026-05-17T00:30 IST — already May 17 in India
+    const now = new Date('2026-05-16T19:00:00Z');
+    expect(getLocalDate('Asia/Kolkata', now)).toBe('2026-05-17');
+    expect(getLocalDate('UTC', now)).toBe('2026-05-16');
+  });
+});
+
+// ── nextLocalMidnightUTC ──────────────────────────────────────────────────────
+// This is the reset moment returned in the 429 response so clients can show
+// "try again at <time>" without us caring about their timezone math.
+
+describe('nextLocalMidnightUTC', () => {
+  it('returns a Date in the future', () => {
+    const now = new Date('2026-05-17T12:00:00Z');
+    expect(nextLocalMidnightUTC('UTC', now).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it('UTC — next midnight is the next 00:00 UTC', () => {
+    const now = new Date('2026-05-17T12:00:00Z');
+    const reset = nextLocalMidnightUTC('UTC', now);
+    expect(reset.getUTCFullYear()).toBe(2026);
+    expect(reset.getUTCMonth()).toBe(4); // May
+    expect(reset.getUTCDate()).toBe(18);
+    expect(reset.getUTCHours()).toBe(0);
+    expect(reset.getUTCMinutes()).toBe(0);
+  });
+
+  it('Los Angeles (PDT = UTC-7) — local midnight is 07:00 UTC the next day', () => {
+    const now = new Date('2026-05-17T12:00:00Z');
+    const reset = nextLocalMidnightUTC('America/Los_Angeles', now);
+    expect(reset.getUTCDate()).toBe(18);
+    expect(reset.getUTCHours()).toBe(7);
+  });
+
+  it('crosses month boundary correctly', () => {
+    // 2026-05-31T22:00:00Z, UTC tz → next midnight = 2026-06-01 00:00 UTC
+    const now = new Date('2026-05-31T22:00:00Z');
+    const reset = nextLocalMidnightUTC('UTC', now);
+    expect(reset.getUTCMonth()).toBe(5); // June
+    expect(reset.getUTCDate()).toBe(1);
+  });
 });
 
 // ── getLocalYYYYMM ────────────────────────────────────────────────────────────
