@@ -544,14 +544,15 @@ struct FriendRecipeDetailView: View {
             hasLoadedOnce = true
         }
         // Seed friend: pull the pre-built envelope from
-        // `SeedFriend.detail(forRecordName:)`. The seed recipes ship
-        // without photo bytes, so `galleryPhotos` stays empty and
-        // the photos strip simply doesn't render — clean fallback
-        // through the existing `if !galleryPhotos.isEmpty` gate.
+        // `SeedFriend.detail(forRecordName:)`. Seed envelopes now ship
+        // with a bundled hero photo encoded into `recipe.photos`, so
+        // run them through the same `decodeGallery` path as CloudKit
+        // detail — the photos strip renders identically across seed
+        // and real-friend recipes.
         if SeedFriend.isSeed(friend) {
             if let fetched = SeedFriend.detail(forRecordName: summary.recordName) {
                 publishedDetail = fetched
-                galleryPhotos = []
+                galleryPhotos = decodeGallery(fetched.envelope)
                 loadError = nil
             } else {
                 loadError = "Couldn't load this recipe."

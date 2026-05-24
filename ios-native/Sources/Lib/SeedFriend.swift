@@ -115,24 +115,32 @@ enum SeedFriend {
     }()
 
     private static let cachedSummaries: [PublishedRecipeSummary] = {
-        cachedPayload.recipes.map { seed in
-            PublishedRecipeSummary(
-                recordName: seed.id.uuidString,
-                ownerID: sentinelRecordName,
-                localRecipeID: seed.id,
-                recipeTitle: seed.title,
-                updatedAt: cachedPayload.referenceDate,
-                summary: seed.summary,
-                tags: seed.tags,
-                // Same JPEG that ships as the recipe-level hero photo
-                // — `RecipeImageView` decodes off-main on display, so
-                // a 1600px source is fine for the friend-library grid
-                // thumbnail. Without this, the seed cards fall through
-                // to the photo-glyph placeholder and the seed cookbook
-                // reads as empty on a fresh install.
-                thumbnailData: loadHeroPhoto(seed.heroPhoto)
-            )
-        }
+        // Alphabetical by title (case-insensitive, locale-aware) so the
+        // seed cookbook grid reads like a sorted recipe book rather than
+        // arbitrary JSON order. Real friends' libraries are server-sorted
+        // by updatedAt — the seed friend's reference timestamp is
+        // identical across all recipes, so without an explicit sort the
+        // displayed order would be undefined.
+        cachedPayload.recipes
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            .map { seed in
+                PublishedRecipeSummary(
+                    recordName: seed.id.uuidString,
+                    ownerID: sentinelRecordName,
+                    localRecipeID: seed.id,
+                    recipeTitle: seed.title,
+                    updatedAt: cachedPayload.referenceDate,
+                    summary: seed.summary,
+                    tags: seed.tags,
+                    // Same JPEG that ships as the recipe-level hero photo
+                    // — `RecipeImageView` decodes off-main on display, so
+                    // a 1600px source is fine for the friend-library grid
+                    // thumbnail. Without this, the seed cards fall through
+                    // to the photo-glyph placeholder and the seed cookbook
+                    // reads as empty on a fresh install.
+                    thumbnailData: loadHeroPhoto(seed.heroPhoto)
+                )
+            }
     }()
 
     private static let cachedDetails: [String: PublishedRecipeDetail] = {
@@ -283,10 +291,12 @@ enum SeedFriend {
     }
 
     /// Loads a bundled hero photo by filename (e.g. `01-hot-honey-chicken.jpg`).
-    /// Photos live in `Resources/SeedPhotos/` and are declared in
-    /// `project.yml` as a folder reference, which flattens them into the
-    /// app bundle — `Bundle.main.url(forResource:withExtension:)` finds
-    /// them without a subdirectory hint. Returns nil for missing
+    /// Photos live in `Resources/SeedPhotos/`. Depending on how xcodegen
+    /// ingests the directory entry — group (flattened) vs folder
+    /// reference (preserved) — the JPEGs end up either at the bundle
+    /// root or under a `SeedPhotos/` subdirectory. We try both lookups
+    /// so the same code works regardless of which form the project file
+    /// ends up with after a `xcodegen generate`. Returns nil for missing
     /// filenames or unreadable files (logged via `os.Logger`) so the
     /// recipe still materializes without a photo rather than crashing
     /// the seed cookbook over a single asset.
@@ -294,8 +304,10 @@ enum SeedFriend {
         guard let filename, !filename.isEmpty else { return nil }
         let stem = (filename as NSString).deletingPathExtension
         let ext  = (filename as NSString).pathExtension
-        guard let url = Bundle.main.url(forResource: stem, withExtension: ext) else {
-            log.error("Seed hero photo missing from bundle: \(filename, privacy: .public)")
+        let url = Bundle.main.url(forResource: stem, withExtension: ext)
+                ?? Bundle.main.url(forResource: stem, withExtension: ext, subdirectory: "SeedPhotos")
+        guard let url else {
+            log.error("Seed hero photo missing from bundle: \(filename, privacy: .public) — has `xcodegen generate` been run since SeedPhotos/ was added?")
             return nil
         }
         do {
