@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-18
+Last refreshed: 2026-05-24
 
 ---
 
@@ -310,10 +310,17 @@ Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, Swift
 
 ## Open Work (Pre-App Store)
 
-- **Privacy manifest**: `NSPrivacyCollectedDataTypes` empty — needs entry for Anthropic AI processing + user-facing disclosure in import UI
-- **App Store privacy labels**: audit CloudKit sharing + Anthropic AI processing
+- **BLOCKER — credentials hygiene**: delete `credentials/github-secrets.txt` + `credentials/ios/*.p12` + `credentials/ios/*.mobileprovision` and **rotate the ASC API key** in App Store Connect (it sat on a dev machine in cleartext base64; treat as exposed)
 - Verify Universal Links on real devices
 - Adopt Liquid Glass before iOS 27 removes `UIDesignRequiresCompatibility` opt-out
 - Server-side `Friendship(userA,userB)` uniqueness — currently client-side dedup only
 - Account-deletion cascade: `CloudPendingDeleteQueue` covers 5 record types; CKQuerySubscriptions is single-shot best-effort
-- Pre-launch: delete `credentials/github-secrets.txt`, `credentials/ios/dist-cert.p12`, `credentials/ios/profile.mobileprovision`
+
+Recently resolved (2026-05-24 audit):
+- Privacy manifest populated (`UserID`, `PhotosOrVideos`, `OtherUserContent` with linked/tracking/purposes)
+- Anthropic key migration to CF Worker complete — no key in Swift binary or Keychain
+- `CookModeView` `.fullScreenCover` (TimerReadyOverlay) and `.sheet` (RunningTimerSheet) now re-inject `AppearanceSettings` (iOS 26 environment-drop fix)
+- `ImportersListSheet` now uses canonical `UserProfileSnapshot.resolvedAccent` with `AppColor.accent` fallback (was falling back to user's accent)
+- `ImportFromPhotoView` PhotosPicker decode moved to `Task.detached(.userInitiated)` — HEIC decode no longer blocks main actor during multi-photo selection
+- `PhotoCarouselView.commit` routes through `Optional(draft).trimmedIfNonEmpty`
+- `SeedFriend.loadPayload()` no longer calls `fatalError` — logs via `os.Logger` and returns an empty payload if `SeedRecipes.json` is missing/malformed, so the app stays usable

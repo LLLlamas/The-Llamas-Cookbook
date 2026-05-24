@@ -128,14 +128,24 @@ struct ImportFromPhotoView: View {
         }
         .onChange(of: pickedItems) { _, items in
             guard !items.isEmpty else { return }
+            // HEIC decode is 50–150ms per image; running it on the
+            // main actor blocks the UI during multi-photo selection.
+            // Load transferable on the main task (PhotosPicker item
+            // bridging), then hand the bytes to a detached task for
+            // `UIImage(data:)` decoding off the main thread — mirrors
+            // `RecipeImageView`'s pattern.
             Task {
-                var loaded: [CapturedPage] = []
+                var raw: [(image: UIImage, data: Data)] = []
                 for item in items {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let img = UIImage(data: data) {
-                        loaded.append(CapturedPage(image: img, sourceData: data))
+                    guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+                    let decoded = await Task.detached(priority: .userInitiated) {
+                        UIImage(data: data)
+                    }.value
+                    if let img = decoded {
+                        raw.append((image: img, data: data))
                     }
                 }
+                let loaded = raw.map { CapturedPage(image: $0.image, sourceData: $0.data) }
                 if !loaded.isEmpty {
                     capturedPages.append(contentsOf: loaded)
                 }

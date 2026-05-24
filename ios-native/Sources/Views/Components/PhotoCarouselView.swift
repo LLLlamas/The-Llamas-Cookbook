@@ -803,7 +803,8 @@ private struct CaptionRow: View {
     }
 
     private func commit() {
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        onCommit(trimmed.isEmpty ? nil : trimmed)
+        // Route through the canonical `Optional<String>.trimmedIfNonEmpty`
+        // helper so trim+empty semantics stay consistent app-wide.
+        onCommit(Optional(draft).trimmedIfNonEmpty)
     }
 }

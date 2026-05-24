@@ -278,6 +278,11 @@ struct CookModeView: View {
                     TimerNotifications.cancel(cookID: cookID)
                 }
             )
+            // iOS 26: @Observable environments drop across cover
+            // boundaries. TimerReadyOverlay reads AppearanceSettings
+            // for its accent — re-inject or it renders with the wrong
+            // tint (or crashes if the value is unresolvable).
+            .environment(appearance)
         }
         .sheet(isPresented: $showingTimerSheet) {
             RunningTimerSheet(
@@ -295,6 +300,9 @@ struct CookModeView: View {
             )
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
+            // iOS 26: same as above — RunningTimerSheet reads
+            // AppearanceSettings, so re-inject across the sheet.
+            .environment(appearance)
         }
         .alert("Mark as cooked?", isPresented: $showingExitConfirm) {
             Button("Not this time", role: .cancel) { onClose() }

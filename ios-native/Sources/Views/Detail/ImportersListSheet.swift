@@ -221,12 +221,11 @@ struct ImportersListSheet: View {
     }
 
     private func importerRowContent(record: RecipeImportRecord, friend: UserProfileSnapshot?) -> some View {
-        let resolvedAccent: Color = {
-            if let hex = friend?.accentHex, let parsed = Color(hex: hex) {
-                return parsed
-            }
-            return appearance.accentColor
-        }()
+        // Use the canonical `UserProfileSnapshot.resolvedAccent` helper
+        // (terracotta fallback) instead of re-inlining + falling back
+        // to the signed-in user's accent — importers we don't know
+        // should show the brand color, not "my" color.
+        let resolvedAccent: Color = friend?.resolvedAccent ?? AppColor.accent
         let isCooking = friend?.isCookingNow ?? false
         return HStack(spacing: AppSpacing.sm) {
             Group {

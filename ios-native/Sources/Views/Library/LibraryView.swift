@@ -299,7 +299,7 @@ struct LibraryView: View {
                     // it doesn't overlap card content.
                     .padding(.leading, AppSpacing.lg)
                     .padding(.trailing, AppSpacing.lg + 16)
-                    .padding(.top, AppSpacing.lg)
+                    .padding(.top, AppSpacing.xs)
                     // Extra bottom runway when the cooking pills are
                     // overlaying the bottom edge — without this the
                     // last recipe card gets clipped under the pills.

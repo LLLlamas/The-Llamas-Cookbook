@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// "Your Llama" — a synthetic, local-only friend that ships with every
 /// fresh install. Renders alongside real CloudKit friends in the
@@ -188,30 +189,37 @@ enum SeedFriend {
 
     // MARK: - JSON decode
 
-    /// Decode the bundled JSON. Fatal-error on failure: the file is
-    /// shipped inside the app binary and validated at build time, so
-    /// a missing or malformed payload at runtime is a developer bug,
-    /// not a user-facing condition. Falling through silently would
-    /// give every brand-new user an empty seed cookbook with no
-    /// signal as to why.
+    private static let log = Logger(subsystem: "com.llamascookbook.app", category: "SeedFriend")
+
+    /// Stable reference timestamp for everything the seed friend
+    /// exposes — published-at, envelope createdAt, updatedAt — so the
+    /// cards render the same "Updated" line on every install rather
+    /// than drifting around with `.now`. 2026-01-01.
+    private static let referenceDate = Date(timeIntervalSince1970: 1_767_225_600)
+
+    /// Decode the bundled JSON. A missing or malformed payload at
+    /// runtime is a developer bug (the file ships in the app binary
+    /// and is validated at build time), but crashing on launch is
+    /// worse than degrading: every user would lose the entire app
+    /// over a single missing resource. We log loudly and fall back
+    /// to an empty seed cookbook so the rest of the app stays usable.
     private static func loadPayload() -> SeedPayload {
         guard let url = Bundle.main.url(forResource: "SeedRecipes", withExtension: "json") else {
-            fatalError("SeedRecipes.json missing from app bundle — check project.yml sources.")
+            log.error("SeedRecipes.json missing from app bundle — check project.yml sources. Returning empty seed payload.")
+            return SeedPayload(recipes: [], referenceDate: referenceDate)
         }
         do {
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             let envelope = try decoder.decode(SeedJSONEnvelope.self, from: data)
-            // Stable reference timestamp for everything the seed
-            // friend exposes — published-at, envelope createdAt,
-            // updatedAt — so the cards render the same "Updated"
-            // line on every install rather than drifting around
-            // with `.now`. 2026-01-01.
-            let reference = Date(timeIntervalSince1970: 1_767_225_600)
             return SeedPayload(
-                recipes: envelope.recipes.map { dto in
-                    SeedRecipe(
-                        id: dto.uuid,
+                recipes: envelope.recipes.compactMap { dto in
+                    guard let uuid = dto.resolvedUUID else {
+                        log.error("SeedRecipes.json: skipping recipe with invalid UUID \(dto.id, privacy: .public)")
+                        return nil
+                    }
+                    return SeedRecipe(
+                        id: uuid,
                         title: dto.title,
                         summary: dto.summary,
                         servings: dto.servings,
@@ -237,10 +245,11 @@ enum SeedFriend {
                         }
                     )
                 },
-                referenceDate: reference
+                referenceDate: referenceDate
             )
         } catch {
-            fatalError("Failed to decode SeedRecipes.json: \(error)")
+            log.error("Failed to decode SeedRecipes.json: \(error.localizedDescription, privacy: .public). Returning empty seed payload.")
+            return SeedPayload(recipes: [], referenceDate: referenceDate)
         }
     }
 
@@ -309,11 +318,11 @@ private struct SeedJSONRecipe: Decodable {
     let ingredients: [SeedJSONIngredient]
     let steps: [SeedJSONStep]
 
-    var uuid: UUID {
-        guard let uuid = UUID(uuidString: id) else {
-            fatalError("SeedRecipes.json: invalid UUID \(id)")
-        }
-        return uuid
+    /// Optional UUID for graceful skip-on-bad-id behavior in
+    /// `loadPayload`. Never force-unwrap — a malformed seed UUID
+    /// should drop one recipe, not crash the app.
+    var resolvedUUID: UUID? {
+        UUID(uuidString: id)
     }
 }
 
