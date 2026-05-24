@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-18
+Last refreshed: 2026-05-24
 
 ---
 
@@ -179,6 +179,10 @@ Last refreshed: 2026-05-18
 - `performSave` does NOT call `dismiss()` — `onSaved`/`onSavedForEdit` closures dismiss `ImportFromPhotoView`, collapsing the full sheet hierarchy in one animation
 - Parse-result KV cache key: `parseCache:<promptVersion>:model=<model>:<contentHash>`. `PROMPT_VERSION = "v3"` in `parse.js` — bump whenever `RecipeAIParser.instructions` changes
 - Photo-import quota: Free 5 saves/month, Pro 30/month, 5 parse attempts/day. iOS sends `x-llamas-user`, `x-llamas-tz`, `x-llamas-import-kind: photo`. Text/link imports are not gated. Consume is fire-and-forget (save to SwiftData first, then POST)
+- **Camera vs library image fidelity**: `PhotosPicker` hands us raw photo bytes via `loadTransferable(type: Data.self)` (typically HEIC); `UIImagePickerController` only gives us a `UIImage`. The camera path in `ImportFromPhotoView.preparePages` MUST go through `ImageProcessing.prepare(uiImage:for:)` — never `UIImage.jpegData(compressionQuality:)` then `ImageProcessing.prepare(_:for:)`, which adds a lossy JPEG round-trip that measurably degrades Sonnet's handwriting recognition on dim photos. `ImageProcessing.prepare(cgImage:for:)` is the underlying single-encode primitive (CGContext resize → CGImageDestination at target format); `prepare(uiImage:)` is a thin wrapper that pulls `.cgImage` first.
+- `photoImportConfident(_:)` gate: `title.nonEmpty && (ingredients.nonEmpty || steps.nonEmpty)` — NOT all three. The earlier "all three" form rejected partial-but-truthful Sonnet drafts (e.g. an ingredient-only handwritten card with no instructions on it) and dumped the user into the OCR regex fallback, which on noisy handwritten input produces worse output than the partial vision draft. The NEVER FABRICATE rule in the system prompt makes an empty section a deliberate truthful answer, not a parse failure.
+- `RecipeImporter.stripTitleLabel` strips dash-suffixed yield ("Empanada Dough - 28 servings" → "Empanada Dough"). Handwritten cards routinely glue yield onto the title line; the parser still recovers the number via the regular metadata extractor. Pattern is constrained to trailing `\s*[-–—]\s*\d+\s*(servings?|portions?|makes|yields?|people)\b.*$` so legit dash content ("Mac n Cheese - 4 ways") survives — covered by `RecipeImporterTests.testCleanTitleStripsDashYieldSuffix` and `testCleanTitlePreservesNonYieldDashSuffix`.
+- **Processing-overlay cap + skeleton reveal**: `PhotoImportPreviewView.overlayTimeoutSeconds = 4`. The "Asking the llama…" modal dismisses on whichever fires first — title-token arrival OR the 4 s timeout. Past the timeout, `showSkeleton` flips true and `titleBlock` / `ingredientsSection` / `stepsSection` render pulsing `SkeletonBlock` placeholders so the user sees structure within 4 s on slow networks. Real content replaces the skeleton via the existing tick-in transitions as the stream lands. The timeout `Task` is armed in `.onAppear` (only when streaming + title empty), cancelled in `.onDisappear`; never poll. Don't remove the 4 s cap — observed Sonnet TTFB has a long tail.
 
 ### AI Parser Chain
 - Text/link: `RecipeAIParser.parseBestOf` → `AnthropicRecipeParser.parse` (CF Worker `/api/parse`) → Apple Intelligence → regex
