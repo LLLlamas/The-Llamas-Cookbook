@@ -124,7 +124,13 @@ enum SeedFriend {
                 updatedAt: cachedPayload.referenceDate,
                 summary: seed.summary,
                 tags: seed.tags,
-                thumbnailData: nil
+                // Same JPEG that ships as the recipe-level hero photo
+                // — `RecipeImageView` decodes off-main on display, so
+                // a 1600px source is fine for the friend-library grid
+                // thumbnail. Without this, the seed cards fall through
+                // to the photo-glyph placeholder and the seed cookbook
+                // reads as empty on a fresh install.
+                thumbnailData: loadHeroPhoto(seed.heroPhoto)
             )
         }
     }()
@@ -132,6 +138,23 @@ enum SeedFriend {
     private static let cachedDetails: [String: PublishedRecipeDetail] = {
         var result: [String: PublishedRecipeDetail] = [:]
         for seed in cachedPayload.recipes {
+            // Bundled hero photo, base64-encoded into a single recipe-
+            // level `SharePhoto`. Missing files are skipped silently —
+            // the recipe still materializes, just without a gallery
+            // photo. Same degrade-don't-crash contract as `loadPayload`.
+            let envelopePhotos: [LCRecipeShareV1.SharePhoto]
+            if let heroData = loadHeroPhoto(seed.heroPhoto) {
+                envelopePhotos = [
+                    LCRecipeShareV1.SharePhoto(
+                        id: UUID(),
+                        order: 0,
+                        caption: nil,
+                        image: heroData.base64EncodedString()
+                    )
+                ]
+            } else {
+                envelopePhotos = []
+            }
             let envelope = LCRecipeShareV1(
                 schemaVersion: RecipeShare.currentVersion,
                 share: LCRecipeShareV1.ShareEnvelope(
@@ -175,7 +198,7 @@ enum SeedFriend {
                             photos: []
                         )
                     },
-                    photos: []
+                    photos: envelopePhotos
                 )
             )
             result[seed.id.uuidString] = PublishedRecipeDetail(
@@ -228,6 +251,7 @@ enum SeedFriend {
                         tags: dto.tags,
                         prefaceNote: dto.prefaceNote,
                         epilogueNote: dto.epilogueNote,
+                        heroPhoto: dto.heroPhoto,
                         ingredients: dto.ingredients.enumerated().map { (idx, raw) in
                             SeedIngredient(
                                 quantity: raw.quantity,
@@ -257,6 +281,30 @@ enum SeedFriend {
         guard let s, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return s
     }
+
+    /// Loads a bundled hero photo by filename (e.g. `01-hot-honey-chicken.jpg`).
+    /// Photos live in `Resources/SeedPhotos/` and are declared in
+    /// `project.yml` as a folder reference, which flattens them into the
+    /// app bundle — `Bundle.main.url(forResource:withExtension:)` finds
+    /// them without a subdirectory hint. Returns nil for missing
+    /// filenames or unreadable files (logged via `os.Logger`) so the
+    /// recipe still materializes without a photo rather than crashing
+    /// the seed cookbook over a single asset.
+    private static func loadHeroPhoto(_ filename: String?) -> Data? {
+        guard let filename, !filename.isEmpty else { return nil }
+        let stem = (filename as NSString).deletingPathExtension
+        let ext  = (filename as NSString).pathExtension
+        guard let url = Bundle.main.url(forResource: stem, withExtension: ext) else {
+            log.error("Seed hero photo missing from bundle: \(filename, privacy: .public)")
+            return nil
+        }
+        do {
+            return try Data(contentsOf: url)
+        } catch {
+            log.error("Failed to load seed hero photo \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
 }
 
 // MARK: - Decode types
@@ -280,6 +328,11 @@ private struct SeedRecipe {
     let tags: [String]
     let prefaceNote: String?
     let epilogueNote: String?
+    /// Bundled hero photo filename (e.g. `01-hot-honey-chicken.jpg`),
+    /// resolved against `Resources/SeedPhotos/` at envelope-build time.
+    /// Nil leaves the recipe photoless — same render path as before
+    /// hero photos shipped.
+    let heroPhoto: String?
     let ingredients: [SeedIngredient]
     let steps: [SeedStep]
 }
@@ -315,6 +368,9 @@ private struct SeedJSONRecipe: Decodable {
     let tags: [String]
     let prefaceNote: String?
     let epilogueNote: String?
+    /// Bundled hero photo filename — optional + `decodeIfPresent` so a
+    /// photoless seed entry (or a future test fixture) still decodes.
+    let heroPhoto: String?
     let ingredients: [SeedJSONIngredient]
     let steps: [SeedJSONStep]
 

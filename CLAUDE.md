@@ -89,7 +89,7 @@ Last refreshed: 2026-05-24 (post-launch-audit pass 2)
 **Friends / social** — `Sources/Views/Friends/`, `Sources/Lib/`
 - `FriendsTabView.swift`, `FriendLibraryView.swift` (`showsBackButton: Bool = true`), `FriendRecipeDetailView.swift`
 - Lib: `CloudKitFriendship.swift`, `CloudKitUserProfile.swift`, `CloudKitPublishedRecipe.swift`, `CloudKitRecipeImport.swift`, `CloudKitSubscriptions.swift`, `CloudPendingDeleteQueue.swift`, `UserProfileMirror.swift`, `LibraryMirrorService.swift`
-- `SeedFriend.swift` + `SeedRecipes.json` — "Your Llama" synthetic friend; always `friends[0]`
+- `SeedFriend.swift` + `SeedRecipes.json` + `Resources/SeedPhotos/` — "Your Llama" synthetic friend; always `friends[0]`. Each seed recipe carries a `heroPhoto` filename resolved against the bundled `SeedPhotos/` folder reference and base64-encoded into the recipe-level `SharePhoto` at envelope-build time (also used as the friend-library grid `thumbnailData`). Photo sources logged in `md_files/seed-photo-credits.md`
 
 **Quota + IAP** — `Sources/Lib/`, `Sources/Views/Profile/`
 - `QuotaService.swift`, `LlamaProStore.swift`, `PaywallView.swift`

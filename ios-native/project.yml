@@ -33,6 +33,13 @@ targets:
       # tab so a fresh install has something to browse / import from
       # on day one, with zero CloudKit dependency.
       - path: Resources/SeedRecipes.json
+      # Hero photos for "Your Llama" seed recipes — one JPEG per recipe,
+      # filename referenced by the `heroPhoto` field in `SeedRecipes.json`.
+      # Folder reference so every JPEG ships flat in the app bundle and
+      # `Bundle.main.url(forResource:withExtension:)` resolves without a
+      # subdirectory hint. Sourced from Pexels (free commercial use,
+      # attribution log in `md_files/seed-photo-credits.md`).
+      - path: Resources/SeedPhotos
     dependencies:
       - target: LlamasCookbookTimerWidget
         embed: true
