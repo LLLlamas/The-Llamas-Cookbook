@@ -1,5 +1,7 @@
 import Foundation
+import CoreGraphics
 import ImageIO
+import UIKit
 import UniformTypeIdentifiers
 
 /// Resize + re-encode photo data for storage or temporary OCR prep.
@@ -170,6 +172,138 @@ enum ImageProcessing {
         // to ~250KB JPEG) — return the source unchanged. Better to keep
         // the user's original than to actively make things worse.
         return encoded.count < source.count ? encoded : source
+    }
+
+    /// Prepare directly from a `UIImage` (camera capture path) without first
+    /// round-tripping to lossy JPEG `Data`. The camera path can't hand us the
+    /// original sensor bytes — `UIImagePickerController` decodes them to
+    /// `UIImage` before we get them — so the best we can do is encode the
+    /// in-memory `CGImage` exactly once at the target format. Going through
+    /// `UIImage.jpegData(compressionQuality:)` first adds an unnecessary
+    /// lossy pass that measurably degrades handwriting recognition on dim
+    /// photos; the library path's `loadTransferable(type: Data.self)`
+    /// already hands us raw bytes so it doesn't suffer this.
+    ///
+    /// Orientation is baked in by drawing the `UIImage` through a
+    /// `UIGraphicsImageRenderer` before reading `.cgImage`. The underlying
+    /// CGImage on a camera capture is often pixel-rotated relative to its
+    /// display orientation (portrait photos commonly carry `.right`
+    /// orientation); writing the raw CGImage would send Sonnet a sideways
+    /// image. Returns nil only when the `UIImage` has no backing pixels.
+    static func prepare(uiImage: UIImage, for target: Target) async -> Data? {
+        guard uiImage.cgImage != nil else { return nil }
+        let upright = bakeOrientation(uiImage)
+        guard let cgImage = upright.cgImage else { return nil }
+        return await prepare(cgImage: cgImage, for: target)
+    }
+
+    /// Render `image` into a new bitmap with its `.imageOrientation`
+    /// applied as a pixel transform, so the resulting `cgImage` is
+    /// display-upright. No-op (returns the input) when the image is
+    /// already in `.up` orientation — the common library-load case.
+    private static func bakeOrientation(_ image: UIImage) -> UIImage {
+        if image.imageOrientation == .up { return image }
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
+    /// Resize + encode a `CGImage` for the given target. Single lossy pass
+    /// at the destination format; no intermediate `Data` round-trip. Used
+    /// by the camera capture path where we hold a `UIImage` rather than
+    /// raw photo bytes.
+    static func prepare(cgImage: CGImage, for target: Target) async -> Data? {
+        await Task.detached(priority: .userInitiated) {
+            prepareCGImageSync(cgImage, for: target)
+        }.value
+    }
+
+    private static func prepareCGImageSync(_ cgImage: CGImage, for target: Target) -> Data? {
+        let srcWidth  = cgImage.width
+        let srcHeight = cgImage.height
+        guard srcWidth > 0, srcHeight > 0 else { return nil }
+
+        // Mirror the `.aiVision` dual cap (long-edge + ~1.2 MP) from
+        // `prepareSync` so camera and library paths produce comparably-sized
+        // payloads to Anthropic.
+        let maxLongEdge: Double
+        if case .aiVision = target {
+            let scale = min(
+                1.0,
+                1568.0 / Double(max(srcWidth, srcHeight)),
+                sqrt(1_200_000.0 / Double(srcWidth * srcHeight))
+            )
+            maxLongEdge = Double(max(srcWidth, srcHeight)) * scale
+        } else {
+            maxLongEdge = min(Double(max(srcWidth, srcHeight)), Double(target.maxLongEdgePixels))
+        }
+
+        let aspect = Double(srcWidth) / Double(srcHeight)
+        let (targetWidth, targetHeight): (Int, Int) = {
+            if srcWidth >= srcHeight {
+                let w = max(1, Int(maxLongEdge.rounded(.down)))
+                let h = max(1, Int((Double(w) / aspect).rounded()))
+                return (w, h)
+            } else {
+                let h = max(1, Int(maxLongEdge.rounded(.down)))
+                let w = max(1, Int((Double(h) * aspect).rounded()))
+                return (w, h)
+            }
+        }()
+
+        let resized: CGImage = {
+            // Skip the resize pass when the source is already at-or-below
+            // the target — re-blitting a same-size CGImage just wastes
+            // memory and adds a small interpolation pass for no gain.
+            if targetWidth >= srcWidth && targetHeight >= srcHeight {
+                return cgImage
+            }
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue)
+            guard let context = CGContext(
+                data: nil,
+                width: targetWidth,
+                height: targetHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo.rawValue
+            ) else { return cgImage }
+            context.interpolationQuality = .high
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
+            return context.makeImage() ?? cgImage
+        }()
+
+        // `.aiVision` forces JPEG (Anthropic doesn't accept HEIC). Other
+        // targets pick HEIC for storage when iOS can encode it; iOS supports
+        // HEIC encoding on every device that supports HEIC capture (A10+),
+        // so falling back to JPEG is rare in practice. We still fall back to
+        // JPEG if `CGImageDestinationCreateWithData` returns nil for HEIC.
+        let preferredType = target.forcesJPEGOutput ? UTType.jpeg : UTType.heic
+
+        if let data = encodeCGImage(resized, type: preferredType, quality: target.jpegQuality) {
+            return data
+        }
+        if preferredType != .jpeg {
+            return encodeCGImage(resized, type: .jpeg, quality: target.jpegQuality)
+        }
+        return nil
+    }
+
+    private static func encodeCGImage(_ image: CGImage, type: UTType, quality: CGFloat) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            type.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, image, [
+            kCGImageDestinationLossyCompressionQuality: quality,
+        ] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
     }
 
     /// Transcode HEIC bytes to JPEG without resizing. Pass-through for

@@ -46,6 +46,19 @@ final class RecipeImporterTests: XCTestCase {
         XCTAssertFalse(result.hasPrefix("↓"))
     }
 
+    func testCleanTitleStripsDashYieldSuffix() {
+        // Handwritten card pattern: dish - <n> servings.
+        XCTAssertEqual(RecipeImporter.cleanTitle("Empanada Dough - 28 servings"), "Empanada Dough")
+        XCTAssertEqual(RecipeImporter.cleanTitle("Brownies — 24 portions"), "Brownies")
+        XCTAssertEqual(RecipeImporter.cleanTitle("Loaf - 1 makes"), "Loaf")
+    }
+
+    func testCleanTitlePreservesNonYieldDashSuffix() {
+        // Legitimate dash content unrelated to yield must survive.
+        XCTAssertEqual(RecipeImporter.cleanTitle("Mac n Cheese - 4 ways"), "Mac n Cheese - 4 ways")
+        XCTAssertEqual(RecipeImporter.cleanTitle("Pasta - quick weeknight"), "Pasta - quick weeknight")
+    }
+
     // MARK: - mergeOrphanDurationSteps
 
     func testMergeGluesPureDurationOntoPreceeding() {
