@@ -52,6 +52,7 @@ struct TagInputView: View {
             Button("Cancel", role: .cancel) {
                 // Cancel keeps the draft in the TextField so the user
                 // can fix a typo rather than retype from scratch.
+                Haptics.selection()
                 pendingCustomTag = nil
             }
         } message: { tag in

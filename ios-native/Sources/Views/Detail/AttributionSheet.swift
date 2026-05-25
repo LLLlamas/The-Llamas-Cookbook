@@ -51,7 +51,10 @@ struct AttributionSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button { dismiss() } label: {
+                    Button {
+                        Haptics.selection()
+                        dismiss()
+                    } label: {
                         Text("Done")
                             .foregroundStyle(appearance.accentColor)
                             .accentTextOutline()

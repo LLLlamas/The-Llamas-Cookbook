@@ -90,7 +90,10 @@ struct RecipeImportPreviewView: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
+                    Button {
+                        Haptics.selection()
+                        dismiss()
+                    } label: {
                         Text("Cancel")
                             .foregroundStyle(appearance.accentColor)
                             .accentTextOutline()
@@ -137,7 +140,7 @@ struct RecipeImportPreviewView: View {
                 guard !trimmed.isEmpty else { return }
                 performSave(withOverrideTitle: trimmed)
             }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) { Haptics.selection() }
         } message: {
             Text("You already have a recipe titled \"\(envelope.recipe.title)\". Save this one with a different name?")
         }

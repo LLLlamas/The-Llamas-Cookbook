@@ -168,7 +168,7 @@ struct FriendRecipeDetailView: View {
                 guard !trimmed.isEmpty else { return }
                 Task { await performImport(overrideTitle: trimmed) }
             }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) { Haptics.selection() }
         } message: {
             if let title = envelope?.recipe.title {
                 Text("You already have a recipe titled \"\(title)\". Import this one with a different name?")

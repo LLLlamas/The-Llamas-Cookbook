@@ -123,7 +123,10 @@ struct ImportFromTextLinkView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
+                    Button {
+                        Haptics.selection()
+                        dismiss()
+                    } label: {
                         Text("Cancel")
                             .foregroundStyle(appearance.accentColor)
                             .accentTextOutline()
@@ -217,6 +220,7 @@ struct ImportFromTextLinkView: View {
             }
             .alert("Already in Your Cookbook", isPresented: $showDuplicateAlert, presenting: pendingDraft) { draft in
                 Button("Cancel", role: .cancel) {
+                    Haptics.selection()
                     pendingDraft = nil
                 }
                 Button("Save as \"\(duplicateSuggestedTitle)\"") {

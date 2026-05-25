@@ -73,7 +73,10 @@ struct AccentColorPicker: View {
             .tint(pickerColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        Haptics.selection()
+                        dismiss()
+                    }
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(pickerColor)
                         .accentTextOutline()

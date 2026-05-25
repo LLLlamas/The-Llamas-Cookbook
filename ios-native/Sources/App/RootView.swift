@@ -691,6 +691,16 @@ struct RootView: View {
                 if newValue == selectedTab && newValue == .home {
                     navContext.goHomeRequestedAt = Date()
                 }
+                // Light selection tick when the user transitions INTO
+                // Friends or Me. Skipped on re-tap of the active tab
+                // (no transition) and on the initial selectedTab seed
+                // (which doesn't route through this setter). Home is
+                // intentionally excluded — re-tap there already owns
+                // the "go home" reset signal and would feel double-
+                // tapped if it also fired a tick.
+                if newValue != selectedTab, newValue == .friends || newValue == .me {
+                    Haptics.selection()
+                }
                 selectedTab = newValue
             }
         )

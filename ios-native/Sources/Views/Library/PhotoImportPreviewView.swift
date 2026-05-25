@@ -231,7 +231,7 @@ struct PhotoImportPreviewView: View {
                 guard !trimmed.isEmpty else { return }
                 performSave(withOverrideTitle: trimmed)
             }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) { Haptics.selection() }
         } message: {
             Text("You already have a recipe titled \"\(effectiveDraft.title.trimmed)\". Save this one with a different name?")
         }
@@ -240,7 +240,10 @@ struct PhotoImportPreviewView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button { dismiss() } label: {
+            Button {
+                Haptics.selection()
+                dismiss()
+            } label: {
                 Text("Cancel")
                     .foregroundStyle(appearance.accentColor)
                     .accentTextOutline()

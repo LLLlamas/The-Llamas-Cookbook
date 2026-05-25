@@ -143,6 +143,9 @@ struct FriendsTabView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        Haptics.selection()
+                    })
                     .task(id: friend.userRecordName) {
                         async let count: Void = loadCountIfNeeded(for: friend)
                         async let saves: Void = loadTotalSavesIfNeeded(for: friend)

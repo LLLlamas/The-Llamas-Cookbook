@@ -26,7 +26,10 @@ struct ConversionsView: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button { dismiss() } label: {
+                    Button {
+                        Haptics.selection()
+                        dismiss()
+                    } label: {
                         Text("Done")
                             .foregroundStyle(appearance.accentColor)
                             .font(.system(size: 16, weight: .semibold))
@@ -36,7 +39,10 @@ struct ConversionsView: View {
                 ToolbarItemGroup(placement: .keyboard) {
                     if calcFocused {
                         Spacer()
-                        Button { calcFocused = false } label: {
+                        Button {
+                            Haptics.selection()
+                            calcFocused = false
+                        } label: {
                             Text("Done")
                                 .foregroundStyle(appearance.accentColor)
                                 .font(.system(size: 16, weight: .semibold))

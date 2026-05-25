@@ -203,6 +203,7 @@ struct PhotoCarouselView: View {
                 pendingDeleteIndex = nil
             }
             Button("Cancel", role: .cancel) {
+                Haptics.selection()
                 pendingDeleteIndex = nil
             }
         }
@@ -250,7 +251,10 @@ struct PhotoCarouselView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button("Done") { dismiss() }
+            Button("Done") {
+                Haptics.selection()
+                dismiss()
+            }
                 .foregroundStyle(appearance.accentColor)
                 .accentTextOutline()
         }

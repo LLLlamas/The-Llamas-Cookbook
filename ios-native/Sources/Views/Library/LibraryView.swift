@@ -197,7 +197,7 @@ struct LibraryView: View {
             ),
             presenting: deletingRecipe
         ) { recipe in
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) { Haptics.selection() }
             Button("Delete", role: .destructive) {
                 session.cleanupCooks(forDeletedRecipeID: recipe.id)
                 LibraryMirrorService.shared.deleteRecipe(recipeID: recipe.id)

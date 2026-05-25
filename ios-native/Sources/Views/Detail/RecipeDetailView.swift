@@ -406,6 +406,7 @@ struct RecipeDetailView: View {
                     }
                     .accessibilityLabel("Share recipe")
                     Button {
+                        Haptics.selection()
                         editor.startEdit(recipe)
                     } label: {
                         Image(systemName: "square.and.pencil")
@@ -537,7 +538,7 @@ struct RecipeDetailView: View {
             }
         }
         .alert("Delete recipe?", isPresented: $showingDeleteAlert) {
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) { Haptics.selection() }
             Button("Delete", role: .destructive) {
                 // Mirror LibraryView's delete path: drop any cook for
                 // this recipe before the @Model is deleted so the
@@ -913,16 +914,43 @@ struct RecipeDetailView: View {
         }
         .padding(.vertical, AppSpacing.sm + 2)
         .padding(.horizontal, AppSpacing.md + 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Chrome matches `StepDetailRow` (top-down gradient + white
+        // top-edge glare + gradient stroke that lights the top edge)
+        // so ingredient cards and step cards read as the same kind of
+        // surface. The earlier diagonal gradient + flat dark stroke
+        // had no top highlight to balance `.liftedCard()`'s drop
+        // shadow, which made the shadow read as an awkward isolated
+        // halo around each row.
         .background(
             LinearGradient(
                 colors: [AppColor.surfaceRaised, AppColor.surface],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             )
         )
         .overlay(
+            LinearGradient(
+                colors: [Color.white.opacity(0.20), .clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            .allowsHitTesting(false)
+        )
+        .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
-                .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.8)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.60),
+                            AppColor.divider.opacity(0.50),
+                            AppColor.divider.opacity(0.80)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.6
+                )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         .liftedCard()

@@ -58,7 +58,10 @@ struct RecipeEditorView: View {
             scrollContent
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { attemptCancel() } label: {
+                        Button {
+                            Haptics.selection()
+                            attemptCancel()
+                        } label: {
                             Text("Cancel")
                                 .foregroundStyle(appearance.accentColor)
                                 .accentTextOutline()
@@ -102,6 +105,7 @@ struct RecipeEditorView: View {
                         if isNumericFocused {
                             Spacer()
                             Button {
+                                Haptics.selection()
                                 isNumericFocused = false
                             } label: {
                                 Text("Done")

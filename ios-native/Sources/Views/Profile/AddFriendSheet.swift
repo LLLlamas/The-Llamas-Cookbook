@@ -49,7 +49,10 @@ struct AddFriendSheet: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
+                    Button {
+                        Haptics.selection()
+                        dismiss()
+                    } label: {
                         Text("Cancel")
                             .foregroundStyle(appearance.accentColor)
                             .accentTextOutline()

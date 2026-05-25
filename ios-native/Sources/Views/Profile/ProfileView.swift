@@ -185,7 +185,10 @@ struct ProfileView: View {
                 }
                 if presentation == .sheet {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button { dismiss() } label: {
+                        Button {
+                            Haptics.selection()
+                            dismiss()
+                        } label: {
                             Text("Done")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(appearance.accentColor)
@@ -198,7 +201,7 @@ struct ProfileView: View {
                 "Delete account?",
                 isPresented: $showingDeleteConfirm
             ) {
-                Button("Cancel", role: .cancel) { }
+                Button("Cancel", role: .cancel) { Haptics.selection() }
                 Button("Delete", role: .destructive) {
                     userAccount.deleteAccount()
                     friendsStore.clearOnSignOut()
@@ -213,6 +216,7 @@ struct ProfileView: View {
                 presenting: pendingFriendRemoval
             ) { friend in
                 Button("Cancel", role: .cancel) {
+                    Haptics.selection()
                     pendingFriendRemoval = nil
                 }
                 Button("Remove", role: .destructive) {
@@ -460,6 +464,7 @@ struct ProfileView: View {
                         .foregroundStyle(AppColor.textPrimary)
                     Spacer(minLength: 0)
                     Button {
+                        Haptics.selection()
                         nameDraft = identity.displayName
                         isEditingName = true
                         Task { @MainActor in nameFieldFocused = true }
@@ -850,7 +855,10 @@ struct ProfileView: View {
             .tint(appearance.accentColor)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button { showingSettings = false } label: {
+                    Button {
+                        Haptics.selection()
+                        showingSettings = false
+                    } label: {
                         Text("Done")
                             .foregroundStyle(appearance.accentColor)
                             .accentTextOutline()

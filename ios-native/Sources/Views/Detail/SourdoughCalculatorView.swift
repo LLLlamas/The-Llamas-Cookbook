@@ -69,7 +69,10 @@ struct SourdoughCalculatorView: View {
                 ToolbarItemGroup(placement: .keyboard) {
                     if totalFocused {
                         Spacer()
-                        Button { totalFocused = false } label: {
+                        Button {
+                            Haptics.selection()
+                            totalFocused = false
+                        } label: {
                             Text("Done")
                                 .foregroundStyle(appearance.accentColor)
                                 .font(.system(size: 16, weight: .semibold))
