@@ -39,6 +39,15 @@ enum RecipeURLImporter {
         /// ingredient/step content.
         case noRecipeInCaption(enrichment: DraftRecipe, hint: String)
 
+        /// Instagram-specific: we extracted SOMETHING (hero photo +
+        /// source URL + @creator handle) but the AI parse did not
+        /// meet the strict title+ingredients+steps bar. Caller should
+        /// surface a "Write it down myself" CTA that hands
+        /// `enrichment` off to `RecipeEditorView` via
+        /// `EditorCoordinator.startNew(seed:)`, rather than keeping
+        /// the user on the import sheet with a half-filled paste box.
+        case insufficientForImport(enrichment: DraftRecipe, hint: String)
+
         case failed(message: String)
     }
 
@@ -172,6 +181,9 @@ enum RecipeURLImporter {
         case .noRecipeInCaption(var enrichment, let hint):
             enrichment.sourceUrl = originalURL.absoluteString
             return .noRecipeInCaption(enrichment: enrichment, hint: hint)
+        case .insufficientForImport(var enrichment, let hint):
+            enrichment.sourceUrl = originalURL.absoluteString
+            return .insufficientForImport(enrichment: enrichment, hint: hint)
         case .failed:
             return nil
         }
@@ -268,88 +280,140 @@ enum RecipeURLImporter {
             return blocked(url: url, platform: "Instagram")
         }
 
-        // Build the base enrichment (source URL + attribution +
-        // hero photo) before we know whether the parse will be
-        // confident — every outcome below carries it forward.
         var enrichment = DraftRecipe()
         enrichment.sourceUrl = url.absoluteString
         if let handle = extraction.ownerHandle, !handle.isEmpty {
             enrichment.summary = "From @\(handle) on Instagram"
         }
-        if let thumbURL = extraction.thumbnailURL,
-           let bytes = try? await InstagramExtractor.downloadThumbnail(thumbURL),
-           !bytes.isEmpty {
-            enrichment.photos = [DraftPhoto(image: bytes)]
-        }
 
-        // Stage 1 — inline JSON gave us the full caption. Skip the
-        // audio path entirely.
-        if extraction.capturedFullCaption, !extraction.captionText.isEmpty {
-            let (cleaned, _) = liftHashtags(from: extraction.captionText)
-            return await finishInstagramParse(
-                rawText: cleaned,
-                url: url,
-                enrichment: enrichment,
-                stage: .fullCaption
-            )
+        // Fire mp4 + thumbnail downloads in parallel as detached Tasks
+        // immediately, before deciding which stage to take. Both are
+        // network-bound and independent; whichever path we take we
+        // always end up needing the hero photo, and the mp4 is needed
+        // for transcription in stage 2 anyway. Stage 1 then runs AI
+        // parse in parallel with photo resolution; stage 2 runs
+        // first-frame extract in parallel with transcription. These
+        // overlapping awaits shave 1–3 s off perceived wall-clock vs.
+        // a serial download → transcribe → parse → frame-extract chain.
+        let videoDownload: Task<URL?, Never>? = extraction.videoURL.map { vURL in
+            Task.detached(priority: .userInitiated) {
+                try? await InstagramExtractor.downloadVideo(vURL)
+            }
         }
-
-        // Stage 2 — caption snippet + audio transcript.
-        var assembledText = extraction.captionText
-        if let videoURL = extraction.videoURL,
-           let videoFile = try? await InstagramExtractor.downloadVideo(videoURL) {
-            defer { try? FileManager.default.removeItem(at: videoFile) }
-            if let transcript = try? await SpeechTranscriber.transcribe(fileURL: videoFile),
-               !transcript.isEmpty {
-                if assembledText.isEmpty {
-                    assembledText = transcript
-                } else {
-                    assembledText += "\n\n" + transcript
-                }
+        let thumbnailDownload: Task<Data?, Never>? = extraction.thumbnailURL.map { tURL in
+            Task.detached(priority: .userInitiated) {
+                try? await InstagramExtractor.downloadThumbnail(tURL)
             }
         }
 
-        if !assembledText.isEmpty {
-            let (cleaned, _) = liftHashtags(from: assembledText)
-            return await finishInstagramParse(
-                rawText: cleaned,
-                url: url,
+        // Stage 1 — inline JSON captured the full caption. AI parse
+        // can start immediately on the caption text in parallel with
+        // hero-photo resolution; the mp4 is only needed for the clean
+        // first frame here, not for transcription, so the two paths
+        // run fully concurrently.
+        if extraction.capturedFullCaption, !extraction.captionText.isEmpty {
+            let (cleaned, _) = liftHashtags(from: extraction.captionText)
+            async let aiTask: DraftRecipe? = RecipeAIParser.parseBestOf(
+                cleaned, sourceUrl: url.absoluteString
+            )
+            async let photoTask: Data? = resolveInstagramHeroPhoto(
+                videoDownload: videoDownload,
+                thumbnailDownload: thumbnailDownload
+            )
+            let (aiDraft, photoData) = await (aiTask, photoTask)
+            if let photoData, !photoData.isEmpty {
+                enrichment.photos = [DraftPhoto(image: photoData)]
+            }
+            await cleanupInstagramVideoFile(videoDownload)
+            return buildInstagramOutcome(aiDraft: aiDraft, enrichment: enrichment)
+        }
+
+        // Stage 2 — caption snippet + audio transcript. Need the mp4
+        // for transcription; once we have it, first-frame extraction
+        // and transcription both read from the same file and run in
+        // parallel (both read-only, safe to share).
+        var assembledText = extraction.captionText
+        var frameData: Data? = nil
+        if let videoFile = await videoDownload?.value {
+            let frameTask = Task.detached(priority: .userInitiated) {
+                await InstagramExtractor.extractFirstFrame(from: videoFile)
+            }
+            if let transcript = try? await SpeechTranscriber.transcribe(fileURL: videoFile),
+               !transcript.isEmpty {
+                assembledText = assembledText.isEmpty
+                    ? transcript
+                    : assembledText + "\n\n" + transcript
+            }
+            frameData = await frameTask.value
+        }
+
+        // Hero photo for stage 2: prefer the extracted frame; fall
+        // back to og:image when no mp4 was available or the frame
+        // extract returned nothing (carousel posts, corrupt mp4).
+        if frameData == nil || frameData?.isEmpty == true {
+            frameData = await thumbnailDownload?.value
+        }
+        if let frameData, !frameData.isEmpty {
+            enrichment.photos = [DraftPhoto(image: frameData)]
+        }
+
+        await cleanupInstagramVideoFile(videoDownload)
+
+        guard !assembledText.isEmpty else {
+            // Stage 3 — nothing usable. Route to the "write it down
+            // yourself" handoff with hero photo + source URL preserved.
+            return .insufficientForImport(
                 enrichment: enrichment,
-                stage: .snippetPlusTranscript
+                hint: "Couldn't read this Instagram post — write the recipe yourself and the source link will be saved with it."
             )
         }
 
-        // Stage 3 — nothing usable. Hand back whatever we have as
-        // a paste-fallback seed.
-        return .blocked(
-            enrichment: enrichment,
-            hint: "Couldn't read the caption from that Instagram link. Paste the caption text below to fill ingredients & steps."
-        )
+        let (cleaned, _) = liftHashtags(from: assembledText)
+        let aiDraft = await RecipeAIParser.parseBestOf(cleaned, sourceUrl: url.absoluteString)
+        return buildInstagramOutcome(aiDraft: aiDraft, enrichment: enrichment)
     }
 
-    private enum InstagramStage {
-        case fullCaption
-        case snippetPlusTranscript
+    /// Resolve the hero photo for an IG import. Prefers a clean first
+    /// frame from the mp4 (no play-icon overlay), falls back to
+    /// `og:image` thumbnail when no video exists (photo/carousel
+    /// posts) or first-frame extraction fails. Both downloads were
+    /// already fired as parallel Tasks — this just awaits them in
+    /// priority order.
+    private static func resolveInstagramHeroPhoto(
+        videoDownload: Task<URL?, Never>?,
+        thumbnailDownload: Task<Data?, Never>?
+    ) async -> Data? {
+        if let videoFile = await videoDownload?.value,
+           let frame = await InstagramExtractor.extractFirstFrame(from: videoFile),
+           !frame.isEmpty {
+            return frame
+        }
+        return await thumbnailDownload?.value
     }
 
-    /// Shared tail end of stages 1 and 2: feed the cleaned text into
-    /// the AI parser, return `.full` when confident, `.partial` with
-    /// the assembled text as seedText otherwise. The enrichment
-    /// (source URL, attribution, hero photo) flows through both
-    /// branches.
-    private static func finishInstagramParse(
-        rawText: String,
-        url: URL,
-        enrichment: DraftRecipe,
-        stage: InstagramStage
-    ) async -> Outcome {
-        let exploded = RecipeImporter.explodeSingleParagraph(rawText)
+    /// Clean up the downloaded mp4 tmp file. Awaits the download
+    /// Task so we know the file URL is settled, then removes it.
+    /// No-op when no video was downloaded (photo posts) or the
+    /// download failed.
+    private static func cleanupInstagramVideoFile(_ task: Task<URL?, Never>?) async {
+        if let v = await task?.value {
+            try? FileManager.default.removeItem(at: v)
+        }
+    }
 
-        if let aiDraft = await RecipeAIParser.parseBestOf(rawText, sourceUrl: url.absoluteString),
-           !aiDraft.title.trimmed.isEmpty,
-           (!aiDraft.ingredients.isEmpty || !aiDraft.steps.isEmpty) {
-            // Merge enrichment fields into the AI draft so the
-            // source URL, attribution, and hero photo survive.
+    /// Apply the strict Instagram bar (title + ingredients + steps
+    /// all populated) to the AI draft, merging enrichment fields
+    /// (source URL, @creator attribution, hero photo) when the bar
+    /// is satisfied. Returns `.full` on success, `.insufficientForImport`
+    /// otherwise — the enrichment is carried in both cases so the
+    /// editor handoff still gets the hero photo + source URL.
+    private static func buildInstagramOutcome(
+        aiDraft: DraftRecipe?,
+        enrichment: DraftRecipe
+    ) -> Outcome {
+        if let aiDraft, !aiDraft.title.trimmed.isEmpty,
+           !aiDraft.ingredients.isEmpty,
+           !aiDraft.steps.isEmpty {
             var draft = aiDraft
             if draft.sourceUrl.trimmed.isEmpty {
                 draft.sourceUrl = enrichment.sourceUrl
@@ -362,18 +426,9 @@ enum RecipeURLImporter {
             }
             return .full(draft)
         }
-
-        let hint: String
-        switch stage {
-        case .fullCaption:
-            hint = "Got the caption from Instagram. Make sure line 1 is the title — leave a blank line between title, ingredients, and steps."
-        case .snippetPlusTranscript:
-            hint = "Got what Instagram shares about this reel. Fill in or paste anything missing below."
-        }
-        return .partial(
+        return .insufficientForImport(
             enrichment: enrichment,
-            seedText: exploded,
-            hint: hint
+            hint: "I couldn't pull a complete recipe from this Instagram link — write the title, ingredients, and steps yourself and the photo + source link will be saved with it."
         )
     }
 

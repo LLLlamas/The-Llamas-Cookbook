@@ -64,6 +64,18 @@ struct ImportFromTextLinkView: View {
     @State private var pendingDraft: DraftRecipe? = nil
     @State private var showDuplicateAlert = false
     @State private var duplicateSuggestedTitle = ""
+    /// Set by the Instagram-only `.insufficientForImport` outcome.
+    /// While non-nil, the banner sprouts a "Write it down myself"
+    /// capsule CTA that hands this enrichment off to
+    /// `EditorCoordinator.startNew(seed:)`. Cleared on every new
+    /// `fetchURL()` and whenever the URL field is cleared.
+    @State private var insufficientEnrichment: DraftRecipe? = nil
+    /// Full-sheet "Asking the llama…" overlay state. Debounced — the
+    /// task fires after 1 s of `urlFetchState == .fetching` so quick
+    /// blog/Pinterest fetches don't flash a modal; Instagram (HTML +
+    /// mp4 + transcription) routinely exceeds that.
+    @State private var showFetchingOverlay = false
+    @State private var fetchingOverlayTask: Task<Void, Never>? = nil
     @FocusState private var urlFocused: Bool
     @FocusState private var pasteFocused: Bool
     @AppStorage("hasSeenImportHelp") private var hasSeenImportHelp = false
@@ -192,6 +204,7 @@ struct ImportFromTextLinkView: View {
                 }
                 if new.trimmed.isEmpty {
                     urlFieldEdited = false
+                    insufficientEnrichment = nil
                 }
             }
             .onChange(of: urlFieldEdited) { old, new in
@@ -199,6 +212,8 @@ struct ImportFromTextLinkView: View {
             }
             .onDisappear {
                 editor.hasUnsavedChanges = false
+                fetchingOverlayTask?.cancel()
+                fetchingOverlayTask = nil
             }
             .alert("Already in Your Cookbook", isPresented: $showDuplicateAlert, presenting: pendingDraft) { draft in
                 Button("Cancel", role: .cancel) {
@@ -227,6 +242,12 @@ struct ImportFromTextLinkView: View {
                     )
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.25), value: showTour)
+                }
+            }
+            .overlay {
+                if showFetchingOverlay {
+                    fetchingOverlay
+                        .transition(.opacity)
                 }
             }
         }
@@ -297,6 +318,7 @@ struct ImportFromTextLinkView: View {
                     urlText = ""
                     banner = nil
                     parsedDraft = nil
+                    insufficientEnrichment = nil
                     Haptics.selection()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -518,16 +540,53 @@ struct ImportFromTextLinkView: View {
     }
 
     private func bannerView(_ banner: ImportBanner) -> some View {
-        HStack(alignment: .top, spacing: AppSpacing.sm) {
-            Image(systemName: banner.kind.icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(bannerTint(for: banner.kind))
-                .padding(.top, 2)
-            Text(banner.message)
-                .font(.system(size: 13))
-                .foregroundStyle(AppColor.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            HStack(alignment: .top, spacing: AppSpacing.sm) {
+                Image(systemName: banner.kind.icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(bannerTint(for: banner.kind))
+                    .padding(.top, 2)
+                Text(banner.message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppColor.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+
+            // Instagram-only "Write it down myself" handoff CTA. Only
+            // renders when `insufficientEnrichment` is non-nil — IG
+            // returned hero photo + source URL + @creator attribution
+            // but the AI parse didn't clear the strict
+            // title+ingredients+steps bar, so we route the user to
+            // `RecipeEditorView` pre-filled with that metadata
+            // instead of leaving them on the import sheet.
+            if let enrichment = insufficientEnrichment {
+                HStack {
+                    Spacer()
+                    Button {
+                        Haptics.impact(.medium)
+                        // Allow the in-place sheet swap without
+                        // tripping the discard alert — the user is
+                        // consenting by tapping this button.
+                        editor.hasUnsavedChanges = false
+                        editor.startNew(seed: enrichment)
+                    } label: {
+                        HStack(spacing: AppSpacing.xs) {
+                            Image(systemName: "pencil.and.scribble")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Write it down myself")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundStyle(AppColor.onAccent)
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.vertical, AppSpacing.sm)
+                        .background(appearance.accentColor)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.lifted)
+                }
+                .padding(.top, AppSpacing.xs)
+            }
         }
         .padding(AppSpacing.md)
         .background(AppColor.surface)
@@ -536,6 +595,29 @@ struct ImportFromTextLinkView: View {
                 .stroke(bannerTint(for: banner.kind).opacity(0.45), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+    }
+
+    /// Centered "Asking the llama…" card over a dimmed scrim. Mirrors
+    /// `PhotoImportPreviewView.llamaProcessingCard`. Driven by the
+    /// 1 s-debounced `showFetchingOverlay` flag — quick fetches never
+    /// flash this; IG (HTML + mp4 + transcription) routinely sits
+    /// behind it for 5–10 s.
+    private var fetchingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+            VStack(spacing: AppSpacing.md) {
+                LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
+                Text("Asking the llama…")
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(AppSpacing.xl)
+            .background(AppColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .shadow(color: AppColor.shadow, radius: 48, y: 8)
+        }
     }
 
     private func bannerTint(for kind: ImportBanner.Kind) -> Color {
@@ -660,9 +742,31 @@ struct ImportFromTextLinkView: View {
         urlFocused = false
         urlFetchState = .fetching
         banner = nil
+        // Wipe any prior IG handoff so a successful retry doesn't
+        // carry a stale CTA next to a fresh banner.
+        insufficientEnrichment = nil
+
+        // Arm the debounced "Asking the llama…" overlay. Fast fetches
+        // (blog JSON-LD, Pinterest oEmbed) finish well under 1 s and
+        // never flash the modal; IG (HTML + mp4 + transcription)
+        // crosses the threshold most of the time.
+        fetchingOverlayTask?.cancel()
+        fetchingOverlayTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            if urlFetchState == .fetching {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showFetchingOverlay = true
+                }
+            }
+        }
 
         let outcome = await RecipeURLImporter.fetch(candidate)
         urlFetchState = .idle
+        fetchingOverlayTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showFetchingOverlay = false
+        }
 
         switch outcome {
         case .full(let draft):
@@ -698,6 +802,15 @@ struct ImportFromTextLinkView: View {
         case .noRecipeInCaption(let enrichment, let hint):
             Haptics.warning()
             parsedDraft = enrichment
+            banner = ImportBanner(kind: .warning, message: hint)
+
+        case .insufficientForImport(let enrichment, let hint):
+            Haptics.warning()
+            insufficientEnrichment = enrichment
+            // Don't keep `parsedDraft` around — the Preview button
+            // would otherwise look enabled and the user would tap
+            // it instead of the CTA below the banner.
+            parsedDraft = nil
             banner = ImportBanner(kind: .warning, message: hint)
 
         case .failed(let message):

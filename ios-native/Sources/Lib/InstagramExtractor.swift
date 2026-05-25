@@ -1,4 +1,8 @@
 import Foundation
+import AVFoundation
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 
 /// Pulls recipe content out of a public Instagram reel/post URL using
 /// only what Instagram serves to any unauthenticated visitor — no API
@@ -139,6 +143,49 @@ enum InstagramExtractor {
     /// `DraftPhoto.image` field. Small (typically <500 KB).
     static func downloadThumbnail(_ url: URL) async throws -> Data {
         try await fetchBytes(url: url, maxBytes: 5 * 1024 * 1024)
+    }
+
+    /// Extract a clean first frame from a downloaded mp4. Uses
+    /// `AVAssetImageGenerator` at ~0.1s (not 0) because IG sometimes
+    /// serves a black or single-pixel first frame. Returns
+    /// JPEG-encoded bytes (quality 0.85) ready for `DraftPhoto.image`.
+    /// Returns nil on any failure (corrupt mp4, no video track,
+    /// generator error) — caller falls back to `og:image`. Used to
+    /// dodge the white play-triangle IG bakes into the `og:image`
+    /// for any video post.
+    static func extractFirstFrame(from fileURL: URL) async -> Data? {
+        let asset = AVURLAsset(url: fileURL)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        // Tolerate codec keyframe spacing — many reels don't have a
+        // keyframe at exactly 0.1s and an exact-tolerance request
+        // throws on those.
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
+
+        do {
+            let (cgImage, _) = try await generator.image(
+                at: CMTime(seconds: 0.1, preferredTimescale: 600)
+            )
+            return encodeJPEG(cgImage: cgImage, quality: 0.85)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Encode a `CGImage` as JPEG bytes via `ImageIO`. Returns nil on
+    /// any failure so callers can fall back without a throw.
+    private static func encodeJPEG(cgImage: CGImage, quality: CGFloat) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data, UTType.jpeg.identifier as CFString, 1, nil
+        ) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: quality
+        ]
+        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
     }
 
     // MARK: - HTML fetch
