@@ -3,6 +3,7 @@ import AVFoundation
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import os.log
 
 /// Pulls recipe content out of a public Instagram reel/post URL using
 /// only what Instagram serves to any unauthenticated visitor — no API
@@ -59,6 +60,15 @@ enum InstagramExtractor {
         /// (stage 1 success) rather than the truncated og:description.
         /// Callers can use this to skip the audio-transcription step.
         var capturedFullCaption: Bool = false
+
+        /// Non-video carousel slide image URLs, in order, parsed from
+        /// `edge_sidecar_to_children.edges[].node.display_url` where
+        /// `is_video == false`. Empty for non-carousel posts (single
+        /// reels and single photos). Used as the hero-photo source
+        /// for carousel posts since IG bakes a play-triangle into
+        /// `og:image` whenever any slide is a video — picking the
+        /// first non-video slide directly dodges the overlay.
+        var carouselPhotoURLs: [URL] = []
     }
 
     enum ExtractionError: Error {
@@ -145,33 +155,75 @@ enum InstagramExtractor {
         try await fetchBytes(url: url, maxBytes: 5 * 1024 * 1024)
     }
 
-    /// Extract a clean first frame from a downloaded mp4. Uses
-    /// `AVAssetImageGenerator` at ~0.1s (not 0) because IG sometimes
-    /// serves a black or single-pixel first frame. Returns
-    /// JPEG-encoded bytes (quality 0.85) ready for `DraftPhoto.image`.
-    /// Returns nil on any failure (corrupt mp4, no video track,
-    /// generator error) — caller falls back to `og:image`. Used to
+    /// Extract a clean first frame from a downloaded mp4. Used to
     /// dodge the white play-triangle IG bakes into the `og:image`
     /// for any video post.
+    ///
+    /// Retries multiple candidate timestamps with infinite tolerance
+    /// (snap to nearest keyframe) because:
+    ///   • IG reels routinely place their first keyframe at 1–2 s,
+    ///     not 0 — strict `tolerance = .zero` fails silently and we
+    ///     end up showing the play-overlay'd og:image fallback.
+    ///   • Some reels start with a black/title card; sampling
+    ///     0.5/1.0/2.0 s before falling back to t=0 gives a more
+    ///     representative frame.
+    ///
+    /// Returns JPEG-encoded bytes (quality 0.85) ready for
+    /// `DraftPhoto.image`. Returns nil on any failure — caller falls
+    /// back to `og:image` (which has the play overlay baked in).
     static func extractFirstFrame(from fileURL: URL) async -> Data? {
         let asset = AVURLAsset(url: fileURL)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        // Tolerate codec keyframe spacing — many reels don't have a
-        // keyframe at exactly 0.1s and an exact-tolerance request
-        // throws on those.
-        generator.requestedTimeToleranceBefore = .zero
-        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
 
+        // Read the actual duration first so we don't try to grab a
+        // frame past the end of a short clip. Use the async load API
+        // — the legacy synchronous accessors are deprecated under
+        // strict concurrency.
+        let durationSeconds: Double
         do {
-            let (cgImage, _) = try await generator.image(
-                at: CMTime(seconds: 0.1, preferredTimescale: 600)
-            )
-            return encodeJPEG(cgImage: cgImage, quality: 0.85)
+            let cmDuration = try await asset.load(.duration)
+            durationSeconds = cmDuration.isNumeric ? CMTimeGetSeconds(cmDuration) : 0
         } catch {
+            log.debug("IG first-frame: duration load failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        // Infinite tolerance both directions — snap to the nearest
+        // keyframe regardless of where it is. This is the looser
+        // setting that maximizes hit rate; strict tolerance is what
+        // caused the silent-fallback to og:image we saw on real reels.
+        generator.requestedTimeToleranceBefore = .positiveInfinity
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+
+        // Candidate timestamps in priority order — middle-of-clip
+        // first (most likely to land on real content past any title
+        // card), then progressively earlier, then t=0 as last resort.
+        // Filtered to fit within the asset's actual duration when
+        // known (avoids requesting frames past the end).
+        let baseCandidates: [Double] = [1.0, 0.5, 2.0, 0.1, 0.0]
+        let candidates: [Double] = durationSeconds > 0
+            ? baseCandidates.filter { $0 < durationSeconds }
+            : baseCandidates
+
+        for seconds in candidates {
+            let target = CMTime(seconds: seconds, preferredTimescale: 600)
+            do {
+                let (cgImage, _) = try await generator.image(at: target)
+                if let data = encodeJPEG(cgImage: cgImage, quality: 0.85), !data.isEmpty {
+                    log.debug("IG first-frame: extracted at t=\(seconds, privacy: .public)s (\(data.count, privacy: .public) bytes)")
+                    return data
+                }
+            } catch {
+                log.debug("IG first-frame: t=\(seconds, privacy: .public)s failed: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+        }
+        log.warning("IG first-frame: all candidate timestamps failed for \(fileURL.lastPathComponent, privacy: .public)")
+        return nil
     }
+
+    private static let log = Logger(subsystem: "com.llamascookbook.app", category: "InstagramExtractor")
 
     /// Encode a `CGImage` as JPEG bytes via `ImageIO`. Returns nil on
     /// any failure so callers can fall back without a throw.
@@ -393,6 +445,25 @@ enum InstagramExtractor {
             if let displayURLString = dict["display_url"] as? String,
                let url = URL(string: displayURLString), out.thumbnailURL == nil {
                 out.thumbnailURL = url
+            }
+
+            // Carousel sidecar — collect non-video slide URLs in
+            // order. Each edge node has `display_url` (image) and
+            // `is_video` (bool). For carousels with at least one
+            // video, IG bakes a play overlay into og:image; picking
+            // a non-video slide directly here dodges it.
+            if let edges = (dict["edge_sidecar_to_children"] as? [String: Any])?["edges"]
+                as? [[String: Any]] {
+                for edge in edges {
+                    guard let node = edge["node"] as? [String: Any] else { continue }
+                    let isVideo = (node["is_video"] as? Bool) ?? false
+                    if isVideo { continue }
+                    if let display = node["display_url"] as? String,
+                       let url = URL(string: display),
+                       !out.carouselPhotoURLs.contains(url) {
+                        out.carouselPhotoURLs.append(url)
+                    }
+                }
             }
 
             if let owner = dict["owner"] as? [String: Any],

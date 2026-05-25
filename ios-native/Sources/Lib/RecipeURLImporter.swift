@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let instagramLog = Logger(
+    subsystem: "com.llamascookbook.app",
+    category: "RecipeURLImporter.Instagram"
+)
 
 /// Fetches a recipe from a URL and tells the caller, honestly, what
 /// shape of result it could produce. Routes per platform because each
@@ -286,9 +292,9 @@ enum RecipeURLImporter {
             enrichment.summary = "From @\(handle) on Instagram"
         }
 
-        // Fire mp4 + thumbnail downloads in parallel as detached Tasks
-        // immediately, before deciding which stage to take. Both are
-        // network-bound and independent; whichever path we take we
+        // Fire all candidate photo downloads in parallel as detached
+        // Tasks immediately, before deciding which stage to take. Both
+        // are network-bound and independent; whichever path we take we
         // always end up needing the hero photo, and the mp4 is needed
         // for transcription in stage 2 anyway. Stage 1 then runs AI
         // parse in parallel with photo resolution; stage 2 runs
@@ -305,6 +311,16 @@ enum RecipeURLImporter {
                 try? await InstagramExtractor.downloadThumbnail(tURL)
             }
         }
+        // For carousels, kick off the first non-video slide download
+        // in parallel so it's ready if mp4 frame-extract falls through.
+        // Carousels with at least one video item have a play-overlay
+        // baked into og:image; preferring a non-video slide dodges it.
+        let carouselPhotoDownload: Task<Data?, Never>? = extraction.carouselPhotoURLs.first.map { cURL in
+            Task.detached(priority: .userInitiated) {
+                try? await InstagramExtractor.downloadThumbnail(cURL)
+            }
+        }
+        instagramLog.debug("IG hero photo candidates — videoURL: \(extraction.videoURL?.absoluteString ?? "nil", privacy: .public), thumbnailURL: \(extraction.thumbnailURL?.absoluteString ?? "nil", privacy: .public), carouselSlides: \(extraction.carouselPhotoURLs.count, privacy: .public)")
 
         // Stage 1 — inline JSON captured the full caption. AI parse
         // can start immediately on the caption text in parallel with
@@ -318,6 +334,7 @@ enum RecipeURLImporter {
             )
             async let photoTask: Data? = resolveInstagramHeroPhoto(
                 videoDownload: videoDownload,
+                carouselPhotoDownload: carouselPhotoDownload,
                 thumbnailDownload: thumbnailDownload
             )
             let (aiDraft, photoData) = await (aiTask, photoTask)
@@ -345,13 +362,24 @@ enum RecipeURLImporter {
                     : assembledText + "\n\n" + transcript
             }
             frameData = await frameTask.value
+        } else {
+            instagramLog.warning("IG mp4 download failed or no og:video — falling back through carousel slide / og:image")
         }
 
-        // Hero photo for stage 2: prefer the extracted frame; fall
-        // back to og:image when no mp4 was available or the frame
-        // extract returned nothing (carousel posts, corrupt mp4).
+        // Hero photo fallback chain for stage 2: extracted frame →
+        // non-video carousel slide → og:image. og:image is the worst
+        // option for video posts (has IG's play-triangle baked in) so
+        // we only use it as a last resort.
         if frameData == nil || frameData?.isEmpty == true {
-            frameData = await thumbnailDownload?.value
+            if let slideBytes = await carouselPhotoDownload?.value, !slideBytes.isEmpty {
+                frameData = slideBytes
+                instagramLog.debug("IG hero photo: using carousel non-video slide")
+            } else {
+                frameData = await thumbnailDownload?.value
+                if frameData != nil {
+                    instagramLog.debug("IG hero photo: falling back to og:image (may have play overlay)")
+                }
+            }
         }
         if let frameData, !frameData.isEmpty {
             enrichment.photos = [DraftPhoto(image: frameData)]
@@ -373,22 +401,35 @@ enum RecipeURLImporter {
         return buildInstagramOutcome(aiDraft: aiDraft, enrichment: enrichment)
     }
 
-    /// Resolve the hero photo for an IG import. Prefers a clean first
-    /// frame from the mp4 (no play-icon overlay), falls back to
-    /// `og:image` thumbnail when no video exists (photo/carousel
-    /// posts) or first-frame extraction fails. Both downloads were
-    /// already fired as parallel Tasks — this just awaits them in
-    /// priority order.
+    /// Resolve the hero photo for an IG import. Fallback chain:
+    /// 1. Clean first frame from the mp4 (no play-icon overlay).
+    /// 2. First non-video carousel slide (carousel posts only — dodges
+    ///    the play-overlay'd og:image for carousels containing a
+    ///    video item).
+    /// 3. `og:image` thumbnail (worst case — has IG's play-triangle
+    ///    baked in for any video post).
+    /// All downloads were already fired as parallel Tasks — this
+    /// just awaits them in priority order.
     private static func resolveInstagramHeroPhoto(
         videoDownload: Task<URL?, Never>?,
+        carouselPhotoDownload: Task<Data?, Never>?,
         thumbnailDownload: Task<Data?, Never>?
     ) async -> Data? {
         if let videoFile = await videoDownload?.value,
            let frame = await InstagramExtractor.extractFirstFrame(from: videoFile),
            !frame.isEmpty {
+            instagramLog.debug("IG hero photo: using mp4 first-frame")
             return frame
         }
-        return await thumbnailDownload?.value
+        if let slideBytes = await carouselPhotoDownload?.value, !slideBytes.isEmpty {
+            instagramLog.debug("IG hero photo: using carousel non-video slide")
+            return slideBytes
+        }
+        let thumb = await thumbnailDownload?.value
+        if thumb != nil {
+            instagramLog.debug("IG hero photo: falling back to og:image (may have play overlay)")
+        }
+        return thumb
     }
 
     /// Clean up the downloaded mp4 tmp file. Awaits the download
