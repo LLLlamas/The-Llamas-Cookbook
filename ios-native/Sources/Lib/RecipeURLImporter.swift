@@ -329,6 +329,7 @@ enum RecipeURLImporter {
         // run fully concurrently.
         if extraction.capturedFullCaption, !extraction.captionText.isEmpty {
             let (cleaned, _) = liftHashtags(from: extraction.captionText)
+            instagramLog.debug("IG AI parse input (stage 1, \(cleaned.count, privacy: .public) chars): \(cleaned.prefix(300), privacy: .public)")
             async let aiTask: DraftRecipe? = RecipeAIParser.parseBestOf(
                 cleaned, sourceUrl: url.absoluteString
             )
@@ -342,7 +343,11 @@ enum RecipeURLImporter {
                 enrichment.photos = [DraftPhoto(image: photoData)]
             }
             await cleanupInstagramVideoFile(videoDownload)
-            return buildInstagramOutcome(aiDraft: aiDraft, enrichment: enrichment)
+            return buildInstagramOutcome(
+                aiDraft: aiDraft,
+                enrichment: enrichment,
+                sourceText: cleaned
+            )
         }
 
         // Stage 2 — caption snippet + audio transcript. Need the mp4
@@ -397,8 +402,13 @@ enum RecipeURLImporter {
         }
 
         let (cleaned, _) = liftHashtags(from: assembledText)
+        instagramLog.debug("IG AI parse input (stage 2, \(cleaned.count, privacy: .public) chars): \(cleaned.prefix(300), privacy: .public)")
         let aiDraft = await RecipeAIParser.parseBestOf(cleaned, sourceUrl: url.absoluteString)
-        return buildInstagramOutcome(aiDraft: aiDraft, enrichment: enrichment)
+        return buildInstagramOutcome(
+            aiDraft: aiDraft,
+            enrichment: enrichment,
+            sourceText: cleaned
+        )
     }
 
     /// Resolve the hero photo for an IG import. Fallback chain:
@@ -458,12 +468,32 @@ enum RecipeURLImporter {
     /// to add them in the editor. The AI parser's NEVER FABRICATE rule
     /// guarantees an empty `steps` array is a truthful answer, not a
     /// parse failure — never paper over it with placeholder steps.
+    ///
+    /// **Hallucination guard**: rejects AI drafts whose title shares
+    /// zero significant words with the source text. IG often serves
+    /// crawlers a truncated/empty caption (just `og:description`
+    /// preview), and Sonnet/Haiku given sparse input has been
+    /// observed to invent fully-formed recipes from training data
+    /// (e.g. returning "Greek Pasta Salad" for a Cheese Danish reel
+    /// when only the og:description "Copycat Starbucks Cheese
+    /// Danish! Recipe in caption…" was available). When the title
+    /// can't be grounded in the source, we treat the whole draft as
+    /// fabricated and route to `.insufficientForImport` rather than
+    /// showing the user a confidently-wrong recipe.
     private static func buildInstagramOutcome(
         aiDraft: DraftRecipe?,
-        enrichment: DraftRecipe
+        enrichment: DraftRecipe,
+        sourceText: String
     ) -> Outcome {
         if let aiDraft, !aiDraft.title.trimmed.isEmpty,
            !aiDraft.ingredients.isEmpty {
+            guard isAIDraftGroundedInSource(aiDraft, sourceText: sourceText) else {
+                instagramLog.warning("IG hallucination guard rejected AI draft — title '\(aiDraft.title.trimmed, privacy: .public)' has no significant word overlap with source (\(sourceText.count, privacy: .public) chars)")
+                return .insufficientForImport(
+                    enrichment: enrichment,
+                    hint: "I couldn't pull a reliable recipe from this Instagram link — write the title and ingredients yourself. The photo + source link will be saved with it."
+                )
+            }
             var draft = aiDraft
             if draft.sourceUrl.trimmed.isEmpty {
                 draft.sourceUrl = enrichment.sourceUrl
@@ -480,6 +510,37 @@ enum RecipeURLImporter {
             enrichment: enrichment,
             hint: "I couldn't pull the title or ingredients from this Instagram link — write them yourself and the photo + source link will be saved with it."
         )
+    }
+
+    /// Hallucination guard for IG-imported AI drafts. Checks that at
+    /// least one significant (≥4 chars, non-stopword) word from the
+    /// AI's emitted title appears literally in the source text. When
+    /// the title is all stopwords or numbers (rare — "Pie", "Bread"),
+    /// we accept it on the title-alone fallback. When the title has
+    /// significant words but NONE of them appear in source, the AI
+    /// invented the recipe wholesale — reject.
+    ///
+    /// We deliberately only validate the title, not ingredients —
+    /// ingredients are often paraphrased (canonical units, expanded
+    /// abbreviations) and false-positive overlap checks would reject
+    /// legitimate parses. The title is what the AI grounds the rest
+    /// of the recipe on; if THAT'S invented, the whole draft is.
+    private static func isAIDraftGroundedInSource(_ draft: DraftRecipe, sourceText: String) -> Bool {
+        let source = sourceText.lowercased()
+        guard !source.isEmpty else { return false }
+        let stopwords: Set<String> = [
+            "recipe", "recipes", "this", "that", "with", "from", "into", "your",
+            "easy", "best", "the", "and", "for", "of", "to", "in", "on",
+        ]
+        let titleWords: [String] = draft.title.trimmed.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+            .filter { $0.count >= 4 && !stopwords.contains($0) }
+        // If the title has no significant words at all (e.g. "Pie",
+        // "Cake", numeric-only), we can't validate by overlap — accept.
+        // The downstream user can still edit it.
+        guard !titleWords.isEmpty else { return true }
+        return titleWords.contains { source.contains($0) }
     }
 
     private static func liftHashtags(from text: String) -> (text: String, tags: [String]) {
