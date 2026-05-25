@@ -1,11 +1,10 @@
 import Foundation
 
 /// Fetches a recipe from a URL and tells the caller, honestly, what
-/// shape of result it could produce. Routes per platform because the
-/// closed-off ones (Instagram, Facebook) can't hand us caption text
-/// without authenticated API access — for those we bow out cleanly so
-/// the user can paste the caption into the existing text-import flow
-/// instead of staring at a stuck spinner.
+/// shape of result it could produce. Routes per platform because each
+/// closed-off site needs its own coaxing — for the rest we bow out
+/// cleanly so the user can paste the caption into the existing
+/// text-import flow instead of staring at a stuck spinner.
 ///
 /// **Platform map:**
 /// - Recipe blogs / generic URLs → JSON-LD `Recipe` schema (gold path),
@@ -14,7 +13,10 @@ import Foundation
 ///   pin description from `og:description` is dropped into the paste box.
 /// - TikTok → public oEmbed endpoint. `title` is usually the caption,
 ///   so it lands in the paste box for the user to label up.
-/// - Instagram / Facebook → blocked, returns a clear "paste the caption"
+/// - Instagram → three-stage device-side extraction (inline JSON →
+///   og:* + on-device audio transcription → paste fallback). See
+///   `InstagramExtractor` + `SpeechTranscriber`.
+/// - Facebook → blocked, returns a clear "paste the caption"
 ///   message with the source URL preserved.
 enum RecipeURLImporter {
     enum Outcome {
@@ -47,7 +49,7 @@ enum RecipeURLImporter {
         let host = (url.host ?? "").lowercased()
         switch Platform.from(host: host) {
         case .instagram:
-            return blocked(url: url, platform: "Instagram")
+            return await fetchInstagram(url: url)
         case .facebook:
             return blocked(url: url, platform: "Facebook")
         case .tiktok:
@@ -234,6 +236,145 @@ enum RecipeURLImporter {
         } catch {
             return blocked(url: url, platform: "TikTok")
         }
+    }
+
+    // MARK: - Instagram
+
+    /// Three-stage device-side extraction:
+    ///   1. Fetch the reel HTML, try inline-JSON for the full caption.
+    ///   2. Fall back to OpenGraph meta tags (truncated caption +
+    ///      og:video URL). Download the mp4, transcribe its audio with
+    ///      `SpeechTranscriber`, combine caption snippet + transcript.
+    ///   3. Whatever we have → seed the paste flow with caption +
+    ///      thumbnail + creator handle attribution.
+    ///
+    /// Stage 1's success means we can skip the video download +
+    /// transcription entirely. Stage 2 is the audio path for the
+    /// dominant case (recipe spoken in the reel, short caption).
+    /// Stage 3 is the final degradation — the user paste fallback we
+    /// already shipped, but now with a populated thumbnail + handle
+    /// attribution attached.
+    ///
+    /// All network requests fire from the user's residential IP; IG
+    /// does not block residential ranges the way it blocks
+    /// Cloudflare's datacenter IPs.
+    private static func fetchInstagram(url: URL) async -> Outcome {
+        let extraction: InstagramExtractor.Extraction
+        do {
+            extraction = try await InstagramExtractor.extract(from: url)
+        } catch InstagramExtractor.ExtractionError.blocked {
+            return blocked(url: url, platform: "Instagram")
+        } catch {
+            return blocked(url: url, platform: "Instagram")
+        }
+
+        // Build the base enrichment (source URL + attribution +
+        // hero photo) before we know whether the parse will be
+        // confident — every outcome below carries it forward.
+        var enrichment = DraftRecipe()
+        enrichment.sourceUrl = url.absoluteString
+        if let handle = extraction.ownerHandle, !handle.isEmpty {
+            enrichment.summary = "From @\(handle) on Instagram"
+        }
+        if let thumbURL = extraction.thumbnailURL,
+           let bytes = try? await InstagramExtractor.downloadThumbnail(thumbURL),
+           !bytes.isEmpty {
+            enrichment.photos = [DraftPhoto(image: bytes)]
+        }
+
+        // Stage 1 — inline JSON gave us the full caption. Skip the
+        // audio path entirely.
+        if extraction.capturedFullCaption, !extraction.captionText.isEmpty {
+            let (cleaned, _) = liftHashtags(from: extraction.captionText)
+            return await finishInstagramParse(
+                rawText: cleaned,
+                url: url,
+                enrichment: enrichment,
+                stage: .fullCaption
+            )
+        }
+
+        // Stage 2 — caption snippet + audio transcript.
+        var assembledText = extraction.captionText
+        if let videoURL = extraction.videoURL,
+           let videoFile = try? await InstagramExtractor.downloadVideo(videoURL) {
+            defer { try? FileManager.default.removeItem(at: videoFile) }
+            if let transcript = try? await SpeechTranscriber.transcribe(fileURL: videoFile),
+               !transcript.isEmpty {
+                if assembledText.isEmpty {
+                    assembledText = transcript
+                } else {
+                    assembledText += "\n\n" + transcript
+                }
+            }
+        }
+
+        if !assembledText.isEmpty {
+            let (cleaned, _) = liftHashtags(from: assembledText)
+            return await finishInstagramParse(
+                rawText: cleaned,
+                url: url,
+                enrichment: enrichment,
+                stage: .snippetPlusTranscript
+            )
+        }
+
+        // Stage 3 — nothing usable. Hand back whatever we have as
+        // a paste-fallback seed.
+        return .blocked(
+            enrichment: enrichment,
+            hint: "Couldn't read the caption from that Instagram link. Paste the caption text below to fill ingredients & steps."
+        )
+    }
+
+    private enum InstagramStage {
+        case fullCaption
+        case snippetPlusTranscript
+    }
+
+    /// Shared tail end of stages 1 and 2: feed the cleaned text into
+    /// the AI parser, return `.full` when confident, `.partial` with
+    /// the assembled text as seedText otherwise. The enrichment
+    /// (source URL, attribution, hero photo) flows through both
+    /// branches.
+    private static func finishInstagramParse(
+        rawText: String,
+        url: URL,
+        enrichment: DraftRecipe,
+        stage: InstagramStage
+    ) async -> Outcome {
+        let exploded = RecipeImporter.explodeSingleParagraph(rawText)
+
+        if let aiDraft = await RecipeAIParser.parseBestOf(rawText, sourceUrl: url.absoluteString),
+           !aiDraft.title.trimmed.isEmpty,
+           (!aiDraft.ingredients.isEmpty || !aiDraft.steps.isEmpty) {
+            // Merge enrichment fields into the AI draft so the
+            // source URL, attribution, and hero photo survive.
+            var draft = aiDraft
+            if draft.sourceUrl.trimmed.isEmpty {
+                draft.sourceUrl = enrichment.sourceUrl
+            }
+            if draft.summary.trimmed.isEmpty, !enrichment.summary.trimmed.isEmpty {
+                draft.summary = enrichment.summary
+            }
+            if draft.photos.isEmpty, !enrichment.photos.isEmpty {
+                draft.photos = enrichment.photos
+            }
+            return .full(draft)
+        }
+
+        let hint: String
+        switch stage {
+        case .fullCaption:
+            hint = "Got the caption from Instagram. Make sure line 1 is the title — leave a blank line between title, ingredients, and steps."
+        case .snippetPlusTranscript:
+            hint = "Got what Instagram shares about this reel. Fill in or paste anything missing below."
+        }
+        return .partial(
+            enrichment: enrichment,
+            seedText: exploded,
+            hint: hint
+        )
     }
 
     private static func liftHashtags(from text: String) -> (text: String, tags: [String]) {

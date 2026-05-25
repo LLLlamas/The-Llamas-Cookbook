@@ -86,6 +86,19 @@
     -->
     <key>NSAlarmKitUsageDescription</key>
     <string>Llamas Cookbook uses alarms so cooking timers reach you even when the app isn't open or the phone is silenced.</string>
+    <!--
+      Speech recognition usage description (iOS 26+). Required for the
+      Instagram-reel import path: when a reel's caption is short and
+      the recipe lives in the spoken instructions, we download the
+      mp4 from Instagram's public CDN and transcribe its audio
+      on-device via `SFSpeechRecognizer` (with
+      `requiresOnDeviceRecognition = true`). Audio never leaves the
+      device — the copy below reflects that. App Reviewer auto-rejects
+      builds that invoke speech recognition without a usage-description
+      string.
+    -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Llamas Cookbook transcribes the audio of recipe videos you import, on your device, so you don't have to retype the ingredients.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
