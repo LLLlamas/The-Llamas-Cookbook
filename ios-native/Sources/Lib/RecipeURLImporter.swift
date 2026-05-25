@@ -442,19 +442,28 @@ enum RecipeURLImporter {
         }
     }
 
-    /// Apply the strict Instagram bar (title + ingredients + steps
-    /// all populated) to the AI draft, merging enrichment fields
-    /// (source URL, @creator attribution, hero photo) when the bar
-    /// is satisfied. Returns `.full` on success, `.insufficientForImport`
+    /// Apply the Instagram bar (title + ingredients required, steps
+    /// optional) to the AI draft, merging enrichment fields (source
+    /// URL, @creator attribution, hero photo) when the bar is
+    /// satisfied. Returns `.full` on success, `.insufficientForImport`
     /// otherwise — the enrichment is carried in both cases so the
     /// editor handoff still gets the hero photo + source URL.
+    ///
+    /// Steps are intentionally optional because IG reels frequently
+    /// ship ingredients in the caption with the prep narrated only in
+    /// the video audio — when transcription fails to land cleanly
+    /// (background music, fast speech, accents), we still want to
+    /// save what we have. `ImportFromTextLinkView` surfaces a heads-up
+    /// banner on `.full` outcomes with empty steps so the user knows
+    /// to add them in the editor. The AI parser's NEVER FABRICATE rule
+    /// guarantees an empty `steps` array is a truthful answer, not a
+    /// parse failure — never paper over it with placeholder steps.
     private static func buildInstagramOutcome(
         aiDraft: DraftRecipe?,
         enrichment: DraftRecipe
     ) -> Outcome {
         if let aiDraft, !aiDraft.title.trimmed.isEmpty,
-           !aiDraft.ingredients.isEmpty,
-           !aiDraft.steps.isEmpty {
+           !aiDraft.ingredients.isEmpty {
             var draft = aiDraft
             if draft.sourceUrl.trimmed.isEmpty {
                 draft.sourceUrl = enrichment.sourceUrl
@@ -469,7 +478,7 @@ enum RecipeURLImporter {
         }
         return .insufficientForImport(
             enrichment: enrichment,
-            hint: "I couldn't pull a complete recipe from this Instagram link — write the title, ingredients, and steps yourself and the photo + source link will be saved with it."
+            hint: "I couldn't pull the title or ingredients from this Instagram link — write them yourself and the photo + source link will be saved with it."
         )
     }
 

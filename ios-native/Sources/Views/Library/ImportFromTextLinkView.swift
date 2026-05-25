@@ -772,10 +772,24 @@ struct ImportFromTextLinkView: View {
         case .full(let draft):
             Haptics.success()
             parsedDraft = draft
-            banner = ImportBanner(
-                kind: .success,
-                message: "Found a structured recipe. Tap Preview to review."
-            )
+            // A `.full` outcome with empty steps is intentional — IG
+            // reels routinely have ingredients in the caption but
+            // narrate the prep only in the audio, and the AI parser's
+            // NEVER FABRICATE rule means an empty steps array is a
+            // truthful answer, not a parse failure. Surface a heads-up
+            // so the user knows to add steps in the editor instead of
+            // assuming "structured recipe" means "ready to cook".
+            if draft.steps.isEmpty {
+                banner = ImportBanner(
+                    kind: .info,
+                    message: "Got the title and ingredients — I couldn't pull steps from this. Tap Preview and add them in the editor."
+                )
+            } else {
+                banner = ImportBanner(
+                    kind: .success,
+                    message: "Found a structured recipe. Tap Preview to review."
+                )
+            }
 
         case .partial(let enrichment, let seedText, let hint):
             Haptics.success()
