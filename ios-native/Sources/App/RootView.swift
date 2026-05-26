@@ -51,6 +51,31 @@ struct RootView: View {
         Self.configureTabBarAppearance()
     }
 
+    /// True when the app is running with iOS 26 Liquid Glass enabled —
+    /// i.e. the `UIDesignRequiresCompatibility` Info.plist opt-out is
+    /// absent. The two modes use noticeably different tab-bar heights
+    /// and icon placements (LG capsules sit higher above the safe-area
+    /// bottom than the flat legacy strip), so any code that anchors
+    /// against the tab bar (like the friend-import fly-ghost
+    /// destination) needs to branch on this.
+    ///
+    /// Resolved once at type load; the value can't change at runtime
+    /// without an app relaunch.
+    private static let isLiquidGlassActive: Bool = {
+        let optOut = Bundle.main.object(forInfoDictionaryKey: "UIDesignRequiresCompatibility") as? Bool
+        return optOut != true
+    }()
+
+    /// Vertical distance from the safe-area bottom to the visual center
+    /// of a tab-bar icon. LG bars are taller with capsule surrounds —
+    /// the icon sits ~32pt up. Legacy bars are flat and the icon
+    /// center is ~22pt up. Used by the friend-import ghost so the
+    /// landing point hits the Home icon rather than the tab-bar
+    /// background below it.
+    private static var homeTabIconYOffset: CGFloat {
+        isLiquidGlassActive ? 32 : 22
+    }
+
     /// Bolds the selected tab title and keeps bottom-nav labels in
     /// the user accent. SwiftUI's `tabItem` doesn't expose a per-state
     /// font hook, and once we customize title attributes UIKit no
@@ -566,9 +591,16 @@ struct RootView: View {
                 x: width - AppSpacing.xl - 8,
                 y: topInset + 28
             )
+            // Home tab is leftmost of 3 evenly-spaced tabs, so its
+            // horizontal center sits at width/6. The vertical offset
+            // branches on Liquid Glass: LG capsule tab bars float the
+            // icon ~32pt above safe-area bottom; legacy flat bars sit
+            // it at ~22pt. Without the branch the ghost lands below
+            // the icon on LG and on the icon on legacy (or vice
+            // versa, depending on which offset was baked in).
             let destination = CGPoint(
                 x: width * (1.0 / 6.0),
-                y: height - bottomInset - 22
+                y: height - bottomInset - Self.homeTabIconYOffset
             )
             let toastAccent = resolveToastAccent(activeFriendImportToast?.accentHex)
 
