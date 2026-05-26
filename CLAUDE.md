@@ -265,7 +265,7 @@ Push subscriptions: `friendship-events-A/B-<me>`, `recipe-import-events-<me>`. S
 
 **Keychain** (`KeychainStore.swift`): `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable.
 
-**`UIDesignRequiresCompatibility = true`** — Liquid Glass opt-out. Remove before iOS 27 forces it off.
+**Liquid Glass** — opted IN (2026-05-25). `UIDesignRequiresCompatibility` removed from `AppInfo.plist`; stock SwiftUI/UIKit surfaces render with iOS 26 glass materials. `RootView.configureTabBarAppearance` calls `configureWithDefaultBackground()` explicitly so the tab-bar proxy survives the flip. Verification checklist lives at `md_files/liquid-glass-adoption.md` — surfaces flagged for real-device review: editor sheet + import sheets (`.presentationDetents`), custom back buttons + `.enableSwipeBack()`, `AccentTextOutline` legibility against translucent backings, `CookingPillsOverlay` contrast above the glass tab bar, `CookbookHeader`'s existing `.regularMaterial` interaction.
 
 **AASA** (`cloudflare-pages/.well-known/apple-app-site-association`): `GYFN949Q5E.com.llamascookbook.app` against `/r/*`.
 
@@ -340,7 +340,7 @@ Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, Swift
 
 Remaining before submission:
 - Verify Universal Links on real devices
-- Adopt Liquid Glass before iOS 27 removes `UIDesignRequiresCompatibility` opt-out
+- Verify Liquid Glass adoption on real devices — opt-out flipped 2026-05-25; checklist in `md_files/liquid-glass-adoption.md` (sheets, custom back chevrons, accent-text-outline legibility, CookingPillsOverlay contrast)
 
 Accepted-for-launch (documented limitations, not blockers):
 - **Server-side `Friendship(userA,userB)` uniqueness** — currently client-side dedup only (`CloudKitFriendship.swift` ll. 65–67, 148–154, 218–221 explicitly guard duplicate sends and dedupe symmetric reads). Race window between two devices is sub-second; collision produces a benign duplicate row that the next refresh's defensive dedup hides. Acceptable for initial launch scale; revisit if abuse appears or scale grows. Real fix would require a CF Worker write-proxy with CAS — meaningful new architecture, not a one-line patch.

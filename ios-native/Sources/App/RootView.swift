@@ -55,14 +55,23 @@ struct RootView: View {
     /// the user accent. SwiftUI's `tabItem` doesn't expose a per-state
     /// font hook, and once we customize title attributes UIKit no
     /// longer reliably derives the label color from `.tint`. Idempotent
-    /// — re-running on a re-init is harmless. Inheriting the rest
-    /// of `UITabBarAppearance()`'s defaults preserves iOS 26 Liquid
-    /// Glass background styling.
+    /// — re-running on a re-init is harmless.
+    ///
+    /// **Liquid Glass note (2026-05-25):** with the
+    /// `UIDesignRequiresCompatibility` opt-out removed, the iOS 26 tab
+    /// bar renders against a translucent glass material. We call
+    /// `configureWithDefaultBackground()` explicitly so the proxy
+    /// inherits the LG glass strip rather than risking an opaque
+    /// fallback if Apple ever changes `UITabBarAppearance()`'s
+    /// default-init behavior. Title text attributes (color, bold font,
+    /// optional glow shadow) layer on top of the glass cleanly because
+    /// they're per-state foreground attributes, not background draws.
     private static func configureTabBarAppearance(
         accent: Color? = nil,
         glow: Bool = false
     ) {
         let appearance = UITabBarAppearance()
+        appearance.configureWithDefaultBackground()
         let selectedFont = UIFont.systemFont(ofSize: 10, weight: .bold)
         let accentColor = accent.map { UIColor($0) }
 

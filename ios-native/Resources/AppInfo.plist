@@ -62,8 +62,19 @@
 
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
-    <key>UIDesignRequiresCompatibility</key>
-    <true/>
+    <!--
+      Liquid Glass: opted IN on iOS 26 (2026-05-25). The previous
+      `UIDesignRequiresCompatibility = true` opt-out was removed so
+      stock SwiftUI/UIKit surfaces — tab bar, nav bars, sheets,
+      alerts, toolbars — pick up the iOS 26 glass materials. Custom
+      surfaces (LlamaWatermark, surfaceCard, liftedCard, cardGlare,
+      CookbookHeader) are unaffected; the UITabBarAppearance proxy in
+      RootView.configureTabBarAppearance was updated to call
+      `configureWithDefaultBackground()` explicitly so the glass
+      strip survives the proxy without opaque-ing out. See
+      md_files/liquid-glass-adoption.md for the surface-by-surface
+      verification checklist.
+    -->
     <!--
       Camera permission, required by the photo-import path: the
       "Import From Photo" entry in the Library FAB presents
