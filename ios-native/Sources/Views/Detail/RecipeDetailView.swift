@@ -953,7 +953,6 @@ struct RecipeDetailView: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .liftedCard()
     }
 
     /// Lightbulb-tinted italic callout — matches Cook Mode's per-step
