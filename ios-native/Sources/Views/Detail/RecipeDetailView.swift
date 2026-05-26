@@ -346,7 +346,16 @@ struct RecipeDetailView: View {
                     LlamaLogoOrCrown(size: 52, accent: appearance.accentColor)
                         .frame(width: 52, height: 52)
                         .padding(.top, 32)
-                        .padding(.bottom, 36)
+                        // Bottom padding kept minimal (was 36) — under
+                        // iOS 26 Liquid Glass the nav bar sizes itself
+                        // to content height and applies its blur zone
+                        // to the full bar, so a tall principal item
+                        // pushes the glass-blur boundary down over the
+                        // page title. The 8pt here is enough breathing
+                        // room for the icon without dragging the blur
+                        // zone into "Coconut Lentil Soup" / similar
+                        // recipe titles below.
+                        .padding(.bottom, 8)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Customize accent color")
