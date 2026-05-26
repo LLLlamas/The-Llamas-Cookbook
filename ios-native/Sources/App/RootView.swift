@@ -189,17 +189,7 @@ struct RootView: View {
                 accent: appearance.bottomNavAccentColor,
                 lookupRecipe: lookupRecipe
             ))
-            .tabItem {
-                Label {
-                    Text("Home")
-                } icon: {
-                    if proStore.isPro {
-                        proTabIcon(named: proStore.plan == .yearly ? "Llama-Pro-Icon-Crown-Sunglasses" : "Llama-Pro-Icon-Crown")
-                    } else {
-                        Image("Home_Llama_Icon")
-                    }
-                }
-            }
+            .tabItem { tabLabel(for: .home) }
             .tag(AppTab.home)
 
             NavigationStack {
@@ -211,17 +201,7 @@ struct RootView: View {
                 accent: appearance.bottomNavAccentColor,
                 lookupRecipe: lookupRecipe
             ))
-            .tabItem {
-                Label {
-                    Text("Friends")
-                } icon: {
-                    if proStore.isPro {
-                        proTabIcon(named: proStore.plan == .yearly ? "Llama-Pro-Icon-Friends-Crown-Sunglasses" : "Llama-Pro-Icon-Friends-Crown")
-                    } else {
-                        Image("Friends_Llama_Icon")
-                    }
-                }
-            }
+            .tabItem { tabLabel(for: .friends) }
             .tag(AppTab.friends)
 
             NavigationStack {
@@ -233,20 +213,11 @@ struct RootView: View {
                 accent: appearance.bottomNavAccentColor,
                 lookupRecipe: lookupRecipe
             ))
-            .tabItem {
-                Label {
-                    Text("Me")
-                } icon: {
-                    if proStore.isPro {
-                        proTabIcon(named: proStore.plan == .yearly ? "Llama-Pro-Icon-Profile-Crown-Sunglasses" : "Llama-Pro-Icon-Profile-Crown")
-                    } else {
-                        Image("Profile_Llama_Icon")
-                    }
-                }
-            }
+            .tabItem { tabLabel(for: .me) }
             .tag(AppTab.me)
         }
         .tint(appearance.bottomNavAccentColor)
+        .sensoryFeedback(.selection, trigger: selectedTab)
         .environment(session)
         .environment(editor)
         .environment(navContext)
@@ -691,16 +662,10 @@ struct RootView: View {
                 if newValue == selectedTab && newValue == .home {
                     navContext.goHomeRequestedAt = Date()
                 }
-                // Light selection tick when the user transitions INTO
-                // Friends or Me. Skipped on re-tap of the active tab
-                // (no transition) and on the initial selectedTab seed
-                // (which doesn't route through this setter). Home is
-                // intentionally excluded — re-tap there already owns
-                // the "go home" reset signal and would feel double-
-                // tapped if it also fired a tick.
-                if newValue != selectedTab, newValue == .friends || newValue == .me {
-                    Haptics.selection()
-                }
+                // Tab-change haptic is owned by
+                // `.sensoryFeedback(.selection, trigger: selectedTab)`
+                // on the TabView — fires on every value change, skips
+                // re-taps automatically.
                 selectedTab = newValue
             }
         )
@@ -980,6 +945,24 @@ struct RootView: View {
     private func lookupRecipe(_ id: UUID) -> Recipe? {
         let descriptor = FetchDescriptor<Recipe>(predicate: #Predicate { $0.id == id })
         return try? modelContext.fetch(descriptor).first
+    }
+
+    /// Builds the `Label` for one tab — text + icon, with the Pro crown
+    /// swap and downscale handled by `AppTab.iconAsset(plan:)` +
+    /// `proTabIcon(named:)`. Centralized so all three `.tabItem` call
+    /// sites stay one line and the strings live on the enum.
+    @ViewBuilder
+    private func tabLabel(for tab: AppTab) -> some View {
+        let asset = tab.iconAsset(plan: proStore.plan)
+        Label {
+            Text(tab.title)
+        } icon: {
+            if proStore.isPro {
+                proTabIcon(named: asset)
+            } else {
+                Image(asset)
+            }
+        }
     }
 
     /// Returns a pre-scaled `Image` for Pro crown assets so they fit the tab
@@ -1264,10 +1247,61 @@ private struct AddToCookButton: View {
 /// selection persists across re-renders and any future deep-link
 /// routing can flip the active tab programmatically (e.g. routing a
 /// friend push to `.friends`).
-enum AppTab: Hashable {
+///
+/// Owns each tab's `title` and the asset names for its free / Pro /
+/// Pro-yearly icon variants — one source of truth so the three
+/// `.tabItem` blocks in `RootView.tabViewBody` don't sprinkle
+/// hardcoded strings. Pattern mirrors the Our-Fitness nav bar's
+/// `Tab` enum (label/icon switches), adapted for our custom artwork
+/// + Pro crown swaps.
+enum AppTab: Hashable, CaseIterable {
     case home
     case friends
     case me
+
+    var title: String {
+        switch self {
+        case .home:    return "Home"
+        case .friends: return "Friends"
+        case .me:      return "Me"
+        }
+    }
+
+    /// Asset name for the free (non-Pro) icon.
+    var freeIconAsset: String {
+        switch self {
+        case .home:    return "Home_Llama_Icon"
+        case .friends: return "Friends_Llama_Icon"
+        case .me:      return "Profile_Llama_Icon"
+        }
+    }
+
+    /// Asset name for the Pro (monthly) crown icon.
+    var proCrownAsset: String {
+        switch self {
+        case .home:    return "Llama-Pro-Icon-Crown"
+        case .friends: return "Llama-Pro-Icon-Friends-Crown"
+        case .me:      return "Llama-Pro-Icon-Profile-Crown"
+        }
+    }
+
+    /// Asset name for the Pro-yearly crown + sunglasses icon.
+    var proYearlyAsset: String {
+        switch self {
+        case .home:    return "Llama-Pro-Icon-Crown-Sunglasses"
+        case .friends: return "Llama-Pro-Icon-Friends-Crown-Sunglasses"
+        case .me:      return "Llama-Pro-Icon-Profile-Crown-Sunglasses"
+        }
+    }
+
+    /// Resolves the asset name for this tab given the user's Pro plan.
+    func iconAsset(plan: LlamaProStore.Plan) -> String {
+        switch plan {
+        case .yearly:  return proYearlyAsset
+        case .monthly: return proCrownAsset
+        case .none:    return freeIconAsset
+        }
+    }
 }
 
 /// Attaches the minimized-cook pills bar to a single tab's content.
