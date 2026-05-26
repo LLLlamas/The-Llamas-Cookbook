@@ -757,28 +757,35 @@ struct CookModeView: View {
             HStack(spacing: AppSpacing.md) {
                 Image(systemName: "timer")
                     .font(.system(size: 22, weight: .bold))
+                    .accentTextOutline()
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
                         .opacity(0.9)
+                        .accentTextOutline()
                     Text(ClockFormat.mmss(secondsLeft))
                         .font(.system(size: 22, weight: .bold, design: .serif))
                         .monospacedDigit()
+                        .accentTextOutline()
                 }
                 Spacer()
                 HStack(spacing: 2) {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .bold))
+                        .accentTextOutline()
                     Text("adjust")
                         .font(.system(size: 11, weight: .semibold))
+                        .accentTextOutline()
                 }
                 .opacity(0.9)
             }
             .foregroundStyle(AppColor.onAccent)
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.sm + 2)
-            .background(appearance.accentColor)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .glassEffect(
+                .regular.tint(appearance.accentColor).interactive(),
+                in: RoundedRectangle(cornerRadius: AppRadius.md)
+            )
         }
         .buttonStyle(.lifted)
         .accessibilityLabel("Timer running, \(ClockFormat.mmss(secondsLeft)) left, tap to adjust or cancel")

@@ -254,8 +254,12 @@ struct SourdoughCalculatorView: View {
                     .foregroundStyle(AppColor.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, AppSpacing.md)
-                    .background(appearance.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    .glassEffect(
+                        .regular
+                            .tint(appearance.accentColor)
+                            .interactive(),
+                        in: RoundedRectangle(cornerRadius: AppRadius.md)
+                    )
                     .opacity(canAdd ? 1 : 0.4)
                 }
                 .disabled(!canAdd)

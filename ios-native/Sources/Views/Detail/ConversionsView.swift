@@ -267,8 +267,7 @@ private struct ConversionCalculator: View {
             .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, 4)
-            .background(AppColor.accentSoft.opacity(0.6))
-            .clipShape(Capsule())
+            .glassEffect(.regular, in: Capsule())
         }
     }
 
@@ -305,8 +304,7 @@ private struct ConversionCalculator: View {
             .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, 4)
-            .background(AppColor.accentSoft.opacity(0.6))
-            .clipShape(Capsule())
+            .glassEffect(.regular, in: Capsule())
         }
     }
 

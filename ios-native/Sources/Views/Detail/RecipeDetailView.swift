@@ -892,6 +892,7 @@ struct RecipeDetailView: View {
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
+                        .accentTextOutline()
                 }
                 if !display.unit.isEmpty {
                     Text(display.unit)
@@ -899,6 +900,7 @@ struct RecipeDetailView: View {
                         .foregroundStyle(appearance.detailIngredientsAccentColor.opacity(0.75))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
+                        .accentTextOutline()
                 }
             }
             .frame(width: 96, alignment: .leading)

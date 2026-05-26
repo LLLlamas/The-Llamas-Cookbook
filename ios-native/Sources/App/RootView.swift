@@ -68,7 +68,7 @@ struct RootView: View {
     /// they're per-state foreground attributes, not background draws.
     private static func configureTabBarAppearance(
         accent: Color? = nil,
-        glow: Bool = false
+        glow: Bool = true
     ) {
         let appearance = UITabBarAppearance()
         appearance.configureWithDefaultBackground()
@@ -233,19 +233,19 @@ struct RootView: View {
         .onAppear {
             Self.configureTabBarAppearance(
                 accent: appearance.bottomNavAccentColor,
-                glow: appearance.isAccentGlowActive(.bottomNav)
+                glow: true
             )
         }
         .onChange(of: appearance.bottomNavAccentColor.toHex ?? "") { _, _ in
             Self.configureTabBarAppearance(
                 accent: appearance.bottomNavAccentColor,
-                glow: appearance.isAccentGlowActive(.bottomNav)
+                glow: true
             )
         }
         .onChange(of: appearance.accentTransitionStage) { _, _ in
             Self.configureTabBarAppearance(
                 accent: appearance.bottomNavAccentColor,
-                glow: appearance.isAccentGlowActive(.bottomNav)
+                glow: true
             )
         }
         .task {
@@ -1216,8 +1216,10 @@ private struct CookPill: View {
             .foregroundStyle(AppColor.onAccent)
             .padding(.horizontal, compact ? AppSpacing.sm : AppSpacing.md)
             .padding(.vertical, AppSpacing.sm + 2)
-            .background(accent)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .glassEffect(
+                .regular.tint(accent).interactive(),
+                in: RoundedRectangle(cornerRadius: AppRadius.lg)
+            )
             .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
@@ -1243,8 +1245,10 @@ private struct AddToCookButton: View {
             .foregroundStyle(AppColor.onAccent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppSpacing.sm + 2)
-            .background(AppColor.success)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .glassEffect(
+                .regular.tint(AppColor.success).interactive(),
+                in: RoundedRectangle(cornerRadius: AppRadius.lg)
+            )
             .shadow(color: AppColor.shadow, radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)

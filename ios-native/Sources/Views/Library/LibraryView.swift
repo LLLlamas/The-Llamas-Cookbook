@@ -133,6 +133,14 @@ struct LibraryView: View {
                             radius: appearance.isAccentGlowActive(.header) ? 9 : 0
                         )
                 }
+                // `.buttonStyle(.plain)` opts this toolbar item out of
+                // iOS 26's default Liquid Glass capsule chrome on
+                // ToolbarItem buttons. We render the llama icon as our
+                // own surface (with its own shadow + glow); the LG
+                // capsule that the system wraps every toolbar button
+                // in by default would sit behind the icon and read as
+                // a frosted disc behind the llama.
+                .buttonStyle(.plain)
                 .accessibilityLabel("Profile")
                 // The editor sheet is presented from RootView (parent
                 // hierarchy), and the Profile sheet is presented from
@@ -568,11 +576,10 @@ struct LibraryView: View {
         }
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, AppSpacing.xs + 2)
-        .background(isActive ? allAccent : AppColor.surface)
+        .modifier(ChipBackground(isActive: isActive, accent: allAccent))
         .overlay(
             Capsule().stroke(isActive ? allAccent : AppColor.divider, lineWidth: 1)
         )
-        .clipShape(Capsule())
         .shadow(
             color: allAccent.opacity(glow ? 0.14 : 0),
             radius: glow ? 9 : 0
@@ -638,25 +645,22 @@ struct LibraryView: View {
                 .foregroundStyle(AppColor.onAccent)
                 .accentTextOutline()
                 .frame(width: 60, height: 60)
-                // Vertical gradient + slight translucency reads as a
-                // raised disc rather than a flat fill — paired with the
-                // top-edge highlight stroke and double shadow below.
-                .background(
-                    LinearGradient(
-                        colors: [
-                            appearance.plusButtonAccentColor.opacity(0.95),
-                            appearance.plusButtonAccentColor.opacity(0.80)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+                // Liquid Glass FAB: accent-tinted glass disc + interactive
+                // press response. Replaces the previous opaque gradient
+                // fill + white-edge stroke; the LG glass material handles
+                // the raised-disc look natively. Top-edge highlight stroke
+                // kept for definition against the cream backdrop.
+                .glassEffect(
+                    .regular
+                        .tint(appearance.plusButtonAccentColor)
+                        .interactive(),
+                    in: .circle
                 )
-                .clipShape(Circle())
                 .overlay(
                     Circle()
                         .stroke(
                             LinearGradient(
-                                colors: [Color.white.opacity(0.45), Color.clear],
+                                colors: [Color.white.opacity(0.35), Color.clear],
                                 startPoint: .top,
                                 endPoint: .center
                             ),
@@ -665,7 +669,7 @@ struct LibraryView: View {
                 )
                 // Coloured ambient + neutral contact shadow → the disc
                 // looks like it's hovering above the cream background.
-                .shadow(color: appearance.plusButtonAccentColor.opacity(0.35), radius: 14, y: 6)
+                .shadow(color: appearance.plusButtonAccentColor.opacity(0.30), radius: 14, y: 6)
                 .shadow(
                     color: appearance.plusButtonAccentColor.opacity(appearance.isAccentGlowActive(.plusButton) ? 0.14 : 0),
                     radius: appearance.isAccentGlowActive(.plusButton) ? 16 : 0
@@ -744,15 +748,33 @@ private struct FilterChip: View {
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
-            .background(isActive ? accent : AppColor.surface)
+            .modifier(ChipBackground(isActive: isActive, accent: accent))
             .overlay(
                 Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
             )
-            .clipShape(Capsule())
             .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
             .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
         .buttonStyle(.scaleOnly)
+    }
+}
+
+/// Chip background that switches between a solid accent capsule (active
+/// state) and an LG glass capsule (inactive state). Selection clarity
+/// stays strong because the active chip keeps its opaque accent fill;
+/// inactive chips read as native iOS 26 frosted glass.
+private struct ChipBackground: ViewModifier {
+    let isActive: Bool
+    let accent: Color
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content
+                .background(accent, in: Capsule())
+        } else {
+            content
+                .glassEffect(.regular, in: Capsule())
+        }
     }
 }
 
