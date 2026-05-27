@@ -55,6 +55,14 @@ struct CookModeView: View {
     /// the timer clears the entry so the next countdown re-arms.
     @State private var preAlertedTimers: Set<UUID> = []
 
+    /// Per-row scroll haptic ticker shared by the ingredient list and
+    /// the step list — both live inside the same outer `ScrollView`, so
+    /// one ticker covers the surface and the unique row-id dedup keys
+    /// keep crossings distinct (same pattern as `RecipeDetailView`).
+    /// Reset on phase flip and on recipe.id change so the list swap
+    /// doesn't tick on settle as the new list realizes.
+    @State private var hapticTicker = ScrollSectionTicker()
+
     private enum Phase { case prep, cook }
 
     init(
@@ -209,7 +217,19 @@ struct CookModeView: View {
         // relaunch from a Live Activity tap can resume here. `now` is
         // deliberately not in this list — it ticks every second and the
         // snapshot it would produce is identical to the previous one.
-        .onChange(of: phase) { _, _ in persistSnapshot() }
+        .onChange(of: phase) { _, _ in
+            persistSnapshot()
+            // Swapping between prep (ingredients) and cook (steps) re-
+            // populates the scroll surface with a different row set —
+            // reset so the new list doesn't tick on settle.
+            hapticTicker.reset()
+        }
+        .onChange(of: recipe.id) { _, _ in
+            // Defensive — Cook Mode rebuilds via `.id(cookID)` on cook
+            // switches so this rarely fires, but a recipe-id flip means
+            // wholly different rows.
+            hapticTicker.reset()
+        }
         .onChange(of: currentServings) { _, _ in persistSnapshot() }
         .onChange(of: struckIngredients) { _, _ in persistSnapshot() }
         .onChange(of: struckSteps) { _, _ in persistSnapshot() }
@@ -560,6 +580,7 @@ struct CookModeView: View {
                     .cardGlare(cornerRadius: AppRadius.md)
                 }
                 .buttonStyle(.plain)
+                .scrollSectionHaptic(section: ingredient.id.uuidString, ticker: hapticTicker)
             }
         }
     }
@@ -630,6 +651,7 @@ struct CookModeView: View {
                 .onTapGesture {
                     handleStepTap(step)
                 }
+                .scrollSectionHaptic(section: step.id.uuidString, ticker: hapticTicker)
             }
         }
     }
