@@ -394,6 +394,10 @@ struct FriendRecipeDetailView: View {
                             .font(AppFont.ingredient)
                             .foregroundStyle(AppColor.textPrimary)
                     }
+                    .scrollSectionHaptic(
+                        section: ing.id.uuidString,
+                        ticker: hapticTicker
+                    )
                 }
             }
         }
@@ -436,6 +440,10 @@ struct FriendRecipeDetailView: View {
                                 .padding(.leading, 32)
                         }
                     }
+                    .scrollSectionHaptic(
+                        section: step.id.uuidString,
+                        ticker: hapticTicker
+                    )
                 }
             }
         }

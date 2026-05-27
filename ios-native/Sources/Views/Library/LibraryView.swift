@@ -287,11 +287,14 @@ struct LibraryView: View {
                                 }
                             }
                             .cardScrollTransition()
-                            // Section-boundary scroll haptic — ticks
-                            // once per letter-section change, matching
-                            // the `LetterIndex` scrub feel.
+                            // Per-card scroll haptic — ticks once for
+                            // each card crossing the focus line so long
+                            // letter sections still tick every row.
+                            // Letter-bucket grouping is surfaced via the
+                            // `LetterIndex` magnify pulse on a separate
+                            // channel.
                             .scrollSectionHaptic(
-                                section: Self.sectionLetter(for: recipe),
+                                section: recipe.id.uuidString,
                                 ticker: scrollTicker
                             )
                             .scaleEffect(deletingIDs.contains(recipe.id) ? 0.001 : 1.0)

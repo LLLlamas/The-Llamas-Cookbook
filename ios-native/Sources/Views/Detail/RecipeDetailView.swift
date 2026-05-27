@@ -198,6 +198,10 @@ struct RecipeDetailView: View {
                             VStack(spacing: AppSpacing.sm) {
                                 ForEach(sortedIngredients) { ingredient in
                                     ingredientRow(ingredient)
+                                        .scrollSectionHaptic(
+                                            section: ingredient.id.uuidString,
+                                            ticker: hapticTicker
+                                        )
                                 }
                             }
                             // Flatten each row's gradient + stroke + shadow layers
@@ -230,6 +234,10 @@ struct RecipeDetailView: View {
                                         )
                                     }
                                     .cardScrollTransition()
+                                    .scrollSectionHaptic(
+                                        section: step.id.uuidString,
+                                        ticker: hapticTicker
+                                    )
                                 }
                                 if let epilogue = recipe.epilogueNote.trimmedIfNonEmpty {
                                     noteCallout(epilogue)

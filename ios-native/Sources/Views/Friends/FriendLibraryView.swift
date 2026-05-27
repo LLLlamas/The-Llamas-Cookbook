@@ -281,11 +281,12 @@ struct FriendLibraryView: View {
                             }
                             .buttonStyle(.plain)
                             .cardScrollTransition()
-                            // Section-boundary scroll haptic — ticks
-                            // once per letter-section change, matching
-                            // the `LetterIndex` scrub feel.
+                            // Per-card scroll haptic — ticks once for
+                            // each card crossing the focus line. Letter
+                            // grouping is surfaced via the `LetterIndex`
+                            // magnify pulse on a separate channel.
                             .scrollSectionHaptic(
-                                section: LetterIndex.bucket(for: summary.recipeTitle),
+                                section: summary.id,
                                 ticker: scrollTicker
                             )
                             .id(summary.id)
