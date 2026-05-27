@@ -75,8 +75,9 @@ struct ImportFlyGhost: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(AppColor.onAccent)
         }
-        .scaleEffect(isFlying ? 0.7 : 1.0)
-        .opacity(isFlying ? 0.85 : 1.0)
+        .scaleEffect(isFlying ? 0.55 : 1.0)
+        .opacity(isFlying ? 0.0 : 1.0)
+        .animation(.easeOut(duration: 0.32), value: isFlying)
         .position(position)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
