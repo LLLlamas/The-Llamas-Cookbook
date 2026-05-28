@@ -120,6 +120,15 @@ final class FriendsStore {
     // friends) within 1–3s. Seed friend is always prepended separately —
     // only real CloudKit friends are cached here.
     init() {
+        // Demo mode (App Store Review path) replaces the CloudKit
+        // social graph with a hardcoded roster — see `DemoMode`.
+        // Reads from `DemoMode.demoFriends` on init so the Friends
+        // tab is fully populated on first frame even before any
+        // `refresh()` call.
+        if DemoMode.isActive() {
+            friends = [SeedFriend.profile] + DemoMode.demoFriends
+            return
+        }
         let cached = Self.loadFriendsCache()
         if !cached.isEmpty {
             friends = [SeedFriend.profile] + cached
@@ -162,6 +171,20 @@ final class FriendsStore {
     /// state on failure: a transient network blip shouldn't make
     /// the friends list disappear.
     func refresh() async {
+        // Demo mode replaces the entire social graph with a
+        // deterministic roster — no CloudKit query, no profile
+        // round-trips. Surface the demo friends and bail.
+        if DemoMode.isActive() {
+            friends = [SeedFriend.profile] + DemoMode.demoFriends
+            incomingRequests = []
+            outgoingRequests = [:]
+            outgoingRequestProfiles = []
+            friendsSinceByID = [:]
+            lastRefreshAt = Date()
+            lastRefreshError = nil
+            lastRefreshDiagnostic = "demo mode — \(DemoMode.demoFriends.count) synthetic friend(s) loaded."
+            return
+        }
         // Re-entrancy guard. Set BEFORE the first await — otherwise
         // two near-simultaneous callers (e.g. .task + .onChange of
         // sign-in status) could both pass a "not refreshing" check
@@ -516,6 +539,10 @@ final class FriendsStore {
         // either side. Belt-and-suspenders; the friend card / detail
         // surfaces don't expose a remove affordance on the seed.
         guard !SeedFriend.isSeed(friend) else { return }
+        // Demo friends (App Store Review path) are equally synthetic
+        // and equally non-removable. Same rationale as the seed
+        // guard above.
+        guard !DemoMode.isDemoFriend(friend) else { return }
         guard let me = UserProfileMirror.cachedRecordID() else { return }
         let otherID = friend.userRecordName
         await CloudKitService.deleteAllFriendshipsBetween(me, and: otherID)
@@ -533,6 +560,20 @@ final class FriendsStore {
     /// flash the previous user's friends list before the next
     /// refresh fires (or, if signed out for good, never).
     func clearOnSignOut() {
+        // Demo mode owns its own lifecycle — `exitDemoMode` flips
+        // the active flag and a subsequent `refresh()` will land
+        // the clean `[SeedFriend.profile]` list. If this is called
+        // while still in demo mode (defensive — RootView's
+        // onChange(isSignedIn) won't fire spuriously), preserve
+        // the demo roster.
+        if DemoMode.isActive() {
+            friends = [SeedFriend.profile] + DemoMode.demoFriends
+            friendsSinceByID = [:]
+            incomingRequests = []
+            outgoingRequests = [:]
+            outgoingRequestProfiles = []
+            return
+        }
         // Seed friend survives sign-out — it lives in the bundle,
         // not in the just-cleared CloudKit graph. Without this the
         // post-sign-out Friends tab would render fully empty for

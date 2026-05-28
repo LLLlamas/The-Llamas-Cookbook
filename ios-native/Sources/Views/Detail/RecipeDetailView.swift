@@ -1369,6 +1369,16 @@ struct RecipeDetailView: View {
     /// surface a friendly "try again later" alert and abort.
     @MainActor
     private func shareViaPreferredTransport() async {
+        // Demo mode (App Store Review path): no iCloud bind, so the
+        // cloud upload would throw and surface the "iCloud
+        // unavailable" alert — confusing for a reviewer who never
+        // signed in. Quietly fall back to the file share, which uses
+        // the same envelope, is fully functional, and demonstrates
+        // the share UX end-to-end.
+        if DemoMode.isActive() {
+            shareAsFile()
+            return
+        }
         let status = await CloudKitService.accountStatus()
         guard status == .available else {
             Self.logger.info("Account status not .available: \(status.rawValue, privacy: .public)")

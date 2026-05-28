@@ -150,6 +150,19 @@ enum RecipeAIParser {
         streamingState: StreamingRecipeState
     ) async -> VisionParseOutcome {
         guard !images.isEmpty else { return VisionParseOutcome() }
+        // Demo mode (App Store Review path): the reviewer has no
+        // signed-in identity, so the Worker proxy would 401 on the
+        // missing `x-llamas-user` header and the entire photo-import
+        // flow would dead-end. Simulate a successful stream from a
+        // canned recipe so the reviewer can verify the visible flow
+        // (overlay → skeleton → preview → save) end-to-end without
+        // actually parsing the photo bytes.
+        if DemoMode.isActive() {
+            return await DemoMode.simulatePhotoImportStream(
+                into: streamingState,
+                sourceUrl: sourceUrl
+            )
+        }
         guard AnthropicRecipeParser.isConfigured else { return VisionParseOutcome() }
         var outcome = await AnthropicRecipeParser.parseImagesStreaming(
             images,

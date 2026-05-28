@@ -51,7 +51,14 @@ final class LlamaProStore {
     }
 
     init() {
-        if let raw = UserDefaults.standard.string(forKey: Self.planCacheKey) {
+        // Demo mode (App Store Review path) overrides the cached plan
+        // so the reviewer can flip between Free / Monthly / Yearly
+        // from the in-app demo controls without touching StoreKit.
+        // The override is consulted on every relaunch so the chosen
+        // tier survives cold start. See `DemoMode.planOverride`.
+        if DemoMode.isActive() {
+            plan = DemoMode.planOverride()
+        } else if let raw = UserDefaults.standard.string(forKey: Self.planCacheKey) {
             switch raw {
             case "monthly": plan = .monthly
             case "yearly":  plan = .yearly
@@ -61,6 +68,17 @@ final class LlamaProStore {
         transactionUpdateTask = listenForTransactionUpdates()
     }
 
+    /// Reviewer-facing plan tier flip. Only respects the call when
+    /// demo mode is active — outside demo, all plan changes flow
+    /// through the StoreKit transaction listener. Updates the
+    /// observed `plan` immediately so crown surfaces re-render in
+    /// place.
+    func applyDemoPlan(_ newPlan: Plan) {
+        guard DemoMode.isActive() else { return }
+        DemoMode.setPlanOverride(newPlan)
+        plan = newPlan
+    }
+
     deinit {
         transactionUpdateTask?.cancel()
     }
@@ -68,12 +86,24 @@ final class LlamaProStore {
     // MARK: - Startup
 
     func start() async {
+        // In demo mode the plan is sourced from `DemoMode.planOverride`
+        // and the reviewer hasn't (and can't) actually purchased
+        // anything. Skip StoreKit so a `checkCurrentEntitlements`
+        // round-trip doesn't overwrite the synthetic tier.
+        if DemoMode.isActive() {
+            plan = DemoMode.planOverride()
+            return
+        }
         async let productLoad: Void  = loadProduct()
         async let entitlements: Void = checkCurrentEntitlements()
         _ = await (productLoad, entitlements)
     }
 
     func signOut() {
+        // Demo exit clears the override via `DemoMode.exit`; calling
+        // `setPlan(.none)` here would persist `"none"` to the regular
+        // cache key and stick after the reviewer leaves demo mode.
+        if DemoMode.isActive() { return }
         setPlan(.none)
         purchaseError = nil
     }
@@ -136,6 +166,14 @@ final class LlamaProStore {
     // MARK: - Entitlements
 
     func checkCurrentEntitlements() async {
+        // Demo mode bypasses StoreKit — see `start()`. Without this
+        // early-return, an entitlements check fired by RootView's
+        // `onChange(isSignedIn)` immediately after `enterDemoMode`
+        // would clobber the synthetic yearly tier with `.none`.
+        if DemoMode.isActive() {
+            plan = DemoMode.planOverride()
+            return
+        }
         var detected: Plan = .none
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }

@@ -53,6 +53,7 @@ struct ProfileView: View {
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(LlamaProStore.self) private var proStore
     @Environment(QuotaService.self) private var quotaService
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
     /// All recipes — used only to derive `lastCookedRecipe` for the
@@ -403,6 +404,8 @@ struct ProfileView: View {
             .signInWithAppleButtonStyle(.black)
             .frame(height: 50)
             .padding(.horizontal, AppSpacing.md)
+
+            tryTheDemoSection
         }
         .padding(.vertical, AppSpacing.lg)
         .frame(maxWidth: .infinity)
@@ -412,6 +415,52 @@ struct ProfileView: View {
                 .stroke(AppColor.divider, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+    }
+
+    /// App Store Review demo entry. Renders below the SIWA button so
+    /// a reviewer who can't (and shouldn't have to) supply iCloud
+    /// credentials still has a discoverable way to verify every
+    /// feature against pre-populated data. See `DemoMode` for what
+    /// flips when this button is tapped.
+    private var tryTheDemoSection: some View {
+        VStack(spacing: AppSpacing.sm) {
+            HStack {
+                Rectangle().fill(AppColor.divider).frame(height: 1)
+                Text("OR")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+                Rectangle().fill(AppColor.divider).frame(height: 1)
+            }
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.top, AppSpacing.xs)
+
+            Button {
+                Haptics.selection()
+                userAccount.enterDemoMode(modelContext: modelContext)
+                Task { await friendsStore.refresh() }
+                proStore.applyDemoPlan(DemoMode.planOverride())
+            } label: {
+                HStack(spacing: AppSpacing.xs) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Try the Demo")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundStyle(AppColor.onAccent)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(AppColor.accent)
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, AppSpacing.md)
+
+            Text("Browse pre-loaded recipes, friends, and Pro features without an account.")
+                .font(.system(size: 12))
+                .foregroundStyle(AppColor.textTertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, AppSpacing.md)
+        }
     }
 
     // MARK: - Signed-in body
@@ -811,6 +860,81 @@ struct ProfileView: View {
         }
     }
 
+    // MARK: - Demo mode controls (settings sheet)
+
+    /// In-demo controls panel. Renders inside the settings sheet
+    /// while `userAccount.isDemoMode == true`. Surfaces a plan-tier
+    /// switcher so the reviewer can see Free / Monthly / Yearly
+    /// crown surfaces, plus the canonical Exit Demo button — the
+    /// only supported way out of demo mode (it tears down the
+    /// seeded SwiftData rows via `exitDemoMode(modelContext:)`).
+    private var demoControlsPanel: some View {
+        VStack(spacing: AppSpacing.lg) {
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                Text("DEMO MODE")
+                    .eyebrowStyle(AppColor.textTertiary)
+                Text("You're exploring with pre-loaded sample data. Nothing is uploaded to iCloud while demo mode is on.")
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surfaceCard()
+
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                Text("LLAMA PRO TIER")
+                    .eyebrowStyle(AppColor.textTertiary)
+                Text("Switch tiers to preview Pro features and crown styles.")
+                    .font(AppFont.body)
+                    .foregroundStyle(AppColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: AppSpacing.xs) {
+                    demoPlanChip(title: "Free", plan: .none)
+                    demoPlanChip(title: "Monthly", plan: .monthly)
+                    demoPlanChip(title: "Yearly", plan: .yearly)
+                }
+                .padding(.top, AppSpacing.xs)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surfaceCard()
+
+            Button {
+                Haptics.warning()
+                userAccount.exitDemoMode(modelContext: modelContext)
+                friendsStore.clearOnSignOut()
+                proStore.applyDemoPlan(.none)
+                showingSettings = false
+            } label: {
+                settingsButtonLabel(title: "Exit demo", role: .destructive)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private func demoPlanChip(title: String, plan: LlamaProStore.Plan) -> some View {
+        let isSelected = proStore.plan == plan
+        Button {
+            Haptics.selection()
+            proStore.applyDemoPlan(plan)
+        } label: {
+            Text(title)
+                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? AppColor.onAccent : AppColor.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background(isSelected ? AppColor.accent : AppColor.surfaceSunken)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(
+                        isSelected ? AppColor.accent : AppColor.divider,
+                        lineWidth: 1
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Settings sheet (cog menu)
 
     private var settingsSheet: some View {
@@ -819,29 +943,33 @@ struct ProfileView: View {
                 VStack(spacing: AppSpacing.lg) {
                     Spacer().frame(height: AppSpacing.sm)
 
-                    if let identity = userAccount.status.identity {
-                        cloudSyncRow(identity: identity)
-                        republishLibraryRow
-                    }
-
-                    VStack(spacing: AppSpacing.md) {
-                        Button {
-                            Haptics.warning()
-                            userAccount.signOut()
-                            friendsStore.clearOnSignOut()
-                            showingSettings = false
-                        } label: {
-                            settingsButtonLabel(title: "Sign out", role: .neutral)
+                    if userAccount.isDemoMode {
+                        demoControlsPanel
+                    } else {
+                        if let identity = userAccount.status.identity {
+                            cloudSyncRow(identity: identity)
+                            republishLibraryRow
                         }
-                        .buttonStyle(.plain)
 
-                        Button {
-                            Haptics.warning()
-                            showingDeleteConfirm = true
-                        } label: {
-                            settingsButtonLabel(title: "Delete account", role: .destructive)
+                        VStack(spacing: AppSpacing.md) {
+                            Button {
+                                Haptics.warning()
+                                userAccount.signOut()
+                                friendsStore.clearOnSignOut()
+                                showingSettings = false
+                            } label: {
+                                settingsButtonLabel(title: "Sign out", role: .neutral)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                Haptics.warning()
+                                showingDeleteConfirm = true
+                            } label: {
+                                settingsButtonLabel(title: "Delete account", role: .destructive)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
 
                     Spacer(minLength: AppSpacing.lg)
