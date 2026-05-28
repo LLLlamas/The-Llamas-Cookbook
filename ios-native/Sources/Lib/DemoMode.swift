@@ -130,16 +130,27 @@ enum DemoMode {
         log.info("Demo mode entered — seeded \(seededRecipeIDs().count, privacy: .public) recipes.")
     }
 
-    /// End demo mode. Removes every recipe we inserted during
-    /// `enter(...)` — tracked by id in UserDefaults so we never
-    /// touch a recipe the reviewer created themselves. Clears the
-    /// plan override, the active flag, and the seeded-id list.
+    /// End demo mode. Flips the active flag and clears the plan
+    /// override. **Deliberately does NOT delete the seeded Recipe
+    /// rows** — doing so synchronously crashed SwiftData's
+    /// backing-data assertion when `LibraryView`'s `RecipeCardView`
+    /// re-rendered against the about-to-be-deleted rows after
+    /// `modelContext.save()`. Even deferring the delete a tick is
+    /// fragile because SwiftUI re-evaluates `body` for the removed
+    /// rows during the @Query-driven removal animation.
+    ///
+    /// Leaving the rows in place is safe — they're plain local
+    /// recipes after exit, indistinguishable from anything the user
+    /// could author themselves. The `seededRecipeIDsKey` tracking
+    /// stays put so a future re-entry into demo mode skips
+    /// re-seeding (idempotent). If a real user accidentally
+    /// stumbled into demo and exited, they can delete the leftover
+    /// recipes the same way they'd delete any recipe — swipe-to-
+    /// delete in `LibraryView`.
     @MainActor
     static func exit(modelContext: ModelContext) {
         guard isActive() else { return }
-        teardownDemoLibrary(from: modelContext)
         UserDefaults.standard.removeObject(forKey: planOverrideKey)
-        UserDefaults.standard.removeObject(forKey: seededRecipeIDsKey)
         setActive(false)
         log.info("Demo mode exited.")
     }
@@ -368,19 +379,6 @@ enum DemoMode {
         } catch {
             log.error("Failed to seed demo library: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    @MainActor
-    private static func teardownDemoLibrary(from modelContext: ModelContext) {
-        let ids = seededRecipeIDs()
-        guard !ids.isEmpty else { return }
-        for id in ids {
-            let descriptor = FetchDescriptor<Recipe>(predicate: #Predicate { $0.id == id })
-            if let recipe = try? modelContext.fetch(descriptor).first {
-                modelContext.delete(recipe)
-            }
-        }
-        try? modelContext.save()
     }
 
     // MARK: - Photo import simulation
