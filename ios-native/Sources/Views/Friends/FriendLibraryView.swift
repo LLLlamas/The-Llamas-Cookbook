@@ -430,14 +430,6 @@ struct FriendLibraryView: View {
             isLoading = false
             hasLoadedOnce = true
         }
-        // Demo friend (App Store Review path): synthesized roster
-        // with no CloudKit backing. Same shape as the seed branch
-        // below — bundle the summaries, skip the network.
-        if DemoMode.isDemoFriend(friend) {
-            summaries = DemoMode.librarySummaries(forFriend: friend)
-            loadError = nil
-            return
-        }
         // Seed friend: hydrate from the bundled JSON, skip the
         // network entirely. No throw path — the cached summaries
         // are produced at decode time, so an empty list here means

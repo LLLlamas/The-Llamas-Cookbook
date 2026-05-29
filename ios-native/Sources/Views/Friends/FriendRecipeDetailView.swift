@@ -551,20 +551,6 @@ struct FriendRecipeDetailView: View {
             isLoading = false
             hasLoadedOnce = true
         }
-        // Demo friend (App Store Review path): synthesized envelope
-        // generated on demand from `DemoMode.detail(...)`. No
-        // bundled hero photos — the gallery decode returns an
-        // empty list and the photos strip renders accordingly.
-        if DemoMode.isDemoFriend(friend) {
-            if let fetched = DemoMode.detail(forRecordName: summary.recordName, friend: friend) {
-                publishedDetail = fetched
-                galleryPhotos = decodeGallery(fetched.envelope)
-                loadError = nil
-            } else {
-                loadError = "Couldn't load this recipe."
-            }
-            return
-        }
         // Seed friend: pull the pre-built envelope from
         // `SeedFriend.detail(forRecordName:)`. Seed envelopes now ship
         // with a bundled hero photo encoded into `recipe.photos`, so
@@ -721,10 +707,6 @@ struct FriendRecipeDetailView: View {
         // one would just pollute the public DB with rows pointing at
         // the `your-llama-seed` sentinel.
         guard !SeedFriend.isSeed(friend) else { return }
-        // Same reasoning for demo friends — synthetic ids, no real
-        // creator account, and we never want demo-session activity
-        // landing in the public DB.
-        guard !DemoMode.isDemoFriend(friend) else { return }
         guard let importerID = UserProfileMirror.cachedRecordID() else { return }
         // Read the @Model fields into local `String?` values BEFORE
         // crossing the `Task.detached` boundary. SwiftData @Model

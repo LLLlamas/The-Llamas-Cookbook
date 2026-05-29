@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-05-24 (post-launch-audit pass 2)
+Last refreshed: 2026-05-29 (post-launch — demo mode removed)
 
 > **Planning docs / design handoffs / prior audits live in `md_files/`** —
 > gitignored, kept on disk for reference. Only `CLAUDE.md` (this file) and
@@ -336,15 +336,20 @@ Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, Swift
 
 ---
 
-## Open Work (Pre-App Store)
+## Open Work
 
-Remaining before submission:
+**App status: live on the App Store as of 2026-05-29 (v1.0). Current work is v1.0.1.**
+
+Carry-forward from launch (still unverified on real devices):
 - Verify Universal Links on real devices
-- Verify Liquid Glass adoption on real devices — opt-out flipped 2026-05-25; checklist in `md_files/liquid-glass-adoption.md` (sheets, custom back chevrons, accent-text-outline legibility, CookingPillsOverlay contrast)
+- Verify Liquid Glass adoption on real devices — checklist in `md_files/liquid-glass-adoption.md` (sheets, custom back chevrons, accent-text-outline legibility, CookingPillsOverlay contrast)
 
-Accepted-for-launch (documented limitations, not blockers):
+Accepted limitations (documented, not blockers):
 - **Server-side `Friendship(userA,userB)` uniqueness** — currently client-side dedup only (`CloudKitFriendship.swift` ll. 65–67, 148–154, 218–221 explicitly guard duplicate sends and dedupe symmetric reads). Race window between two devices is sub-second; collision produces a benign duplicate row that the next refresh's defensive dedup hides. Acceptable for initial launch scale; revisit if abuse appears or scale grows. Real fix would require a CF Worker write-proxy with CAS — meaningful new architecture, not a one-line patch.
 - **Account-deletion cascade** — `UserAccount.deleteAccount()` cascades through `deleteAuthoredShares` → `UserProfileMirror.deleteOnAccountDeletion` → `deleteAllFriendships` → `deleteAllPublishedRecipes` → `deleteAllRecipeImports` → `CloudKitSubscriptions.unregisterAll`, with `CloudPendingDeleteQueue` providing persistent retry across launches for the 5 record types. The subscription unregister is best-effort (orphaned subscriptions are cheap server-side state CloudKit GCs; APNs token rotates on reinstall). Meets App Store Review Guideline 5.1.1(v).
+
+Recently resolved (2026-05-29 post-launch cleanup):
+- **Demo mode removed** — `DemoMode.swift` deleted; all call sites in `UserAccount`, `FriendsStore`, `LlamaProStore`, `RecipeAIParser`, `ProfileView`, `RecipeDetailView`, `FriendLibraryView`, `FriendRecipeDetailView` cleaned up. Unused `@Environment(\.modelContext)` in `ProfileView` also removed. Ships in v1.0.1.
 
 Recently resolved (2026-05-25 Instagram import polish):
 - **IG confidence gate (title + ingredients; steps optional)** — `RecipeURLImporter.fetchInstagram` returns `.full` when AI parse lands a title AND at least one ingredient; steps are optional because IG reels routinely caption ingredients while narrating prep only in audio. Empty-steps `.full` outcomes get a heads-up `.info` banner ("Got the title and ingredients — I couldn't pull steps…") in `ImportFromTextLinkView` so the user knows to add them in the editor. Drafts missing title OR ingredients route to `Outcome.insufficientForImport(enrichment:hint:)` which renders as a "Write it down myself" capsule that hands the enrichment to `EditorCoordinator.startNew(seed:)` — sheet content swaps in-place to a near-empty `RecipeEditorView` with hero photo + source URL + `@creator` summary pre-filled. Earlier strict bar required all three (title + ingredients + steps) and was rejecting useful caption-only saves; relaxed 2026-05-25 after a real Cheese Danish reel that had ingredients in the caption but no extractable steps. AI parser's NEVER FABRICATE rule keeps empty-steps honest — never papered over with placeholder steps.

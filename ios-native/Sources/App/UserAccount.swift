@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import SwiftData
 import os
 
 /// Source of truth for "who am I" in the cloud-recipe-delivery flow.
@@ -60,42 +59,6 @@ final class UserAccount {
 
     init() {
         self.status = Self.rehydrate()
-    }
-
-    // MARK: - Demo mode
-
-    /// True when the App Store Review demo mode is currently active.
-    /// Mirror of `DemoMode.isActive()` exposed as an Observable
-    /// property so SwiftUI views can react to enter/exit without
-    /// polling. Updated by `enterDemoMode` / `exitDemoMode`.
-    private(set) var isDemoMode: Bool = DemoMode.isActive()
-
-    /// Flip the app into demo mode. Reviewer-facing path used in lieu
-    /// of Sign in with Apple — see `DemoMode.swift` for the full
-    /// rationale. Synchronously seeds the user's library with demo
-    /// recipes via the supplied model context, then surfaces the
-    /// synthetic identity as a normal `.signedIn(...)` state so every
-    /// signed-in UI surface (Friends tab, Pro pills, paywall, profile
-    /// header) is reachable. No Keychain writes — the existing nil-
-    /// guards on `KeychainStore.read(.appleSub)` and
-    /// `UserProfileMirror.cachedRecordID()` keep every CloudKit /
-    /// Worker call short-circuited.
-    @MainActor
-    func enterDemoMode(modelContext: ModelContext) {
-        DemoMode.enter(modelContext: modelContext)
-        isDemoMode = true
-        status = .signedIn(DemoMode.demoIdentity)
-    }
-
-    /// Leave demo mode. Tears down the seeded recipes, clears the
-    /// plan override, and returns the UI to the signed-out state so
-    /// the reviewer (or anyone curious enough to find the button) can
-    /// continue with a clean slate.
-    @MainActor
-    func exitDemoMode(modelContext: ModelContext) {
-        DemoMode.exit(modelContext: modelContext)
-        isDemoMode = false
-        status = .signedOut
     }
 
     // MARK: Sign-in / Sign-out
@@ -205,14 +168,6 @@ final class UserAccount {
     /// The user can sign back in immediately and (in PR 2+) re-bind to
     /// the same CloudKit `User` record via the `appleSub` lookup.
     func signOut() {
-        // Demo mode owns its own teardown path (`exitDemoMode`) —
-        // a stray `signOut()` from a UI surface that didn't know
-        // about demo mode shouldn't run the CloudKit cascade against
-        // empty / nil identity state, and demo teardown needs a
-        // `ModelContext` to clean up its seeded SwiftData rows.
-        // No-op here; the profile-screen "Exit Demo" button is the
-        // only supported way out.
-        if isDemoMode { return }
         // Capture before the mirror cache is cleared so the slice 6
         // subscription cleanup below has the user record name to
         // unsubscribe by. Read first, then wipe.
@@ -259,12 +214,6 @@ final class UserAccount {
     /// and reviewers test it under conditions that include slow /
     /// flaky networks.
     func deleteAccount() {
-        // Same contract as `signOut()` — demo mode is exited via
-        // `exitDemoMode(modelContext:)`. Suppressing here also
-        // prevents the CloudKit cascade from running against the
-        // synthetic identity (which has no cached record ID anyway,
-        // but defense in depth).
-        if isDemoMode { return }
         wipeLocalState()
         status = .signedOut
         // Reset the slice 3 bulk-publish marker — see signOut().
@@ -320,14 +269,6 @@ final class UserAccount {
         guard case .signedIn(var identity) = status else { return }
         let resolved = RecipeShare.cappedDisplayName(name) ?? "Cook"
         identity.displayName = resolved
-        // Demo mode: surface the new name in the running session but
-        // skip Keychain persistence (so the synthetic appleSub doesn't
-        // linger past exit) and skip the CloudKit mirror upsert (no
-        // bound iCloud identity to upsert against).
-        if isDemoMode {
-            status = .signedIn(identity)
-            return
-        }
         persist(identity)
         status = .signedIn(identity)
 
@@ -396,15 +337,6 @@ final class UserAccount {
     /// re-sign-in) and log so the failure is visible in
     /// `log stream` post-mortem.
     private static func rehydrate() -> Status {
-        // Demo mode takes precedence over Keychain — a reviewer who
-        // entered demo mode and backgrounded the app should land
-        // back in the same demo state on cold launch. The synthetic
-        // identity is rebuilt from `DemoMode.demoIdentity` (stable),
-        // not from Keychain, so re-hydration here is purely a flag
-        // check.
-        if DemoMode.isActive() {
-            return .signedIn(DemoMode.demoIdentity)
-        }
         let subResult = readAppleSubWithRetry()
         switch subResult {
         case .found(let appleSub) where !appleSub.isEmpty:
