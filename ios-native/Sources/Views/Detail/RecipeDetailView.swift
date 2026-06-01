@@ -351,21 +351,24 @@ struct RecipeDetailView: View {
                     Haptics.selection()
                     showingAppearance = true
                 } label: {
-                    LlamaLogoOrCrown(size: 58, accent: appearance.accentColor)
-                        .frame(width: 58, height: 58)
-                        // Top padding trimmed 32 → 26 to offset the icon's
-                        // extra 6pt of height (52 → 58) so the nav bar's
-                        // overall height stays put.
-                        .padding(.top, 26)
+                    LlamaLogoOrCrown(size: 66, accent: appearance.accentColor)
+                        .frame(width: 66, height: 66)
+                        // Pull the (now larger) mascot up toward the top of
+                        // the bar: top padding trimmed 26 → 10 so the icon
+                        // sits high AND the bar's TOTAL height (10 + 66 + 8 =
+                        // 84) is actually shorter than the prior 52pt / 92pt
+                        // baseline. A shorter bar keeps the Liquid Glass blur
+                        // boundary higher — i.e. further above the recipe
+                        // title — even though the icon itself is bigger.
+                        .padding(.top, 10)
                         // Bottom padding kept minimal (was 36) — under
                         // iOS 26 Liquid Glass the nav bar sizes itself
                         // to content height and applies its blur zone
                         // to the full bar, so a tall principal item
                         // pushes the glass-blur boundary down over the
-                        // page title. The 8pt here is enough breathing
-                        // room for the icon without dragging the blur
-                        // zone into "Coconut Lentil Soup" / similar
-                        // recipe titles below.
+                        // page title. The 8pt here is the lever that
+                        // keeps the blur out of "Coconut Lentil Soup" /
+                        // similar recipe titles below — do not grow it.
                         .padding(.bottom, 8)
                 }
                 .buttonStyle(.plain)
