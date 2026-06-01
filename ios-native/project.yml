@@ -7,7 +7,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "1.1.0"
+    MARKETING_VERSION: "1.1.1"
     # CURRENT_PROJECT_VERSION is overridden at archive time by CI to a
     # Unix timestamp (`date -u +%s`) — the "1" here is just a default
     # so a local generator run produces a valid pbxproj. See
