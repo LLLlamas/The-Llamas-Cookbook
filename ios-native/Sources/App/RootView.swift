@@ -49,6 +49,17 @@ struct RootView: View {
     @State private var ghostFlying: Bool = false
     init() {
         Self.configureTabBarAppearance()
+        // Open on Profile for fresh installs and the first launch after a
+        // version bump, but only while the user is still on the default
+        // accent — so they notice they can set their name and pick a color
+        // their friends will see. Computed HERE (not in onAppear) so there's
+        // no visible Home→Profile flip on launch. `@State` initial values are
+        // honored only on first creation, so a SwiftUI re-init of RootView
+        // won't clobber the user's current tab; the persisted version stamp
+        // is written separately in `.task` (`LaunchState.markLaunched`).
+        _selectedTab = State(
+            initialValue: LaunchState.shouldRouteToProfileOnLaunch ? .me : .home
+        )
     }
 
     /// True when the app is running with iOS 26 Liquid Glass enabled —
@@ -274,6 +285,11 @@ struct RootView: View {
             )
         }
         .task {
+            // Stamp this version as launched so the first-run / first-launch-
+            // after-update Profile routing (read at init via
+            // `LaunchState.shouldRouteToProfileOnLaunch`) fires exactly once
+            // per version. Idempotent — safe on a re-init.
+            LaunchState.markLaunched()
             // Cold launch (or relaunch after iOS killed us) — pull any
             // saved cook session back into memory before the first frame
             // settles so the user lands directly in Cook Mode if they

@@ -43,6 +43,18 @@ final class AppearanceSettings {
 
     private static let storageKey = "userAccentHex"
 
+    /// True once the user has explicitly committed a custom accent color.
+    /// The hex key is persisted ONLY on a committed pick (never for the
+    /// default terracotta — `init` rehydrates without writing, and
+    /// `applySignedOut` skips persist via `isForcingDefault`), so the
+    /// absence of this key is the canonical "still on default accent"
+    /// signal. Read by `LaunchState` for first-run Profile routing and
+    /// the one-time color nudge. Static so callers don't need an
+    /// `AppearanceSettings` instance.
+    static var hasUserPickedAccent: Bool {
+        UserDefaults.standard.string(forKey: storageKey) != nil
+    }
+
     /// Suppress mirror pushes during rehydrate-from-UserDefaults so a
     /// cold launch doesn't fire a redundant CloudKit write republishing
     /// the same accent hex that's already there. Flipped false at the

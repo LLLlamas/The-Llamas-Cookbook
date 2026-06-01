@@ -351,9 +351,12 @@ struct RecipeDetailView: View {
                     Haptics.selection()
                     showingAppearance = true
                 } label: {
-                    LlamaLogoOrCrown(size: 52, accent: appearance.accentColor)
-                        .frame(width: 52, height: 52)
-                        .padding(.top, 32)
+                    LlamaLogoOrCrown(size: 58, accent: appearance.accentColor)
+                        .frame(width: 58, height: 58)
+                        // Top padding trimmed 32 → 26 to offset the icon's
+                        // extra 6pt of height (52 → 58) so the nav bar's
+                        // overall height stays put.
+                        .padding(.top, 26)
                         // Bottom padding kept minimal (was 36) — under
                         // iOS 26 Liquid Glass the nav bar sizes itself
                         // to content height and applies its blur zone

@@ -75,6 +75,14 @@ struct ProfileView: View {
     @State private var letterScrollAnchor: String? = nil
     @FocusState private var nameFieldFocused: Bool
 
+    /// Drives the accent-color picker sheet, opened by tapping the llama
+    /// avatar or the color-nudge card's "Pick your color" button.
+    @State private var showingAppearance: Bool = false
+    /// Local hide for the color nudge after "Maybe later" so the card
+    /// disappears immediately this session (the persisted per-version
+    /// suppression in `LaunchState` handles future launches).
+    @State private var colorNudgeDismissedThisSession: Bool = false
+
     /// Diagnostic state for the "Re-sync profile" button — exposes
     /// CloudKit upsert errors that would otherwise be silently
     /// swallowed by the fire-and-forget bind path. Tracks in-flight
@@ -235,6 +243,17 @@ struct ProfileView: View {
                     .environment(appearance)
                     .environment(friendsStore)
             }
+            .sheet(isPresented: $showingAppearance) {
+                // Re-inject @Observable environments — they drop across
+                // the presentation boundary on iOS 26. Mirrors the
+                // AccentColorPicker sheet in LibraryView / RecipeDetailView.
+                AccentColorPicker()
+                    .environment(appearance)
+                    .environment(userAccount)
+                    .environment(proStore)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView(initialPlan: paywallInitialPlan)
                     .environment(appearance)
@@ -295,12 +314,24 @@ struct ProfileView: View {
     /// re-renders the title automatically.
     private var header: some View {
         VStack(spacing: AppSpacing.sm) {
-            LlamaLogoOrCrown(
-                size: 96,
-                accent: appearance.accentColor,
-                crownAsset: "Llama-Pro-Icon-Profile-Crown",
-                yearlyCrownAsset: "Llama-Pro-Icon-Profile-Crown-Sunglasses"
-            )
+            // Tappable for signed-in users — the llama doubles as the
+            // accent-color picker entry point (ring + palette badge signal
+            // it's interactive). Signed-out users get the plain mascot:
+            // there's no identity to mirror a color to yet, so opening the
+            // picker would be a dead end until they sign in.
+            if userAccount.status.isSignedIn {
+                Button {
+                    Haptics.selection()
+                    showingAppearance = true
+                } label: {
+                    llamaAvatar
+                }
+                .buttonStyle(.scaleOnly)
+                .accessibilityLabel("Pick your accent color")
+                .accessibilityHint("Choose the color your friends see next to your name")
+            } else {
+                plainLlamaAvatar
+            }
             Text(headerTitle)
                 .font(AppFont.recipeTitle)
                 .foregroundStyle(appearance.accentColor)
@@ -312,6 +343,37 @@ struct ProfileView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, AppSpacing.md)
+    }
+
+    /// The brand llama with a thin accent ring and a paint-palette badge —
+    /// the affordance that reads "tap me to pick a color". Used only in the
+    /// signed-in, tappable header.
+    private var llamaAvatar: some View {
+        plainLlamaAvatar
+            .padding(6)
+            .overlay {
+                Circle()
+                    .stroke(appearance.accentColor.opacity(0.6), lineWidth: 2)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "paintpalette.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppColor.onAccent)
+                    .frame(width: 30, height: 30)
+                    .background(appearance.accentColor, in: Circle())
+                    .overlay { Circle().stroke(AppColor.surface, lineWidth: 2) }
+            }
+    }
+
+    /// The bare mascot, no interactive chrome. Shared by the signed-out
+    /// header and as the inner content of `llamaAvatar`.
+    private var plainLlamaAvatar: some View {
+        LlamaLogoOrCrown(
+            size: 96,
+            accent: appearance.accentColor,
+            crownAsset: "Llama-Pro-Icon-Profile-Crown",
+            yearlyCrownAsset: "Llama-Pro-Icon-Profile-Crown-Sunglasses"
+        )
     }
 
     private var planPillRow: some View {
@@ -420,6 +482,10 @@ struct ProfileView: View {
     @ViewBuilder
     private func signedInBody(identity: UserAccount.UserIdentity) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.lg) {
+            if showColorNudge {
+                colorNudgeCard
+            }
+
             displayNameRow(identity: identity)
 
             if let lastCooked = lastCookedRecipe {
@@ -430,6 +496,63 @@ struct ProfileView: View {
 
             friendsSection
         }
+    }
+
+    // MARK: - Color nudge
+
+    /// Show the "pick your color" callout while the user is signed in and
+    /// still on the default accent (and hasn't dismissed it). Reading
+    /// `appearance.accentColor` ties this to the picker commit, so the card
+    /// disappears the instant a color is chosen — the committed pick writes
+    /// the accent hex, flipping `LaunchState.shouldShowColorNudge` false.
+    private var showColorNudge: Bool {
+        guard userAccount.status.isSignedIn else { return false }
+        guard !colorNudgeDismissedThisSession else { return false }
+        _ = appearance.accentColor // dependency: re-evaluate when accent commits
+        return LaunchState.shouldShowColorNudge
+    }
+
+    private var colorNudgeCard: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: "paintpalette.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(appearance.accentColor)
+                Text("Pick your color for your friends to see!")
+                    .font(AppFont.sectionHeading)
+                    .foregroundStyle(AppColor.textPrimary)
+                Spacer(minLength: 0)
+            }
+            Text("Your color shows next to your name in Friends. Tap your llama above, or the button below, to choose one.")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textSecondary)
+            HStack(spacing: AppSpacing.sm) {
+                Button {
+                    Haptics.selection()
+                    showingAppearance = true
+                } label: {
+                    Text("Pick your color")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppColor.onAccent)
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.vertical, 8)
+                        .background(appearance.accentColor, in: Capsule())
+                }
+                .buttonStyle(.scaleOnly)
+                Button {
+                    Haptics.selection()
+                    colorNudgeDismissedThisSession = true
+                    LaunchState.dismissColorNudgeForThisVersion()
+                } label: {
+                    Text("Maybe later")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(AppColor.textSecondary)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .surfaceCard()
     }
 
     // MARK: - Display name row
