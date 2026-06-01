@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import StoreKit
 import AuthenticationServices
 
 /// Profile sheet — primary surface for the social slice. Reached from
@@ -949,6 +950,20 @@ struct ProfileView: View {
                     }
 
                     VStack(spacing: AppSpacing.md) {
+                        if proStore.isPro {
+                            Button {
+                                Task { @MainActor in
+                                    if let scene = UIApplication.shared.connectedScenes
+                                        .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+                                        try? await AppStore.showManageSubscriptions(in: scene)
+                                    }
+                                }
+                            } label: {
+                                settingsButtonLabel(title: "Manage Subscription", role: .neutral)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         Button {
                             Haptics.warning()
                             userAccount.signOut()
@@ -994,6 +1009,7 @@ struct ProfileView: View {
         .environment(userAccount)
         .environment(friendsStore)
         .environment(appearance)
+        .environment(proStore)
     }
 
     /// Force-republish-library diagnostic. The bulk publish on first-
