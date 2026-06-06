@@ -69,11 +69,10 @@ struct CategoryFilterStrip: View {
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
-                .background(isActive ? accent : AppColor.surface)
+                .modifier(ChipBackground(isActive: isActive, accent: accent))
                 .overlay(
                     Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
                 )
-                .clipShape(Capsule())
         }
         .buttonStyle(.scaleOnly)
     }
@@ -85,12 +84,27 @@ struct CategoryFilterStrip: View {
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
-                .background(isActive ? accent : AppColor.surface)
+                .modifier(ChipBackground(isActive: isActive, accent: accent))
                 .overlay(
                     Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
                 )
-                .clipShape(Capsule())
         }
         .buttonStyle(.scaleOnly)
+    }
+}
+
+/// Active = solid accent fill; inactive = LG glass capsule.
+/// Mirrors LibraryView.ChipBackground so FriendLibraryView's category
+/// strip matches the home filter strip visually.
+private struct ChipBackground: ViewModifier {
+    let isActive: Bool
+    let accent: Color
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.background(accent, in: Capsule())
+        } else {
+            content.glassEffect(.regular, in: Capsule())
+        }
     }
 }
