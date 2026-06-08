@@ -463,9 +463,14 @@ struct LibraryView: View {
                         .scrollSectionHaptic(section: "favorites", ticker: filterStripTicker)
                     }
 
+                    // Build tag→count in one O(n) pass — avoids a separate
+                    // O(n) filter per chip (O(n×m) total) every body pass.
+                    let tagCounts = recipes.reduce(into: [String: Int]()) { d, r in
+                        r.tags.forEach { d[$0, default: 0] += 1 }
+                    }
                     let favOffset = favoriteCount > 0 ? 1 : 0
                     ForEach(Array(allTags.enumerated()), id: \.element) { chipIndex, tag in
-                        let count = recipes.filter { $0.tags.contains(tag) }.count
+                        let count = tagCounts[tag, default: 0]
                         FilterChip(
                             label: "\(StringCase.titleCase(tag))  ·  \(count)",
                             isActive: filter == .tag(tag),
