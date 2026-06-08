@@ -25,6 +25,11 @@ struct LetterIndex: View {
     /// changes, each letter row schedules its own index-based color
     /// advance + glow pulse — same trick as `RecipeCardView`.
     let cascadeToken: Int
+    /// Base wall-clock delay between an accent commit and the FIRST
+    /// letter row advancing. Each row adds `index * letterIndexGlowStagger`
+    /// to this. Library uses `recipeListFlipDelay` (0.20); ProfileView's
+    /// friends list uses `profileFriendsListFlipDelay` (0.33).
+    let cascadeFlipDelay: TimeInterval
     /// Letter to flash the magnify badge on when no scrub gesture is
     /// active — driven by external highlight signals (e.g. RootView's
     /// post-save library highlight). `nil` at all other times.
@@ -63,6 +68,7 @@ struct LetterIndex: View {
         glowActive: Bool = false,
         previousAccent: Color? = nil,
         cascadeToken: Int = 0,
+        cascadeFlipDelay: TimeInterval = AppearanceSettings.recipeListFlipDelay,
         externalHighlightLetter: String?,
         scrollFocusLetter: String? = nil,
         onSelect: @escaping (String) -> Void
@@ -73,6 +79,7 @@ struct LetterIndex: View {
         self.glowActive = glowActive
         self.previousAccent = previousAccent
         self.cascadeToken = cascadeToken
+        self.cascadeFlipDelay = cascadeFlipDelay
         self.externalHighlightLetter = externalHighlightLetter
         self.scrollFocusLetter = scrollFocusLetter
         self.onSelect = onSelect
@@ -150,6 +157,7 @@ struct LetterIndex: View {
                     accent: accent,
                     previousAccent: previousAccent,
                     cascadeToken: cascadeToken,
+                    cascadeFlipDelay: cascadeFlipDelay,
                     globalGlowActive: glowActive,
                     rowHeight: rowHeight
                 )
@@ -295,6 +303,7 @@ private struct LetterRow: View {
     let accent: Color
     let previousAccent: Color?
     let cascadeToken: Int
+    let cascadeFlipDelay: TimeInterval
     let globalGlowActive: Bool
     let rowHeight: CGFloat
 
@@ -331,7 +340,7 @@ private struct LetterRow: View {
 
     private func scheduleStaggeredAdvance() {
         let stagger = Double(index) * AppearanceSettings.letterIndexGlowStagger
-        let flipDelay = AppearanceSettings.recipeListFlipDelay
+        let flipDelay = cascadeFlipDelay
         let hold = AppearanceSettings.letterIndexGlowHoldDuration
         if let previousAccent {
             heldAccentOverride = previousAccent

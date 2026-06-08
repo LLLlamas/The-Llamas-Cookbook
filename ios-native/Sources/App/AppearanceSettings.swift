@@ -41,6 +41,18 @@ final class AppearanceSettings {
         case cookBar = 8
     }
 
+    /// Six-zone cascade for ProfileView. Fires top → bottom through the
+    /// signed-in profile sheet in parallel with the library and detail
+    /// cascades. Separate state so rawValue ordering is isolated.
+    enum ProfileTransitionStage: Int, Equatable {
+        case header = 0       // nav icons (⚙/Done) + llama ring/badge/logo
+        case colorNudge = 1   // color-nudge palette icon + pick-color button
+        case nameCard = 2     // pencil / checkmark edit icon
+        case lastCooked = 3   // last-cooked recipe title text
+        case requests = 4     // Approve buttons on incoming requests
+        case friendsList = 5  // add-friend (+) button + LetterIndex (per-row stagger)
+    }
+
     private static let storageKey = "userAccentHex"
 
     /// True once the user has explicitly committed a custom accent color.
@@ -70,6 +82,7 @@ final class AppearanceSettings {
 
     var accentTransitionStage: AccentTransitionStage?
     var detailTransitionStage: DetailTransitionStage?
+    var profileTransitionStage: ProfileTransitionStage?
 
     /// Monotonically incremented every time a new accent cascade begins.
     /// `RecipeCardView` observes this to schedule its own per-index glow
@@ -86,6 +99,19 @@ final class AppearanceSettings {
     /// token (rather than reusing the card token) so a future change to
     /// either side's timing won't silently break the other.
     var letterIndexCascadeToken: Int = 0
+
+    /// Per-letter stagger token for the `LetterIndex` in ProfileView's
+    /// friends list. Bumped at the same instant as the other tokens but
+    /// uses `profileFriendsListFlipDelay` (0.33) as its base delay so the
+    /// strip fires inside the profile cascade's `.friendsList` beat rather
+    /// than the library's `.recipeList` beat.
+    var friendLetterCascadeToken: Int = 0
+
+    /// Per-chip stagger token for the category filter strip in LibraryView.
+    /// Bumped synchronously at cascade start; each `FilterChip` schedules
+    /// its own reveal at `categoriesFlipDelay + index * categoryChipGlowStagger`
+    /// so the chips advance left → right rather than all flipping at once.
+    var categoryCascadeToken: Int = 0
 
     /// Read-only snapshot of the accent color in effect immediately
     /// BEFORE the current cascade. `nil` outside of an active cascade.
@@ -121,6 +147,27 @@ final class AppearanceSettings {
     /// after the global flip rather than before. Must stay in sync with
     /// the `.recipeList` schedule in `startAccentTransition`.
     static let recipeListFlipDelay: TimeInterval = 0.20
+
+    /// Base delay before the `.friendsList` stage in the profile cascade.
+    /// ProfileView's `LetterIndex` uses this instead of `recipeListFlipDelay`
+    /// so its per-row stagger fires inside the profile beat (t=0.33), not
+    /// the library beat (t=0.20). Must stay in sync with the
+    /// `.friendsList` schedule in `startAccentTransition`.
+    static let profileFriendsListFlipDelay: TimeInterval = 0.33
+
+    /// Per-chip stagger for the category filter strip in LibraryView.
+    /// Chips advance left → right; at 0.025 a 15-chip strip completes
+    /// in ~0.375 s, inside the `.categories` → `.recipeList` window.
+    static let categoryChipGlowStagger: TimeInterval = 0.025
+
+    /// How long each category chip's glow holds before fading.
+    static let categoryChipGlowHoldDuration: TimeInterval = 0.14
+
+    /// Base delay before the first category chip advances. Matches the
+    /// `.categories` schedule in `startAccentTransition` so chip 0
+    /// reveals exactly when the global stage fires and subsequent chips
+    /// trail it one by one.
+    static let categoriesFlipDelay: TimeInterval = 0.14
 
     /// Live, uncommitted accent shown while `AccentColorPicker` is open.
     /// Set continuously from the picker's local `pickerColor` so accent-
@@ -183,6 +230,15 @@ final class AppearanceSettings {
     var detailStepsAccentColor: Color          { transitionColorForDetail(.steps) }
     var detailCookBarAccentColor: Color        { transitionColorForDetail(.cookBar) }
 
+    // MARK: - Profile cascade colors
+
+    var profileHeaderAccentColor: Color        { transitionColorForProfile(.header) }
+    var profileColorNudgeAccentColor: Color    { transitionColorForProfile(.colorNudge) }
+    var profileNameCardAccentColor: Color      { transitionColorForProfile(.nameCard) }
+    var profileLastCookedAccentColor: Color    { transitionColorForProfile(.lastCooked) }
+    var profileRequestsAccentColor: Color      { transitionColorForProfile(.requests) }
+    var profileFriendsListAccentColor: Color   { transitionColorForProfile(.friendsList) }
+
     var accentColor: Color = AppColor.accent {
         didSet {
             // `isForcingDefault` is set by `applySignedOut` — skip all
@@ -219,6 +275,10 @@ final class AppearanceSettings {
 
     func isDetailGlowActive(_ stage: DetailTransitionStage) -> Bool {
         detailTransitionStage == stage
+    }
+
+    func isProfileGlowActive(_ stage: ProfileTransitionStage) -> Bool {
+        profileTransitionStage == stage
     }
 
     init() {
@@ -329,6 +389,11 @@ final class AppearanceSettings {
         // own index-based delay.
         recipeCardCascadeToken &+= 1
         letterIndexCascadeToken &+= 1
+        // Category chips advance left → right inside the `.categories`
+        // beat (base delay 0.14). `friendLetterCascadeToken` fires inside
+        // the profile cascade's `.friendsList` beat (base delay 0.33).
+        categoryCascadeToken &+= 1
+        friendLetterCascadeToken &+= 1
         scheduleAccentStage(.plusButton,  generation: generation, after: 0.55)
         scheduleAccentStage(.bottomNav,   generation: generation, after: 0.66)
 
@@ -346,11 +411,52 @@ final class AppearanceSettings {
         scheduleDetailStage(.steps,              generation: generation, after: 0.49)
         scheduleDetailStage(.cookBar,            generation: generation, after: 0.55)
 
+        // Profile cascade — fires top → bottom through ProfileView in
+        // parallel with the library and detail cascades.
+        //
+        //   t=0.00   header   — nav icons (⚙/Done) + llama ring/badge/logo
+        //   t=0.08   colorNudge — palette icon + pick-color button
+        //   t=0.14   nameCard   — pencil / checkmark edit icon
+        //   t=0.20   lastCooked — last-cooked recipe title text
+        //   t=0.26   requests   — Approve buttons on incoming requests
+        //   t=0.33   friendsList — (+) button + LetterIndex per-row stagger
+        //            `friendLetterCascadeToken` was bumped above; each
+        //            letter row wakes at profileFriendsListFlipDelay (0.33)
+        //            + index * letterIndexGlowStagger (0.012) — A→Z top→bottom.
+        profileTransitionStage = .header
+        scheduleProfileStage(.colorNudge,  generation: generation, after: 0.08)
+        scheduleProfileStage(.nameCard,    generation: generation, after: 0.14)
+        scheduleProfileStage(.lastCooked,  generation: generation, after: 0.20)
+        scheduleProfileStage(.requests,    generation: generation, after: 0.26)
+        scheduleProfileStage(.friendsList, generation: generation, after: 0.33)
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
             guard let self, self.accentTransitionGeneration == generation else { return }
             self.previousAccentColor = nil
             self.accentTransitionStage = nil
             self.detailTransitionStage = nil
+            self.profileTransitionStage = nil
+        }
+    }
+
+    private func transitionColorForProfile(_ stage: ProfileTransitionStage) -> Color {
+        guard let previousAccentColor,
+              let profileTransitionStage,
+              profileTransitionStage.rawValue < stage.rawValue
+        else {
+            return accentColor
+        }
+        return previousAccentColor
+    }
+
+    private func scheduleProfileStage(
+        _ stage: ProfileTransitionStage,
+        generation: Int,
+        after delay: TimeInterval
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.accentTransitionGeneration == generation else { return }
+            self.profileTransitionStage = stage
         }
     }
 
