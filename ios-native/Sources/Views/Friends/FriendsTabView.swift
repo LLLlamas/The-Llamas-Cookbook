@@ -164,7 +164,7 @@ struct FriendsTabView: View {
                     addFriendCTA
                 }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: friendsStore.incomingRequests.isEmpty)
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: friendsStore.incomingRequests.isEmpty && friendsStore.outgoingRequestProfiles.isEmpty)
         }
         .scrollContentBackground(.hidden)
     }
@@ -172,13 +172,17 @@ struct FriendsTabView: View {
     // MARK: - Requests section
 
     /// Compact card shown above the friend grid whenever there are
-    /// incoming pending requests. Each row renders the requester's
-    /// accent dot + serif name on the left and deny / accept circle
-    /// buttons on the right. Animates in/out as `incomingRequests`
-    /// changes (spring, top-edge slide + opacity).
+    /// incoming or outgoing pending requests. Incoming rows get
+    /// deny / accept buttons; outgoing rows show a clock "Sent"
+    /// indicator and a cancel button. When both lists are non-empty
+    /// the card splits into "Incoming" / "Sent" sub-sections with
+    /// a divider. Animates in/out as both lists change.
     @ViewBuilder
     private var requestsSection: some View {
-        if !friendsStore.incomingRequests.isEmpty {
+        let hasIncoming = !friendsStore.incomingRequests.isEmpty
+        let hasOutgoing = !friendsStore.outgoingRequestProfiles.isEmpty
+        if hasIncoming || hasOutgoing {
+            let total = friendsStore.incomingRequests.count + friendsStore.outgoingRequestProfiles.count
             VStack(alignment: .leading, spacing: AppSpacing.xs) {
                 HStack(spacing: 6) {
                     Image(systemName: "person.crop.circle.badge.clock.fill")
@@ -188,7 +192,7 @@ struct FriendsTabView: View {
                     Text("Requests")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(AppColor.textSecondary)
-                    Text("\(friendsStore.incomingRequests.count)")
+                    Text("\(total)")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(AppColor.onAccent)
                         .padding(.horizontal, 5)
@@ -198,8 +202,33 @@ struct FriendsTabView: View {
                 }
                 .padding(.bottom, 2)
 
-                ForEach(friendsStore.incomingRequests) { request in
-                    RequestRow(request: request)
+                if hasIncoming {
+                    if hasOutgoing {
+                        Text("Incoming")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(AppColor.textTertiary)
+                            .padding(.bottom, 2)
+                    }
+                    ForEach(friendsStore.incomingRequests) { request in
+                        RequestRow(request: request)
+                    }
+                }
+
+                if hasIncoming && hasOutgoing {
+                    Divider()
+                        .padding(.vertical, AppSpacing.xs)
+                }
+
+                if hasOutgoing {
+                    if hasIncoming {
+                        Text("Sent")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(AppColor.textTertiary)
+                            .padding(.bottom, 2)
+                    }
+                    ForEach(friendsStore.outgoingRequestProfiles) { request in
+                        OutgoingRequestRow(request: request)
+                    }
                 }
             }
             .padding(AppSpacing.md)
@@ -687,6 +716,68 @@ private struct RequestRow: View {
         .background(
             RoundedRectangle(cornerRadius: AppRadius.md)
                 .fill(request.requester.resolvedAccent.opacity(0.07))
+        )
+    }
+}
+
+/// One outgoing-request row in the requests section header.
+/// Compact: outline accent dot (pending state) + serif display
+/// name on the left, a muted clock + "Sent" label and a cancel
+/// circle on the right. `isProcessing` disables the cancel button
+/// for the brief window before the store's optimistic removal.
+private struct OutgoingRequestRow: View {
+    let request: FriendsStore.PendingRequest
+
+    @Environment(FriendsStore.self) private var friendsStore
+    @State private var isProcessing = false
+
+    var body: some View {
+        HStack(spacing: AppSpacing.sm) {
+            AccentDot(
+                hex: request.requester.accentHex,
+                fallback: AppColor.accent,
+                isGlowing: false,
+                outlineWhenIdle: true
+            )
+            Text(request.requester.displayName)
+                .font(.system(size: 15, weight: .semibold, design: .serif))
+                .foregroundStyle(request.requester.resolvedAccent)
+                .accentTextOutline()
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 4) {
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+                Text("Sent")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
+
+            Button {
+                Haptics.impact(.light)
+                isProcessing = true
+                Task { await friendsStore.cancelRequest(to: request.requester) }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .frame(width: 30, height: 30)
+                    .background(AppColor.surface.opacity(0.9))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(AppColor.divider.opacity(0.5), lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+            .disabled(isProcessing)
+        }
+        .padding(.horizontal, AppSpacing.sm)
+        .padding(.vertical, AppSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .fill(request.requester.resolvedAccent.opacity(0.05))
         )
     }
 }
