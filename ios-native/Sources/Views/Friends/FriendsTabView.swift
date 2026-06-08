@@ -125,43 +125,106 @@ struct FriendsTabView: View {
 
     private var grid: some View {
         ScrollView {
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: AppSpacing.md),
-                    GridItem(.flexible(), spacing: AppSpacing.md)
-                ],
-                spacing: AppSpacing.md
-            ) {
-                ForEach(friendsStore.friends) { friend in
-                    NavigationLink(value: friend) {
-                        FriendCardView(
-                            friend: friend,
-                            recipeCount: recipeCounts[friend.userRecordName],
-                            cookThumbnail: cookThumbnails[friend.userRecordName],
-                            totalSaves: friendTotalSaves[friend.userRecordName],
-                            friendsSince: friendsStore.friendsSinceByID[friend.userRecordName]
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        Haptics.selection()
-                    })
-                    .task(id: friend.userRecordName) {
-                        async let count: Void = loadCountIfNeeded(for: friend)
-                        async let saves: Void = loadTotalSavesIfNeeded(for: friend)
-                        _ = await (count, saves)
+            VStack(spacing: 0) {
+                requestsSection
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: AppSpacing.md),
+                        GridItem(.flexible(), spacing: AppSpacing.md)
+                    ],
+                    spacing: AppSpacing.md
+                ) {
+                    ForEach(friendsStore.friends) { friend in
+                        NavigationLink(value: friend) {
+                            FriendCardView(
+                                friend: friend,
+                                recipeCount: recipeCounts[friend.userRecordName],
+                                cookThumbnail: cookThumbnails[friend.userRecordName],
+                                totalSaves: friendTotalSaves[friend.userRecordName],
+                                friendsSince: friendsStore.friendsSinceByID[friend.userRecordName]
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            Haptics.selection()
+                        })
+                        .task(id: friend.userRecordName) {
+                            async let count: Void = loadCountIfNeeded(for: friend)
+                            async let saves: Void = loadTotalSavesIfNeeded(for: friend)
+                            _ = await (count, saves)
+                        }
                     }
                 }
-            }
-            .padding(.horizontal, AppSpacing.lg)
-            .padding(.top, AppSpacing.md)
-            .padding(.bottom, isBelowSocialThreshold ? AppSpacing.md : AppSpacing.xxl)
+                .padding(.horizontal, AppSpacing.lg)
+                .padding(.top, AppSpacing.md)
+                .padding(.bottom, isBelowSocialThreshold ? AppSpacing.md : AppSpacing.xxl)
 
-            if isBelowSocialThreshold {
-                addFriendCTA
+                if isBelowSocialThreshold {
+                    addFriendCTA
+                }
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: friendsStore.incomingRequests.isEmpty)
         }
         .scrollContentBackground(.hidden)
+    }
+
+    // MARK: - Requests section
+
+    /// Compact card shown above the friend grid whenever there are
+    /// incoming pending requests. Each row renders the requester's
+    /// accent dot + serif name on the left and deny / accept circle
+    /// buttons on the right. Animates in/out as `incomingRequests`
+    /// changes (spring, top-edge slide + opacity).
+    @ViewBuilder
+    private var requestsSection: some View {
+        if !friendsStore.incomingRequests.isEmpty {
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.crop.circle.badge.clock.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(appearance.cookbookTitleAccentColor)
+                        .accentTextOutline()
+                    Text("Requests")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppColor.textSecondary)
+                    Text("\(friendsStore.incomingRequests.count)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(AppColor.onAccent)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(appearance.cookbookTitleAccentColor)
+                        .clipShape(Capsule())
+                }
+                .padding(.bottom, 2)
+
+                ForEach(friendsStore.incomingRequests) { request in
+                    RequestRow(request: request)
+                }
+            }
+            .padding(AppSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: AppRadius.lg)
+                    .fill(LinearGradient(
+                        colors: [
+                            AppColor.surfaceRaised.opacity(0.85),
+                            AppColor.surface.opacity(0.85)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.lg)
+                    .strokeBorder(appearance.cookbookTitleAccentColor.opacity(0.25), lineWidth: 1)
+            )
+            .liftedCard()
+            .padding(.horizontal, AppSpacing.lg)
+            .padding(.top, AppSpacing.md)
+            .padding(.bottom, AppSpacing.xs)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 
     // MARK: - Below-threshold CTA
@@ -554,6 +617,78 @@ private struct FriendCardView: View {
         }
     }
 
+}
+
+/// One incoming-request row in the requests section header.
+/// Compact: filled accent dot + serif display name on the left,
+/// deny (xmark) / accept (checkmark) circle buttons on the right.
+/// `isProcessing` disables both buttons for the brief window
+/// between tap and the store's optimistic row removal.
+private struct RequestRow: View {
+    let request: FriendsStore.PendingRequest
+
+    @Environment(FriendsStore.self) private var friendsStore
+    @State private var isProcessing = false
+
+    var body: some View {
+        HStack(spacing: AppSpacing.sm) {
+            AccentDot(
+                hex: request.requester.accentHex,
+                fallback: AppColor.accent,
+                isGlowing: false,
+                outlineWhenIdle: false
+            )
+            Text(request.requester.displayName)
+                .font(.system(size: 15, weight: .semibold, design: .serif))
+                .foregroundStyle(request.requester.resolvedAccent)
+                .accentTextOutline()
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: AppSpacing.xs) {
+                // Deny
+                Button {
+                    Haptics.impact(.light)
+                    isProcessing = true
+                    Task { await friendsStore.denyRequest(request) }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppColor.textSecondary)
+                        .frame(width: 30, height: 30)
+                        .background(AppColor.surface.opacity(0.9))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(AppColor.divider.opacity(0.5), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .disabled(isProcessing)
+
+                // Accept
+                Button {
+                    Haptics.success()
+                    isProcessing = true
+                    Task { await friendsStore.acceptRequest(request) }
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppColor.onAccent)
+                        .frame(width: 30, height: 30)
+                        .background(request.requester.resolvedAccent)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isProcessing)
+            }
+        }
+        .padding(.horizontal, AppSpacing.sm)
+        .padding(.vertical, AppSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .fill(request.requester.resolvedAccent.opacity(0.07))
+        )
+    }
 }
 
 #Preview {
