@@ -48,6 +48,16 @@ struct FriendLibraryView: View {
     /// `LetterIndex` strip. Reset on filter change.
     @State private var scrollTicker = ScrollSectionTicker()
 
+    // MARK: - Derived-state cache
+    // `summaries` is a value-type @State we own, so onChange(of: summaries)
+    // fires reliably on every assignment — unlike @Query recipe arrays where
+    // property mutations don't change Equatable identity. All downstream
+    // computations are therefore safe to cache here.
+    @State private var cachedCategories: [String] = []
+    @State private var cachedFilteredSummaries: [PublishedRecipeSummary] = []
+    @State private var cachedPopulatedLetters: Set<String> = []
+    @State private var cachedTagCounts: [String: Int] = [:]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             friendHeader
@@ -62,9 +72,9 @@ struct FriendLibraryView: View {
             }
 
             CategoryFilterStrip(
-                categories: allCategories,
+                categories: cachedCategories,
                 totalCount: summaries.count,
-                countFor: { tag in summaries.filter { $0.tags.contains(tag) }.count },
+                countFor: { tag in cachedTagCounts[tag, default: 0] },
                 selection: $categoryFilter,
                 accent: friend.resolvedAccent
             )
@@ -122,6 +132,16 @@ struct FriendLibraryView: View {
             if !hasLoadedOnce {
                 await loadLibrary()
             }
+        }
+        // Recompute all derived collections whenever summaries changes.
+        // `initial: true` seeds the cache on first appear (empty state).
+        .onChange(of: summaries, initial: true) { _, newSummaries in
+            recomputeDerived(summaries: newSummaries)
+        }
+        // Recompute the filtered list when the category selection changes
+        // (tags/counts are unaffected, so only filtered+letters update).
+        .onChange(of: categoryFilter) { _, _ in
+            recomputeFiltered(summaries: summaries)
         }
     }
 
@@ -255,7 +275,7 @@ struct FriendLibraryView: View {
             errorState(message: loadError)
         } else if summaries.isEmpty {
             emptyState
-        } else if filteredSummaries.isEmpty {
+        } else if cachedFilteredSummaries.isEmpty {
             emptyFilterState
         } else {
             recipeList
@@ -270,7 +290,7 @@ struct FriendLibraryView: View {
                     // focused card's 4% scale-up doesn't overlap its
                     // neighbors mid-scroll.
                     LazyVStack(spacing: AppSpacing.md + 4) {
-                        ForEach(filteredSummaries) { summary in
+                        ForEach(cachedFilteredSummaries) { summary in
                             NavigationLink {
                                 FriendRecipeDetailView(friend: friend, summary: summary)
                             } label: {
@@ -312,7 +332,7 @@ struct FriendLibraryView: View {
 
                 LetterIndex(
                     letters: LetterIndex.allLetters,
-                    populated: populatedLetters,
+                    populated: cachedPopulatedLetters,
                     accent: friend.resolvedAccent,
                     externalHighlightLetter: nil,
                     scrollFocusLetter: nil
@@ -353,19 +373,33 @@ struct FriendLibraryView: View {
 
     // MARK: - Derived
 
-    private var allCategories: [String] {
+    // Recomputes tag categories, per-tag counts, filtered list, and
+    // populated-letter set in a single O(n) + O(m) pass. Called from
+    // onChange(of: summaries) so it only runs when data actually changes,
+    // not on every environment mutation (accent cascade, navigation, etc.).
+    private func recomputeDerived(summaries: [PublishedRecipeSummary]) {
         var set = Set<String>()
-        for s in summaries { for t in s.tags { set.insert(t) } }
-        return set.sorted()
+        var counts = [String: Int]()
+        for s in summaries {
+            for t in s.tags {
+                set.insert(t)
+                counts[t, default: 0] += 1
+            }
+        }
+        cachedCategories = set.sorted()
+        cachedTagCounts = counts
+        recomputeFiltered(summaries: summaries)
     }
 
-    private var filteredSummaries: [PublishedRecipeSummary] {
-        guard let tag = categoryFilter else { return summaries }
-        return summaries.filter { $0.tags.contains(tag) }
-    }
-
-    private var populatedLetters: Set<String> {
-        Set(filteredSummaries.map { LetterIndex.bucket(for: $0.recipeTitle) })
+    private func recomputeFiltered(summaries: [PublishedRecipeSummary]) {
+        let filtered: [PublishedRecipeSummary]
+        if let tag = categoryFilter {
+            filtered = summaries.filter { $0.tags.contains(tag) }
+        } else {
+            filtered = summaries
+        }
+        cachedFilteredSummaries = filtered
+        cachedPopulatedLetters = Set(filtered.map { LetterIndex.bucket(for: $0.recipeTitle) })
     }
 
     /// Walk the alphabet from `letter` forward and return the first
@@ -374,9 +408,8 @@ struct FriendLibraryView: View {
     /// non-letter recipes scrolls to A.
     private func firstSummary(atOrAfter letter: String) -> PublishedRecipeSummary? {
         guard let startIndex = LetterIndex.allLetters.firstIndex(of: letter) else { return nil }
-        let populated = populatedLetters
-        for candidate in LetterIndex.allLetters[startIndex...] where populated.contains(candidate) {
-            return filteredSummaries.first { LetterIndex.bucket(for: $0.recipeTitle) == candidate }
+        for candidate in LetterIndex.allLetters[startIndex...] where cachedPopulatedLetters.contains(candidate) {
+            return cachedFilteredSummaries.first { LetterIndex.bucket(for: $0.recipeTitle) == candidate }
         }
         return nil
     }

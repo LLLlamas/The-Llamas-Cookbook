@@ -1025,7 +1025,10 @@ struct RootView: View {
     /// Returns a pre-scaled `Image` for Pro crown assets so they fit the tab
     /// bar's ~26pt icon slot. The crown PNGs are sized for header/logo use
     /// (~96pt+) and UIKit won't reliably downscale them to tab bar dimensions.
+    /// Result is cached at file scope — the renderer composite only runs once
+    /// per asset name, not once per tabLabel body pass.
     private func proTabIcon(named name: String) -> Image {
+        if let cached = _proIconCache[name] { return cached }
         guard let ui = UIImage(named: name) else { return Image(name) }
         let size = CGSize(width: 26, height: 26)
         let renderer = UIGraphicsImageRenderer(size: size)
@@ -1033,7 +1036,9 @@ struct RootView: View {
             ctx.cgContext.interpolationQuality = .high
             ui.draw(in: CGRect(origin: .zero, size: size))
         }
-        return Image(uiImage: resized.withRenderingMode(.alwaysOriginal))
+        let result = Image(uiImage: resized.withRenderingMode(.alwaysOriginal))
+        _proIconCache[name] = result
+        return result
     }
 
     /// Parses `llamascookbook://cook/<uuid>` and returns the UUID, or
@@ -1048,6 +1053,10 @@ struct RootView: View {
         return UUID(uuidString: first)
     }
 }
+
+// Tab-bar Pro-icon cache — populated on first render, reused every subsequent
+// body pass. Always accessed on the main thread (SwiftUI tabItem evaluation).
+private var _proIconCache: [String: Image] = [:]
 
 /// Wraps the editor/import/new-recipe flow in its own detent-managed
 /// sheet content. Owns a local `@State` for the selected detent so each

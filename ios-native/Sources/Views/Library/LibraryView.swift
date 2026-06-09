@@ -453,21 +453,33 @@ struct LibraryView: View {
                             isActive: filter == .favorites,
                             iconName: "heart.fill",
                             accent: appearance.categoryAccentColor,
-                            glowActive: appearance.isAccentGlowActive(.categories)
+                            glowActive: appearance.isAccentGlowActive(.categories),
+                            index: 0,
+                            cascadeToken: appearance.categoryCascadeToken,
+                            previousAccent: appearance.cascadePreviousAccentColor
                         ) {
                             filter = filter == .favorites ? .all : .favorites
                         }
                         .scrollSectionHaptic(section: "favorites", ticker: filterStripTicker)
                     }
 
-                    ForEach(allTags, id: \.self) { tag in
-                        let count = recipes.filter { $0.tags.contains(tag) }.count
+                    // Build tag→count in one O(n) pass — avoids a separate
+                    // O(n) filter per chip (O(n×m) total) every body pass.
+                    let tagCounts = recipes.reduce(into: [String: Int]()) { d, r in
+                        r.tags.forEach { d[$0, default: 0] += 1 }
+                    }
+                    let favOffset = favoriteCount > 0 ? 1 : 0
+                    ForEach(Array(allTags.enumerated()), id: \.element) { chipIndex, tag in
+                        let count = tagCounts[tag, default: 0]
                         FilterChip(
                             label: "\(StringCase.titleCase(tag))  ·  \(count)",
                             isActive: filter == .tag(tag),
                             iconName: nil,
                             accent: appearance.categoryAccentColor,
-                            glowActive: appearance.isAccentGlowActive(.categories)
+                            glowActive: appearance.isAccentGlowActive(.categories),
+                            index: favOffset + chipIndex,
+                            cascadeToken: appearance.categoryCascadeToken,
+                            previousAccent: appearance.cascadePreviousAccentColor
                         ) {
                             filter = filter == .tag(tag) ? .all : .tag(tag)
                         }
@@ -732,7 +744,39 @@ private struct FilterChip: View {
     let iconName: String?
     let accent: Color
     let glowActive: Bool
+    let index: Int
+    let cascadeToken: Int
+    let previousAccent: Color?
     let action: () -> Void
+
+    @State private var heldAccentOverride: Color? = nil
+    @State private var localGlowActive: Bool = false
+
+    init(
+        label: String,
+        isActive: Bool,
+        iconName: String?,
+        accent: Color,
+        glowActive: Bool,
+        index: Int = 0,
+        cascadeToken: Int = 0,
+        previousAccent: Color? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.label = label
+        self.isActive = isActive
+        self.iconName = iconName
+        self.accent = accent
+        self.glowActive = glowActive
+        self.index = index
+        self.cascadeToken = cascadeToken
+        self.previousAccent = previousAccent
+        self.action = action
+    }
+
+    private var effectiveAccent: Color {
+        heldAccentOverride ?? accent
+    }
 
     var body: some View {
         Button(action: action) {
@@ -743,7 +787,7 @@ private struct FilterChip: View {
                     // chip while the label text stays neutral.
                     Image(systemName: iconName)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isActive ? AppColor.onAccent : accent)
+                        .foregroundStyle(isActive ? AppColor.onAccent : effectiveAccent)
                 }
                 Text(label)
                     .font(.system(size: 13, weight: .medium))
@@ -751,14 +795,36 @@ private struct FilterChip: View {
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
-            .modifier(ChipBackground(isActive: isActive, accent: accent))
+            .modifier(ChipBackground(isActive: isActive, accent: effectiveAccent))
             .overlay(
-                Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
+                Capsule().stroke(isActive ? effectiveAccent : AppColor.divider, lineWidth: 1)
             )
-            .shadow(color: accent.opacity(glowActive ? 0.10 : 0), radius: glowActive ? 7 : 0)
+            .shadow(
+                color: effectiveAccent.opacity((glowActive || localGlowActive) ? 0.10 : 0),
+                radius: (glowActive || localGlowActive) ? 7 : 0
+            )
             .animation(.easeInOut(duration: 0.14), value: glowActive)
         }
         .buttonStyle(.scaleOnly)
+        .onChange(of: cascadeToken) { _, _ in scheduleStaggeredAdvance() }
+    }
+
+    private func scheduleStaggeredAdvance() {
+        let stagger = Double(index) * AppearanceSettings.categoryChipGlowStagger
+        let flipDelay = AppearanceSettings.categoriesFlipDelay
+        let hold = AppearanceSettings.categoryChipGlowHoldDuration
+        if let previousAccent {
+            heldAccentOverride = previousAccent
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(flipDelay + stagger))
+            withAnimation(.easeInOut(duration: 0.18)) {
+                heldAccentOverride = nil
+                localGlowActive = true
+            }
+            try? await Task.sleep(for: .seconds(hold))
+            withAnimation(.easeInOut(duration: 0.14)) { localGlowActive = false }
+        }
     }
 }
 

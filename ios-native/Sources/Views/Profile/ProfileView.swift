@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import StoreKit
 import AuthenticationServices
 
 /// Profile sheet — primary surface for the social slice. Reached from
@@ -157,7 +158,10 @@ struct ProfileView: View {
                         LetterIndex(
                             letters: LetterIndex.allLetters,
                             populated: populatedFriendLetters,
-                            accent: appearance.accentColor,
+                            accent: appearance.profileFriendsListAccentColor,
+                            previousAccent: appearance.cascadePreviousAccentColor,
+                            cascadeToken: appearance.friendLetterCascadeToken,
+                            cascadeFlipDelay: AppearanceSettings.profileFriendsListFlipDelay,
                             externalHighlightLetter: nil
                         ) { letter in
                             guard let target = firstFriend(atOrAfter: letter) else { return }
@@ -185,7 +189,7 @@ struct ProfileView: View {
                         } label: {
                             Image(systemName: "gearshape")
                                 .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(appearance.accentColor)
+                                .foregroundStyle(appearance.profileHeaderAccentColor)
                                 .accentTextOutline()
                         }
                         .accessibilityLabel("Settings")
@@ -199,7 +203,7 @@ struct ProfileView: View {
                         } label: {
                             Text("Done")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(appearance.accentColor)
+                                .foregroundStyle(appearance.profileHeaderAccentColor)
                                 .accentTextOutline()
                         }
                     }
@@ -334,7 +338,11 @@ struct ProfileView: View {
             }
             Text(headerTitle)
                 .font(AppFont.recipeTitle)
-                .foregroundStyle(appearance.accentColor)
+                // Use cookbookTitleAccentColor (= previewAccentColor ?? accentColor)
+                // so the title tracks the live picker preview and never briefly
+                // reverts to the old hue when the cascade fires — same invariant
+                // as the library's cookbook title.
+                .foregroundStyle(appearance.cookbookTitleAccentColor)
                 .accentTextOutline()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -353,16 +361,23 @@ struct ProfileView: View {
             .padding(6)
             .overlay {
                 Circle()
-                    .stroke(appearance.accentColor.opacity(0.6), lineWidth: 2)
+                    .stroke(appearance.profileHeaderAccentColor.opacity(0.6), lineWidth: 2)
             }
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "paintpalette.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(AppColor.onAccent)
                     .frame(width: 30, height: 30)
-                    .background(appearance.accentColor, in: Circle())
+                    .background(appearance.profileHeaderAccentColor, in: Circle())
                     .overlay { Circle().stroke(AppColor.surface, lineWidth: 2) }
             }
+            .shadow(
+                color: appearance.profileHeaderAccentColor.opacity(
+                    appearance.isProfileGlowActive(.header) ? 0.30 : 0
+                ),
+                radius: appearance.isProfileGlowActive(.header) ? 18 : 0
+            )
+            .animation(.easeInOut(duration: 0.14), value: appearance.isProfileGlowActive(.header))
     }
 
     /// The bare mascot, no interactive chrome. Shared by the signed-out
@@ -370,7 +385,7 @@ struct ProfileView: View {
     private var plainLlamaAvatar: some View {
         LlamaLogoOrCrown(
             size: 96,
-            accent: appearance.accentColor,
+            accent: appearance.profileHeaderAccentColor,
             crownAsset: "Llama-Pro-Icon-Profile-Crown",
             yearlyCrownAsset: "Llama-Pro-Icon-Profile-Crown-Sunglasses"
         )
@@ -517,7 +532,7 @@ struct ProfileView: View {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "paintpalette.fill")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(appearance.accentColor)
+                    .foregroundStyle(appearance.profileColorNudgeAccentColor)
                 Text("Pick your color for your friends to see!")
                     .font(AppFont.sectionHeading)
                     .foregroundStyle(AppColor.textPrimary)
@@ -536,7 +551,14 @@ struct ProfileView: View {
                         .foregroundStyle(AppColor.onAccent)
                         .padding(.horizontal, AppSpacing.md)
                         .padding(.vertical, 8)
-                        .background(appearance.accentColor, in: Capsule())
+                        .background(appearance.profileColorNudgeAccentColor, in: Capsule())
+                        .shadow(
+                            color: appearance.profileColorNudgeAccentColor.opacity(
+                                appearance.isProfileGlowActive(.colorNudge) ? 0.28 : 0
+                            ),
+                            radius: appearance.isProfileGlowActive(.colorNudge) ? 10 : 0
+                        )
+                        .animation(.easeInOut(duration: 0.14), value: appearance.isProfileGlowActive(.colorNudge))
                 }
                 .buttonStyle(.scaleOnly)
                 Button {
@@ -579,7 +601,7 @@ struct ProfileView: View {
                     } label: {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
+                            .foregroundStyle(appearance.profileNameCardAccentColor)
                     }
                     .buttonStyle(.plain)
                 } else {
@@ -595,7 +617,7 @@ struct ProfileView: View {
                     } label: {
                         Image(systemName: "pencil")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(appearance.accentColor)
+                            .foregroundStyle(appearance.profileNameCardAccentColor)
                             .frame(width: 32, height: 32)
                             .background(AppColor.surfaceSunken)
                             .clipShape(Circle())
@@ -634,7 +656,7 @@ struct ProfileView: View {
                 Image(systemName: "fork.knife")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
-                Text("\(Text("Last cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(recipe.title).fontWeight(.semibold).foregroundStyle(appearance.accentColor))")
+                Text("\(Text("Last cooked: ").foregroundStyle(AppColor.textTertiary))\(Text(recipe.title).fontWeight(.semibold).foregroundStyle(appearance.profileLastCookedAccentColor))")
                     .font(AppFont.caption)
                     .accentTextOutline()
                 Spacer(minLength: 0)
@@ -791,8 +813,15 @@ struct ProfileView: View {
                     .foregroundStyle(AppColor.onAccent)
                     .padding(.horizontal, AppSpacing.sm)
                     .padding(.vertical, 6)
-                    .background(appearance.accentColor)
+                    .background(appearance.profileRequestsAccentColor)
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                    .shadow(
+                        color: appearance.profileRequestsAccentColor.opacity(
+                            appearance.isProfileGlowActive(.requests) ? 0.28 : 0
+                        ),
+                        radius: appearance.isProfileGlowActive(.requests) ? 8 : 0
+                    )
+                    .animation(.easeInOut(duration: 0.14), value: appearance.isProfileGlowActive(.requests))
             }
             .buttonStyle(.lifted)
         }
@@ -827,7 +856,14 @@ struct ProfileView: View {
                         .foregroundStyle(AppColor.onAccent)
                         .accentTextOutline()
                         .frame(width: 28, height: 28)
-                        .background(Circle().fill(appearance.accentColor))
+                        .background(Circle().fill(appearance.profileFriendsListAccentColor))
+                        .shadow(
+                            color: appearance.profileFriendsListAccentColor.opacity(
+                                appearance.isProfileGlowActive(.friendsList) ? 0.30 : 0
+                            ),
+                            radius: appearance.isProfileGlowActive(.friendsList) ? 10 : 0
+                        )
+                        .animation(.easeInOut(duration: 0.14), value: appearance.isProfileGlowActive(.friendsList))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add a friend")
@@ -949,6 +985,20 @@ struct ProfileView: View {
                     }
 
                     VStack(spacing: AppSpacing.md) {
+                        if proStore.isPro {
+                            Button {
+                                Task { @MainActor in
+                                    if let scene = UIApplication.shared.connectedScenes
+                                        .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+                                        try? await AppStore.showManageSubscriptions(in: scene)
+                                    }
+                                }
+                            } label: {
+                                settingsButtonLabel(title: "Manage Subscription", role: .neutral)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         Button {
                             Haptics.warning()
                             userAccount.signOut()
@@ -994,6 +1044,7 @@ struct ProfileView: View {
         .environment(userAccount)
         .environment(friendsStore)
         .environment(appearance)
+        .environment(proStore)
     }
 
     /// Force-republish-library diagnostic. The bulk publish on first-
