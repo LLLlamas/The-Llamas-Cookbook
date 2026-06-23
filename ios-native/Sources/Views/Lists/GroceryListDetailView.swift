@@ -15,6 +15,7 @@ struct GroceryListDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(CookingSession.self) private var session
 
     @State private var newItemName = ""
     @State private var showingRename = false
@@ -31,6 +32,15 @@ struct GroceryListDetailView: View {
     }
 
     private var showsAisleHeaders: Bool { sections.count > 1 }
+
+    /// Extra runway under the add-item bar so a minimized Cook-Mode pill
+    /// (painted by `CookingPillsOverlay` over this tab's bottom edge)
+    /// doesn't sit on top of the TextField + Add button. 70pt = pill
+    /// (~54) + overlay gap (12) + air (4), matching the recipe-detail
+    /// clearance documented in CLAUDE.md.
+    private var cookPillClearance: CGFloat {
+        (!session.activeCooks.isEmpty && !session.isCookModeVisible) ? 70 : 0
+    }
 
     var body: some View {
         Group {
@@ -132,6 +142,7 @@ struct GroceryListDetailView: View {
         .padding(.horizontal, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)
         .background(.regularMaterial)
+        .padding(.bottom, cookPillClearance)
     }
 
     // MARK: - Empty state

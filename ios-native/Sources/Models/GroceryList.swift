@@ -54,9 +54,12 @@ final class GroceryList {
         items.sorted { $0.order < $1.order }
     }
 
-    /// Touch `updatedAt`. Called after any mutation so the Lists tab can
-    /// sort most-recently-touched first and the share record's
-    /// `updatedAt` stays meaningful.
+    /// Touch `updatedAt`. Call after ANY mutation — including flipping a
+    /// child `GroceryItem`'s `isChecked`/`needed` — so the Lists tab sorts
+    /// most-recently-touched first and its per-list counts re-render.
+    /// (A `@Query` on `GroceryList` isn't guaranteed to re-fire when only a
+    /// child scalar changes; bumping `updatedAt` here is what the tab's
+    /// summary counts observe. Load-bearing — don't mutate items without it.)
     func touch() {
         updatedAt = .now
     }
