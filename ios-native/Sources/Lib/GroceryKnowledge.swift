@@ -19,8 +19,24 @@ enum GroceryKnowledge {
 
     // MARK: - Matching primitives
 
+    /// Word tokens of `name`, each augmented with a naive singular form so
+    /// plural ingredient names still match singular keywords ("tomatoes" →
+    /// "tomato", "eggs" → "egg", "berries" → "berry"). Multi-word keywords
+    /// match via substring (below), which already tolerates plurals.
     private static func tokens(of name: String) -> Set<String> {
-        Set(name.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        var set = Set<String>()
+        for token in name.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init) {
+            set.insert(token)
+            if token.hasSuffix("ies"), token.count > 3 {
+                set.insert(String(token.dropLast(3)) + "y")
+            } else if token.hasSuffix("es"), token.count > 2 {
+                set.insert(String(token.dropLast(2)))
+            }
+            if token.hasSuffix("s"), token.count > 1 {
+                set.insert(String(token.dropLast(1)))
+            }
+        }
+        return set
     }
 
     private static func matches(normalized: String, tokens: Set<String>, keyword: String) -> Bool {
