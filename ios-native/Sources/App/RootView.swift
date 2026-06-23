@@ -259,6 +259,7 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem { tabLabel(for: .friends) }
+            .badge(friendsStore.incomingRequests.count)
             .tag(AppTab.friends)
 
             NavigationStack {

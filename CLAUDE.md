@@ -35,6 +35,7 @@ Last refreshed: 2026-06-08 (v1.1.2 — requests UI, ProfileView cascade, LG chip
 | Recipe detail + sharing | `ios-native/Sources/Views/Detail/` |
 | Cook mode + timers | `ios-native/Sources/Views/Cook/` |
 | Friends / social views | `ios-native/Sources/Views/Friends/` |
+| Grocery lists (Lists tab) | `ios-native/Sources/Views/Lists/` |
 | Profile + auth views | `ios-native/Sources/Views/Profile/` |
 | Reusable UI components | `ios-native/Sources/Views/Components/` |
 | CloudKit ops + shared utilities | `ios-native/Sources/Lib/` |
@@ -340,6 +341,46 @@ Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, Swift
 ## Open Work
 
 **App status: live on the App Store. Current version shipping: v1.1.2 (2026-06-08).**
+
+### Grocery Lists (in progress — branch `claude/prep-ingredient-tracking-goqokv`)
+
+A free, share-anywhere grocery-list feature for the prep stage. **Why no
+retailer cart:** Instacart closed new API applications; Kroger Cart API,
+Walmart, and Whisk/Samsung Food are all B2B-partnership-gated, not self-serve.
+So the list is self-contained, with a thin feature-flagged seam
+(`FeatureFlags.retailerCartEnabled`, off) for a future retailer hand-off.
+
+**Files** — `Sources/Views/Lists/` (`ListsView`, `GroceryListDetailView`,
+`AddToGroceryListSheet`, `ItemHelperSheet`); models `Sources/Models/GroceryList.swift`
+(`GroceryList`/`GroceryItem`, local `@Model`, registered in the `ModelContainer`);
+`Sources/Lib/GroceryKnowledge.swift` (researched aisle taxonomy + pantry staples
++ substitution chart — sources: USU/UIUC Extension, King Arthur, standard
+supermarket layouts), `IngredientAssistant.swift` (on-device `FoundationModels`
+triage/describe/substitutes, grounded by + falling back to `GroceryKnowledge`),
+`GroceryAisle.swift`, `FeatureFlags.swift`; `MeasureDisplay` (lifted from
+`IngredientDisplay`, shared by recipe + grocery rows); Worker `lib/grocery.js`
+(+ `test/grocery.test.js`). Tests: `GroceryKnowledgeTests.swift` (Swift),
+`grocery.test.js` (Vitest, green).
+
+**Done + reviewed:** Lists tab (4th tab — note the friend-import fly-ghost math
+moved width/6 → width/8 for 4 tabs); create/delete lists; "Add to List" chip in
+`RecipeDetailView` ingredient accessories; on-device AI aisle + have/need triage
+(auto on appear, manual "Sort by aisle" with llama overlay) with researched
+heuristic fallback; check-off + have/need; per-row "?" helper (what-is-this via
+on-device describe + web image search; "they don't have this" → researched
+substitute swaps); Friends tab badge (incoming requests). Each phase audited by a
+reviewer subagent.
+
+**Remaining (designed, not built):** web-link share (`CloudGroceryListService` +
+CloudKit `GroceryListShare` record with `check0–39`/`note0–39`/`recipientIDs` +
+Worker `functions/list/[id].js` / `api/list-check.js` / `api/list-note.js`);
+app-to-app friend sharing (`grocery-list-events` subscription + `GroceryListStore`
++ recipient mirror + delete cascade); cross-device substitution ping; visible
+push notifications (revises the silent-only posture) + Lists tab badge. Invariants
+when building these: per-item check/note CloudKit fields (anti-clobber, like
+`photo0–19`); split-per-field public-DB predicates + cursor-following; re-inject
+`@Observable` envs into new sheets; `/list/*` deliberately NOT in AASA (web
+fallback stays a browser URL); no new secret in the iOS binary.
 
 Carry-forward from launch (still unverified on real devices):
 - Verify Universal Links on real devices
