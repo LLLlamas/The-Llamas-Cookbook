@@ -107,6 +107,8 @@ struct LlamasCookbookApp: App {
             RecipeStep.self,
             RecipePhoto.self,
             RecipeStepPhoto.self,
+            GroceryList.self,
+            GroceryItem.self,
         ])
         let configuration = ModelConfiguration(
             schema: schema,

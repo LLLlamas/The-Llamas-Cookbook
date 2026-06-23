@@ -238,6 +238,18 @@ struct RootView: View {
             .tag(AppTab.home)
 
             NavigationStack {
+                ListsView()
+            }
+            .modifier(CookingPillsOverlay(
+                session: session,
+                navContext: navContext,
+                accent: appearance.bottomNavAccentColor,
+                lookupRecipe: lookupRecipe
+            ))
+            .tabItem { tabLabel(for: .lists) }
+            .tag(AppTab.lists)
+
+            NavigationStack {
                 FriendsTabView()
             }
             .modifier(CookingPillsOverlay(
@@ -607,15 +619,15 @@ struct RootView: View {
                 x: width - AppSpacing.xl - 8,
                 y: topInset + 28
             )
-            // Home tab is leftmost of 3 evenly-spaced tabs, so its
-            // horizontal center sits at width/6. The vertical offset
-            // branches on Liquid Glass: LG capsule tab bars float the
-            // icon ~32pt above safe-area bottom; legacy flat bars sit
-            // it at ~22pt. Without the branch the ghost lands below
-            // the icon on LG and on the icon on legacy (or vice
-            // versa, depending on which offset was baked in).
+            // Home tab is leftmost of 4 evenly-spaced tabs (Home · Lists
+            // · Friends · Me), so its horizontal center sits at width/8.
+            // The vertical offset branches on Liquid Glass: LG capsule
+            // tab bars float the icon ~32pt above safe-area bottom;
+            // legacy flat bars sit it at ~22pt. Without the branch the
+            // ghost lands below the icon on LG and on the icon on legacy
+            // (or vice versa, depending on which offset was baked in).
             let destination = CGPoint(
-                x: width * (1.0 / 6.0),
+                x: width * (1.0 / 8.0),
                 y: height - bottomInset - Self.homeTabIconYOffset
             )
             let toastAccent = resolveToastAccent(activeFriendImportToast?.accentHex)
@@ -1010,14 +1022,15 @@ struct RootView: View {
     /// sites stay one line and the strings live on the enum.
     @ViewBuilder
     private func tabLabel(for tab: AppTab) -> some View {
-        let asset = tab.iconAsset(plan: proStore.plan)
         Label {
             Text(tab.title)
         } icon: {
-            if proStore.isPro {
-                proTabIcon(named: asset)
+            if tab.usesSystemIcon {
+                Image(systemName: tab.systemIconName)
+            } else if proStore.isPro {
+                proTabIcon(named: tab.iconAsset(plan: proStore.plan))
             } else {
-                Image(asset)
+                Image(tab.iconAsset(plan: proStore.plan))
             }
         }
     }
@@ -1326,14 +1339,30 @@ private struct AddToCookButton: View {
 /// + Pro crown swaps.
 enum AppTab: Hashable, CaseIterable {
     case home
+    case lists
     case friends
     case me
 
     var title: String {
         switch self {
         case .home:    return "Home"
+        case .lists:   return "Lists"
         case .friends: return "Friends"
         case .me:      return "Me"
+        }
+    }
+
+    /// The grocery Lists tab ships without bespoke llama / crown artwork,
+    /// so it renders an always-resolvable SF Symbol instead of a named
+    /// asset (which would draw blank if the image were missing). The other
+    /// tabs keep their custom llama icons + Pro crown swaps.
+    var usesSystemIcon: Bool { self == .lists }
+
+    /// SF Symbol name — only read when `usesSystemIcon` is true.
+    var systemIconName: String {
+        switch self {
+        case .lists: return "checklist"
+        default:     return "circle"
         }
     }
 
@@ -1341,6 +1370,7 @@ enum AppTab: Hashable, CaseIterable {
     var freeIconAsset: String {
         switch self {
         case .home:    return "Home_Llama_Icon"
+        case .lists:   return "checklist"          // unused — see usesSystemIcon
         case .friends: return "Friends_Llama_Icon"
         case .me:      return "Profile_Llama_Icon"
         }
@@ -1350,6 +1380,7 @@ enum AppTab: Hashable, CaseIterable {
     var proCrownAsset: String {
         switch self {
         case .home:    return "Llama-Pro-Icon-Crown"
+        case .lists:   return "checklist"          // unused — see usesSystemIcon
         case .friends: return "Llama-Pro-Icon-Friends-Crown"
         case .me:      return "Llama-Pro-Icon-Profile-Crown"
         }
@@ -1359,6 +1390,7 @@ enum AppTab: Hashable, CaseIterable {
     var proYearlyAsset: String {
         switch self {
         case .home:    return "Llama-Pro-Icon-Crown-Sunglasses"
+        case .lists:   return "checklist"          // unused — see usesSystemIcon
         case .friends: return "Llama-Pro-Icon-Friends-Crown-Sunglasses"
         case .me:      return "Llama-Pro-Icon-Profile-Crown-Sunglasses"
         }
@@ -1420,7 +1452,7 @@ private extension UIView {
 
 #Preview {
     RootView()
-        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self, RecipeStepPhoto.self], inMemory: true)
+        .modelContainer(for: [Recipe.self, Ingredient.self, RecipeStep.self, RecipePhoto.self, RecipeStepPhoto.self, GroceryList.self, GroceryItem.self], inMemory: true)
         .environment(AppearanceSettings())
         .environment(OwnerProfile())
         .environment(UserAccount())
