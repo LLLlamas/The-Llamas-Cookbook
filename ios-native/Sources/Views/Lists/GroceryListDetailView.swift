@@ -20,6 +20,7 @@ struct GroceryListDetailView: View {
     @State private var newItemName = ""
     @State private var showingRename = false
     @State private var renameText = ""
+    @State private var isTriaging = false
     @FocusState private var addFieldFocused: Bool
 
     private var accent: Color { appearance.cookbookTitleAccentColor }
@@ -58,6 +59,12 @@ struct GroceryListDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
+                        Task { await sortByAisle() }
+                    } label: {
+                        Label("Sort by aisle", systemImage: "wand.and.stars")
+                    }
+                    .disabled(list.items.isEmpty)
+                    Button {
                         renameText = list.name
                         showingRename = true
                     } label: {
@@ -72,6 +79,8 @@ struct GroceryListDetailView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { addItemBar }
+        .overlay { triagingOverlay }
+        .task { await autoTriage() }
         .alert("Rename list", isPresented: $showingRename) {
             TextField("List name", text: $renameText)
             Button("Save") { renameList() }
@@ -165,6 +174,66 @@ struct GroceryListDetailView: View {
                 .padding(.horizontal, AppSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Triaging overlay
+
+    /// "Asking the llama…" scrim shown only when a manual aisle sort takes
+    /// long enough to matter (1 s debounce inside `sortByAisle`). The silent
+    /// auto-triage on appear never shows it.
+    @ViewBuilder
+    private var triagingOverlay: some View {
+        if isTriaging {
+            ZStack {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                VStack(spacing: AppSpacing.md) {
+                    LlamaProgressIndicator(size: 96, accent: accent)
+                    Text("Asking the llama…")
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                }
+                .padding(AppSpacing.xl)
+                .background(AppColor.surface, in: RoundedRectangle(cornerRadius: AppRadius.lg))
+            }
+            .transition(.opacity)
+        }
+    }
+
+    // MARK: - Triage
+
+    /// Silent first-pass classification of any never-triaged items (aisle ==
+    /// nil) — runs on appear so a list built from a recipe lands already
+    /// grouped. Pantry staples are pre-marked "have" on this first pass only,
+    /// so it never stomps a have/need the user set themselves.
+    private func autoTriage() async {
+        let untriaged = list.items.filter { $0.aisle == nil }
+        guard !untriaged.isEmpty else { return }
+        await applyTriage(to: untriaged, setNeededFromStaple: true)
+    }
+
+    /// User-initiated "Sort by aisle" — re-classifies every item's aisle
+    /// (preserving the user's have/need), behind a 1 s overlay debounce so
+    /// the instant heuristic path never flashes the scrim.
+    private func sortByAisle() async {
+        let items = list.sortedItems
+        guard !items.isEmpty else { return }
+        let overlay = Task {
+            try? await Task.sleep(for: .seconds(1))
+            if !Task.isCancelled { isTriaging = true }
+        }
+        await applyTriage(to: items, setNeededFromStaple: false)
+        overlay.cancel()
+        isTriaging = false
+        Haptics.success()
+    }
+
+    private func applyTriage(to items: [GroceryItem], setNeededFromStaple: Bool) async {
+        let result = await IngredientAssistant.triage(names: items.map(\.name))
+        for (i, item) in items.enumerated() {
+            if let aisle = result.aisleByIndex[i] { item.aisle = aisle }
+            if setNeededFromStaple, result.stapleByIndex[i] == true { item.needed = false }
+        }
+        list.touch()
     }
 
     // MARK: - Actions

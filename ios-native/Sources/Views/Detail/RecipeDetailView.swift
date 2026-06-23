@@ -27,6 +27,7 @@ struct RecipeDetailView: View {
     @State private var showingConversions = false
     @State private var showingAppearance = false
     @State private var showingSourdough = false
+    @State private var showingAddToList = false
     @State private var showingPhotoCarousel = false
     /// "Imported by N" tap target. Sheet lists every
     /// `RecipeImport` audit row for this recipe (sorted newest
@@ -510,6 +511,14 @@ struct RecipeDetailView: View {
             // is cheap insurance.
             .environment(appearance)
         }
+        .sheet(isPresented: $showingAddToList) {
+            AddToGroceryListSheet(recipe: recipe)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                // @Observable values can drop across the sheet boundary on
+                // iOS 26 — re-inject what the sheet reads.
+                .environment(appearance)
+        }
         .onAppear {
             // Tell the cooking pills bar at root that the user is now
             // viewing this recipe — used to decide whether to surface
@@ -840,8 +849,33 @@ struct RecipeDetailView: View {
             if isSourdoughRecipe {
                 sourdoughChip
             }
+            addToListChip
             conversionsChip
         }
+    }
+
+    /// Sends this recipe's ingredients to a grocery list. Free feature —
+    /// no Pro gate. Styled to match the Conversions / Sourdough chips.
+    private var addToListChip: some View {
+        Button {
+            Haptics.selection()
+            showingAddToList = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "basket")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Add to List")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(appearance.detailChipsAccentColor)
+            .padding(.horizontal, AppSpacing.sm + 2)
+            .padding(.vertical, AppSpacing.xs + 1)
+            .overlay(Capsule().stroke(appearance.detailChipsAccentColor, lineWidth: 1))
+            .clipShape(Capsule())
+            .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
+        }
+        .buttonStyle(.lifted)
+        .accessibilityLabel("Add ingredients to a grocery list")
     }
 
     /// Tag presence drives the sourdough chip + calculator availability.
