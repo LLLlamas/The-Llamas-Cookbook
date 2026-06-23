@@ -21,6 +21,7 @@ struct GroceryListDetailView: View {
     @State private var showingRename = false
     @State private var renameText = ""
     @State private var isTriaging = false
+    @State private var helperItem: GroceryItem?
     @FocusState private var addFieldFocused: Bool
 
     private var accent: Color { appearance.cookbookTitleAccentColor }
@@ -81,6 +82,12 @@ struct GroceryListDetailView: View {
         .safeAreaInset(edge: .bottom) { addItemBar }
         .overlay { triagingOverlay }
         .task { await autoTriage() }
+        .sheet(item: $helperItem) { item in
+            ItemHelperSheet(item: item)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .environment(appearance)
+        }
         .alert("Rename list", isPresented: $showingRename) {
             TextField("List name", text: $renameText)
             Button("Save") { renameList() }
@@ -99,6 +106,8 @@ struct GroceryListDetailView: View {
                             toggleChecked(item)
                         } onToggleNeeded: {
                             toggleNeeded(item)
+                        } onHelp: {
+                            helperItem = item
                         }
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -289,6 +298,7 @@ private struct GroceryItemRow: View {
     let accent: Color
     let onToggleChecked: () -> Void
     let onToggleNeeded: () -> Void
+    let onHelp: () -> Void
 
     private var display: MeasureDisplay { item.display() }
 
@@ -305,22 +315,33 @@ private struct GroceryItemRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
 
-            // Center: measure + name. Non-interactive label.
+            // Center: name + "?" on one line, measure/status below. The
+            // "?" sits right beside the name with its own bounded
+            // contentShape, kept clear of the check (left) and have/need
+            // (right) so taps never cross-fire.
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.name.capitalized)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(item.isChecked ? AppColor.textTertiary : AppColor.textPrimary)
-                    .strikethrough(item.isChecked, color: AppColor.textTertiary)
-                    .lineLimit(2)
-                if !display.measure.isEmpty {
-                    Text(display.measure)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(AppColor.textTertiary)
+                HStack(spacing: 4) {
+                    Text(item.name.capitalized)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(item.isChecked ? AppColor.textTertiary : AppColor.textPrimary)
+                        .strikethrough(item.isChecked, color: AppColor.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Button(action: onHelp) {
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(AppColor.textTertiary)
+                            .frame(width: 34, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("What is \(item.name)? Or mark unavailable")
                 }
+                statusSubline
             }
             .opacity(item.needed ? 1 : 0.55)
 
-            Spacer(minLength: AppSpacing.sm)
+            Spacer(minLength: AppSpacing.xs)
 
             // Trailing: have/need toggle, its own bounded target.
             Button(action: onToggleNeeded) {
@@ -338,5 +359,26 @@ private struct GroceryItemRow: View {
             .accessibilityLabel(item.needed ? "Mark \(item.name) as already have" : "Mark \(item.name) as needed")
         }
         .padding(.vertical, 2)
+    }
+
+    /// Second line under the name: the chosen swap, an out-of-stock flag, or
+    /// the measure — in that priority.
+    @ViewBuilder
+    private var statusSubline: some View {
+        if let swap = item.substitution, !swap.isEmpty {
+            Text("→ \(swap)")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(accent)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else if item.outOfStock {
+            Text("Out of stock")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.orange)
+        } else if !display.measure.isEmpty {
+            Text(display.measure)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(AppColor.textTertiary)
+        }
     }
 }
