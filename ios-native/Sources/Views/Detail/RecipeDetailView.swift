@@ -890,7 +890,9 @@ struct RecipeDetailView: View {
     /// Sends this recipe's ingredients to a grocery list. Free feature —
     /// no Pro gate. Full-width bar pinned right below the Ingredients
     /// heading so the prep-stage "grab the list" action reads as the first
-    /// thing the user does with this section.
+    /// thing the user does with this section. Solid accent fill + cream
+    /// text for an unambiguous, high-contrast read (the faint-tint outline
+    /// version washed out against the page).
     private var addToListBar: some View {
         Button {
             Haptics.selection()
@@ -898,24 +900,20 @@ struct RecipeDetailView: View {
         } label: {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "basket.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 15, weight: .bold))
                     .accentTextOutline()
                 Text("Add to grocery list")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 16, weight: .bold))
                     .accentTextOutline()
                 Spacer(minLength: 0)
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 18, weight: .semibold))
                     .accentTextOutline()
             }
-            .foregroundStyle(appearance.detailChipsAccentColor)
+            .foregroundStyle(AppColor.onAccent)
             .padding(.horizontal, AppSpacing.md)
-            .padding(.vertical, AppSpacing.sm + 2)
-            .background(appearance.detailChipsAccentColor.opacity(0.08))
-            .overlay(
-                RoundedRectangle(cornerRadius: AppRadius.md)
-                    .stroke(appearance.detailChipsAccentColor.opacity(0.55), lineWidth: 1)
-            )
+            .padding(.vertical, AppSpacing.sm + 3)
+            .background(appearance.detailChipsAccentColor)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
             .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
         }
