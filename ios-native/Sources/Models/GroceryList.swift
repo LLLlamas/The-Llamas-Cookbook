@@ -25,7 +25,25 @@ final class GroceryList {
     /// CloudKit `GroceryListShare.recordName` once this list has been
     /// published (web link or app-to-app share). Nil while the list is
     /// purely local. Lets re-shares reuse the same record + permalink.
+    /// For a list the user OWNS this is set the moment they share it; for
+    /// a list shared *to* them it's the owner's record name (the cloud key
+    /// is identical on both sides, which is how `GroceryListStore`
+    /// reconciles a push back to the right local mirror).
     var shareRecordName: String?
+
+    /// Display name of the list's owner. Nil for own lists; set on a
+    /// received mirror so the row + detail can read "Shared by Dad".
+    var ownerName: String?
+
+    /// iCloud user record names this list has been shared *to* (owner
+    /// side only). Drives the "Shared with …" status + the
+    /// `recipientIDs CONTAINS me` cloud query on the recipient's device.
+    var sharedRecipientIDs: [String] = []
+
+    /// Human-readable recipient label for the owner's "Shared with Sam"
+    /// status line. Denormalized friend display name(s); nil when the
+    /// list isn't shared.
+    var sharedWithName: String?
 
     /// True for a list the user created; false for one a friend shared
     /// *to* them (mirrored in from CloudKit). Drives ownership-only
@@ -53,6 +71,11 @@ final class GroceryList {
     var sortedItems: [GroceryItem] {
         items.sorted { $0.order < $1.order }
     }
+
+    /// True once this list is live on CloudKit (owner has shared it, or
+    /// it's a mirror of someone else's shared list). Drives the share
+    /// status chrome + whether check-offs push live to the cloud.
+    var isShared: Bool { shareRecordName != nil }
 
     /// Touch `updatedAt`. Call after ANY mutation — including flipping a
     /// child `GroceryItem`'s `isChecked`/`needed` — so the Lists tab sorts
@@ -99,6 +122,14 @@ final class GroceryItem {
     /// view group/trace a list back to its source recipes.
     var sourceRecipeID: UUID?
 
+    /// Slot index (0…`maxSharedItems-1`) in the parent list's
+    /// `GroceryListShare` CloudKit record. Set when the list is shared so
+    /// a check-off pushes to the matching `check<N>` field, and so a
+    /// recipient's mirror reconciles each `check<N>`/`note<N>` back to the
+    /// right local row. Nil while the list is purely local, or for items
+    /// past the share's slot cap. See `CloudGroceryListService`.
+    var shareIndex: Int?
+
     var order: Int
     var list: GroceryList?
 
@@ -112,6 +143,7 @@ final class GroceryItem {
         outOfStock: Bool = false,
         substitution: String? = nil,
         sourceRecipeID: UUID? = nil,
+        shareIndex: Int? = nil,
         order: Int
     ) {
         self.id = UUID()
@@ -124,6 +156,7 @@ final class GroceryItem {
         self.outOfStock = outOfStock
         self.substitution = substitution
         self.sourceRecipeID = sourceRecipeID
+        self.shareIndex = shareIndex
         self.order = order
     }
 }

@@ -63,7 +63,11 @@ enum CloudKitSubscriptions {
     /// subscriptions for. Stops re-registration on every cold
     /// launch when nothing's changed; flips through whenever
     /// the user signs into a different Apple ID.
-    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v1"
+    /// Bumped `.v1` → `.v2` when the grocery-list-share subscriptions were
+    /// added: existing users had already stamped `.v1` for their record ID
+    /// and would otherwise skip re-registration and never pick up the new
+    /// grocery streams. The version bump forces one re-register pass.
+    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v2"
 
     /// SHA-256 of the most recent APNs device token we observed at
     /// registration time. CKQuerySubscription delivery is bound to
@@ -105,6 +109,21 @@ enum CloudKitSubscriptions {
         "recipe-import-events-\(me)"
     }
 
+    /// Per-user identifier for the grocery-share stream where I'm a
+    /// **recipient** (`recipientIDs CONTAINS me`). This one carries a
+    /// VISIBLE push — the "your shared grocery list was updated" banner
+    /// the husband-at-the-store gets when the owner shares or edits.
+    static func groceryRecipientSubscriptionID(for me: String) -> String {
+        "grocery-list-events-recipient-\(me)"
+    }
+
+    /// Per-user identifier for the grocery-share stream where I'm the
+    /// **owner** (`ownerID == me`). Silent — it just refreshes my app so I
+    /// see a shopper's check-offs live, without a banner for my own edits.
+    static func groceryOwnerSubscriptionID(for me: String) -> String {
+        "grocery-list-events-owner-\(me)"
+    }
+
     // MARK: - Register
 
     /// Idempotent register. Called from `RootView.task` (cold
@@ -129,6 +148,7 @@ enum CloudKitSubscriptions {
         do {
             try await registerFriendshipSubscription(for: me)
             try await registerRecipeImportSubscription(for: me)
+            try await registerGrocerySubscriptions(for: me)
             UserDefaults.standard.set(me, forKey: registeredForKey)
         } catch {
             // Silent — schema not deployed (RecipeImport land in
@@ -194,6 +214,47 @@ enum CloudKitSubscriptions {
         _ = try await CloudKitService.publicDB.save(subscription)
     }
 
+    /// Two grocery-share subscriptions — the only VISIBLE push in the app.
+    ///
+    /// - **Recipient** (`recipientIDs CONTAINS me`): fires on create +
+    ///   update with a banner ("Your shared grocery list was updated").
+    ///   This is the husband-at-the-store getting told the list is ready /
+    ///   changed. `shouldSendContentAvailable` is also on so the app
+    ///   refreshes the mirror in the same wake-up.
+    /// - **Owner** (`ownerID == me`): silent, update-only. Refreshes my
+    ///   app so I watch a shopper tick items off live — but no banner,
+    ///   since most updates on my own record are my own edits.
+    private static func registerGrocerySubscriptions(for me: String) async throws {
+        // Recipient — visible.
+        let recipientSub = CKQuerySubscription(
+            recordType: CloudGroceryListService.recordType,
+            predicate: NSPredicate(format: "recipientIDs CONTAINS %@", me),
+            subscriptionID: groceryRecipientSubscriptionID(for: me),
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+        )
+        let recipientInfo = CKSubscription.NotificationInfo()
+        recipientInfo.shouldSendContentAvailable = true
+        recipientInfo.shouldBadge = false
+        recipientInfo.title = "Grocery list updated"
+        recipientInfo.alertBody = "A list shared with you changed — open Lists to see what's left."
+        recipientInfo.soundName = "default"
+        recipientSub.notificationInfo = recipientInfo
+        _ = try await CloudKitService.publicDB.save(recipientSub)
+
+        // Owner — silent live refresh.
+        let ownerSub = CKQuerySubscription(
+            recordType: CloudGroceryListService.recordType,
+            predicate: NSPredicate(format: "ownerID == %@", me),
+            subscriptionID: groceryOwnerSubscriptionID(for: me),
+            options: [.firesOnRecordUpdate]
+        )
+        let ownerInfo = CKSubscription.NotificationInfo()
+        ownerInfo.shouldSendContentAvailable = true
+        ownerInfo.shouldBadge = false
+        ownerSub.notificationInfo = ownerInfo
+        _ = try await CloudKitService.publicDB.save(ownerSub)
+    }
+
     // MARK: - APNs token rotation
 
     /// Called from `AppDelegate.didRegisterForRemoteNotificationsWithDeviceToken`
@@ -234,6 +295,8 @@ enum CloudKitSubscriptions {
             friendshipSubscriptionIDA(for: me),
             friendshipSubscriptionIDB(for: me),
             recipeImportSubscriptionID(for: me),
+            groceryRecipientSubscriptionID(for: me),
+            groceryOwnerSubscriptionID(for: me),
         ]
         for id in ids {
             _ = try? await CloudKitService.publicDB.deleteSubscription(withID: id)
@@ -265,6 +328,7 @@ enum CloudKitSubscriptions {
     enum FiredKind: String {
         case friendship
         case recipeImport
+        case groceryList
     }
 
     /// AppDelegate calls this from
@@ -297,6 +361,8 @@ enum CloudKitSubscriptions {
             kind = .friendship
         } else if subscriptionID.hasPrefix("recipe-import-events-") {
             kind = .recipeImport
+        } else if subscriptionID.hasPrefix("grocery-list-events-") {
+            kind = .groceryList
         } else {
             kind = nil
         }

@@ -363,24 +363,48 @@ triage/describe/substitutes, grounded by + falling back to `GroceryKnowledge`),
 `grocery.test.js` (Vitest, green).
 
 **Done + reviewed:** Lists tab (4th tab — note the friend-import fly-ghost math
-moved width/6 → width/8 for 4 tabs); create/delete lists; "Add to List" chip in
-`RecipeDetailView` ingredient accessories; on-device AI aisle + have/need triage
-(auto on appear, manual "Sort by aisle" with llama overlay) with researched
-heuristic fallback; check-off + have/need; per-row "?" helper (what-is-this via
-on-device describe + web image search; "they don't have this" → researched
-substitute swaps); Friends tab badge (incoming requests). Each phase audited by a
-reviewer subagent.
+moved width/6 → width/8 for 4 tabs); create/delete lists; "Add to grocery list"
+full-width bar under the Ingredients heading in `RecipeDetailView` (+ per-item
+selection in `AddToGroceryListSheet` and an "Added N items" toast); Conversions
+chip in Cook Mode; on-device AI aisle + have/need triage (auto on appear, manual
+"Sort by aisle" with llama overlay) with researched heuristic fallback; check-off
++ have/need; per-row "?" helper (what-is-this via on-device describe + web image
+search; "they don't have this" → researched substitute swaps); Friends tab badge
+(incoming requests). Each phase audited by a reviewer subagent.
 
-**Remaining (designed, not built):** web-link share (`CloudGroceryListService` +
-CloudKit `GroceryListShare` record with `check0–39`/`note0–39`/`recipientIDs` +
-Worker `functions/list/[id].js` / `api/list-check.js` / `api/list-note.js`);
-app-to-app friend sharing (`grocery-list-events` subscription + `GroceryListStore`
-+ recipient mirror + delete cascade); cross-device substitution ping; visible
-push notifications (revises the silent-only posture) + Lists tab badge. Invariants
-when building these: per-item check/note CloudKit fields (anti-clobber, like
-`photo0–19`); split-per-field public-DB predicates + cursor-following; re-inject
-`@Observable` envs into new sheets; `/list/*` deliberately NOT in AASA (web
-fallback stays a browser URL); no new secret in the iOS binary.
+**App-to-app friend sharing + live checklist (built 2026-06-24):** share a list
+with friend(s) → one `GroceryListShare` public-DB record per shared list is the
+source of truth for the mutable state; the owner authors items, anyone on the
+list flips checks. Files: `Sources/Lib/CloudGroceryListService.swift` (record +
+upsert/fetch/`setItemChecked`/`setItemNote`/`deleteAllOwned` cascade — per-item
+`check0–39`/`note0–39` anti-clobber fields, `recipientIDs` String-List membership
+query, `itemsJSON` String blob for the owner-authored meta), `Sources/App/
+GroceryListStore.swift` (`@MainActor @Observable`, injected from `RootView`,
+configured with the `ModelContext`; mirrors received lists into SwiftData as
+`GroceryList(ownerIsMe:false)`, syncs live check/note both ways keyed by
+`GroceryItem.shareIndex`, pushes single-field updates, re-uploads structure on
+owner edits), `Sources/Views/Lists/ShareGroceryListSheet.swift` (friend picker,
+seed friend excluded). `GroceryList` gained `ownerName`/`sharedRecipientIDs`/
+`sharedWithName`/`isShared`; `GroceryItem` gained `shareIndex`. **Visible push**
+(the only non-silent push in the app): `CloudKitSubscriptions` registers a
+recipient sub (`recipientIDs CONTAINS me`, banner "Grocery list updated") + a
+silent owner sub (`ownerID == me`, live refresh); `FiredKind.groceryList`; the
+`registeredForKey` bumped v1→v2 so existing users re-register. Lists tab badge
+dot via `GroceryListStore.hasSharedUpdate` (cleared in `ListsView.task`).
+Account-deletion cascade extended with `CloudGroceryListService.deleteAllOwned`.
+**CloudKit Console schema is a one-time portal trip** (record type +
+`check0…check39`/`note0…note39` fields, `recipientIDs`/`ownerID` queryable) —
+until deployed the feature silently no-ops (all calls behind `try?`).
+
+**Remaining (designed, not built):** web-link share for recipients without the
+app (`/list/[id].js` Worker page + `api/list-check.js` / `api/list-note.js`
+reusing the same `GroceryListShare` record; `/list/*` deliberately NOT in AASA so
+the web fallback stays a browser URL); have/need is currently owner-authored and
+only re-syncs on an owner edit (a recipient's local have/need flip is not pushed —
+revisit if shoppers want it live). Invariants when building these: per-item
+check/note CloudKit fields (anti-clobber, like `photo0–19`); split-per-field
+public-DB predicates + cursor-following; re-inject `@Observable` envs into new
+sheets; no new secret in the iOS binary.
 
 Carry-forward from launch (still unverified on real devices):
 - Verify Universal Links on real devices

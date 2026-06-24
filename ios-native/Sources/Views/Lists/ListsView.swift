@@ -13,9 +13,11 @@ import SwiftData
 struct ListsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(GroceryListStore.self) private var groceryStore
 
     /// Most-recently-touched first so the list someone's actively shopping
-    /// floats to the top.
+    /// floats to the top. Includes both lists the user owns and live
+    /// mirrors of lists friends shared to them (`ownerIsMe == false`).
     @Query(sort: \GroceryList.updatedAt, order: .reverse)
     private var lists: [GroceryList]
 
@@ -72,6 +74,13 @@ struct ListsView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Name your list — like “Weekend Shop” or “Taco Night”.")
+        }
+        .task {
+            // Opening the tab clears the "something changed" dot and pulls a
+            // fresh sync so shared lists land / update without waiting on a
+            // push.
+            groceryStore.markSharedSeen()
+            await groceryStore.refresh()
         }
     }
 
@@ -145,7 +154,15 @@ struct ListsView: View {
     private func deleteLists(at offsets: IndexSet) {
         Haptics.impact(.rigid)
         for index in offsets {
-            modelContext.delete(lists[index])
+            let list = lists[index]
+            // Owned + shared → tear down the cloud record too, otherwise
+            // recipients keep a ghost mirror that never resolves. (A
+            // received mirror just gets removed locally; it reappears on
+            // the next refresh while the owner still has it shared.)
+            if list.ownerIsMe, let recordName = list.shareRecordName {
+                Task.detached { try? await CloudGroceryListService.deleteShare(recordName: recordName) }
+            }
+            modelContext.delete(list)
         }
     }
 }
@@ -178,6 +195,17 @@ private struct GroceryListRow: View {
                 Text(summaryLine)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(AppColor.textTertiary)
+                if let shared = sharedLine {
+                    HStack(spacing: 3) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(shared)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+                }
             }
 
             Spacer(minLength: 0)
@@ -209,10 +237,25 @@ private struct GroceryListRow: View {
         if toBuyCount == 0 { return "\(items) · all set" }
         return "\(items) · \(toBuyCount) to buy"
     }
+
+    /// Sharing eyebrow — "Shared by Dad" on a received mirror, "Shared with
+    /// Sam" on a list the user owns + shared. Nil for purely local lists.
+    private var sharedLine: String? {
+        guard list.isShared else { return nil }
+        if list.ownerIsMe {
+            let who = list.sharedWithName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let who, !who.isEmpty { return "Shared with \(who)" }
+            return "Shared"
+        }
+        let who = list.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let who, !who.isEmpty { return "Shared by \(who)" }
+        return "Shared with you"
+    }
 }
 
 #Preview {
     NavigationStack { ListsView() }
         .modelContainer(for: [GroceryList.self, GroceryItem.self], inMemory: true)
         .environment(AppearanceSettings())
+        .environment(GroceryListStore())
 }

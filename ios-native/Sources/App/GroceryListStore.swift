@@ -1,0 +1,372 @@
+import Foundation
+import SwiftData
+import Observation
+
+/// Coordinator for the app-to-app shared grocery list — the live
+/// "husband at the store" checklist. Owns three jobs:
+///
+///  1. **Mirror in** every list a friend shared *to* me as a local
+///     `GroceryList(ownerIsMe: false)` so it shows up in the Lists tab,
+///     reads offline (store Wi-Fi is flaky), and reuses
+///     `GroceryListDetailView` unchanged.
+///  2. **Sync down** live check/note changes onto BOTH my received
+///     mirrors and my own shared lists, so a check-off on either side
+///     lands on every participant.
+///  3. **Push up** my local check-offs / notes / structure edits to the
+///     `GroceryListShare` CloudKit record.
+///
+/// Reconciliation is keyed by `GroceryList.shareRecordName` (identical on
+/// both sides — it's the cloud record name) and, within a list, by
+/// `GroceryItem.shareIndex` (the slot mapping to `check<N>`/`note<N>`).
+///
+/// **Best-effort, like every other cloud path here.** Signed-out / iCloud-
+/// unavailable / network-down all degrade to "the local list still works,
+/// it just doesn't sync." A failed push leaves the local optimistic state
+/// in place; the next `refresh()` reconciles against the server.
+///
+/// Lifecycle mirrors `FriendsStore`: one instance created in `RootView`,
+/// injected via `.environment`, `configure`d with the `ModelContext` +
+/// display name in `RootView.task`, and wired to pushes via
+/// `observeRemotePushes()`.
+@MainActor
+@Observable
+final class GroceryListStore {
+    /// The local SwiftData context. Set once from `RootView.task`.
+    @ObservationIgnored
+    private var modelContext: ModelContext?
+
+    /// The local user's display name, stamped onto every push as
+    /// `revisedByName` so a recipient's banner can read "Sam checked off
+    /// milk" (and the owner can see who's shopping). Refreshed by
+    /// `RootView` whenever sign-in state changes.
+    @ObservationIgnored
+    var myDisplayName: String = ""
+
+    /// True when a grocery-share push landed since the user last opened
+    /// the Lists tab — drives the Lists tab badge dot. Cleared by
+    /// `markSharedSeen()` when they look.
+    private(set) var hasSharedUpdate = false
+
+    /// True while a `refresh()` is in flight (re-entrancy guard).
+    @ObservationIgnored
+    private var isRefreshing = false
+
+    @ObservationIgnored
+    private var remotePushObserver: NSObjectProtocol?
+
+    func configure(modelContext: ModelContext, myDisplayName: String) {
+        self.modelContext = modelContext
+        self.myDisplayName = myDisplayName
+    }
+
+    // MARK: - Refresh
+
+    /// Pull every share I'm a recipient of + every share I own, then
+    /// reconcile both into local SwiftData. Best-effort; silently no-ops
+    /// when iCloud isn't bound.
+    func refresh() async {
+        guard !isRefreshing, let context = modelContext else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        guard let me = UserProfileMirror.cachedRecordID() else {
+            // Signed out — drop any received mirrors so a previous user's
+            // shared lists don't linger. Own lists are untouched.
+            dropAllReceivedMirrors(in: context)
+            return
+        }
+
+        let received = (try? await CloudGroceryListService.fetchSharesForRecipient(me)) ?? []
+        let owned = (try? await CloudGroceryListService.fetchSharesForOwner(me)) ?? []
+
+        reconcileReceived(received, in: context)
+        reconcileOwned(owned, in: context)
+    }
+
+    // MARK: - Reconcile (recipient mirrors)
+
+    private func reconcileReceived(_ snapshots: [GroceryShareSnapshot], in context: ModelContext) {
+        let lists = allLists(in: context)
+        let liveRecordNames = Set(snapshots.map(\.recordName))
+
+        // Index existing received mirrors by their cloud record name.
+        var mirrorByRecord: [String: GroceryList] = [:]
+        for list in lists where !list.ownerIsMe {
+            guard let rn = list.shareRecordName else {
+                // A non-owned list with no record name is an orphan — drop it.
+                context.delete(list)
+                continue
+            }
+            if liveRecordNames.contains(rn) {
+                mirrorByRecord[rn] = list
+            } else {
+                // The share vanished (owner unshared / removed me).
+                context.delete(list)
+            }
+        }
+
+        for snapshot in snapshots {
+            let list: GroceryList
+            if let existing = mirrorByRecord[snapshot.recordName] {
+                list = existing
+            } else {
+                list = GroceryList(
+                    name: snapshot.listName,
+                    ownerIsMe: false,
+                    shareRecordName: snapshot.recordName
+                )
+                context.insert(list)
+            }
+            list.name = snapshot.listName
+            list.ownerName = snapshot.ownerName.isEmpty ? nil : snapshot.ownerName
+            list.shareRecordName = snapshot.recordName
+            applyItems(snapshot.items, to: list, in: context, ownerAuthoritative: true)
+            list.updatedAt = snapshot.updatedAt
+        }
+    }
+
+    // MARK: - Reconcile (my own shared lists)
+
+    private func reconcileOwned(_ snapshots: [GroceryShareSnapshot], in context: ModelContext) {
+        let byRecord = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.recordName, $0) })
+        for list in allLists(in: context) where list.ownerIsMe {
+            guard let rn = list.shareRecordName else { continue }
+            guard let snapshot = byRecord[rn] else {
+                // Record gone server-side — fall back to a plain local list.
+                clearSharingMetadata(on: list)
+                continue
+            }
+            // The owner owns the item *structure*; only the live
+            // check/note state flows back down onto existing rows.
+            applyLiveState(snapshot.items, to: list)
+        }
+    }
+
+    // MARK: - Item application
+
+    /// Recipient path: the owner is authoritative for the whole item set,
+    /// so we add/update/remove local rows to match the snapshot exactly,
+    /// keyed by `shareIndex`.
+    private func applyItems(
+        _ states: [SharedGroceryItemState],
+        to list: GroceryList,
+        in context: ModelContext,
+        ownerAuthoritative: Bool
+    ) {
+        // Snapshot the relationship before mutating it (deleting members of
+        // a live SwiftData relationship mid-iteration is unsafe).
+        let existingItems = Array(list.items)
+        var byIndex: [Int: GroceryItem] = [:]
+        for item in existingItems {
+            if let idx = item.shareIndex { byIndex[idx] = item }
+        }
+        let liveIndices = Set(states.map(\.index))
+
+        for state in states {
+            let item: GroceryItem
+            if let existing = byIndex[state.index] {
+                item = existing
+            } else {
+                item = GroceryItem(name: state.meta.name, shareIndex: state.index, order: state.index)
+                context.insert(item)
+                item.list = list
+            }
+            item.name = state.meta.name
+            item.quantity = state.meta.quantity
+            item.unit = state.meta.unit
+            item.aisle = state.meta.aisle
+            item.needed = state.meta.needed
+            item.isChecked = state.isChecked
+            item.substitution = state.note
+            item.order = state.index
+            item.shareIndex = state.index
+        }
+
+        if ownerAuthoritative {
+            // Remove rows the owner dropped (slot no longer present) and any
+            // stray unindexed rows on a mirror.
+            for item in existingItems where (item.shareIndex.map { !liveIndices.contains($0) } ?? true) {
+                context.delete(item)
+            }
+        }
+    }
+
+    /// Owner path: keep my local structure, only sync the live mutable
+    /// fields (check + note) down onto rows I already have.
+    private func applyLiveState(_ states: [SharedGroceryItemState], to list: GroceryList) {
+        var byIndex: [Int: GroceryItem] = [:]
+        for item in list.items {
+            if let idx = item.shareIndex { byIndex[idx] = item }
+        }
+        for state in states {
+            guard let item = byIndex[state.index] else { continue }
+            item.isChecked = state.isChecked
+            item.substitution = state.note
+        }
+    }
+
+    // MARK: - Share / unshare (owner)
+
+    /// Share a local list with one or more friends. Stamps the list's
+    /// sharing metadata, assigns each item a stable `shareIndex`, and
+    /// uploads the `GroceryListShare` record seeded with the current
+    /// check/note state. Returns true on a successful upload.
+    @discardableResult
+    func shareList(
+        _ list: GroceryList,
+        withRecipientIDs recipientIDs: [String],
+        recipientLabel: String,
+        ownerName: String
+    ) async -> Bool {
+        guard let ownerID = UserProfileMirror.cachedRecordID() else { return false }
+        let recordName = list.shareRecordName ?? list.id.uuidString
+
+        // Assign slot indices in current display order, capped.
+        let ordered = Array(list.sortedItems.prefix(CloudGroceryListService.maxSharedItems))
+        var metas: [SharedGroceryItemMeta] = []
+        var checkedByIndex: [Int: Bool] = [:]
+        var noteByIndex: [Int: String] = [:]
+        for (i, item) in ordered.enumerated() {
+            item.shareIndex = i
+            metas.append(SharedGroceryItemMeta(
+                id: item.id.uuidString,
+                name: item.name,
+                quantity: item.quantity,
+                unit: item.unit,
+                aisle: item.aisle,
+                needed: item.needed
+            ))
+            checkedByIndex[i] = item.isChecked
+            if let sub = item.substitution, !sub.isEmpty { noteByIndex[i] = sub }
+        }
+        // Rows past the cap can't sync live — clear any stale index.
+        for item in list.sortedItems.dropFirst(CloudGroceryListService.maxSharedItems) {
+            item.shareIndex = nil
+        }
+
+        do {
+            try await CloudGroceryListService.upsertShare(
+                recordName: recordName,
+                ownerID: ownerID,
+                ownerName: ownerName,
+                listName: list.name,
+                recipientIDs: recipientIDs,
+                items: metas,
+                checkedByIndex: checkedByIndex,
+                noteByIndex: noteByIndex,
+                revisedByName: ownerName
+            )
+        } catch {
+            return false
+        }
+
+        list.shareRecordName = recordName
+        list.sharedRecipientIDs = recipientIDs
+        list.sharedWithName = recipientLabel
+        list.touch()
+        return true
+    }
+
+    /// Stop sharing a list I own — delete the cloud record and strip the
+    /// local sharing metadata. The recipients' mirrors fall away on their
+    /// next refresh.
+    func unshare(_ list: GroceryList) async {
+        guard list.ownerIsMe, let recordName = list.shareRecordName else { return }
+        try? await CloudGroceryListService.deleteShare(recordName: recordName)
+        clearSharingMetadata(on: list)
+        list.touch()
+    }
+
+    // MARK: - Live push (either side)
+
+    /// Push a single item's check state after the user toggled it locally.
+    /// No-op for non-shared lists / unindexed items.
+    func pushCheck(_ item: GroceryItem) async {
+        guard let list = item.list, list.isShared,
+              let recordName = list.shareRecordName,
+              let index = item.shareIndex else { return }
+        try? await CloudGroceryListService.setItemChecked(
+            recordName: recordName,
+            index: index,
+            checked: item.isChecked,
+            revisedByName: myDisplayName
+        )
+    }
+
+    /// Push a single item's shopper note / substitution.
+    func pushNote(_ item: GroceryItem) async {
+        guard let list = item.list, list.isShared,
+              let recordName = list.shareRecordName,
+              let index = item.shareIndex else { return }
+        try? await CloudGroceryListService.setItemNote(
+            recordName: recordName,
+            index: index,
+            note: item.substitution,
+            revisedByName: myDisplayName
+        )
+    }
+
+    /// Re-upload the full item set after the owner adds/removes rows on an
+    /// already-shared list. Reassigns `shareIndex` and rewrites the record.
+    func syncStructure(_ list: GroceryList, ownerName: String) async {
+        guard list.ownerIsMe, list.isShared else { return }
+        _ = await shareList(
+            list,
+            withRecipientIDs: list.sharedRecipientIDs,
+            recipientLabel: list.sharedWithName ?? "",
+            ownerName: ownerName
+        )
+    }
+
+    // MARK: - Badge
+
+    func markSharedSeen() { hasSharedUpdate = false }
+
+    // MARK: - Helpers
+
+    private func allLists(in context: ModelContext) -> [GroceryList] {
+        (try? context.fetch(FetchDescriptor<GroceryList>())) ?? []
+    }
+
+    private func dropAllReceivedMirrors(in context: ModelContext) {
+        for list in allLists(in: context) where !list.ownerIsMe {
+            context.delete(list)
+        }
+    }
+
+    private func clearSharingMetadata(on list: GroceryList) {
+        list.shareRecordName = nil
+        list.sharedRecipientIDs = []
+        list.sharedWithName = nil
+        for item in list.items { item.shareIndex = nil }
+    }
+
+    // MARK: - Push observation
+
+    /// Subscribe to grocery-share pushes. Idempotent. On each one, flag
+    /// the tab badge and refresh so both received mirrors and owned lists
+    /// re-sync live.
+    func observeRemotePushes() {
+        guard remotePushObserver == nil else { return }
+        remotePushObserver = NotificationCenter.default.addObserver(
+            forName: CloudKitSubscriptions.didFireNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] note in
+            guard let self else { return }
+            guard let kindRaw = note.userInfo?["kind"] as? String,
+                  CloudKitSubscriptions.FiredKind(rawValue: kindRaw) == .groceryList
+            else { return }
+            Task { @MainActor in
+                self.hasSharedUpdate = true
+                await self.refresh()
+            }
+        }
+    }
+
+    deinit {
+        if let remotePushObserver {
+            NotificationCenter.default.removeObserver(remotePushObserver)
+        }
+    }
+}

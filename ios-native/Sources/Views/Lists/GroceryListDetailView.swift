@@ -16,15 +16,37 @@ struct GroceryListDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
+    @Environment(GroceryListStore.self) private var groceryStore
+    @Environment(UserAccount.self) private var userAccount
+    @Environment(OwnerProfile.self) private var ownerProfile
+    @Environment(FriendsStore.self) private var friendsStore
 
     @State private var newItemName = ""
     @State private var showingRename = false
     @State private var renameText = ""
     @State private var isTriaging = false
     @State private var helperItem: GroceryItem?
+    /// The item whose helper sheet is open, retained across the sheet's
+    /// own `item`-binding reset so `onDismiss` can push any note change to
+    /// the cloud for a shared list.
+    @State private var noteSyncItem: GroceryItem?
+    @State private var showingShare = false
     @FocusState private var addFieldFocused: Bool
 
     private var accent: Color { appearance.cookbookTitleAccentColor }
+
+    /// I own this list (vs. it being a mirror of a friend's shared list).
+    /// Gates structural edits — only the owner adds/removes/renames; a
+    /// recipient checks items off as they shop.
+    private var isOwner: Bool { list.ownerIsMe }
+
+    /// Best display name for stamping onto live pushes.
+    private var myDisplayName: String {
+        let signedIn = userAccount.status.identity?.displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let signedIn, !signedIn.isEmpty { return signedIn }
+        return ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// Aisle sections in store-walk order. When nothing has been triaged
     /// yet (every item falls in "Other"), we render a single flat list
@@ -57,42 +79,111 @@ struct GroceryListDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .tint(accent)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
+            if isOwner {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await sortByAisle() }
+                        Haptics.selection()
+                        showingShare = true
                     } label: {
-                        Label("Sort by aisle", systemImage: "wand.and.stars")
+                        Image(systemName: list.isShared ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.plus")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(accent)
                     }
-                    .disabled(list.items.isEmpty)
-                    Button {
-                        renameText = list.name
-                        showingRename = true
-                    } label: {
-                        Label("Rename list", systemImage: "pencil")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(accent)
+                    .accessibilityLabel(list.isShared ? "Manage sharing" : "Share list with a friend")
                 }
-                .accessibilityLabel("List options")
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            Task { await sortByAisle() }
+                        } label: {
+                            Label("Sort by aisle", systemImage: "wand.and.stars")
+                        }
+                        .disabled(list.items.isEmpty)
+                        Button {
+                            renameText = list.name
+                            showingRename = true
+                        } label: {
+                            Label("Rename list", systemImage: "pencil")
+                        }
+                        if list.isShared {
+                            Divider()
+                            Button(role: .destructive) {
+                                Task { await groceryStore.unshare(list) }
+                            } label: {
+                                Label("Stop sharing", systemImage: "person.crop.circle.badge.xmark")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(accent)
+                    }
+                    .accessibilityLabel("List options")
+                }
             }
         }
-        .safeAreaInset(edge: .bottom) { addItemBar }
+        .safeAreaInset(edge: .top) {
+            if list.isShared { sharedStatusBanner }
+        }
+        .safeAreaInset(edge: .bottom) {
+            // Recipients shop the list (check items off) but don't edit its
+            // structure — only the owner adds/removes rows.
+            if isOwner { addItemBar }
+        }
         .overlay { triagingOverlay }
         .task { await autoTriage() }
-        .sheet(item: $helperItem) { item in
+        .sheet(item: $helperItem, onDismiss: pushHelperNoteIfShared) { item in
             ItemHelperSheet(item: item)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .environment(appearance)
+        }
+        .sheet(isPresented: $showingShare) {
+            ShareGroceryListSheet(list: list, ownerName: myDisplayName)
+                .environment(appearance)
+                .environment(friendsStore)
+                .environment(groceryStore)
         }
         .alert("Rename list", isPresented: $showingRename) {
             TextField("List name", text: $renameText)
             Button("Save") { renameList() }
             Button("Cancel", role: .cancel) { }
         }
+    }
+
+    /// Slim live-status banner. Owner sees who they shared with; a
+    /// recipient sees who shared it to them — both with a pulsing dot to
+    /// signal the list is syncing live.
+    private var sharedStatusBanner: some View {
+        HStack(spacing: AppSpacing.sm) {
+            Circle()
+                .fill(AppColor.success)
+                .frame(width: 8, height: 8)
+            Text(sharedStatusText)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppColor.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(accent)
+        }
+        .padding(.horizontal, AppSpacing.lg)
+        .padding(.vertical, AppSpacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+    }
+
+    private var sharedStatusText: String {
+        if isOwner {
+            let who = list.sharedWithName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let who, !who.isEmpty { return "Shared with \(who) · syncing live" }
+            return "Shared · syncing live"
+        }
+        let who = list.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let who, !who.isEmpty { return "Shared by \(who) · check items off as you shop" }
+        return "Shared with you · check items off as you shop"
     }
 
     // MARK: - Item list
@@ -108,6 +199,7 @@ struct GroceryListDetailView: View {
                             toggleNeeded(item)
                         } onHelp: {
                             helperItem = item
+                            noteSyncItem = item
                         }
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -215,9 +307,15 @@ struct GroceryListDetailView: View {
     /// grouped. Pantry staples are pre-marked "have" on this first pass only,
     /// so it never stomps a have/need the user set themselves.
     private func autoTriage() async {
+        // A recipient's mirror takes its aisle grouping + have/need from the
+        // owner's authoritative metadata — don't run local triage that the
+        // next sync would just overwrite (and that would fight the owner).
+        guard isOwner || !list.isShared else { return }
         let untriaged = list.items.filter { $0.aisle == nil }
         guard !untriaged.isEmpty else { return }
         await applyTriage(to: untriaged, setNeededFromStaple: true)
+        // If this is an owned shared list, push the freshly-grouped aisles.
+        syncStructureIfShared()
     }
 
     /// User-initiated "Sort by aisle" — re-classifies every item's aisle
@@ -234,6 +332,9 @@ struct GroceryListDetailView: View {
         overlay.cancel()
         isTriaging = false
         Haptics.success()
+        // Aisle lives in the shared item metadata — re-upload so recipients
+        // get the same store-walk grouping.
+        syncStructureIfShared()
     }
 
     private func applyTriage(to items: [GroceryItem], setNeededFromStaple: Bool) async {
@@ -258,18 +359,27 @@ struct GroceryListDetailView: View {
         newItemName = ""
         addFieldFocused = true
         Haptics.selection()
+        // New row needs a cloud slot — re-upload the structure.
+        syncStructureIfShared()
     }
 
     private func toggleChecked(_ item: GroceryItem) {
         item.isChecked.toggle()
         list.touch()
         Haptics.selection()
+        // Live check-off: push just this item's slot to every participant.
+        if list.isShared {
+            Task { await groceryStore.pushCheck(item) }
+        }
     }
 
     private func toggleNeeded(_ item: GroceryItem) {
         item.needed.toggle()
         list.touch()
         Haptics.impact(.light)
+        // have/need is owner-authored item metadata, so an owner change
+        // re-syncs the structure. On a recipient's mirror it stays local.
+        syncStructureIfShared()
     }
 
     private func deleteItems(_ items: [GroceryItem], at offsets: IndexSet) {
@@ -278,6 +388,7 @@ struct GroceryListDetailView: View {
             modelContext.delete(items[index])
         }
         list.touch()
+        syncStructureIfShared()
     }
 
     private func renameList() {
@@ -285,6 +396,27 @@ struct GroceryListDetailView: View {
         guard !trimmed.isEmpty else { return }
         list.name = trimmed
         list.touch()
+        syncStructureIfShared()
+    }
+
+    /// Re-upload the full item set for an owned, shared list after a
+    /// structural change (add/remove row, rename, have/need flip, re-sort).
+    /// No-op for purely local lists or a recipient's mirror.
+    private func syncStructureIfShared() {
+        guard isOwner, list.isShared else { return }
+        Task { await groceryStore.syncStructure(list, ownerName: myDisplayName) }
+    }
+
+    /// Push a note change made through the helper sheet ("they're out of
+    /// oat milk") to the shared record, for the item that was open.
+    private func pushHelperNoteIfShared() {
+        guard list.isShared, let item = noteSyncItem else {
+            noteSyncItem = nil
+            return
+        }
+        let captured = item
+        noteSyncItem = nil
+        Task { await groceryStore.pushNote(captured) }
     }
 }
 

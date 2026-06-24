@@ -5,6 +5,7 @@ import UIKit
 struct RootView: View {
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(UserAccount.self) private var userAccount
+    @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(LlamaProStore.self) private var proStore
     @Environment(\.modelContext) private var modelContext
@@ -12,6 +13,11 @@ struct RootView: View {
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
     @State private var navContext = NavigationContext()
+    /// Live shared-grocery-list coordinator. Created here (it needs the
+    /// `ModelContext` to mirror received lists into SwiftData), configured
+    /// + push-wired in `.task`, injected so Lists / detail / share sheets
+    /// can drive it.
+    @State private var groceryStore = GroceryListStore()
     /// Programmatic-path binding for the library NavigationStack. Lets
     /// `LibraryView`'s existing `NavigationLink(value: recipe)` taps
     /// keep working while also giving us a hook to push Detail
@@ -203,6 +209,16 @@ struct RootView: View {
         return shadow
     }
 
+    /// Best display name for stamping onto shared-list pushes — the
+    /// signed-in SIWA name, falling back to the pre-sign-in `OwnerProfile`
+    /// name. Empty when neither is set (the push just omits the editor).
+    private var currentDisplayName: String {
+        let signedIn = userAccount.status.identity?.displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let signedIn, !signedIn.isEmpty { return signedIn }
+        return ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
         tabViewBody
             .overlay {
@@ -247,6 +263,9 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem { tabLabel(for: .lists) }
+            // Dot when a shared-list push landed since the user last looked.
+            // ListsView clears it via `groceryStore.markSharedSeen()`.
+            .badge(groceryStore.hasSharedUpdate ? 1 : 0)
             .tag(AppTab.lists)
 
             NavigationStack {
@@ -279,6 +298,7 @@ struct RootView: View {
         .environment(session)
         .environment(editor)
         .environment(navContext)
+        .environment(groceryStore)
         .onAppear {
             Self.configureTabBarAppearance(
                 accent: appearance.bottomNavAccentColor,
@@ -364,6 +384,21 @@ struct RootView: View {
             // per scene lifetime so re-call doesn't happen in
             // practice).
             friendsStore.observeRemotePushes()
+            // Same wiring for the shared-grocery-list store: hand it the
+            // SwiftData context so it can mirror received lists, bind it to
+            // grocery-share pushes, and pull an initial sync.
+            groceryStore.configure(
+                modelContext: modelContext,
+                myDisplayName: currentDisplayName
+            )
+            groceryStore.observeRemotePushes()
+            await groceryStore.refresh()
+        }
+        .onChange(of: userAccount.status.isSignedIn) { _, _ in
+            // Sign-in / sign-out: keep the push label fresh and re-sync so
+            // received mirrors appear (or get cleared) for the new identity.
+            groceryStore.myDisplayName = currentDisplayName
+            Task { await groceryStore.refresh() }
         }
         .onOpenURL { url in
             // Six URL shapes land here:
