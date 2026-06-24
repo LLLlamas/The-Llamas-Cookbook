@@ -76,11 +76,21 @@ final class GroceryListStore {
             return
         }
 
-        let received = (try? await CloudGroceryListService.fetchSharesForRecipient(me)) ?? []
-        let owned = (try? await CloudGroceryListService.fetchSharesForOwner(me)) ?? []
-
-        reconcileReceived(received, in: context)
-        reconcileOwned(owned, in: context)
+        // Both reconciles are DESTRUCTIVE when handed an empty set:
+        // `reconcileReceived` deletes every mirror whose record isn't present,
+        // and `reconcileOwned` strips the local sharing pointer off every owned
+        // list whose record isn't present. So a THROWN fetch (network blip /
+        // CKError / throttle) must never be flattened to `[]` — that reads as
+        // "everything got unshared" and wipes local state the cloud record
+        // still backs (and the owned side doesn't self-heal). Only reconcile
+        // the side whose fetch actually succeeded; the other keeps its
+        // last-known state and re-syncs on the next good refresh.
+        if let received = try? await CloudGroceryListService.fetchSharesForRecipient(me) {
+            reconcileReceived(received, in: context)
+        }
+        if let owned = try? await CloudGroceryListService.fetchSharesForOwner(me) {
+            reconcileOwned(owned, in: context)
+        }
     }
 
     // MARK: - Reconcile (recipient mirrors)

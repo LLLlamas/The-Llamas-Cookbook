@@ -20,6 +20,7 @@ struct RecipeDetailView: View {
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(UserAccount.self) private var userAccount
     @Environment(LlamaProStore.self) private var proStore
+    @Environment(GroceryListStore.self) private var groceryStore
 
     let recipe: Recipe
 
@@ -549,8 +550,12 @@ struct RecipeDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 // @Observable values can drop across the sheet boundary on
-                // iOS 26 — re-inject what the sheet reads.
+                // iOS 26 — re-inject everything the sheet reads (it now also
+                // re-syncs shared lists, so it needs the store + identity).
                 .environment(appearance)
+                .environment(groceryStore)
+                .environment(userAccount)
+                .environment(ownerProfile)
         }
         .onAppear {
             // Tell the cooking pills bar at root that the user is now

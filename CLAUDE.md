@@ -404,7 +404,12 @@ only re-syncs on an owner edit (a recipient's local have/need flip is not pushed
 revisit if shoppers want it live). Invariants when building these: per-item
 check/note CloudKit fields (anti-clobber, like `photo0–19`); split-per-field
 public-DB predicates + cursor-following; re-inject `@Observable` envs into new
-sheets; no new secret in the iOS binary.
+sheets; no new secret in the iOS binary. **`GroceryListStore.refresh()` must
+never flatten a thrown fetch to `[]`** — both `reconcileReceived` (deletes
+mirrors) and `reconcileOwned` (strips local sharing metadata) are destructive on
+an empty set, so a network blip would read as "everything got unshared" and wipe
+local state the cloud still backs. Only reconcile the side whose fetch actually
+succeeded (`if let x = try? await fetch…`); the owned side does NOT self-heal.
 
 Carry-forward from launch (still unverified on real devices):
 - Verify Universal Links on real devices

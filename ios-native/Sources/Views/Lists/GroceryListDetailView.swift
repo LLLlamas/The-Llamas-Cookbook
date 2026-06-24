@@ -204,6 +204,10 @@ struct GroceryListDetailView: View {
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 3, leading: AppSpacing.lg, bottom: 3, trailing: AppSpacing.lg))
+                        // Recipients shop the list (check off) but don't edit
+                        // its structure — suppress swipe-to-delete for them, or
+                        // a "deleted" row resurrects on the next owner sync.
+                        .deleteDisabled(!isOwner)
                     }
                     .onDelete { offsets in deleteItems(section.items, at: offsets) }
                 } header: {
@@ -268,13 +272,28 @@ struct GroceryListDetailView: View {
                 .font(AppFont.sectionHeading)
                 .foregroundStyle(accent)
                 .accentTextOutline()
-            Text("Add items below, or open a recipe and tap the basket on its ingredients to fill this list.")
+            Text(emptyStateDetail)
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Empty-state guidance. Owners get the "add it yourself" instructions;
+    /// a recipient viewing an empty shared mirror has no add bar, so those
+    /// instructions would be impossible to follow — give them a passive
+    /// "nothing here yet" instead.
+    private var emptyStateDetail: String {
+        if isOwner {
+            return "Add items below, or open a recipe and tap the basket on its ingredients to fill this list."
+        }
+        let who = list.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let who, !who.isEmpty {
+            return "Nothing on this list yet — \(who) hasn't added items, or everything's been checked off."
+        }
+        return "Nothing on this list yet — the owner hasn't added items, or everything's been checked off."
     }
 
     // MARK: - Triaging overlay

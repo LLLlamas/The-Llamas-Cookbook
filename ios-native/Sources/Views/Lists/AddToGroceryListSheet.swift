@@ -28,6 +28,18 @@ struct AddToGroceryListSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(AppearanceSettings.self) private var appearance
+    @Environment(GroceryListStore.self) private var groceryStore
+    @Environment(UserAccount.self) private var userAccount
+    @Environment(OwnerProfile.self) private var ownerProfile
+
+    /// Display name stamped onto a live re-sync push when items are added to
+    /// an already-shared list. Mirrors `GroceryListDetailView.myDisplayName`.
+    private var myDisplayName: String {
+        let signedIn = userAccount.status.identity?.displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let signedIn, !signedIn.isEmpty { return signedIn }
+        return ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     @Query(sort: \GroceryList.updatedAt, order: .reverse)
     private var lists: [GroceryList]
@@ -243,6 +255,15 @@ struct AddToGroceryListSheet: View {
         }
         list.touch()
         Haptics.success()
+        // If this is an owned, already-shared list, the new rows need cloud
+        // slots — re-upload the structure so recipients see them (the
+        // in-detail add bar does the same via syncStructureIfShared). Capture
+        // the values before dismiss so the Task doesn't race teardown.
+        if added > 0, list.ownerIsMe, list.isShared {
+            let target = list
+            let name = myDisplayName
+            Task { await groceryStore.syncStructure(target, ownerName: name) }
+        }
         onAdded(added, list.name)
         dismiss()
     }
