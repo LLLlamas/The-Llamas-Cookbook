@@ -68,3 +68,6 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+
+# CloudKit cktool working exports (regenerated per run)
+cloudkit/current-*.ckdb
