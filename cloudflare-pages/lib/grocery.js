@@ -6,7 +6,7 @@
 //
 // A shared grocery list is one `GroceryListShare` CloudKit public record:
 //   - title   (String)  list name
-//   - payload (String)  JSON array of items: [{name,qty,unit,aisle,needed,order}]
+//   - payload (String)  JSON array of items: [{name,qty,unit,aisle,order}]
 //                       (a String, not an Asset — lists are tiny + photoless,
 //                       so the Worker reads them inline with no second fetch)
 //   - check0..check39 (Int64)  per-item in-cart flag, indexed by `order`
@@ -60,7 +60,7 @@ export function normalizeAisle(raw) {
  * and endpoints can use. Defensive about missing fields and a malformed
  * payload (returns an empty item list rather than throwing).
  *
- * @returns {{title:string, items:Array<{name,quantity,unit,aisle,needed,order,checked,note,outOfStock,substitution}>}}
+ * @returns {{title:string, items:Array<{name,quantity,unit,aisle,order,checked,note,outOfStock,substitution}>}}
  */
 export function parseGroceryRecord(record) {
   const fields = record?.fields || {};
@@ -86,7 +86,6 @@ export function parseGroceryRecord(record) {
       quantity: it?.qty != null ? String(it.qty) : '',
       unit: it?.unit != null ? String(it.unit) : '',
       aisle: normalizeAisle(it?.aisle),
-      needed: it?.needed !== false, // default to needed
       order,
       checked: checkVal === 1 || checkVal === true,
       note,
@@ -137,12 +136,10 @@ export function itemLine(item) {
 /**
  * Plain-text rendering of a parsed list, grouped by aisle, for the web
  * page's "copy as text" affordance. Checked items are prefixed with [x],
- * unchecked needed items with [ ]; "have" items are omitted (they're not
- * being bought).
+ * unchecked items with [ ].
  */
 export function formatPlainText({ title, items }) {
-  const buying = items.filter((it) => it.needed);
-  const sections = groupByAisle(buying);
+  const sections = groupByAisle(items);
   const lines = [title, ''];
   for (const section of sections) {
     if (sections.length > 1) lines.push(section.aisle.toUpperCase());

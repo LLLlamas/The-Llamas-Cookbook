@@ -185,7 +185,6 @@ final class GroceryListStore {
             item.quantity = state.meta.quantity
             item.unit = state.meta.unit
             item.aisle = state.meta.aisle
-            item.needed = state.meta.needed
             item.isChecked = state.isChecked
             item.substitution = state.note
             item.order = state.index
@@ -243,8 +242,7 @@ final class GroceryListStore {
                 name: item.name,
                 quantity: item.quantity,
                 unit: item.unit,
-                aisle: item.aisle,
-                needed: item.needed
+                aisle: item.aisle
             ))
             checkedByIndex[i] = item.isChecked
             if let sub = item.substitution, !sub.isEmpty { noteByIndex[i] = sub }

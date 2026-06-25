@@ -39,24 +39,6 @@ final class GroceryKnowledgeTests: XCTestCase {
         }
     }
 
-    // MARK: - Pantry staples
-
-    func testPantryStaplesPositive() {
-        XCTAssertTrue(GroceryKnowledge.isPantryStaple("Salt"))
-        XCTAssertTrue(GroceryKnowledge.isPantryStaple("olive oil"))
-        XCTAssertTrue(GroceryKnowledge.isPantryStaple("all-purpose flour"))
-        XCTAssertTrue(GroceryKnowledge.isPantryStaple("black pepper"))
-    }
-
-    func testPantryStaplesNegative() {
-        // The classic false-positive trap: "bell pepper" must NOT match the
-        // "black pepper" staple (bare "pepper" is deliberately not a staple).
-        XCTAssertFalse(GroceryKnowledge.isPantryStaple("bell pepper"))
-        XCTAssertFalse(GroceryKnowledge.isPantryStaple("chicken breast"))
-        XCTAssertFalse(GroceryKnowledge.isPantryStaple("ground beef"))
-        XCTAssertFalse(GroceryKnowledge.isPantryStaple("strawberries"))
-    }
-
     // MARK: - Substitutions
 
     func testSubstitutionsKnownIngredients() {
@@ -85,13 +67,10 @@ final class GroceryKnowledgeTests: XCTestCase {
         XCTAssertEqual(result.aisleByIndex[0], "Produce")
         XCTAssertEqual(result.aisleByIndex[1], "Spices")
         XCTAssertEqual(result.aisleByIndex[2], "Meat & Seafood")
-        XCTAssertEqual(result.stapleByIndex[1], true)   // salt is a staple
-        XCTAssertEqual(result.stapleByIndex[0], false)  // tomatoes are not
     }
 
     func testHeuristicTriageEmpty() {
         let result = IngredientAssistant.heuristicTriage(names: [])
         XCTAssertTrue(result.aisleByIndex.isEmpty)
-        XCTAssertTrue(result.stapleByIndex.isEmpty)
     }
 }

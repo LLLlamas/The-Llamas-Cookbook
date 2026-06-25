@@ -78,7 +78,7 @@ final class GroceryList {
     var isShared: Bool { shareRecordName != nil }
 
     /// Touch `updatedAt`. Call after ANY mutation — including flipping a
-    /// child `GroceryItem`'s `isChecked`/`needed` — so the Lists tab sorts
+    /// child `GroceryItem`'s `isChecked` — so the Lists tab sorts
     /// most-recently-touched first and its per-list counts re-render.
     /// (A `@Query` on `GroceryList` isn't guaranteed to re-fire when only a
     /// child scalar changes; bumping `updatedAt` here is what the tab's
@@ -100,13 +100,9 @@ final class GroceryItem {
     /// the list — see `GroceryAisle` for the canonical ordering.
     var aisle: String?
 
-    /// have/need. `false` = the user already has it (pantry staple or
-    /// hand-marked), so it doesn't need buying. `true` = on the buy list.
-    var needed: Bool
-
-    /// In-cart check-off. Flipped by whoever is shopping (owner, a
-    /// friend in-app, or a web shopper). Distinct from `needed`: you can
-    /// need an item and not yet have checked it into the cart.
+    /// In-cart check-off — the single "is this done?" axis for an item.
+    /// Flipped by whoever is shopping (owner, a friend in-app, or a web
+    /// shopper) as they drop it in the cart.
     var isChecked: Bool
 
     /// Shopper flagged "they don't have this" at the store. Drives the
@@ -138,7 +134,6 @@ final class GroceryItem {
         quantity: String? = nil,
         unit: String? = nil,
         aisle: String? = nil,
-        needed: Bool = true,
         isChecked: Bool = false,
         outOfStock: Bool = false,
         substitution: String? = nil,
@@ -151,7 +146,6 @@ final class GroceryItem {
         self.quantity = quantity
         self.unit = unit
         self.aisle = aisle
-        self.needed = needed
         self.isChecked = isChecked
         self.outOfStock = outOfStock
         self.substitution = substitution

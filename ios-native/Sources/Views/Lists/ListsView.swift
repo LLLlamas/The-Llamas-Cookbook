@@ -44,12 +44,7 @@ struct ListsView: View {
                     title: "Lists",
                     accent: accent,
                     glowActive: appearance.isAccentGlowActive(.header)
-                ) {
-                    Image(systemName: "checklist")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(accent)
-                        .accentTextOutline()
-                }
+                )
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -175,7 +170,8 @@ private struct GroceryListRow: View {
     let accent: Color
 
     private var itemCount: Int { list.items.count }
-    private var toBuyCount: Int { list.items.filter { $0.needed && !$0.isChecked }.count }
+    /// Items not yet checked into the cart — the "still to grab" count.
+    private var toBuyCount: Int { list.items.filter { !$0.isChecked }.count }
 
     var body: some View {
         HStack(spacing: AppSpacing.md) {

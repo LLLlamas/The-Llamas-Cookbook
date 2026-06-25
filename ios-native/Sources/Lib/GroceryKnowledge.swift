@@ -1,17 +1,16 @@
 import Foundation
 
-/// Researched grocery-domain reference data — aisle classification, pantry
-/// staples, and ingredient substitutions — held the same way
-/// `Conversions.swift` holds the kitchen-equivalents tables. It serves two
-/// jobs: it *is* the heuristic the on-device triage falls back to when
-/// Apple Intelligence is unavailable, and it *grounds* the FoundationModels
-/// prompts (the aisle vocabulary + example swaps keep the model's output
-/// consistent and on-domain).
+/// Researched grocery-domain reference data — aisle classification and
+/// ingredient substitutions — held the same way `Conversions.swift` holds
+/// the kitchen-equivalents tables. It serves two jobs: it *is* the heuristic
+/// the on-device triage falls back to when Apple Intelligence is
+/// unavailable, and it *grounds* the FoundationModels prompts (the aisle
+/// vocabulary + example swaps keep the model's output consistent and
+/// on-domain).
 ///
 /// Sources: USU & University of Illinois Extension substitution guides and
 /// King Arthur Baking (substitutions); standard US supermarket department
-/// layouts (aisle taxonomy); common pantry-staple checklists (Food Network,
-/// Budget Bytes). Matching is word-aware: multi-word keywords match as a
+/// layouts (aisle taxonomy). Matching is word-aware: multi-word keywords match as a
 /// substring, single-word keywords match a whole word token, and the lists
 /// are tried longest-keyword-first so "garlic powder" beats "garlic" and
 /// "ice cream" beats "cream".
@@ -53,32 +52,6 @@ enum GroceryKnowledge {
         }
         return nil
     }
-
-    // MARK: - Pantry staples
-
-    /// Shelf-stable basics a home cook very likely already has on hand, so
-    /// the triage pre-marks them "have" (needed = false). Conservative on
-    /// purpose — a false "have" hides something you actually need to buy,
-    /// which is worse than a false "need". Bare ambiguous words (e.g.
-    /// "pepper", which would catch "bell pepper") are spelled out
-    /// ("black pepper") to avoid that.
-    static let pantryStapleKeywords: [String] = [
-        "salt", "kosher salt", "sea salt", "black pepper", "peppercorn",
-        "sugar", "granulated sugar", "white sugar", "brown sugar", "powdered sugar",
-        "flour", "all-purpose flour", "all purpose flour", "cornstarch", "corn starch",
-        "baking soda", "baking powder", "yeast", "cream of tartar",
-        "vanilla", "vanilla extract", "cocoa", "cocoa powder",
-        "olive oil", "vegetable oil", "canola oil", "cooking spray", "nonstick spray",
-        "white vinegar", "apple cider vinegar", "balsamic vinegar", "rice vinegar",
-        "soy sauce", "honey", "maple syrup", "ketchup", "mustard", "mayonnaise", "mayo",
-        "hot sauce", "worcestershire", "peanut butter",
-        "rice", "pasta", "spaghetti", "oats", "breadcrumbs", "bread crumbs", "panko",
-        "broth", "stock", "bouillon",
-        "garlic powder", "onion powder", "paprika", "cumin", "chili powder",
-        "cinnamon", "oregano", "thyme", "basil", "bay leaf", "nutmeg",
-        "cayenne", "turmeric", "red pepper flakes", "italian seasoning",
-        "water",
-    ]
 
     // MARK: - Aisle classification
 
@@ -189,15 +162,6 @@ enum GroceryKnowledge {
     /// "Other" when nothing matches.
     static func aisle(for name: String) -> String {
         firstMatch(name, in: aisleKeywords) ?? GroceryAisle.fallback
-    }
-
-    /// Is this ingredient a likely pantry staple (already on hand)?
-    static func isPantryStaple(_ name: String) -> Bool {
-        let normalized = name.lowercased()
-        let toks = tokens(of: name)
-        return pantryStapleKeywords.contains {
-            matches(normalized: normalized, tokens: toks, keyword: $0)
-        }
     }
 
     // MARK: - Substitutions

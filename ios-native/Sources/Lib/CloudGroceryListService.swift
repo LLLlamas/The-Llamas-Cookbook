@@ -2,11 +2,11 @@ import Foundation
 import CloudKit
 
 /// Static metadata for one item on a shared grocery list — the part the
-/// list *owner* authors (name, measure, aisle, have/need). Travels inside
-/// the record's `itemsJSON` string as an ordered array; the array position
-/// IS the item's slot index, which maps to the live `check<N>` / `note<N>`
-/// CloudKit fields. The owner's local `GroceryItem.id` rides along so a
-/// future owner-side edit can re-key cleanly, but the slot index is the
+/// list *owner* authors (name, measure, aisle). Travels inside the record's
+/// `itemsJSON` string as an ordered array; the array position IS the item's
+/// slot index, which maps to the live `check<N>` / `note<N>` CloudKit
+/// fields. The owner's local `GroceryItem.id` rides along so a future
+/// owner-side edit can re-key cleanly, but the slot index is the
 /// load-bearing identity for the live mutable state.
 struct SharedGroceryItemMeta: Codable, Equatable {
     let id: String
@@ -14,7 +14,6 @@ struct SharedGroceryItemMeta: Codable, Equatable {
     let quantity: String?
     let unit: String?
     let aisle: String?
-    let needed: Bool
 }
 
 /// One item resolved for display/sync: the owner-authored `meta` merged

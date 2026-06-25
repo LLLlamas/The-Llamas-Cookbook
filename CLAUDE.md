@@ -353,10 +353,10 @@ So the list is self-contained, with a thin feature-flagged seam
 **Files** — `Sources/Views/Lists/` (`ListsView`, `GroceryListDetailView`,
 `AddToGroceryListSheet`, `ItemHelperSheet`); models `Sources/Models/GroceryList.swift`
 (`GroceryList`/`GroceryItem`, local `@Model`, registered in the `ModelContainer`);
-`Sources/Lib/GroceryKnowledge.swift` (researched aisle taxonomy + pantry staples
-+ substitution chart — sources: USU/UIUC Extension, King Arthur, standard
-supermarket layouts), `IngredientAssistant.swift` (on-device `FoundationModels`
-triage/describe/substitutes, grounded by + falling back to `GroceryKnowledge`),
+`Sources/Lib/GroceryKnowledge.swift` (researched aisle taxonomy + substitution
+chart — sources: USU/UIUC Extension, King Arthur, standard supermarket
+layouts), `IngredientAssistant.swift` (on-device `FoundationModels`
+aisle-triage/describe/substitutes, grounded by + falling back to `GroceryKnowledge`),
 `GroceryAisle.swift`, `FeatureFlags.swift`; `MeasureDisplay` (lifted from
 `IngredientDisplay`, shared by recipe + grocery rows); Worker `lib/grocery.js`
 (+ `test/grocery.test.js`). Tests: `GroceryKnowledgeTests.swift` (Swift),
@@ -366,11 +366,12 @@ triage/describe/substitutes, grounded by + falling back to `GroceryKnowledge`),
 moved width/6 → width/8 for 4 tabs); create/delete lists; "Add to grocery list"
 full-width bar under the Ingredients heading in `RecipeDetailView` (+ per-item
 selection in `AddToGroceryListSheet` and an "Added N items" toast); Conversions
-chip in Cook Mode; on-device AI aisle + have/need triage (auto on appear, manual
-"Sort by aisle" with llama overlay) with researched heuristic fallback; check-off
-+ have/need; per-row "?" helper (what-is-this via on-device describe + web image
-search; "they don't have this" → researched substitute swaps); Friends tab badge
-(incoming requests). Each phase audited by a reviewer subagent.
+chip in Cook Mode; on-device AI aisle triage (auto on appear, manual
+"Sort by aisle" with llama overlay) with researched heuristic fallback; in-cart
+check-off (single per-item axis — the old have/need toggle was removed as
+redundant 2026-06-25); per-row "?" helper (what-is-this via on-device describe +
+web image search; "they don't have this" → researched substitute swaps); Friends
+tab badge (incoming requests). Each phase audited by a reviewer subagent.
 
 **App-to-app friend sharing + live checklist (built 2026-06-24):** share a list
 with friend(s) → one `GroceryListShare` public-DB record per shared list is the
@@ -399,9 +400,7 @@ until deployed the feature silently no-ops (all calls behind `try?`).
 **Remaining (designed, not built):** web-link share for recipients without the
 app (`/list/[id].js` Worker page + `api/list-check.js` / `api/list-note.js`
 reusing the same `GroceryListShare` record; `/list/*` deliberately NOT in AASA so
-the web fallback stays a browser URL); have/need is currently owner-authored and
-only re-syncs on an owner edit (a recipient's local have/need flip is not pushed —
-revisit if shoppers want it live). Invariants when building these: per-item
+the web fallback stays a browser URL). Invariants when building these: per-item
 check/note CloudKit fields (anti-clobber, like `photo0–19`); split-per-field
 public-DB predicates + cursor-following; re-inject `@Observable` envs into new
 sheets; no new secret in the iOS binary. **`GroceryListStore.refresh()` must

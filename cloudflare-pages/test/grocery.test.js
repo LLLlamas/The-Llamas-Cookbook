@@ -65,13 +65,13 @@ describe('normalizeAisle', () => {
 describe('parseGroceryRecord', () => {
   it('parses title + items with measures and aisles', () => {
     const record = makeRecord('Taco Night', [
-      { name: 'Tomatoes', qty: '3', unit: '', aisle: 'Produce', needed: true, order: 0 },
-      { name: 'Ground beef', qty: '1', unit: 'lb', aisle: 'Meat & Seafood', needed: true, order: 1 },
+      { name: 'Tomatoes', qty: '3', unit: '', aisle: 'Produce', order: 0 },
+      { name: 'Ground beef', qty: '1', unit: 'lb', aisle: 'Meat & Seafood', order: 1 },
     ]);
     const parsed = parseGroceryRecord(record);
     expect(parsed.title).toBe('Taco Night');
     expect(parsed.items).toHaveLength(2);
-    expect(parsed.items[0]).toMatchObject({ name: 'Tomatoes', quantity: '3', aisle: 'Produce', needed: true, checked: false });
+    expect(parsed.items[0]).toMatchObject({ name: 'Tomatoes', quantity: '3', aisle: 'Produce', checked: false });
     expect(parsed.items[1]).toMatchObject({ name: 'Ground beef', unit: 'lb', aisle: 'Meat & Seafood' });
   });
 
@@ -101,16 +101,6 @@ describe('parseGroceryRecord', () => {
     expect(parsed.items[0].substitution).toBe('');
     expect(parsed.items[1].outOfStock).toBe(false);
     expect(parsed.items[1].substitution).toBe('margarine');
-  });
-
-  it('defaults needed to true when omitted, false only when explicit', () => {
-    const record = makeRecord('List', [
-      { name: 'Salt', aisle: 'Spices', order: 0 },                // omitted
-      { name: 'Flour', aisle: 'Pantry & Dry Goods', needed: false, order: 1 },
-    ]);
-    const parsed = parseGroceryRecord(record);
-    expect(parsed.items[0].needed).toBe(true);
-    expect(parsed.items[1].needed).toBe(false);
   });
 
   it('is defensive about a malformed payload', () => {
@@ -183,13 +173,13 @@ describe('measureText / itemLine', () => {
 // ── formatPlainText ─────────────────────────────────────────────────────────
 
 describe('formatPlainText', () => {
-  it('renders aisle headers, check boxes, and omits have-items', () => {
+  it('renders aisle headers and check boxes for every item', () => {
     const parsed = {
       title: 'Weekend Shop',
       items: [
-        { name: 'Apples', quantity: '6', unit: '', aisle: 'Produce', needed: true, checked: false, order: 0 },
-        { name: 'Milk', quantity: '1', unit: 'gal', aisle: 'Dairy & Eggs', needed: true, checked: true, order: 1 },
-        { name: 'Salt', quantity: '', unit: '', aisle: 'Spices', needed: false, checked: false, order: 2 },
+        { name: 'Apples', quantity: '6', unit: '', aisle: 'Produce', checked: false, order: 0 },
+        { name: 'Milk', quantity: '1', unit: 'gal', aisle: 'Dairy & Eggs', checked: true, order: 1 },
+        { name: 'Salt', quantity: '', unit: '', aisle: 'Spices', checked: false, order: 2 },
       ],
     };
     const text = formatPlainText(parsed);
@@ -197,14 +187,14 @@ describe('formatPlainText', () => {
     expect(text).toContain('PRODUCE');
     expect(text).toContain('[ ] 6 Apples');
     expect(text).toContain('[x] 1 gal Milk');
-    // "Have" item (Salt, needed:false) is omitted.
-    expect(text).not.toContain('Salt');
+    // Every item appears now that have/need filtering is gone.
+    expect(text).toContain('[ ] Salt');
   });
 
   it('omits aisle headers when everything is one aisle', () => {
     const parsed = {
       title: 'Quick',
-      items: [{ name: 'Milk', quantity: '', unit: '', aisle: 'Dairy & Eggs', needed: true, checked: false, order: 0 }],
+      items: [{ name: 'Milk', quantity: '', unit: '', aisle: 'Dairy & Eggs', checked: false, order: 0 }],
     };
     const text = formatPlainText(parsed);
     expect(text).toContain('Quick');

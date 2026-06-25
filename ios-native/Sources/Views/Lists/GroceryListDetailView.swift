@@ -4,12 +4,12 @@ import SwiftData
 /// One grocery list, open for shopping. Items are grouped by aisle (the
 /// llama's triage, Phase 4) in store-walk order; each row has its own
 /// well-separated tap targets — an in-cart check circle (leading) and a
-/// have/need toggle (trailing) — so a stray tap never cross-fires (the
-/// minimized Cook-Mode pill fall-through is the cautionary precedent).
+/// per-item "?" helper — so a stray tap never cross-fires (the minimized
+/// Cook-Mode pill fall-through is the cautionary precedent).
 ///
 /// Sharing, the on-device aisle triage, and the per-item "?" helper layer
 /// on in later phases; this view already stands alone for a hand-built
-/// list — add items from the bottom bar, check them off, mark have/need.
+/// list — add items from the bottom bar and check them off as you shop.
 struct GroceryListDetailView: View {
     @Bindable var list: GroceryList
 
@@ -195,8 +195,6 @@ struct GroceryListDetailView: View {
                     ForEach(section.items) { item in
                         GroceryItemRow(item: item, accent: accent) {
                             toggleChecked(item)
-                        } onToggleNeeded: {
-                            toggleNeeded(item)
                         } onHelp: {
                             helperItem = item
                             noteSyncItem = item
@@ -321,25 +319,24 @@ struct GroceryListDetailView: View {
 
     // MARK: - Triage
 
-    /// Silent first-pass classification of any never-triaged items (aisle ==
-    /// nil) — runs on appear so a list built from a recipe lands already
-    /// grouped. Pantry staples are pre-marked "have" on this first pass only,
-    /// so it never stomps a have/need the user set themselves.
+    /// Silent first-pass aisle classification of any never-triaged items
+    /// (aisle == nil) — runs on appear so a list built from a recipe lands
+    /// already grouped in store-walk order.
     private func autoTriage() async {
-        // A recipient's mirror takes its aisle grouping + have/need from the
-        // owner's authoritative metadata — don't run local triage that the
-        // next sync would just overwrite (and that would fight the owner).
+        // A recipient's mirror takes its aisle grouping from the owner's
+        // authoritative metadata — don't run local triage that the next sync
+        // would just overwrite (and that would fight the owner).
         guard isOwner || !list.isShared else { return }
         let untriaged = list.items.filter { $0.aisle == nil }
         guard !untriaged.isEmpty else { return }
-        await applyTriage(to: untriaged, setNeededFromStaple: true)
+        await applyTriage(to: untriaged)
         // If this is an owned shared list, push the freshly-grouped aisles.
         syncStructureIfShared()
     }
 
-    /// User-initiated "Sort by aisle" — re-classifies every item's aisle
-    /// (preserving the user's have/need), behind a 1 s overlay debounce so
-    /// the instant heuristic path never flashes the scrim.
+    /// User-initiated "Sort by aisle" — re-classifies every item's aisle,
+    /// behind a 1 s overlay debounce so the instant heuristic path never
+    /// flashes the scrim.
     private func sortByAisle() async {
         let items = list.sortedItems
         guard !items.isEmpty else { return }
@@ -347,7 +344,7 @@ struct GroceryListDetailView: View {
             try? await Task.sleep(for: .seconds(1))
             if !Task.isCancelled { isTriaging = true }
         }
-        await applyTriage(to: items, setNeededFromStaple: false)
+        await applyTriage(to: items)
         overlay.cancel()
         isTriaging = false
         Haptics.success()
@@ -356,11 +353,10 @@ struct GroceryListDetailView: View {
         syncStructureIfShared()
     }
 
-    private func applyTriage(to items: [GroceryItem], setNeededFromStaple: Bool) async {
+    private func applyTriage(to items: [GroceryItem]) async {
         let result = await IngredientAssistant.triage(names: items.map(\.name))
         for (i, item) in items.enumerated() {
             if let aisle = result.aisleByIndex[i] { item.aisle = aisle }
-            if setNeededFromStaple, result.stapleByIndex[i] == true { item.needed = false }
         }
         list.touch()
     }
@@ -392,15 +388,6 @@ struct GroceryListDetailView: View {
         }
     }
 
-    private func toggleNeeded(_ item: GroceryItem) {
-        item.needed.toggle()
-        list.touch()
-        Haptics.impact(.light)
-        // have/need is owner-authored item metadata, so an owner change
-        // re-syncs the structure. On a recipient's mirror it stays local.
-        syncStructureIfShared()
-    }
-
     private func deleteItems(_ items: [GroceryItem], at offsets: IndexSet) {
         Haptics.impact(.rigid)
         for index in offsets {
@@ -419,7 +406,7 @@ struct GroceryListDetailView: View {
     }
 
     /// Re-upload the full item set for an owned, shared list after a
-    /// structural change (add/remove row, rename, have/need flip, re-sort).
+    /// structural change (add/remove row, rename, re-sort).
     /// No-op for purely local lists or a recipient's mirror.
     private func syncStructureIfShared() {
         guard isOwner, list.isShared else { return }
@@ -439,16 +426,14 @@ struct GroceryListDetailView: View {
     }
 }
 
-/// One item row. Three deliberately separate hit zones — the leading
-/// check circle, the central label, and the trailing have/need toggle —
-/// each with its own bounded `contentShape` and ≥ 44 pt target so taps
-/// don't cross-fire. Checked items dim + strike through; "have" items
-/// (not needed) read muted with a small "Have" tag.
+/// One item row. Two deliberately separate hit zones — the leading check
+/// circle and the central label's "?" helper — each with its own bounded
+/// `contentShape` and ≥ 34 pt target so taps don't cross-fire. Checked
+/// items dim + strike through.
 private struct GroceryItemRow: View {
     let item: GroceryItem
     let accent: Color
     let onToggleChecked: () -> Void
-    let onToggleNeeded: () -> Void
     let onHelp: () -> Void
 
     private var display: MeasureDisplay { item.display() }
@@ -468,8 +453,8 @@ private struct GroceryItemRow: View {
 
             // Center: name + "?" on one line, measure/status below. The
             // "?" sits right beside the name with its own bounded
-            // contentShape, kept clear of the check (left) and have/need
-            // (right) so taps never cross-fire.
+            // contentShape, kept clear of the check (left) so taps never
+            // cross-fire.
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(item.name.capitalized)
@@ -490,24 +475,8 @@ private struct GroceryItemRow: View {
                 }
                 statusSubline
             }
-            .opacity(item.needed ? 1 : 0.55)
 
-            Spacer(minLength: AppSpacing.xs)
-
-            // Trailing: have/need toggle, its own bounded target.
-            Button(action: onToggleNeeded) {
-                Text(item.needed ? "Need" : "Have")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(item.needed ? AppColor.onAccent : AppColor.textSecondary)
-                    .padding(.horizontal, AppSpacing.sm)
-                    .frame(minWidth: 52, minHeight: 32)
-                    .background(item.needed ? accent : AppColor.surface)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().strokeBorder(AppColor.divider.opacity(item.needed ? 0 : 0.6), lineWidth: 1))
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.needed ? "Mark \(item.name) as already have" : "Mark \(item.name) as needed")
+            Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
     }
