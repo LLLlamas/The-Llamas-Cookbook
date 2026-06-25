@@ -426,10 +426,10 @@ struct GroceryListDetailView: View {
     }
 }
 
-/// One item row. Two deliberately separate hit zones — the leading check
-/// circle and the central label's "?" helper — each with its own bounded
-/// `contentShape` and ≥ 34 pt target so taps don't cross-fire. Checked
-/// items dim + strike through.
+/// One item row. The leading circle AND the central label both toggle the
+/// check (so the user needn't hit the small circle); the trailing "?" helper
+/// is its own bounded tap target so taps don't cross-fire. Checked items dim
+/// + strike through.
 private struct GroceryItemRow: View {
     let item: GroceryItem
     let accent: Color
@@ -451,32 +451,34 @@ private struct GroceryItemRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
 
-            // Center: name + "?" on one line, measure/status below. The
-            // "?" sits right beside the name with its own bounded
-            // contentShape, kept clear of the check (left) so taps never
-            // cross-fire.
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
+            // Center: the whole name + measure column toggles the check too,
+            // so the user needn't hit the little circle. The "?" helper stays
+            // a separate trailing tap target.
+            Button(action: onToggleChecked) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(item.name.capitalized)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(item.isChecked ? AppColor.textTertiary : AppColor.textPrimary)
                         .strikethrough(item.isChecked, color: AppColor.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Button(action: onHelp) {
-                        Image(systemName: "questionmark.circle")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(AppColor.textTertiary)
-                            .frame(width: 34, height: 34)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("What is \(item.name)? Or mark unavailable")
+                    statusSubline
                 }
-                statusSubline
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
 
-            Spacer(minLength: 0)
+            Button(action: onHelp) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppColor.textTertiary)
+                    .frame(width: 38, height: 38)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("What is \(item.name)? Or mark unavailable")
         }
         .padding(.vertical, 2)
     }

@@ -369,7 +369,7 @@ selection in `AddToGroceryListSheet` and an "Added N items" toast); Conversions
 chip in Cook Mode; on-device AI aisle triage (auto on appear, manual
 "Sort by aisle" with llama overlay) with researched heuristic fallback; in-cart
 check-off (single per-item axis — the old have/need toggle was removed as
-redundant 2026-06-25); per-row "?" helper (what-is-this via on-device describe +
+redundant 2026-06-25; tapping the row label OR the circle toggles it); per-row "?" helper (what-is-this via on-device describe +
 web image search; "they don't have this" → researched substitute swaps); Friends
 tab badge (incoming requests). Each phase audited by a reviewer subagent.
 
