@@ -21,6 +21,9 @@ struct ListsView: View {
 
     @State private var showingNewListPrompt = false
     @State private var newListName = ""
+    /// Drives the "pick another name" alert when a list name is rejected
+    /// by the profanity screen.
+    @State private var nameRejected = false
 
     private var accent: Color { appearance.cookbookTitleAccentColor }
 
@@ -47,6 +50,14 @@ struct ListsView: View {
                         .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(accent)
                         .accentTextOutline()
+                        // Accent-cascade header glow — same top-down pulse
+                        // the Library logo gets when the user commits a new
+                        // accent color (see LibraryView header leading).
+                        .shadow(
+                            color: appearance.cookbookTitleAccentColor.opacity(appearance.isAccentGlowActive(.header) ? 0.14 : 0),
+                            radius: appearance.isAccentGlowActive(.header) ? 9 : 0
+                        )
+                        .animation(.easeInOut(duration: 0.14), value: appearance.isAccentGlowActive(.header))
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -73,15 +84,20 @@ struct ListsView: View {
         } message: {
             Text("Name your list — like “Weekend Shop” or “Taco Night”.")
         }
+        .alert("Pick another name", isPresented: $nameRejected) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(ContentModeration.blockedMessage)
+        }
     }
 
     // MARK: - Rows
 
     private var listRows: some View {
         List {
-            ForEach(lists) { list in
+            ForEach(Array(lists.enumerated()), id: \.element.id) { index, list in
                 NavigationLink(value: list) {
-                    GroceryListRow(list: list, accent: accent)
+                    GroceryListRow(list: list, index: index)
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -122,8 +138,7 @@ struct ListsView: View {
                     .accentTextOutline()
                     .padding(.horizontal, AppSpacing.lg)
                     .padding(.vertical, AppSpacing.sm + 2)
-                    .background(accent)
-                    .clipShape(Capsule())
+                    .glassEffect(.regular.tint(accent).interactive(), in: Capsule())
                     .shadow(color: accent.opacity(0.35), radius: 10, y: 4)
             }
             .buttonStyle(.plain)
@@ -135,8 +150,12 @@ struct ListsView: View {
     // MARK: - Actions
 
     private func createList() {
-        let trimmed = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = trimmed.isEmpty ? "Grocery List" : trimmed
+        let name = Optional(newListName).trimmedIfNonEmpty ?? "Grocery List"
+        guard ContentModeration.isClean(name) else {
+            Haptics.warning()
+            nameRejected = true
+            return
+        }
         let list = GroceryList(name: name)
         modelContext.insert(list)
         Haptics.success()
@@ -154,20 +173,45 @@ struct ListsView: View {
 /// summary, and the last-touched date — same muted-metadata vocabulary the
 /// recipe and friend cards use.
 private struct GroceryListRow: View {
+    @Environment(AppearanceSettings.self) private var appearance
     let list: GroceryList
-    let accent: Color
+    /// Row position — drives the per-row accent-cascade stagger so the
+    /// Lists tab retints top → bottom in lockstep with the Library list,
+    /// exactly like `RecipeCardView`. Defaults to 0 so previews still build.
+    var index: Int = 0
+
+    /// Held during this row's cascade stagger window so the icon/title
+    /// color advances at `recipeListFlipDelay + index * stagger` rather
+    /// than flipping in unison. Mirrors `RecipeCardView.heldAccentOverride`.
+    @State private var heldAccentOverride: Color? = nil
+    @State private var glowActive = false
 
     private var itemCount: Int { list.items.count }
-    private var toBuyCount: Int { list.items.filter { $0.needed && !$0.isChecked }.count }
+    private var toBuyCount: Int { list.toBuyCount }
+    private var isAllSet: Bool { list.isAllSet }
+
+    /// Design-system sage green — the canonical "done / good" tint.
+    private var doneGreen: Color { AppColor.success }
+
+    /// Cascade-aware accent (held old hue → new), matching the recipe list.
+    private var accent: Color { heldAccentOverride ?? appearance.recipeListAccentColor }
+
+    /// The row's lead tint: green once the list is fully shopped, accent
+    /// otherwise. Drives the icon, the icon well, and the card border so
+    /// the "all set" state reads as green at a glance from the list.
+    private var leadTint: Color { isAllSet ? doneGreen : accent }
 
     var body: some View {
         HStack(spacing: AppSpacing.md) {
-            Image(systemName: "basket.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(accent)
-                .frame(width: 40, height: 40)
-                .background(accent.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            ZStack {
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .fill(leadTint.opacity(0.14))
+                Image(systemName: isAllSet ? "checkmark" : "basket.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(leadTint)
+                    .shadow(color: leadTint.opacity(glowActive ? 0.20 : 0), radius: glowActive ? 7 : 0)
+            }
+            .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(list.name)
@@ -175,22 +219,32 @@ private struct GroceryListRow: View {
                     .foregroundStyle(AppColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(summaryLine)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppColor.textTertiary)
+                    .shadow(color: leadTint.opacity(glowActive ? 0.12 : 0), radius: glowActive ? 6 : 0)
+                summaryView
             }
 
             Spacer(minLength: 0)
 
-            Text(Formatters.date.string(from: list.updatedAt))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppColor.textTertiary)
+            // Trailing: a prominent green "Done" badge once the list is
+            // fully shopped (the unmistakable done marker), otherwise the
+            // last-touched date.
+            if isAllSet {
+                doneBadge
+            } else {
+                Text(Formatters.date.string(from: list.updatedAt))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(AppColor.textTertiary)
+            }
         }
         .padding(AppSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
+            // Done lists get a green-tinted card so they read as finished
+            // at a glance, distinct from the cream of active lists.
             LinearGradient(
-                colors: [AppColor.surfaceRaised.opacity(0.85), AppColor.surface.opacity(0.85)],
+                colors: isAllSet
+                    ? [doneGreen.opacity(0.16), doneGreen.opacity(0.06)]
+                    : [AppColor.surfaceRaised.opacity(0.85), AppColor.surface.opacity(0.85)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -198,16 +252,73 @@ private struct GroceryListRow: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: AppRadius.lg)
-                .strokeBorder(accent.opacity(0.18), lineWidth: 1)
+                .strokeBorder(leadTint.opacity(isAllSet ? 0.55 : 0.18), lineWidth: isAllSet ? 1.5 : 1)
         )
         .liftedCard()
+        .animation(.easeInOut(duration: 0.25), value: isAllSet)
+        // Per-row staggered glow during an accent-color cascade — kicked by
+        // the shared cascade token so the Lists tab ripples top → bottom.
+        .onChange(of: appearance.recipeCardCascadeToken) { _, _ in
+            scheduleStaggeredGlow()
+        }
     }
 
-    private var summaryLine: String {
-        if itemCount == 0 { return "Empty" }
-        let items = itemCount == 1 ? "1 item" : "\(itemCount) items"
-        if toBuyCount == 0 { return "\(items) · all set" }
-        return "\(items) · \(toBuyCount) to buy"
+    /// Bright "Done" pill — the explicit "this list is finished" marker.
+    private var doneBadge: some View {
+        Label("Done", systemImage: "checkmark.seal.fill")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(AppColor.onAccent)
+            .padding(.horizontal, AppSpacing.sm)
+            .padding(.vertical, 4)
+            .background(doneGreen, in: Capsule())
+    }
+
+    /// Item count plus shopping state. The "all set" case is green so a
+    /// completed list reads as done from the list-of-lists.
+    @ViewBuilder
+    private var summaryView: some View {
+        if itemCount == 0 {
+            Text("Empty")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppColor.textTertiary)
+        } else if isAllSet {
+            Label {
+                Text("All set · \(itemCountLabel)")
+            } icon: {
+                Image(systemName: "checkmark.circle.fill")
+            }
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(doneGreen)
+        } else {
+            Text("\(itemCountLabel) · \(toBuyCount) to buy")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppColor.textTertiary)
+        }
+    }
+
+    private var itemCountLabel: String {
+        itemCount == 1 ? "1 item" : "\(itemCount) items"
+    }
+
+    /// Mirrors `RecipeCardView.scheduleStaggeredGlow` — seeds the prior
+    /// accent immediately, then clears it (and pulses the glow) at
+    /// `recipeListFlipDelay + index * stagger` for the top-down wave.
+    private func scheduleStaggeredGlow() {
+        let stagger = Double(index) * AppearanceSettings.recipeCardGlowStagger
+        let flipDelay = AppearanceSettings.recipeListFlipDelay
+        let hold = AppearanceSettings.recipeCardGlowHoldDuration
+        if let previous = appearance.cascadePreviousAccentColor {
+            heldAccentOverride = previous
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(flipDelay + stagger))
+            withAnimation(.easeInOut(duration: 0.18)) {
+                heldAccentOverride = nil
+                glowActive = true
+            }
+            try? await Task.sleep(for: .seconds(hold))
+            withAnimation(.easeInOut(duration: 0.14)) { glowActive = false }
+        }
     }
 }
 

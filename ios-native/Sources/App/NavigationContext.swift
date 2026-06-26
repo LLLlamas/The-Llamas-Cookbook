@@ -78,15 +78,42 @@ final class NavigationContext {
     var pendingFriendImportToast: FriendImportToast?
 }
 
-/// Payload for the post-friend-import "Saved" toast + fly affordance.
-/// Carries the friend's accent so the toast can tint without
-/// re-resolving the friend snapshot at the overlay layer.
-struct FriendImportToast: Equatable {
+/// Payload for a "fly to a tab" success toast: a small accent-tinted token
+/// springs from the top-trailing corner toward a destination tab while a
+/// centered badge pulses. Originally the friend-import "Saved" affordance
+/// (bookmark → Home); now also drives the add-to-grocery-list toast
+/// (basket → Lists). One overlay + one runner in `RootView` handle both —
+/// the payload carries everything that differs.
+struct FlyToast: Equatable {
     let id: UUID
+    /// Accent that tints the flying token (a friend's accent, or the user's).
     let accentHex: String?
+    /// SF Symbol on the flying token and the centered badge.
+    let glyph: String
+    /// Accessibility label for the centered badge.
+    let label: String
+    /// Tab the token flies toward in the bottom bar.
+    let destinationTab: AppTab
 
+    /// Friend-import "Saved" affordance — bookmark token flying to Home.
     init(accentHex: String?) {
         self.id = UUID()
         self.accentHex = accentHex
+        self.glyph = "bookmark.fill"
+        self.label = "Saved to your cookbook"
+        self.destinationTab = .home
+    }
+
+    /// Generic fly toast — e.g. add-to-grocery-list (basket → Lists tab).
+    init(accentHex: String?, glyph: String, label: String, destinationTab: AppTab) {
+        self.id = UUID()
+        self.accentHex = accentHex
+        self.glyph = glyph
+        self.label = label
+        self.destinationTab = destinationTab
     }
 }
+
+/// Back-compat alias — the original name from the friend-import-only era.
+/// Existing call sites (`FriendImportToast(accentHex:)`) keep working.
+typealias FriendImportToast = FlyToast

@@ -8,6 +8,9 @@ struct TagInputView: View {
     /// The cleaned custom tag the user just submitted, awaiting their
     /// confirmation in the alert. Nil = no pending confirmation.
     @State private var pendingCustomTag: String?
+    /// Drives the "pick another category name" alert when a custom tag is
+    /// rejected by the profanity screen.
+    @State private var tagRejected = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -57,6 +60,11 @@ struct TagInputView: View {
             }
         } message: { tag in
             Text("Add \"\(StringCase.titleCase(tag))\" to this recipe's categories?")
+        }
+        .alert("Pick another category name", isPresented: $tagRejected) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(ContentModeration.blockedMessage)
         }
     }
 
@@ -135,6 +143,13 @@ struct TagInputView: View {
         guard !cleaned.isEmpty, !tags.contains(cleaned) else {
             draft = ""
             pendingCustomTag = nil
+            return
+        }
+        guard ContentModeration.isClean(cleaned) else {
+            Haptics.warning()
+            draft = ""
+            pendingCustomTag = nil
+            tagRejected = true
             return
         }
         Haptics.selection()

@@ -15,6 +15,7 @@
 // function is mostly serving link-preview scrapers + non-iOS users.
 
 import { fetchShareRecord, extractPreviewFields } from '../../lib/cloudkit.js';
+import { sanitizedOr } from '../../lib/moderation.js';
 
 const SHARE_RECORD_NAME_RE = /^(?:[A-HJ-NP-Z2-9]{6}|[A-HJ-NP-Z2-9]{12})$/;
 
@@ -39,7 +40,12 @@ export async function onRequest(context) {
     const record = await fetchShareRecord(recordName, env);
     if (record) {
       const fields = extractPreviewFields(record);
-      if (fields.title) title = fields.title;
+      // The public DB is world-writable, so a record's title could be
+      // anything. Neutralize a profane title to the generic fallback
+      // before it renders on this public preview page (defense in depth —
+      // the app screens names at commit, but a direct CloudKit write
+      // bypasses that).
+      if (fields.title) title = sanitizedOr(fields.title, 'A Recipe');
       if (fields.photoURL) hasPhoto = true;
     }
   } catch (err) {

@@ -359,9 +359,9 @@ struct PhotoCarouselView: View {
                 .buttonStyle(.plain)
             }
             .frame(maxWidth: .infinity, minHeight: 40)
-            // Translucent material so the bar reads as keyboard
-            // chrome rather than app content.
-            .background(.thinMaterial)
+            // Liquid Glass keyboard chrome (was `.thinMaterial`) so the
+            // accessory bar reads as glass over content, iOS 26 style.
+            .glassEffect(.regular, in: Rectangle())
             .overlay(alignment: .top) {
                 Rectangle()
                     .fill(AppColor.divider)

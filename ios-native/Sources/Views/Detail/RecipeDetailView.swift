@@ -108,6 +108,13 @@ struct RecipeDetailView: View {
 
     @State private var showCloudShareUnavailable = false
 
+    /// Existing grocery lists — read so "Add to list" can drop straight
+    /// into the user's only list (or a fresh one) and only offers a picker
+    /// when they keep several.
+    @Query private var groceryLists: [GroceryList]
+    /// Presents the "which list?" dialog when the user has 2+ lists.
+    @State private var showingListPicker = false
+
     private enum ShareAction {
         case file, url, text
     }
@@ -510,6 +517,13 @@ struct RecipeDetailView: View {
             // is cheap insurance.
             .environment(appearance)
         }
+        .confirmationDialog("Add to which list?", isPresented: $showingListPicker, titleVisibility: .visible) {
+            ForEach(groceryLists) { list in
+                Button(list.name) { addIngredientsToList(list) }
+            }
+            Button("New list") { addIngredientsToList(nil) }
+            Button("Cancel", role: .cancel) { }
+        }
         .onAppear {
             // Tell the cooking pills bar at root that the user is now
             // viewing this recipe — used to decide whether to surface
@@ -837,11 +851,38 @@ struct RecipeDetailView: View {
     @ViewBuilder
     private var ingredientAccessories: some View {
         HStack(spacing: AppSpacing.xs) {
+            addToListChip
             if isSourdoughRecipe {
                 sourdoughChip
             }
             conversionsChip
         }
+    }
+
+    /// "Tap the basket on its ingredients" — drops this recipe's
+    /// ingredients into a grocery list. Into the user's only list (or a
+    /// fresh one named after the recipe) directly, or via a picker when
+    /// they keep several. Fires the fly-to-Lists "Added" toast.
+    private var addToListChip: some View {
+        Button {
+            Haptics.selection()
+            if groceryLists.count <= 1 {
+                addIngredientsToList(groceryLists.first)
+            } else {
+                showingListPicker = true
+            }
+        } label: {
+            Image(systemName: "basket.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(appearance.detailChipsAccentColor)
+                .padding(.horizontal, AppSpacing.sm + 1)
+                .padding(.vertical, AppSpacing.xs + 1)
+                .overlay(Capsule().stroke(appearance.detailChipsAccentColor, lineWidth: 1))
+                .clipShape(Capsule())
+                .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
+        }
+        .buttonStyle(.lifted)
+        .accessibilityLabel("Add this recipe's ingredients to a grocery list")
     }
 
     /// Tag presence drives the sourdough chip + calculator availability.
@@ -1210,8 +1251,13 @@ struct RecipeDetailView: View {
             .foregroundStyle(AppColor.onAccent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppSpacing.md)
-            .background(appearance.detailCookBarAccentColor)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            // Liquid Glass: tinted interactive glass, matching its visual
+            // twin — the CookMode resume pill (RootView CookPill) and
+            // AddToCookButton, which sit directly below this bar.
+            .glassEffect(
+                .regular.tint(appearance.detailCookBarAccentColor).interactive(),
+                in: RoundedRectangle(cornerRadius: AppRadius.md)
+            )
             .shadow(color: appearance.detailCookBarAccentColor.opacity(appearance.isDetailGlowActive(.cookBar) ? 0.45 : 0), radius: appearance.isDetailGlowActive(.cookBar) ? 16 : 0)
             .animation(.easeInOut(duration: 0.14), value: appearance.isDetailGlowActive(.cookBar))
         }
@@ -1278,6 +1324,58 @@ struct RecipeDetailView: View {
             recipe.ingredients.append(ingredient)
         }
         recipe.updatedAt = .now
+    }
+
+    // MARK: - Add to grocery list
+
+    /// Adds this recipe's ingredients to `target` (or a fresh list named
+    /// after the recipe when nil), skipping any item already on that list
+    /// (matched on a normalized name via `GroceryKeyword`). Each new item
+    /// keeps `sourceRecipeID` so a future view can trace a list back to its
+    /// recipes. Fires the fly-to-Lists "Added" toast — the same affordance
+    /// the friend-import save uses, so the eye reads them as one idiom.
+    private func addIngredientsToList(_ target: GroceryList?) {
+        let list: GroceryList
+        if let target {
+            list = target
+        } else {
+            let name = Optional(recipe.title).trimmedIfNonEmpty ?? "Grocery List"
+            list = GroceryList(name: name)
+            modelContext.insert(list)
+        }
+
+        let existing = Set(list.items.map { GroceryKeyword.normalize($0.name) })
+        var nextOrder = (list.items.map(\.order).max() ?? -1) + 1
+        var added = 0
+        for ingredient in recipe.sortedIngredients {
+            let normalized = GroceryKeyword.normalize(ingredient.name)
+            guard !normalized.isEmpty, !existing.contains(normalized) else { continue }
+            let item = GroceryItem(
+                name: ingredient.name,
+                quantity: ingredient.quantity,
+                unit: ingredient.unit,
+                sourceRecipeID: recipe.id,
+                order: nextOrder
+            )
+            modelContext.insert(item)
+            item.list = list
+            nextOrder += 1
+            added += 1
+        }
+        list.touch()
+
+        let label: String
+        switch added {
+        case 0:  label = "Already on \(list.name)"
+        case 1:  label = "Added 1 item to \(list.name)"
+        default: label = "Added \(added) items to \(list.name)"
+        }
+        navContext.pendingFriendImportToast = FlyToast(
+            accentHex: appearance.accentColor.toHex,
+            glyph: added == 0 ? "checkmark" : "basket.fill",
+            label: label,
+            destinationTab: .lists
+        )
     }
 
     // MARK: - Provenance
@@ -1436,16 +1534,7 @@ struct RecipeDetailView: View {
         ZStack {
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
-            VStack(spacing: AppSpacing.md) {
-                LlamaProgressIndicator(size: 76, accent: appearance.accentColor)
-                Text("Preparing share…")
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textPrimary)
-            }
-            .padding(AppSpacing.xl)
-            .background(AppColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-            .shadow(color: AppColor.shadow, radius: 12, y: 4)
+            ProcessingCard(caption: "Preparing share…", indicatorSize: 76, shadowRadius: 12, shadowY: 4)
         }
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.18), value: isPreparingCloudShare)

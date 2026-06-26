@@ -21,6 +21,9 @@ struct RecipeEditorView: View {
 
     @State private var draft: DraftRecipe
     @State private var showDiscardAlert = false
+    /// Drives the "pick another title" alert when the title is rejected by
+    /// the profanity screen.
+    @State private var titleRejected = false
     @State private var editingStepId: UUID? = nil
     @State private var editingIngredientId: UUID? = nil
     @State private var draggingStepId: UUID? = nil
@@ -121,6 +124,11 @@ struct RecipeEditorView: View {
                     Button("Discard", role: .destructive) { dismiss() }
                 } message: {
                     Text("Your edits will be lost.")
+                }
+                .alert("Pick another title", isPresented: $titleRejected) {
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    Text(ContentModeration.blockedMessage)
                 }
                 .fullScreenCover(isPresented: $showingPhotoCarousel) {
                     PhotoCarouselView(
@@ -671,6 +679,11 @@ struct RecipeEditorView: View {
 
     private func save() {
         guard draft.canSave else { return }
+        guard ContentModeration.isClean(draft.title) else {
+            Haptics.warning()
+            titleRejected = true
+            return
+        }
         Haptics.recipeSaved()
         let savedRecipe: Recipe
         if let existing = recipe {

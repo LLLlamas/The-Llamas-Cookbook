@@ -17,6 +17,24 @@ import { fetchShareRecord, extractPreviewFields } from '../../lib/cloudkit.js';
 const SHARE_RECORD_NAME_RE = /^(?:[A-HJ-NP-Z2-9]{6}|[A-HJ-NP-Z2-9]{12})$/;
 const MAX_PROXY_IMAGE_BYTES = 10_000_000;
 
+// Apple / iCloud hosts the proxy will fetch (and follow redirects to).
+// Includes `icloud-content.com` — the actual CKAsset download CDN — plus
+// the broader Apple CDN domains, so legitimate recipe photos always load
+// while the proxy can't be steered into a blind fetch-relay against an
+// arbitrary third-party host. Broad on purpose (every value is Apple), so
+// it hardens the SSRF/redirect vector without risking a photo regression.
+const ALLOWED_IMAGE_HOST = /(^|\.)(icloud-content|icloud|apple-cloudkit|cdn-apple|mzstatic|apple)\.com$/;
+const MAX_REDIRECT_HOPS = 3;
+
+function isAllowedImageURL(urlString) {
+  try {
+    const u = new URL(urlString);
+    return u.protocol === 'https:' && ALLOWED_IMAGE_HOST.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function onRequest(context) {
   const { request, env, params } = context;
   const recordName = (params.id || '').trim();
@@ -42,13 +60,36 @@ export async function onRequest(context) {
     return Response.redirect(fallbackURL, 302);
   }
 
+  // The downloadURL is Apple-minted, but we still refuse a non-Apple /
+  // non-https initial target as defense in depth (the public DB is
+  // world-writable).
+  if (!isAllowedImageURL(photoURL)) {
+    console.error(`Image proxy refusing non-allowlisted photo URL for ${recordName}`);
+    return Response.redirect(fallbackURL, 302);
+  }
+
   // Fetch the bytes from CloudKit's CDN. We cap by Content-Length
   // before reading, then sniff the first bytes instead of trusting
   // CloudKit's content-type (CKAsset temp files may be served as
-  // application/octet-stream).
+  // application/octet-stream). Redirects are followed MANUALLY and only
+  // to allowlisted Apple hosts — this closes the blind redirect-relay
+  // SSRF vector while still working with assets that 30x to the iCloud CDN.
   let upstream;
   try {
-    upstream = await fetch(photoURL);
+    let nextURL = photoURL;
+    let hops = 0;
+    upstream = await fetch(nextURL, { redirect: 'manual' });
+    while (upstream.status >= 300 && upstream.status < 400 && hops < MAX_REDIRECT_HOPS) {
+      const location = upstream.headers.get('location');
+      if (!location) break;
+      nextURL = new URL(location, nextURL).toString();
+      if (!isAllowedImageURL(nextURL)) {
+        console.error(`Image proxy refusing redirect to non-allowlisted host for ${recordName}`);
+        return Response.redirect(fallbackURL, 302);
+      }
+      upstream = await fetch(nextURL, { redirect: 'manual' });
+      hops += 1;
+    }
   } catch (err) {
     console.error('Photo fetch failed:', err);
     return Response.redirect(fallbackURL, 302);

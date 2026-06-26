@@ -193,7 +193,10 @@ struct LibraryView: View {
             guard newValue != nil else { return }
             applyGoHomeReset()
         }
-        .toolbarBackground(AppColor.background, for: .navigationBar)
+        // No `.toolbarBackground` override — let the iOS 26 navigation bar
+        // adopt its Liquid Glass scroll-edge material so content shows
+        // through as it scrolls under the title. (The CookbookHeader title
+        // carries `.accentTextOutline()` to stay legible on glass.)
         .navigationDestination(for: Recipe.self) { recipe in
             RecipeDetailView(recipe: recipe)
         }

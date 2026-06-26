@@ -22,19 +22,25 @@ import SwiftUI
 /// so it reads at a glance — the surrounding fly animation supplies
 /// the semantic context.
 struct SavedToast: View {
+    /// SF Symbol shown in the badge. Defaults to the friend-import
+    /// bookmark; the add-to-grocery-list toast passes a basket.
+    var glyph: String = "bookmark.fill"
+    /// Accessibility label describing what was saved/added.
+    var label: String = "Saved to your cookbook"
+
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.black.opacity(0.78))
             Circle()
                 .strokeBorder(Color.white.opacity(0.95), lineWidth: 1.5)
-            Image(systemName: "bookmark.fill")
+            Image(systemName: glyph)
                 .font(.system(size: 36, weight: .semibold))
                 .foregroundStyle(.white)
         }
         .frame(width: 92, height: 92)
         .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
-        .accessibilityLabel("Saved to your cookbook")
+        .accessibilityLabel(label)
     }
 }
 
@@ -60,6 +66,9 @@ struct ImportFlyGhost: View {
     /// to `true` immediately after mount; the symmetry pair (source vs.
     /// destination) is selected via `progress`.
     let isFlying: Bool
+    /// SF Symbol carried by the token — defaults to the friend-import
+    /// bookmark; the add-to-grocery-list toast passes a basket.
+    var glyph: String = "bookmark.fill"
 
     private var position: CGPoint {
         isFlying ? destination : source
@@ -71,7 +80,7 @@ struct ImportFlyGhost: View {
                 .fill(accent.opacity(0.92))
                 .frame(width: 32, height: 32)
                 .shadow(color: AppColor.shadow, radius: 6, x: 0, y: 2)
-            Image(systemName: "bookmark.fill")
+            Image(systemName: glyph)
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(AppColor.onAccent)
         }

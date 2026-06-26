@@ -809,7 +809,11 @@ struct CookModeView: View {
                 in: RoundedRectangle(cornerRadius: AppRadius.md)
             )
         }
-        .buttonStyle(.lifted)
+        // `.plain` (not `.lifted`): the glass's own `.interactive()` owns
+        // the press response, so layering a scale + hard drop-shadow on top
+        // would double-animate and muddy the translucent surface. Matches
+        // the RootView glass cook pills.
+        .buttonStyle(.plain)
         .accessibilityLabel("Timer running, \(ClockFormat.mmss(secondsLeft)) left, tap to adjust or cancel")
     }
 

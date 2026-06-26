@@ -9,6 +9,14 @@ struct RootView: View {
     @Environment(LlamaProStore.self) private var proStore
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+
+    /// All grocery lists — read only to drive the Lists tab-bar badge (the
+    /// count of *open* lists, i.e. ones with shopping still to do).
+    /// `GroceryList.touch()` bumps `updatedAt` on every item mutation, so
+    /// this @Query re-fires as items are checked off and the badge stays
+    /// live without any manual refresh.
+    @Query private var groceryLists: [GroceryList]
+
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
     @State private var navContext = NavigationContext()
@@ -223,6 +231,14 @@ struct RootView: View {
             }
     }
 
+    /// Open grocery lists — those with shopping still to do. Surfaced as
+    /// the Lists tab-bar badge so the user sees at a glance how many lists
+    /// still need a store run. Reads `GroceryList.isOpen` (the single
+    /// source of truth), never re-deriving the predicate here.
+    private var openGroceryListCount: Int {
+        groceryLists.reduce(0) { $0 + ($1.isOpen ? 1 : 0) }
+    }
+
     private var tabViewBody: some View {
         TabView(selection: tabSelection) {
             NavigationStack(path: $libraryPath) {
@@ -247,6 +263,7 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem { tabLabel(for: .lists) }
+            .badge(openGroceryListCount)
             .tag(AppTab.lists)
 
             NavigationStack {
@@ -259,6 +276,7 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem { tabLabel(for: .friends) }
+            .badge(friendsStore.incomingRequests.count)
             .tag(AppTab.friends)
 
             NavigationStack {
@@ -619,15 +637,17 @@ struct RootView: View {
                 x: width - AppSpacing.xl - 8,
                 y: topInset + 28
             )
-            // Home tab is leftmost of 4 evenly-spaced tabs (Home · Lists
-            // · Friends · Me), so its horizontal center sits at width/8.
-            // The vertical offset branches on Liquid Glass: LG capsule
-            // tab bars float the icon ~32pt above safe-area bottom;
-            // legacy flat bars sit it at ~22pt. Without the branch the
-            // ghost lands below the icon on LG and on the icon on legacy
-            // (or vice versa, depending on which offset was baked in).
+            // The token flies to the center of its destination tab. With 4
+            // evenly-spaced tabs (Home · Lists · Friends · Me), tab at
+            // index i centers at width * (2i + 1) / 8 — so Home → width/8,
+            // Lists → 3·width/8. The vertical offset branches on Liquid
+            // Glass: LG capsule tab bars float the icon ~32pt above
+            // safe-area bottom; legacy flat bars sit it at ~22pt. Without
+            // the branch the ghost lands below the icon on LG and on the
+            // icon on legacy (or vice versa).
+            let tabIndex = AppTab.allCases.firstIndex(of: activeFriendImportToast?.destinationTab ?? .home) ?? 0
             let destination = CGPoint(
-                x: width * (1.0 / 8.0),
+                x: width * CGFloat(2 * tabIndex + 1) / 8.0,
                 y: height - bottomInset - Self.homeTabIconYOffset
             )
             let toastAccent = resolveToastAccent(activeFriendImportToast?.accentHex)
@@ -637,10 +657,10 @@ struct RootView: View {
                 // window without intercepting taps.
                 Color.clear
 
-                if let _ = activeFriendImportToast {
+                if let payload = activeFriendImportToast {
                     // Centered iOS-screen-capture-style badge: scales
                     // up from a small footprint and fades in.
-                    SavedToast()
+                    SavedToast(glyph: payload.glyph, label: payload.label)
                         .transition(
                             .scale(scale: 0.7)
                                 .combined(with: .opacity)
@@ -650,7 +670,8 @@ struct RootView: View {
                         source: source,
                         destination: destination,
                         accent: toastAccent,
-                        isFlying: ghostFlying
+                        isFlying: ghostFlying,
+                        glyph: payload.glyph
                     )
                     .animation(
                         .spring(response: 0.55, dampingFraction: 0.78),
@@ -1177,37 +1198,43 @@ private struct CookingPillsBar: View {
     private var compactPills: Bool { slotCount >= 3 }
 
     var body: some View {
-        HStack(spacing: AppSpacing.sm) {
-            if canShowAdd, let recipe = detailRecipe {
-                AddToCookButton {
-                    Haptics.impact(.light)
-                    session.addParallel(recipe)
+        // Liquid Glass: group the sibling glass pills so they sample a
+        // shared backdrop and blend/morph at their edges (rather than each
+        // compositing as a separately-cut chip) — and so the existing
+        // spring add/remove reads as glass merging/splitting.
+        GlassEffectContainer(spacing: AppSpacing.sm) {
+            HStack(spacing: AppSpacing.sm) {
+                if canShowAdd, let recipe = detailRecipe {
+                    AddToCookButton {
+                        Haptics.impact(.light)
+                        session.addParallel(recipe)
+                    }
+                    // Shrinks at 3-slot density so the trailing pills get
+                    // back the width the Add button would otherwise hog.
+                    .frame(maxWidth: compactPills ? 56 : 92)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                // Shrinks at 3-slot density so the trailing pills get
-                // back the width the Add button would otherwise hog.
-                .frame(maxWidth: compactPills ? 56 : 92)
-                .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-            ForEach(session.activeCooks) { cook in
-                CookPill(
-                    cook: cook,
-                    accent: accent,
-                    duplicateIndex: session.duplicateIndex(for: cook.id),
-                    compact: compactPills
-                ) {
-                    Haptics.selection()
-                    session.foreground(cookID: cook.id)
+                ForEach(session.activeCooks) { cook in
+                    CookPill(
+                        cook: cook,
+                        accent: accent,
+                        duplicateIndex: session.duplicateIndex(for: cook.id),
+                        compact: compactPills
+                    ) {
+                        Haptics.selection()
+                        session.foreground(cookID: cook.id)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .transition(
+                        .scale(scale: 0.85).combined(with: .opacity)
+                    )
                 }
-                .frame(maxWidth: .infinity)
-                .transition(
-                    .scale(scale: 0.85).combined(with: .opacity)
-                )
             }
+            .animation(.spring(response: 0.42, dampingFraction: 0.85),
+                       value: session.activeCooks.count)
+            .animation(.spring(response: 0.42, dampingFraction: 0.85),
+                       value: canShowAdd)
         }
-        .animation(.spring(response: 0.42, dampingFraction: 0.85),
-                   value: session.activeCooks.count)
-        .animation(.spring(response: 0.42, dampingFraction: 0.85),
-                   value: canShowAdd)
     }
 }
 
@@ -1313,6 +1340,7 @@ private struct AddToCookButton: View {
                     .font(.system(size: 11, weight: .heavy))
             }
             .foregroundStyle(AppColor.onAccent)
+            .accentTextOutline()
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppSpacing.sm + 2)
             .glassEffect(
@@ -1430,6 +1458,14 @@ private struct CookingPillsOverlay: ViewModifier {
                     )
                     .padding(.horizontal, AppSpacing.lg)
                     .padding(.bottom, AppSpacing.md)
+                    // The pill bar owns its footprint: make the whole strip
+                    // hit-testable and absorb any tap that lands in it but
+                    // misses a pill, so reaching for the cook pill can never
+                    // fall through to a recipe card scrolling behind the
+                    // overlay. The pills are Buttons, so their taps still win
+                    // inside this region; only stray gaps get swallowed.
+                    .contentShape(Rectangle())
+                    .onTapGesture { }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }

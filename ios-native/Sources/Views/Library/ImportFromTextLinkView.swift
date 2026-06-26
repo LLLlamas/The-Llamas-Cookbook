@@ -610,17 +610,7 @@ struct ImportFromTextLinkView: View {
         ZStack {
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
-            VStack(spacing: AppSpacing.md) {
-                LlamaProgressIndicator(size: 96, accent: appearance.accentColor)
-                Text("Asking the llama…")
-                    .font(AppFont.body)
-                    .foregroundStyle(AppColor.textPrimary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(AppSpacing.xl)
-            .background(AppColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-            .shadow(color: AppColor.shadow, radius: 48, y: 8)
+            ProcessingCard(caption: "Asking the llama…")
         }
     }
 

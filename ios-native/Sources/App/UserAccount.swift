@@ -265,9 +265,16 @@ final class UserAccount {
     /// stored name can never exceed the wire-format limit; a sender
     /// can't smuggle a longer name into a share envelope by editing
     /// their profile and immediately sharing.
-    func updateDisplayName(_ name: String) {
-        guard case .signedIn(var identity) = status else { return }
+    /// Returns `false` (without applying) when signed out or when the name
+    /// fails the profanity screen — the display name is world-readable +
+    /// friend-searchable, so an abusive one must never persist or publish.
+    /// The ProfileView edit path checks first and surfaces the rejection;
+    /// this guard is the model-level backstop for any other caller.
+    @discardableResult
+    func updateDisplayName(_ name: String) -> Bool {
+        guard case .signedIn(var identity) = status else { return false }
         let resolved = RecipeShare.cappedDisplayName(name) ?? "Cook"
+        guard ContentModeration.isClean(resolved) else { return false }
         identity.displayName = resolved
         persist(identity)
         status = .signedIn(identity)
@@ -278,6 +285,7 @@ final class UserAccount {
         Task.detached {
             await UserProfileMirror.updateDisplayName(resolved)
         }
+        return true
     }
 
     /// Cold-launch revocation check. Called from `AppDelegate`. If the

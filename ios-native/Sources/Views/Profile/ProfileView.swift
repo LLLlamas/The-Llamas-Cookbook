@@ -67,6 +67,9 @@ struct ProfileView: View {
 
     @State private var nameDraft: String = ""
     @State private var isEditingName: Bool = false
+    /// Drives the "pick another name" alert when a display name is rejected
+    /// by the profanity screen.
+    @State private var nameRejected = false
     @State private var showingDeleteConfirm: Bool = false
     @State private var showingSettings: Bool = false
     @State private var showingAddFriend: Bool = false
@@ -628,6 +631,11 @@ struct ProfileView: View {
             }
         }
         .surfaceCard()
+        .alert("Pick another name", isPresented: $nameRejected) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(ContentModeration.blockedMessage)
+        }
     }
 
     // MARK: - Last cooked
@@ -1231,6 +1239,11 @@ struct ProfileView: View {
     }
 
     private func commitNameEdit() {
+        guard ContentModeration.isClean(nameDraft) else {
+            Haptics.warning()
+            nameRejected = true
+            return
+        }
         userAccount.updateDisplayName(nameDraft)
         if let identity = userAccount.status.identity {
             ownerProfile.userName = identity.displayName

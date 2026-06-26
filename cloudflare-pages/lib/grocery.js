@@ -78,7 +78,12 @@ export function parseGroceryRecord(record) {
   }
 
   const items = raw.slice(0, MAX_ITEMS).map((it, i) => {
-    const order = Number.isInteger(it?.order) ? it.order : i;
+    // `order` is item-supplied and indexes the provisioned check0..N /
+    // note0..N fields, so clamp it to [0, MAX_ITEMS); a malicious
+    // `order: 9999` falls back to the array index rather than reaching
+    // past the fields a writer keys on.
+    const claimed = Number.isInteger(it?.order) ? it.order : i;
+    const order = (claimed >= 0 && claimed < MAX_ITEMS) ? claimed : i;
     const checkVal = fields[checkFieldName(order)]?.value;
     const note = (fields[noteFieldName(order)]?.value ?? '').toString();
     return {
@@ -125,7 +130,15 @@ export function measureText(item) {
   return [item.quantity, item.unit].filter((s) => s && s.length).join(' ').trim();
 }
 
-/** One item's full display line — "2 cups flour" / "milk" (+ swap note). */
+/**
+ * One item's full display line — "2 cups flour" / "milk" (+ swap note).
+ *
+ * SECURITY: output is TEXT ONLY and interpolates fully user-controlled
+ * fields (`item.name`, `item.substitution`). Any future HTML renderer of
+ * the shared `/list/<id>` page MUST run this through `escapeHTML` (reuse
+ * the one in `functions/r/[id].js`) AND screen names via `lib/moderation.js`
+ * — the CloudKit public DB is world-writable, so these bytes are untrusted.
+ */
 export function itemLine(item) {
   const measure = measureText(item);
   const base = measure ? `${measure} ${item.name}` : item.name;

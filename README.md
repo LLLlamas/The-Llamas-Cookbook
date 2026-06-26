@@ -4,8 +4,9 @@ Personal, offline-first iOS recipe keeper. SwiftUI + SwiftData.
 
 - Live app: `ios-native/`
 - Web preview / Universal Link host: `cloudflare-pages/`
-- Archived RN prototype: `outdated/rn-expo/`
 - Agent source of truth: `CLAUDE.md`
+
+(The old React Native / Expo prototype was removed 2026-06-26; recover it from the `archive/rn-expo` git tag if ever needed.)
 
 ## Build
 

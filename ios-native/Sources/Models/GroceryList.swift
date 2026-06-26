@@ -54,6 +54,33 @@ final class GroceryList {
         items.sorted { $0.order < $1.order }
     }
 
+    // MARK: - Shopping progress (single source of truth)
+    //
+    // The Lists row summary, the Lists tab-bar badge, the "all set" done
+    // indicator, and the detail-view header ALL read these — never
+    // re-derive `needed && !isChecked` inline at a call site. Adding a
+    // new surface? Reuse one of these, don't copy the predicate.
+
+    /// Items still to buy: needed and not yet checked into the cart.
+    var toBuyCount: Int {
+        items.reduce(0) { $0 + (($1.needed && !$1.isChecked) ? 1 : 0) }
+    }
+
+    /// A non-empty list with nothing left to buy — every item is either
+    /// checked off or marked "have". Drives the green "all set" done
+    /// state. An *empty* list is deliberately NOT "all set" (there's
+    /// nothing accomplished yet), so callers can show a distinct empty
+    /// treatment.
+    var isAllSet: Bool {
+        !items.isEmpty && toBuyCount == 0
+    }
+
+    /// "Open" = still has shopping left to do. The Lists tab badge counts
+    /// these. Empty lists and fully-shopped ("all set") lists are not open.
+    var isOpen: Bool {
+        toBuyCount > 0
+    }
+
     /// Touch `updatedAt`. Call after ANY mutation — including flipping a
     /// child `GroceryItem`'s `isChecked`/`needed` — so the Lists tab sorts
     /// most-recently-touched first and its per-list counts re-render.
