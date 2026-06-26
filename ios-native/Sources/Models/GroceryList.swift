@@ -25,7 +25,25 @@ final class GroceryList {
     /// CloudKit `GroceryListShare.recordName` once this list has been
     /// published (web link or app-to-app share). Nil while the list is
     /// purely local. Lets re-shares reuse the same record + permalink.
+    /// For a list the user OWNS this is set the moment they share it; for
+    /// a list shared *to* them it's the owner's record name (the cloud key
+    /// is identical on both sides, which is how `GroceryListStore`
+    /// reconciles a push back to the right local mirror).
     var shareRecordName: String?
+
+    /// Display name of the list's owner. Nil for own lists; set on a
+    /// received mirror so the row + detail can read "Shared by Dad".
+    var ownerName: String?
+
+    /// iCloud user record names this list has been shared *to* (owner
+    /// side only). Drives the "Shared with …" status + the
+    /// `recipientIDs CONTAINS me` cloud query on the recipient's device.
+    var sharedRecipientIDs: [String] = []
+
+    /// Human-readable recipient label for the owner's "Shared with Sam"
+    /// status line. Denormalized friend display name(s); nil when the
+    /// list isn't shared.
+    var sharedWithName: String?
 
     /// True for a list the user created; false for one a friend shared
     /// *to* them (mirrored in from CloudKit). Drives ownership-only
@@ -58,19 +76,18 @@ final class GroceryList {
     //
     // The Lists row summary, the Lists tab-bar badge, the "all set" done
     // indicator, and the detail-view header ALL read these — never
-    // re-derive `needed && !isChecked` inline at a call site. Adding a
-    // new surface? Reuse one of these, don't copy the predicate.
+    // re-derive `!isChecked` inline at a call site. Adding a new surface?
+    // Reuse one of these, don't copy the predicate.
 
-    /// Items still to buy: needed and not yet checked into the cart.
+    /// Items still to buy: not yet checked into the cart.
     var toBuyCount: Int {
-        items.reduce(0) { $0 + (($1.needed && !$1.isChecked) ? 1 : 0) }
+        items.reduce(0) { $0 + ($1.isChecked ? 0 : 1) }
     }
 
-    /// A non-empty list with nothing left to buy — every item is either
-    /// checked off or marked "have". Drives the green "all set" done
-    /// state. An *empty* list is deliberately NOT "all set" (there's
-    /// nothing accomplished yet), so callers can show a distinct empty
-    /// treatment.
+    /// A non-empty list with nothing left to buy — every item is checked off.
+    /// Drives the green "all set" done state. An *empty* list is deliberately
+    /// NOT "all set" (there's nothing accomplished yet), so callers can show
+    /// a distinct empty treatment.
     var isAllSet: Bool {
         !items.isEmpty && toBuyCount == 0
     }
@@ -81,9 +98,15 @@ final class GroceryList {
         toBuyCount > 0
     }
 
+    /// True once this list is live on CloudKit (owner has shared it, or
+    /// it's a mirror of someone else's shared list). Drives the share
+    /// status chrome + whether check-offs push live to the cloud.
+    var isShared: Bool { shareRecordName != nil }
+
     /// Touch `updatedAt`. Call after ANY mutation — including flipping a
-    /// child `GroceryItem`'s `isChecked`/`needed` — so the Lists tab sorts
-    /// most-recently-touched first and its per-list counts re-render.
+    /// child `GroceryItem`'s `isChecked`/`outOfStock`/`substitution`/`aisle`
+    /// — so the Lists tab sorts most-recently-touched first and its per-list
+    /// counts re-render.
     /// (A `@Query` on `GroceryList` isn't guaranteed to re-fire when only a
     /// child scalar changes; bumping `updatedAt` here is what the tab's
     /// summary counts observe. Load-bearing — don't mutate items without it.)
@@ -104,13 +127,9 @@ final class GroceryItem {
     /// the list — see `GroceryAisle` for the canonical ordering.
     var aisle: String?
 
-    /// have/need. `false` = the user already has it (pantry staple or
-    /// hand-marked), so it doesn't need buying. `true` = on the buy list.
-    var needed: Bool
-
-    /// In-cart check-off. Flipped by whoever is shopping (owner, a
-    /// friend in-app, or a web shopper). Distinct from `needed`: you can
-    /// need an item and not yet have checked it into the cart.
+    /// In-cart check-off — the single "is this done?" axis for an item.
+    /// Flipped by whoever is shopping (owner, a friend in-app, or a web
+    /// shopper) as they drop it in the cart.
     var isChecked: Bool
 
     /// Shopper flagged "they don't have this" at the store. Drives the
@@ -126,6 +145,14 @@ final class GroceryItem {
     /// view group/trace a list back to its source recipes.
     var sourceRecipeID: UUID?
 
+    /// Slot index (0…`maxSharedItems-1`) in the parent list's
+    /// `GroceryListShare` CloudKit record. Set when the list is shared so
+    /// a check-off pushes to the matching `check<N>` field, and so a
+    /// recipient's mirror reconciles each `check<N>`/`note<N>` back to the
+    /// right local row. Nil while the list is purely local, or for items
+    /// past the share's slot cap. See `CloudGroceryListService`.
+    var shareIndex: Int?
+
     var order: Int
     var list: GroceryList?
 
@@ -134,11 +161,11 @@ final class GroceryItem {
         quantity: String? = nil,
         unit: String? = nil,
         aisle: String? = nil,
-        needed: Bool = true,
         isChecked: Bool = false,
         outOfStock: Bool = false,
         substitution: String? = nil,
         sourceRecipeID: UUID? = nil,
+        shareIndex: Int? = nil,
         order: Int
     ) {
         self.id = UUID()
@@ -146,11 +173,11 @@ final class GroceryItem {
         self.quantity = quantity
         self.unit = unit
         self.aisle = aisle
-        self.needed = needed
         self.isChecked = isChecked
         self.outOfStock = outOfStock
         self.substitution = substitution
         self.sourceRecipeID = sourceRecipeID
+        self.shareIndex = shareIndex
         self.order = order
     }
 }

@@ -20,6 +20,7 @@ struct RecipeDetailView: View {
     @Environment(FriendsStore.self) private var friendsStore
     @Environment(UserAccount.self) private var userAccount
     @Environment(LlamaProStore.self) private var proStore
+    @Environment(GroceryListStore.self) private var groceryStore
 
     let recipe: Recipe
 
@@ -27,6 +28,10 @@ struct RecipeDetailView: View {
     @State private var showingConversions = false
     @State private var showingAppearance = false
     @State private var showingSourdough = false
+    @State private var showingAddToList = false
+    /// Drives the "Added N items to <list>" confirmation toast after the
+    /// Add-to-list sheet reports a successful add. Auto-clears after a beat.
+    @State private var groceryToast: GroceryAddedInfo?
     @State private var showingPhotoCarousel = false
     /// "Imported by N" tap target. Sheet lists every
     /// `RecipeImport` audit row for this recipe (sorted newest
@@ -107,13 +112,6 @@ struct RecipeDetailView: View {
     @State private var isPreparingCloudShare = false
 
     @State private var showCloudShareUnavailable = false
-
-    /// Existing grocery lists — read so "Add to list" can drop straight
-    /// into the user's only list (or a fresh one) and only offers a picker
-    /// when they keep several.
-    @Query private var groceryLists: [GroceryList]
-    /// Presents the "which list?" dialog when the user has 2+ lists.
-    @State private var showingListPicker = false
 
     private enum ShareAction {
         case file, url, text
@@ -202,22 +200,31 @@ struct RecipeDetailView: View {
                                 containerGlow: appearance.isDetailGlowActive(.ingredients),
                                 containerGlowColor: appearance.detailIngredientsAccentColor,
                                 accessory: { ingredientAccessories }) {
-                            VStack(spacing: AppSpacing.sm) {
-                                ForEach(sortedIngredients) { ingredient in
-                                    ingredientRow(ingredient)
-                                        .scrollSectionHaptic(
-                                            section: ingredient.id.uuidString,
-                                            ticker: hapticTicker
-                                        )
+                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                                // "Add to grocery list" sits right under the
+                                // heading — the prep-stage call to action the
+                                // user reaches for before they start cooking.
+                                // Kept OUTSIDE the rows' `.drawingGroup()` below
+                                // because `.buttonStyle(.lifted)` shadows clip to
+                                // the texture bounds inside a drawingGroup.
+                                addToListBar
+                                VStack(spacing: AppSpacing.sm) {
+                                    ForEach(sortedIngredients) { ingredient in
+                                        ingredientRow(ingredient)
+                                            .scrollSectionHaptic(
+                                                section: ingredient.id.uuidString,
+                                                ticker: hapticTicker
+                                            )
+                                    }
                                 }
+                                // Flatten each row's gradient + stroke + shadow layers
+                                // (plus the accentTextOutline quad-shadows on qty/unit
+                                // text) into a single Metal texture. Cuts first-render
+                                // compositing cost proportional to ingredient count,
+                                // which is the heaviest contributor to push-animation
+                                // frame drops on detail views for longer recipes.
+                                .drawingGroup()
                             }
-                            // Flatten each row's gradient + stroke + shadow layers
-                            // (plus the accentTextOutline quad-shadows on qty/unit
-                            // text) into a single Metal texture. Cuts first-render
-                            // compositing cost proportional to ingredient count,
-                            // which is the heaviest contributor to push-animation
-                            // frame drops on detail views for longer recipes.
-                            .drawingGroup()
                         }
                     }
 
@@ -331,6 +338,22 @@ struct RecipeDetailView: View {
             if isPreparingCloudShare {
                 cloudShareLoadingOverlay
             }
+        }
+        .overlay(alignment: .bottom) {
+            if let toast = groceryToast {
+                groceryToastView(toast)
+                    // Float above the Start Cooking bar / resume pill so the
+                    // confirmation never hides behind the bottom overlay.
+                    .padding(.bottom, 110)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: groceryToast)
+        .task(id: groceryToast?.id) {
+            guard groceryToast != nil else { return }
+            try? await Task.sleep(for: .seconds(2.2))
+            groceryToast = nil
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -517,12 +540,22 @@ struct RecipeDetailView: View {
             // is cheap insurance.
             .environment(appearance)
         }
-        .confirmationDialog("Add to which list?", isPresented: $showingListPicker, titleVisibility: .visible) {
-            ForEach(groceryLists) { list in
-                Button(list.name) { addIngredientsToList(list) }
+        .sheet(isPresented: $showingAddToList) {
+            AddToGroceryListSheet(recipe: recipe) { count, listName in
+                // Fired just before the sheet dismisses itself — stash the
+                // result so the toast overlay (below, on the detail surface
+                // behind the sheet) animates in as the sheet slides away.
+                groceryToast = GroceryAddedInfo(count: count, listName: listName)
             }
-            Button("New list") { addIngredientsToList(nil) }
-            Button("Cancel", role: .cancel) { }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                // @Observable values can drop across the sheet boundary on
+                // iOS 26 — re-inject everything the sheet reads (it now also
+                // re-syncs shared lists, so it needs the store + identity).
+                .environment(appearance)
+                .environment(groceryStore)
+                .environment(userAccount)
+                .environment(ownerProfile)
         }
         .onAppear {
             // Tell the cooking pills bar at root that the user is now
@@ -847,11 +880,11 @@ struct RecipeDetailView: View {
 
     /// Trailing accessories for the Ingredients section header. Sourdough
     /// chip is gated on the recipe carrying a "sourdough" tag — Conversions
-    /// is always shown.
+    /// is always shown. "Add to List" used to live here too; it's been
+    /// promoted to a full-width bar (`addToListBar`) right under the heading.
     @ViewBuilder
     private var ingredientAccessories: some View {
         HStack(spacing: AppSpacing.xs) {
-            addToListChip
             if isSourdoughRecipe {
                 sourdoughChip
             }
@@ -859,30 +892,68 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// "Tap the basket on its ingredients" — drops this recipe's
-    /// ingredients into a grocery list. Into the user's only list (or a
-    /// fresh one named after the recipe) directly, or via a picker when
-    /// they keep several. Fires the fly-to-Lists "Added" toast.
-    private var addToListChip: some View {
+    /// Sends this recipe's ingredients to a grocery list. Free feature —
+    /// no Pro gate. Full-width bar pinned right below the Ingredients
+    /// heading. Deliberately a *tonal* (tinted fill + accent text + outline)
+    /// secondary style, NOT the solid accent fill of the bottom Start
+    /// Cooking bar — the two must read as different actions. Bold weight +
+    /// the 1.5pt border keep it legible (the earlier faint-tint-no-border
+    /// version washed out).
+    private var addToListBar: some View {
         Button {
             Haptics.selection()
-            if groceryLists.count <= 1 {
-                addIngredientsToList(groceryLists.first)
-            } else {
-                showingListPicker = true
-            }
+            showingAddToList = true
         } label: {
-            Image(systemName: "basket.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(appearance.detailChipsAccentColor)
-                .padding(.horizontal, AppSpacing.sm + 1)
-                .padding(.vertical, AppSpacing.xs + 1)
-                .overlay(Capsule().stroke(appearance.detailChipsAccentColor, lineWidth: 1))
-                .clipShape(Capsule())
-                .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: "basket.fill")
+                    .font(.system(size: 15, weight: .bold))
+                Text("Add to grocery list")
+                    .font(.system(size: 16, weight: .bold))
+                Spacer(minLength: 0)
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 18, weight: .semibold))
+            }
+            .foregroundStyle(appearance.detailChipsAccentColor)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm + 3)
+            .background(appearance.detailChipsAccentColor.opacity(0.12))
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.md)
+                    .stroke(appearance.detailChipsAccentColor.opacity(0.7), lineWidth: 1.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .accentGlow(when: appearance.isDetailGlowActive(.chips), color: appearance.detailChipsAccentColor)
         }
         .buttonStyle(.lifted)
-        .accessibilityLabel("Add this recipe's ingredients to a grocery list")
+        .accessibilityLabel("Add ingredients to a grocery list")
+    }
+
+    /// Confirmation pill shown after the Add-to-list sheet reports a
+    /// successful add. Reads "Added 3 items to Tacos", or "Already on
+    /// Tacos" when every selected item was already on the list (dedup
+    /// returned 0). Accent-filled capsule, matches the app's toast idiom.
+    private func groceryToastView(_ info: GroceryAddedInfo) -> some View {
+        HStack(spacing: AppSpacing.sm) {
+            Image(systemName: info.count > 0 ? "checkmark.circle.fill" : "basket.fill")
+                .font(.system(size: 16, weight: .bold))
+            Text(groceryToastText(info))
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+        }
+        .foregroundStyle(AppColor.onAccent)
+        .accentTextOutline()
+        .padding(.horizontal, AppSpacing.lg)
+        .padding(.vertical, AppSpacing.md)
+        .background(appearance.accentColor, in: Capsule())
+        .shadow(color: AppColor.shadow, radius: 12, x: 0, y: 4)
+        .padding(.horizontal, AppSpacing.xl)
+    }
+
+    private func groceryToastText(_ info: GroceryAddedInfo) -> String {
+        guard info.count > 0 else { return "Already on \(info.listName)" }
+        let noun = info.count == 1 ? "item" : "items"
+        return "Added \(info.count) \(noun) to \(info.listName)"
     }
 
     /// Tag presence drives the sourdough chip + calculator availability.
@@ -1326,58 +1397,6 @@ struct RecipeDetailView: View {
         recipe.updatedAt = .now
     }
 
-    // MARK: - Add to grocery list
-
-    /// Adds this recipe's ingredients to `target` (or a fresh list named
-    /// after the recipe when nil), skipping any item already on that list
-    /// (matched on a normalized name via `GroceryKeyword`). Each new item
-    /// keeps `sourceRecipeID` so a future view can trace a list back to its
-    /// recipes. Fires the fly-to-Lists "Added" toast — the same affordance
-    /// the friend-import save uses, so the eye reads them as one idiom.
-    private func addIngredientsToList(_ target: GroceryList?) {
-        let list: GroceryList
-        if let target {
-            list = target
-        } else {
-            let name = Optional(recipe.title).trimmedIfNonEmpty ?? "Grocery List"
-            list = GroceryList(name: name)
-            modelContext.insert(list)
-        }
-
-        let existing = Set(list.items.map { GroceryKeyword.normalize($0.name) })
-        var nextOrder = (list.items.map(\.order).max() ?? -1) + 1
-        var added = 0
-        for ingredient in recipe.sortedIngredients {
-            let normalized = GroceryKeyword.normalize(ingredient.name)
-            guard !normalized.isEmpty, !existing.contains(normalized) else { continue }
-            let item = GroceryItem(
-                name: ingredient.name,
-                quantity: ingredient.quantity,
-                unit: ingredient.unit,
-                sourceRecipeID: recipe.id,
-                order: nextOrder
-            )
-            modelContext.insert(item)
-            item.list = list
-            nextOrder += 1
-            added += 1
-        }
-        list.touch()
-
-        let label: String
-        switch added {
-        case 0:  label = "Already on \(list.name)"
-        case 1:  label = "Added 1 item to \(list.name)"
-        default: label = "Added \(added) items to \(list.name)"
-        }
-        navContext.pendingFriendImportToast = FlyToast(
-            accentHex: appearance.accentColor.toHex,
-            glyph: added == 0 ? "checkmark" : "basket.fill",
-            label: label,
-            destinationTab: .lists
-        )
-    }
-
     // MARK: - Provenance
 
     /// "Originally shared by Lorenzo · Apr 27, 2026" when both name and
@@ -1807,4 +1826,14 @@ private struct ViewingStepImages: Identifiable {
     let id = UUID()
     let images: [Data]
     let captions: [String?]
+}
+
+/// Payload for the "Added N items to <list>" confirmation toast. `count`
+/// is the post-dedup figure reported by `AddToGroceryListSheet` (0 = all
+/// selected items were already on the list). `Equatable` so the toast
+/// overlay's `.animation(value:)` springs on each distinct add.
+private struct GroceryAddedInfo: Identifiable, Equatable {
+    let id = UUID()
+    let count: Int
+    let listName: String
 }

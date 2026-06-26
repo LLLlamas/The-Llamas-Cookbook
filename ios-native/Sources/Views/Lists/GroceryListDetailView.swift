@@ -4,18 +4,22 @@ import SwiftData
 /// One grocery list, open for shopping. Items are grouped by aisle (the
 /// llama's triage, Phase 4) in store-walk order; each row has its own
 /// well-separated tap targets — an in-cart check circle (leading) and a
-/// have/need toggle (trailing) — so a stray tap never cross-fires (the
-/// minimized Cook-Mode pill fall-through is the cautionary precedent).
+/// per-item "?" helper — so a stray tap never cross-fires (the minimized
+/// Cook-Mode pill fall-through is the cautionary precedent).
 ///
 /// Sharing, the on-device aisle triage, and the per-item "?" helper layer
 /// on in later phases; this view already stands alone for a hand-built
-/// list — add items from the bottom bar, check them off, mark have/need.
+/// list — add items from the bottom bar and check them off as you shop.
 struct GroceryListDetailView: View {
     @Bindable var list: GroceryList
 
     @Environment(\.modelContext) private var modelContext
     @Environment(AppearanceSettings.self) private var appearance
     @Environment(CookingSession.self) private var session
+    @Environment(GroceryListStore.self) private var groceryStore
+    @Environment(UserAccount.self) private var userAccount
+    @Environment(OwnerProfile.self) private var ownerProfile
+    @Environment(FriendsStore.self) private var friendsStore
 
     @State private var newItemName = ""
     @State private var showingRename = false
@@ -23,8 +27,13 @@ struct GroceryListDetailView: View {
     /// Drives the "pick another name" alert when a rename is rejected by
     /// the profanity screen.
     @State private var nameRejected = false
-    /// Item whose "?" swap helper sheet is open, if any.
-    @State private var swapSheetItem: GroceryItem?
+    @State private var isTriaging = false
+    @State private var helperItem: GroceryItem?
+    /// The item whose helper sheet is open, retained across the sheet's
+    /// own `item`-binding reset so `onDismiss` can push any note change to
+    /// the cloud for a shared list.
+    @State private var noteSyncItem: GroceryItem?
+    @State private var showingShare = false
     @FocusState private var addFieldFocused: Bool
 
     private var accent: Color { appearance.cookbookTitleAccentColor }
@@ -33,6 +42,19 @@ struct GroceryListDetailView: View {
     /// enabled/opacity state and `addItem`, so the trim runs once per body
     /// pass instead of three inline copies.
     private var trimmedNewItem: String? { Optional(newItemName).trimmedIfNonEmpty }
+
+    /// I own this list (vs. it being a mirror of a friend's shared list).
+    /// Gates structural edits — only the owner adds/removes/renames; a
+    /// recipient checks items off as they shop.
+    private var isOwner: Bool { list.ownerIsMe }
+
+    /// Best display name for stamping onto live pushes.
+    private var myDisplayName: String {
+        let signedIn = userAccount.status.identity?.displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let signedIn, !signedIn.isEmpty { return signedIn }
+        return ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// Aisle sections in store-walk order. When nothing has been triaged
     /// yet (every item falls in "Other"), we render a single flat list
@@ -65,23 +87,71 @@ struct GroceryListDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .tint(accent)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
+            if isOwner {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        renameText = list.name
-                        showingRename = true
+                        Haptics.selection()
+                        showingShare = true
                     } label: {
-                        Label("Rename list", systemImage: "pencil")
+                        Image(systemName: list.isShared ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.plus")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(accent)
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(accent)
+                    .accessibilityLabel(list.isShared ? "Manage sharing" : "Share list with a friend")
                 }
-                .accessibilityLabel("List options")
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            Task { await sortByAisle() }
+                        } label: {
+                            Label("Sort by aisle", systemImage: "wand.and.stars")
+                        }
+                        .disabled(list.items.isEmpty)
+                        Button {
+                            renameText = list.name
+                            showingRename = true
+                        } label: {
+                            Label("Rename list", systemImage: "pencil")
+                        }
+                        if list.isShared {
+                            Divider()
+                            Button(role: .destructive) {
+                                Task { await groceryStore.unshare(list) }
+                            } label: {
+                                Label("Stop sharing", systemImage: "person.crop.circle.badge.xmark")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(accent)
+                    }
+                    .accessibilityLabel("List options")
+                }
             }
         }
-        .safeAreaInset(edge: .bottom) { addItemBar }
+        .safeAreaInset(edge: .top) {
+            if list.isShared { sharedStatusBanner }
+        }
+        .safeAreaInset(edge: .bottom) {
+            // Recipients shop the list (check items off) but don't edit its
+            // structure — only the owner adds/removes rows.
+            if isOwner { addItemBar }
+        }
+        .overlay { triagingOverlay }
+        .task { await autoTriage() }
+        .sheet(item: $helperItem, onDismiss: pushHelperNoteIfShared) { item in
+            ItemHelperSheet(item: item)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .environment(appearance)
+        }
+        .sheet(isPresented: $showingShare) {
+            ShareGroceryListSheet(list: list, ownerName: myDisplayName)
+                .environment(appearance)
+                .environment(friendsStore)
+                .environment(groceryStore)
+        }
         .alert("Rename list", isPresented: $showingRename) {
             TextField("List name", text: $renameText)
             Button("Save") { renameList() }
@@ -92,14 +162,41 @@ struct GroceryListDetailView: View {
         } message: {
             Text(ContentModeration.blockedMessage)
         }
-        .sheet(item: $swapSheetItem) { sheetItem in
-            GrocerySwapSheet(
-                item: sheetItem,
-                accent: accent,
-                onApply: { applySwap(sheetItem, $0) },
-                onClear: { clearSwap(sheetItem) }
-            )
+    }
+
+    /// Slim live-status banner. Owner sees who they shared with; a
+    /// recipient sees who shared it to them — both with a pulsing dot to
+    /// signal the list is syncing live.
+    private var sharedStatusBanner: some View {
+        HStack(spacing: AppSpacing.sm) {
+            Circle()
+                .fill(AppColor.success)
+                .frame(width: 8, height: 8)
+            Text(sharedStatusText)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppColor.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(accent)
         }
+        .padding(.horizontal, AppSpacing.lg)
+        .padding(.vertical, AppSpacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+    }
+
+    private var sharedStatusText: String {
+        if isOwner {
+            let who = list.sharedWithName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let who, !who.isEmpty { return "Shared with \(who) · syncing live" }
+            return "Shared · syncing live"
+        }
+        let who = list.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let who, !who.isEmpty { return "Shared by \(who) · check items off as you shop" }
+        return "Shared with you · check items off as you shop"
     }
 
     // MARK: - Item list
@@ -113,13 +210,19 @@ struct GroceryListDetailView: View {
                             item: item,
                             accent: accent,
                             onToggleChecked: { toggleChecked(item) },
-                            onToggleNeeded: { toggleNeeded(item) },
                             onToggleOutOfStock: { toggleOutOfStock(item) },
-                            onTapSwap: { swapSheetItem = item }
+                            onHelp: {
+                                helperItem = item
+                                noteSyncItem = item
+                            }
                         )
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 3, leading: AppSpacing.lg, bottom: 3, trailing: AppSpacing.lg))
+                        // Recipients shop the list (check off) but don't edit
+                        // its structure — suppress swipe-to-delete for them, or
+                        // a "deleted" row resurrects on the next owner sync.
+                        .deleteDisabled(!isOwner)
                     }
                     .onDelete { offsets in deleteItems(section.items, at: offsets) }
                 } header: {
@@ -186,13 +289,95 @@ struct GroceryListDetailView: View {
                 .font(AppFont.sectionHeading)
                 .foregroundStyle(accent)
                 .accentTextOutline()
-            Text("Add items below, or open a recipe and tap the basket on its ingredients to fill this list.")
+            Text(emptyStateDetail)
                 .font(AppFont.caption)
                 .foregroundStyle(AppColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Empty-state guidance. Owners get the "add it yourself" instructions;
+    /// a recipient viewing an empty shared mirror has no add bar, so those
+    /// instructions would be impossible to follow — give them a passive
+    /// "nothing here yet" instead.
+    private var emptyStateDetail: String {
+        if isOwner {
+            return "Add items below, or open a recipe and tap the basket on its ingredients to fill this list."
+        }
+        let who = list.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let who, !who.isEmpty {
+            return "Nothing on this list yet — \(who) hasn't added items, or everything's been checked off."
+        }
+        return "Nothing on this list yet — the owner hasn't added items, or everything's been checked off."
+    }
+
+    // MARK: - Triaging overlay
+
+    /// "Asking the llama…" scrim shown only when a manual aisle sort takes
+    /// long enough to matter (1 s debounce inside `sortByAisle`). The silent
+    /// auto-triage on appear never shows it.
+    @ViewBuilder
+    private var triagingOverlay: some View {
+        if isTriaging {
+            ZStack {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                VStack(spacing: AppSpacing.md) {
+                    LlamaProgressIndicator(size: 96, accent: accent)
+                    Text("Asking the llama…")
+                        .font(AppFont.caption)
+                        .foregroundStyle(AppColor.textSecondary)
+                }
+                .padding(AppSpacing.xl)
+                .background(AppColor.surface, in: RoundedRectangle(cornerRadius: AppRadius.lg))
+            }
+            .transition(.opacity)
+        }
+    }
+
+    // MARK: - Triage
+
+    /// Silent first-pass aisle classification of any never-triaged items
+    /// (aisle == nil) — runs on appear so a list built from a recipe lands
+    /// already grouped in store-walk order.
+    private func autoTriage() async {
+        // A recipient's mirror takes its aisle grouping from the owner's
+        // authoritative metadata — don't run local triage that the next sync
+        // would just overwrite (and that would fight the owner).
+        guard isOwner || !list.isShared else { return }
+        let untriaged = list.items.filter { $0.aisle == nil }
+        guard !untriaged.isEmpty else { return }
+        await applyTriage(to: untriaged)
+        // If this is an owned shared list, push the freshly-grouped aisles.
+        syncStructureIfShared()
+    }
+
+    /// User-initiated "Sort by aisle" — re-classifies every item's aisle,
+    /// behind a 1 s overlay debounce so the instant heuristic path never
+    /// flashes the scrim.
+    private func sortByAisle() async {
+        let items = list.sortedItems
+        guard !items.isEmpty else { return }
+        let overlay = Task {
+            try? await Task.sleep(for: .seconds(1))
+            if !Task.isCancelled { isTriaging = true }
+        }
+        await applyTriage(to: items)
+        overlay.cancel()
+        isTriaging = false
+        Haptics.success()
+        // Aisle lives in the shared item metadata — re-upload so recipients
+        // get the same store-walk grouping.
+        syncStructureIfShared()
+    }
+
+    private func applyTriage(to items: [GroceryItem]) async {
+        let result = await IngredientAssistant.triage(names: items.map(\.name))
+        for (i, item) in items.enumerated() {
+            if let aisle = result.aisleByIndex[i] { item.aisle = aisle }
+        }
+        list.touch()
     }
 
     // MARK: - Actions
@@ -207,40 +392,33 @@ struct GroceryListDetailView: View {
         newItemName = ""
         addFieldFocused = true
         Haptics.selection()
+        // New row needs a cloud slot — re-upload the structure.
+        syncStructureIfShared()
     }
 
     private func toggleChecked(_ item: GroceryItem) {
         item.isChecked.toggle()
         list.touch()
         Haptics.selection()
+        // Live check-off: push just this item's slot to every participant.
+        if list.isShared {
+            Task { await groceryStore.pushCheck(item) }
+        }
     }
 
-    private func toggleNeeded(_ item: GroceryItem) {
-        item.needed.toggle()
-        list.touch()
-        Haptics.impact(.light)
-    }
-
-    /// "!" — the shopper flags an item as can't-find / out of stock. Local
-    /// today; once grocery-list sharing/sync ships this is what surfaces a
-    /// substitution request to the list owner.
+    /// "!" — the shopper flags an item as can't-find / out of stock.
+    /// The full helper sheet owns suggested substitutions; this quick toggle
+    /// just records the state locally and clears any note when turned off.
     private func toggleOutOfStock(_ item: GroceryItem) {
         item.outOfStock.toggle()
+        if !item.outOfStock {
+            item.substitution = nil
+        }
         list.touch()
         if item.outOfStock { Haptics.warning() } else { Haptics.selection() }
-    }
-
-    /// "?" swap helper applied a substitution (curated or hand-written).
-    private func applySwap(_ item: GroceryItem, _ swap: String) {
-        item.substitution = Optional(swap).trimmedIfNonEmpty
-        list.touch()
-        Haptics.success()
-    }
-
-    private func clearSwap(_ item: GroceryItem) {
-        item.substitution = nil
-        list.touch()
-        Haptics.selection()
+        if list.isShared {
+            Task { await groceryStore.pushNote(item) }
+        }
     }
 
     private func deleteItems(_ items: [GroceryItem], at offsets: IndexSet) {
@@ -249,6 +427,7 @@ struct GroceryListDetailView: View {
             modelContext.delete(items[index])
         }
         list.touch()
+        syncStructureIfShared()
     }
 
     private func renameList() {
@@ -260,28 +439,42 @@ struct GroceryListDetailView: View {
         }
         list.name = trimmed
         list.touch()
+        syncStructureIfShared()
+    }
+
+    /// Re-upload the full item set for an owned, shared list after a
+    /// structural change (add/remove row, rename, re-sort).
+    /// No-op for purely local lists or a recipient's mirror.
+    private func syncStructureIfShared() {
+        guard isOwner, list.isShared else { return }
+        Task { await groceryStore.syncStructure(list, ownerName: myDisplayName) }
+    }
+
+    /// Push a note change made through the helper sheet ("they're out of
+    /// oat milk") to the shared record, for the item that was open.
+    private func pushHelperNoteIfShared() {
+        guard list.isShared, let item = noteSyncItem else {
+            noteSyncItem = nil
+            return
+        }
+        let captured = item
+        noteSyncItem = nil
+        Task { await groceryStore.pushNote(captured) }
     }
 }
 
-/// One item row. Deliberately separate, bounded hit zones so taps never
-/// cross-fire (the minimized Cook-Mode pill fall-through is the cautionary
-/// precedent): the leading in-cart check circle, the central label, and a
-/// trailing cluster of three — the "?" swap helper, the "!" can't-find
-/// flag, and the have/need toggle. Checked items dim + strike through;
-/// "have" items (not needed) read muted. A set substitution shows a green
-/// "Swap: …" line; an unanswered out-of-stock flag shows a "Couldn't find
-/// it" line.
+/// One item row. The leading circle AND the central label both toggle the
+/// check (so the user needn't hit the small circle); the trailing "?" helper
+/// and "!" unavailable flag are separate bounded tap targets so taps don't
+/// cross-fire. Checked items dim + strike through.
 private struct GroceryItemRow: View {
     let item: GroceryItem
     let accent: Color
     let onToggleChecked: () -> Void
-    let onToggleNeeded: () -> Void
     let onToggleOutOfStock: () -> Void
-    let onTapSwap: () -> Void
+    let onHelp: () -> Void
 
     private var display: MeasureDisplay { item.display() }
-    private var swap: String { item.substitution ?? "" }
-    private var hasSwap: Bool { !swap.isEmpty }
 
     var body: some View {
         HStack(spacing: AppSpacing.xs) {
@@ -296,73 +489,69 @@ private struct GroceryItemRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
 
-            // Center: measure + name + swap / can't-find state. Non-interactive.
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.name.capitalized)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(item.isChecked ? AppColor.textTertiary : AppColor.textPrimary)
-                    .strikethrough(item.isChecked, color: AppColor.textTertiary)
-                    .lineLimit(2)
-                if !display.measure.isEmpty {
-                    Text(display.measure)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(AppColor.textTertiary)
-                }
-                if hasSwap {
-                    Label("Swap: \(swap)", systemImage: "arrow.2.squarepath")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(AppColor.success)
+            // Center: the whole name + measure column toggles the check too,
+            // so the user needn't hit the little circle. The helper buttons
+            // stay separate trailing tap targets.
+            Button(action: onToggleChecked) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.name.capitalized)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(item.isChecked ? AppColor.textTertiary : AppColor.textPrimary)
+                        .strikethrough(item.isChecked, color: AppColor.textTertiary)
                         .lineLimit(1)
-                } else if item.outOfStock {
-                    Label("Couldn't find it", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(AppColor.destructive)
+                        .truncationMode(.tail)
+                    statusSubline
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .opacity(item.needed ? 1 : 0.55)
+            .buttonStyle(.plain)
+            .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
 
-            Spacer(minLength: AppSpacing.xs)
-
-            // Trailing cluster: swap helper "?" and can't-find "!" sit side
-            // by side (both always visible — no tap-to-reveal), then the
-            // have/need toggle. Each its own bounded target.
-            HStack(spacing: 2) {
-                Button(action: onTapSwap) {
-                    Image(systemName: hasSwap ? "questionmark.circle.fill" : "questionmark.circle")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(hasSwap ? AppColor.success : accent.opacity(0.8))
-                        .frame(width: 34, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Find a swap for \(item.name)")
-
-                Button(action: onToggleOutOfStock) {
-                    Image(systemName: item.outOfStock ? "exclamationmark.circle.fill" : "exclamationmark.circle")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(item.outOfStock ? AppColor.destructive : AppColor.textTertiary)
-                        .frame(width: 34, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.outOfStock
-                    ? "Clear can't-find flag on \(item.name)"
-                    : "Flag \(item.name) as can't find or out of stock")
-
-                Button(action: onToggleNeeded) {
-                    Text(item.needed ? "Need" : "Have")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(item.needed ? AppColor.onAccent : AppColor.textSecondary)
-                        .padding(.horizontal, AppSpacing.sm)
-                        .frame(minWidth: 50, minHeight: 32)
-                        .modifier(GlassChipBackground(isActive: item.needed, accent: accent))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.needed ? "Mark \(item.name) as already have" : "Mark \(item.name) as needed")
+            Button(action: onHelp) {
+                Image(systemName: item.substitution == nil ? "questionmark.circle" : "questionmark.circle.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(item.substitution == nil ? AppColor.textTertiary : AppColor.success)
+                    .frame(width: 34, height: 38)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("What is \(item.name)? Or mark unavailable")
+
+            Button(action: onToggleOutOfStock) {
+                Image(systemName: item.outOfStock ? "exclamationmark.circle.fill" : "exclamationmark.circle")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(item.outOfStock ? AppColor.destructive : AppColor.textTertiary)
+                    .frame(width: 34, height: 38)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(item.outOfStock
+                ? "Clear unavailable flag on \(item.name)"
+                : "Flag \(item.name) as unavailable")
         }
         .padding(.vertical, 2)
+    }
+
+    /// Second line under the name: the chosen swap, an out-of-stock flag, or
+    /// the measure — in that priority.
+    @ViewBuilder
+    private var statusSubline: some View {
+        if let swap = item.substitution, !swap.isEmpty {
+            Text("Swap: \(swap)")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppColor.success)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else if item.outOfStock {
+            Text("Couldn't find it")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppColor.destructive)
+        } else if !display.measure.isEmpty {
+            Text(display.measure)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(AppColor.textTertiary)
+        }
     }
 }
 

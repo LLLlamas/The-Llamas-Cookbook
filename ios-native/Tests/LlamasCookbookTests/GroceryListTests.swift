@@ -21,11 +21,10 @@ final class GroceryListTests: XCTestCase {
         _ ctx: ModelContext,
         to list: GroceryList,
         _ name: String,
-        needed: Bool,
         checked: Bool,
         order: Int
     ) {
-        let item = GroceryItem(name: name, needed: needed, isChecked: checked, order: order)
+        let item = GroceryItem(name: name, isChecked: checked, order: order)
         ctx.insert(item)
         item.list = list
     }
@@ -43,10 +42,10 @@ final class GroceryListTests: XCTestCase {
         let ctx = try makeContext()
         let list = GroceryList(name: "Shop")
         ctx.insert(list)
-        add(ctx, to: list, "milk", needed: true, checked: false, order: 0)  // to buy
-        add(ctx, to: list, "eggs", needed: true, checked: true, order: 1)   // in cart
-        add(ctx, to: list, "salt", needed: false, checked: false, order: 2) // have
-        XCTAssertEqual(list.toBuyCount, 1, "Only the unchecked, needed item counts")
+        add(ctx, to: list, "milk", checked: false, order: 0) // to buy
+        add(ctx, to: list, "eggs", checked: true, order: 1)  // in cart
+        add(ctx, to: list, "salt", checked: false, order: 2) // to buy
+        XCTAssertEqual(list.toBuyCount, 2, "Only unchecked items count")
         XCTAssertFalse(list.isAllSet)
         XCTAssertTrue(list.isOpen)
     }
@@ -55,8 +54,8 @@ final class GroceryListTests: XCTestCase {
         let ctx = try makeContext()
         let list = GroceryList(name: "Done")
         ctx.insert(list)
-        add(ctx, to: list, "milk", needed: true, checked: true, order: 0)
-        add(ctx, to: list, "salt", needed: false, checked: false, order: 1)
+        add(ctx, to: list, "milk", checked: true, order: 0)
+        add(ctx, to: list, "salt", checked: true, order: 1)
         XCTAssertEqual(list.toBuyCount, 0)
         XCTAssertTrue(list.isAllSet)
         XCTAssertFalse(list.isOpen)

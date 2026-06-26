@@ -41,6 +41,10 @@ struct CookModeView: View {
 
     @State private var showingExitConfirm = false
     @State private var showingTimerSheet = false
+    /// Kitchen-conversions reference sheet — the same one Recipe Detail
+    /// surfaces, reached here from a chip in the phase header so the cook
+    /// can check a cups→grams swap without leaving Cook Mode.
+    @State private var showingConversions = false
     /// Glow intensity for the recipe title (0…1). Spun up on every
     /// entry into Cook Mode (start, pill switch, restore) and faded
     /// back to 0, so the title softly highlights to greet the user.
@@ -352,6 +356,14 @@ struct CookModeView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingConversions) {
+            ConversionsView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                // iOS 26: @Observable environments drop across the sheet
+                // boundary — ConversionsView reads AppearanceSettings.
+                .environment(appearance)
+        }
     }
 
     // MARK: Top bar
@@ -414,7 +426,15 @@ struct CookModeView: View {
 
     private var phaseHeader: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            phaseToggle
+            // Phase toggle (Ingredients ⇄ Steps) on the left, the always-on
+            // Conversions chip pinned to the trailing edge. The Spacer keeps
+            // Conversions anchored right even when the toggle collapses to an
+            // EmptyView (prep with no steps / cook with no ingredients).
+            HStack(alignment: .center, spacing: AppSpacing.sm) {
+                phaseToggle
+                Spacer(minLength: 0)
+                conversionsChip
+            }
             Text(phase == .prep ? "Got everything?" : "Let's cook")
                 .font(.system(size: 24, weight: .bold, design: .serif))
                 .foregroundStyle(AppColor.textPrimary)
@@ -425,6 +445,35 @@ struct CookModeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AppSpacing.lg)
         .padding(.bottom, AppSpacing.md)
+    }
+
+    /// Conversions reference entry point. Styled to match `phasePill` /
+    /// `cookPhotosButton` (surface fill + accent-stroke capsule) so it reads
+    /// as native Cook-Mode chrome rather than a transplant from Detail.
+    private var conversionsChip: some View {
+        Button {
+            Haptics.selection()
+            showingConversions = true
+        } label: {
+            HStack(spacing: AppSpacing.xs) {
+                Image(systemName: "ruler")
+                    .font(.system(size: 13, weight: .semibold))
+                    .accentTextOutline()
+                Text("Conversions")
+                    .font(.system(size: 13, weight: .semibold))
+                    .accentTextOutline()
+            }
+            .foregroundStyle(appearance.accentColor)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.xs + 2)
+            .background(AppColor.surface)
+            .overlay(
+                Capsule().stroke(appearance.accentColor, lineWidth: 1.5)
+            )
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.lifted)
+        .accessibilityLabel("Open kitchen conversions reference")
     }
 
     @ViewBuilder

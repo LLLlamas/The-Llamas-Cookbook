@@ -35,6 +35,7 @@ Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends 
 | Recipe detail + sharing | `ios-native/Sources/Views/Detail/` |
 | Cook mode + timers | `ios-native/Sources/Views/Cook/` |
 | Friends / social views | `ios-native/Sources/Views/Friends/` |
+| Grocery lists (Lists tab) | `ios-native/Sources/Views/Lists/` |
 | Profile + auth views | `ios-native/Sources/Views/Profile/` |
 | Grocery Lists tab | `ios-native/Sources/Views/Lists/` |
 | Reusable UI components | `ios-native/Sources/Views/Components/` |
@@ -371,6 +372,74 @@ Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, Swift
 ## Open Work
 
 **App status: live on the App Store. Current version shipping: v1.1.2 (2026-06-08).**
+
+### Grocery Lists (in progress — branch `claude/prep-ingredient-tracking-goqokv`)
+
+A free, share-anywhere grocery-list feature for the prep stage. **Why no
+retailer cart:** Instacart closed new API applications; Kroger Cart API,
+Walmart, and Whisk/Samsung Food are all B2B-partnership-gated, not self-serve.
+So the list is self-contained, with a thin feature-flagged seam
+(`FeatureFlags.retailerCartEnabled`, off) for a future retailer hand-off.
+
+**Files** — `Sources/Views/Lists/` (`ListsView`, `GroceryListDetailView`,
+`AddToGroceryListSheet`, `ItemHelperSheet`); models `Sources/Models/GroceryList.swift`
+(`GroceryList`/`GroceryItem`, local `@Model`, registered in the `ModelContainer`);
+`Sources/Lib/GroceryKnowledge.swift` (researched aisle taxonomy + substitution
+chart — sources: USU/UIUC Extension, King Arthur, standard supermarket
+layouts), `IngredientAssistant.swift` (on-device `FoundationModels`
+aisle-triage/describe/substitutes, grounded by + falling back to `GroceryKnowledge`),
+`GroceryAisle.swift`, `FeatureFlags.swift`; `MeasureDisplay` (lifted from
+`IngredientDisplay`, shared by recipe + grocery rows); Worker `lib/grocery.js`
+(+ `test/grocery.test.js`). Tests: `GroceryKnowledgeTests.swift` (Swift),
+`grocery.test.js` (Vitest, green).
+
+**Done + reviewed:** Lists tab (4th tab — note the friend-import fly-ghost math
+moved width/6 → width/8 for 4 tabs); create/delete lists; "Add to grocery list"
+full-width bar under the Ingredients heading in `RecipeDetailView` (+ per-item
+selection in `AddToGroceryListSheet` and an "Added N items" toast); Conversions
+chip in Cook Mode; on-device AI aisle triage (auto on appear, manual
+"Sort by aisle" with llama overlay) with researched heuristic fallback; in-cart
+check-off (single per-item axis — the old have/need toggle was removed as
+redundant 2026-06-25; tapping the row label OR the circle toggles it); per-row "?" helper (what-is-this via on-device describe +
+web image search; "they don't have this" → researched substitute swaps); Friends
+tab badge (incoming requests). Each phase audited by a reviewer subagent.
+
+**App-to-app friend sharing + live checklist (built 2026-06-24):** share a list
+with friend(s) → one `GroceryListShare` public-DB record per shared list is the
+source of truth for the mutable state; the owner authors items, anyone on the
+list flips checks. Files: `Sources/Lib/CloudGroceryListService.swift` (record +
+upsert/fetch/`setItemChecked`/`setItemNote`/`deleteAllOwned` cascade — per-item
+`check0–39`/`note0–39` anti-clobber fields, `recipientIDs` String-List membership
+query, `itemsJSON` String blob for the owner-authored meta), `Sources/App/
+GroceryListStore.swift` (`@MainActor @Observable`, injected from `RootView`,
+configured with the `ModelContext`; mirrors received lists into SwiftData as
+`GroceryList(ownerIsMe:false)`, syncs live check/note both ways keyed by
+`GroceryItem.shareIndex`, pushes single-field updates, re-uploads structure on
+owner edits), `Sources/Views/Lists/ShareGroceryListSheet.swift` (friend picker,
+seed friend excluded). `GroceryList` gained `ownerName`/`sharedRecipientIDs`/
+`sharedWithName`/`isShared`; `GroceryItem` gained `shareIndex`. **Visible push**
+(the only non-silent push in the app): `CloudKitSubscriptions` registers a
+recipient sub (`recipientIDs CONTAINS me`, banner "Grocery list updated") + a
+silent owner sub (`ownerID == me`, live refresh); `FiredKind.groceryList`; the
+`registeredForKey` bumped v1→v2 so existing users re-register. Lists tab badge
+dot via `GroceryListStore.hasSharedUpdate` (cleared in `ListsView.task`).
+Account-deletion cascade extended with `CloudGroceryListService.deleteAllOwned`.
+**CloudKit Console schema is a one-time portal trip** (record type +
+`check0…check39`/`note0…note39` fields, `recipientIDs`/`ownerID` queryable) —
+until deployed the feature silently no-ops (all calls behind `try?`).
+
+**Remaining (designed, not built):** web-link share for recipients without the
+app (`/list/[id].js` Worker page + `api/list-check.js` / `api/list-note.js`
+reusing the same `GroceryListShare` record; `/list/*` deliberately NOT in AASA so
+the web fallback stays a browser URL). Invariants when building these: per-item
+check/note CloudKit fields (anti-clobber, like `photo0–19`); split-per-field
+public-DB predicates + cursor-following; re-inject `@Observable` envs into new
+sheets; no new secret in the iOS binary. **`GroceryListStore.refresh()` must
+never flatten a thrown fetch to `[]`** — both `reconcileReceived` (deletes
+mirrors) and `reconcileOwned` (strips local sharing metadata) are destructive on
+an empty set, so a network blip would read as "everything got unshared" and wipe
+local state the cloud still backs. Only reconcile the side whose fetch actually
+succeeded (`if let x = try? await fetch…`); the owned side does NOT self-heal.
 
 Carry-forward from launch (still unverified on real devices):
 - Verify Universal Links on real devices
