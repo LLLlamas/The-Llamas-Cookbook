@@ -45,6 +45,17 @@ struct ItemHelperSheet: View {
 
     private var whatIsItSection: some View {
         Section("What is it?") {
+            // A quick, offline visual cue when we confidently recognize the
+            // item (`IngredientVisual`) — instant in-app recognition; the
+            // "See photos" button below opens real photographs on the web.
+            if IngredientVisual.hasGlyph(for: item.name) {
+                HStack {
+                    Spacer()
+                    IngredientGlyphView(itemName: item.name, size: 56, accent: accent)
+                    Spacer()
+                }
+                .listRowBackground(Color.clear)
+            }
             if loadingBlurb {
                 HStack(spacing: AppSpacing.sm) {
                     ProgressView().tint(accent)

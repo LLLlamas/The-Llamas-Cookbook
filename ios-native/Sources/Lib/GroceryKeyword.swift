@@ -1,11 +1,12 @@
 import Foundation
 
-/// Shared keyword matching for grocery-item names. Both `GrocerySwaps`
-/// (curated substitutions) and `IngredientVisual` (curated ingredient
-/// glyphs) need the same job: given a free-text item name like
-/// "2 large brown eggs" or "Unsalted Butter", find the best entry in a
-/// curated keyword table. Centralized here so the two tables match items
-/// identically — one normalization rule, one longest-match policy.
+/// Shared keyword matching for grocery-item names. `IngredientVisual`
+/// (curated ingredient glyphs) and `AddToGroceryListSheet` (recipe→list
+/// dedup) need the same job: given a free-text item name like
+/// "2 large brown eggs" or "Unsalted Butter", normalize it / find the best
+/// entry in a curated keyword table — one normalization rule, one
+/// longest-match policy. (Substitution + aisle data live in
+/// `GroceryKnowledge`, which has its own matcher.)
 enum GroceryKeyword {
     /// Lowercased, punctuation-flattened form for matching. Keeps letters,
     /// digits, and spaces; collapses everything else to a space so
