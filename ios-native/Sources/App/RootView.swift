@@ -507,20 +507,26 @@ struct RootView: View {
             routeCookDeepLink(recipeID)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            // Foreground-refresh hook for friend presence. The
+            // Foreground-refresh hook for friend presence and shared grocery
+            // lists. The
             // `cookingStartedAt` / `lastCookedTitle` fields on
             // `UserProfile` drive the pulsing dot + "Cooking: <title>"
             // eyebrow, and a CloudKit subscription on those fields was
             // explicitly rejected (push budget + bookkeeping cost) —
-            // so we lean on scene-active transitions and a 30s
-            // debounce floor inside `refreshIfStale`. Gated on iCloud
-            // binding because every social fetch short-circuits when
-            // the mirror cache is empty anyway, but checking here
-            // skips the Task spawn entirely.
+            // so we lean on scene-active transitions and a 30s debounce floor
+            // inside `refreshIfStale`. Grocery lists also refresh here as a
+            // backstop for any silent push that arrived while SwiftUI wasn't
+            // alive enough to update the open model graph. Gated on iCloud
+            // binding because every social/shared-list fetch short-circuits
+            // when the mirror cache is empty anyway, but checking here skips
+            // the Task spawn entirely.
             guard newPhase == .active,
                   UserProfileMirror.cachedRecordID() != nil
             else { return }
-            Task { await friendsStore.refreshIfStale() }
+            Task {
+                await friendsStore.refreshIfStale()
+                await groceryStore.refresh()
+            }
         }
         .onChange(of: navContext.goHomeRequestedAt) { _, newValue in
             // Library "go home" signal — written by the All chip and by

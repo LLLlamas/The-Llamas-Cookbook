@@ -18,12 +18,13 @@ struct SharedGroceryItemMeta: Codable, Equatable {
 
 /// One item resolved for display/sync: the owner-authored `meta` merged
 /// with the live, anyone-can-touch state (`isChecked` from `check<index>`,
-/// `note` from `note<index>`). `index` is the slot in the share record.
+/// availability from `note<index>`). `index` is the slot in the share record.
 struct SharedGroceryItemState: Identifiable {
     let index: Int
     let meta: SharedGroceryItemMeta
     let isChecked: Bool
-    let note: String?
+    let outOfStock: Bool
+    let substitution: String?
 
     var id: Int { index }
 }
@@ -81,9 +82,17 @@ struct GroceryShareSnapshot: Identifiable {
 ///   the recipient's visible push body)
 /// - `updatedAt` — Date/Time, queryable + sortable
 /// - `check0` … `check<maxSharedItems-1>` — Int64 (0/1)
-/// - `note0` … `note<maxSharedItems-1>` — String, optional
+/// - `note0` … `note<maxSharedItems-1>` — String, optional:
+///   `"out"` for unavailable, `"sub:<text>"` for a chosen substitute
+///
+/// Alert schema:
+/// - `GroceryListAlert` record type, creation-only, one row per `!` event
+/// - `ownerID` — String, queryable
+/// - `listRecordName`, `listName`, `itemName`, `shopperName` — String
+/// - `createdAt` — Date/Time
 enum CloudGroceryListService {
     static let recordType = "GroceryListShare"
+    static let alertRecordType = "GroceryListAlert"
 
     /// Per-list item cap for the shared/live form. Lists longer than this
     /// still work locally; only the first `maxSharedItems` rows get the
@@ -108,6 +117,29 @@ enum CloudGroceryListService {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode([SharedGroceryItemMeta].self, from: data)) ?? []
+    }
+
+    static func encodeAvailabilityNote(outOfStock: Bool, substitution: String?) -> String? {
+        let trimmed = substitution?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty {
+            return "sub:\(trimmed)"
+        }
+        return outOfStock ? "out" : nil
+    }
+
+    static func decodeAvailabilityNote(_ raw: String?) -> (outOfStock: Bool, substitution: String?) {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return (false, nil)
+        }
+        if raw == "out" { return (true, nil) }
+        if raw.hasPrefix("sub:") {
+            let value = String(raw.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? (false, nil) : (true, value)
+        }
+        // Back-compat for early app builds that wrote the raw substitute
+        // string before the web/share format settled on the `sub:` prefix.
+        return (true, raw)
     }
 
     // MARK: - Upsert (share / re-sync structure)
@@ -189,18 +221,46 @@ enum CloudGroceryListService {
         }
     }
 
-    /// Set/clear one item's shopper note ("they're out of oat milk").
+    /// Set/clear one item's shopper availability note ("out" or "sub:…").
     static func setItemNote(
         recordName: String,
         index: Int,
-        note: String?,
+        outOfStock: Bool,
+        substitution: String?,
         revisedByName: String
     ) async throws {
         guard index >= 0, index < maxSharedItems else { return }
+        let encoded = encodeAvailabilityNote(outOfStock: outOfStock, substitution: substitution)
         try await mutateSlot(recordName: recordName, revisedByName: revisedByName) { record in
-            let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
-            record["note\(index)"] = (trimmed?.isEmpty ?? true) ? nil : (trimmed! as NSString)
+            if let encoded {
+                record["note\(index)"] = encoded as NSString
+            } else {
+                record["note\(index)"] = nil
+            }
         }
+    }
+
+    /// Creation-only push trigger for a shopper's `!` action. The owner has
+    /// a separate CKQuerySubscription on this record type so ordinary check
+    /// updates stay silent, while out-of-stock events get an immediate alert.
+    static func createOutOfStockAlert(
+        ownerID: String,
+        listRecordName: String,
+        listName: String,
+        itemName: String,
+        shopperName: String
+    ) async throws {
+        let record = CKRecord(
+            recordType: alertRecordType,
+            recordID: CKRecord.ID(recordName: UUID().uuidString)
+        )
+        record["ownerID"] = ownerID as NSString
+        record["listRecordName"] = listRecordName as NSString
+        record["listName"] = listName as NSString
+        record["itemName"] = itemName as NSString
+        record["shopperName"] = shopperName as NSString
+        record["createdAt"] = Date() as NSDate
+        _ = try await publicDB.save(record)
     }
 
     /// Shared fetch-modify-save with conflict retry. `apply` mutates only
@@ -265,12 +325,13 @@ enum CloudGroceryListService {
         var items: [SharedGroceryItemState] = []
         for i in 0..<cap {
             let checked = ((record["check\(i)"] as? Int) ?? 0) != 0
-            let note = (record["note\(i)"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let availability = decodeAvailabilityNote(record["note\(i)"] as? String)
             items.append(SharedGroceryItemState(
                 index: i,
                 meta: metas[i],
                 isChecked: checked,
-                note: note
+                outOfStock: availability.outOfStock,
+                substitution: availability.substitution
             ))
         }
         return GroceryShareSnapshot(
@@ -296,17 +357,30 @@ enum CloudGroceryListService {
         }
     }
 
-    /// Account-deletion cascade — every share this user owns. Routes
-    /// through `CloudPendingDeleteQueue` for the same flaky-network
-    /// resiliency the other social cascades have (Guideline 5.1.1(v)).
+    /// Account-deletion cascade — every share and grocery alert this user
+    /// owns. Routes through `CloudPendingDeleteQueue` for the same
+    /// flaky-network resiliency the other social cascades have
+    /// (Guideline 5.1.1(v)).
     static func deleteAllOwned(ownerID: String) async {
         let predicate = NSPredicate(format: "ownerID == %@", ownerID)
-        let query = CKQuery(recordType: recordType, predicate: predicate)
-        guard let matchResults = try? await CloudKitService.queryAllRecords(matching: query) else {
-            return
+        var enqueued = false
+
+        let shareQuery = CKQuery(recordType: recordType, predicate: predicate)
+        if let matchResults = try? await CloudKitService.queryAllRecords(matching: shareQuery) {
+            let names = matchResults.map { $0.0.recordName }
+            CloudPendingDeleteQueue.enqueueMany(recordType: recordType, recordNames: names)
+            enqueued = enqueued || !names.isEmpty
         }
-        let names = matchResults.map { $0.0.recordName }
-        CloudPendingDeleteQueue.enqueueMany(recordType: recordType, recordNames: names)
-        await CloudPendingDeleteQueue.drain()
+
+        let alertQuery = CKQuery(recordType: alertRecordType, predicate: predicate)
+        if let matchResults = try? await CloudKitService.queryAllRecords(matching: alertQuery) {
+            let names = matchResults.map { $0.0.recordName }
+            CloudPendingDeleteQueue.enqueueMany(recordType: alertRecordType, recordNames: names)
+            enqueued = enqueued || !names.isEmpty
+        }
+
+        if enqueued {
+            await CloudPendingDeleteQueue.drain()
+        }
     }
 }

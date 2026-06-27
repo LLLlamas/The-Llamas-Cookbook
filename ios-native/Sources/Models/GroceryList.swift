@@ -35,6 +35,11 @@ final class GroceryList {
     /// received mirror so the row + detail can read "Shared by Dad".
     var ownerName: String?
 
+    /// Raw iCloud user record name for the list owner. Set on received
+    /// mirrors so a shopper's out-of-stock flag can create an owner-facing
+    /// `GroceryListAlert` push without re-fetching the share first.
+    var ownerID: String?
+
     /// iCloud user record names this list has been shared *to* (owner
     /// side only). Drives the "Shared with …" status + the
     /// `recipientIDs CONTAINS me` cloud query on the recipient's device.

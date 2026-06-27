@@ -1,12 +1,13 @@
 import Foundation
 import CloudKit
 import CryptoKit
+import UserNotifications
 
 /// Coordinator for the slice 6 CKQuerySubscription registrations
 /// that turn the social slice's foreground-poll model into a
 /// near-real-time push model.
 ///
-/// **Two subscriptions, both on the public DB:**
+/// **Subscription groups, all on the public DB:**
 ///
 /// 1. `friendship-events-<me>` — fires on creation/update of any
 ///    `Friendship` record where I'm `userA` or `userB`. Covers
@@ -22,19 +23,24 @@ import CryptoKit
 ///    `RecipeDetailView` re-fetch the importers list without
 ///    waiting for the user to leave + re-open the screen.
 ///
-/// **Push payload shape.** Both subscriptions use silent pushes
-/// (`shouldSendContentAvailable = true`, no `alertBody`). iOS
-/// delivers the payload to
+/// 3. `grocery-list-events-*` — fires for shared grocery list records
+///    where I'm the owner or a recipient, so open list screens reconcile
+///    in place.
+///
+/// 4. `grocery-list-alerts-<me>` — fires on creation of a
+///    `GroceryListAlert` row when a shopper taps `!` on a list I own.
+///
+/// **Push payload shape.** Silent subscriptions use
+/// `shouldSendContentAvailable = true` with no `alertBody`; grocery
+/// recipient updates and out-of-stock alerts also include a visible title /
+/// body / sound. iOS delivers the payload to
 /// `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`
 /// while the app is foregrounded or background-suspended; force-
 /// killed apps don't get pushes (the user picks up changes via
-/// the existing foreground-refresh path on next launch). Visible
-/// notifications were considered for slice 6 but deferred —
-/// rendering "X accepted your friend request" requires a
-/// `requesterDisplayName` denormalization on the Friendship
-/// record schema, and the silent-push path satisfies the spec's
-/// "real-time presence beyond the foreground refresh" goal
-/// without that schema change.
+/// the existing foreground-refresh path on next launch). Friendship and
+/// recipe-import pushes stay silent; rendering "X accepted your friend
+/// request" would need more denormalized schema than those flows currently
+/// carry.
 ///
 /// **Idempotency.** `save(subscription)` upserts by
 /// `subscriptionID`, so calling `registerIfNeeded` on every
@@ -67,7 +73,9 @@ enum CloudKitSubscriptions {
     /// added: existing users had already stamped `.v1` for their record ID
     /// and would otherwise skip re-registration and never pick up the new
     /// grocery streams. The version bump forces one re-register pass.
-    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v2"
+    /// Bumped `.v2` → `.v3` when the out-of-stock grocery alert subscription
+    /// was added.
+    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v3"
 
     /// SHA-256 of the most recent APNs device token we observed at
     /// registration time. CKQuerySubscription delivery is bound to
@@ -122,6 +130,12 @@ enum CloudKitSubscriptions {
     /// see a shopper's check-offs live, without a banner for my own edits.
     static func groceryOwnerSubscriptionID(for me: String) -> String {
         "grocery-list-events-owner-\(me)"
+    }
+
+    /// Creation-only visible alerts when someone shopping one of my shared
+    /// lists taps `!` because an item is unavailable.
+    static func groceryAlertSubscriptionID(for me: String) -> String {
+        "grocery-list-alerts-\(me)"
     }
 
     // MARK: - Register
@@ -214,7 +228,7 @@ enum CloudKitSubscriptions {
         _ = try await CloudKitService.publicDB.save(subscription)
     }
 
-    /// Two grocery-share subscriptions — the only VISIBLE push in the app.
+    /// Grocery-share subscriptions.
     ///
     /// - **Recipient** (`recipientIDs CONTAINS me`): fires on create +
     ///   update with a banner ("Your shared grocery list was updated").
@@ -224,6 +238,8 @@ enum CloudKitSubscriptions {
     /// - **Owner** (`ownerID == me`): silent, update-only. Refreshes my
     ///   app so I watch a shopper tick items off live — but no banner,
     ///   since most updates on my own record are my own edits.
+    /// - **Owner alert** (`GroceryListAlert.ownerID == me`): visible,
+    ///   creation-only. Fires when a shopper flags an item unavailable.
     private static func registerGrocerySubscriptions(for me: String) async throws {
         // Recipient — visible.
         let recipientSub = CKQuerySubscription(
@@ -253,6 +269,34 @@ enum CloudKitSubscriptions {
         ownerInfo.shouldBadge = false
         ownerSub.notificationInfo = ownerInfo
         _ = try await CloudKitService.publicDB.save(ownerSub)
+
+        // Owner alert — visible, creation-only, only for `!` events.
+        let alertSub = CKQuerySubscription(
+            recordType: CloudGroceryListService.alertRecordType,
+            predicate: NSPredicate(format: "ownerID == %@", me),
+            subscriptionID: groceryAlertSubscriptionID(for: me),
+            options: [.firesOnRecordCreation]
+        )
+        let alertInfo = CKSubscription.NotificationInfo()
+        alertInfo.shouldSendContentAvailable = true
+        alertInfo.shouldBadge = false
+        alertInfo.title = "Item unavailable"
+        alertInfo.alertBody = "Someone couldn't find an item on your shared grocery list."
+        alertInfo.soundName = "default"
+        alertSub.notificationInfo = alertInfo
+        _ = try await CloudKitService.publicDB.save(alertSub)
+    }
+
+    // MARK: - Visible notification permission
+
+    /// Visible CloudKit pushes still need normal iOS notification
+    /// authorization. Ask lazily from grocery-sharing surfaces instead of at
+    /// launch, so the prompt is tied to the feature that needs banners.
+    static func requestVisibleNotificationAuthorizationIfNeeded() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
     }
 
     // MARK: - APNs token rotation
@@ -283,7 +327,7 @@ enum CloudKitSubscriptions {
 
     // MARK: - Unregister
 
-    /// Cleanup on sign-out / account-deletion. Drops both
+    /// Cleanup on sign-out / account-deletion. Drops this user's
     /// subscriptions server-side so pushes stop firing against
     /// this device's APNs token after the user leaves. Local
     /// UserDefaults flag clears regardless of network success
@@ -297,6 +341,7 @@ enum CloudKitSubscriptions {
             recipeImportSubscriptionID(for: me),
             groceryRecipientSubscriptionID(for: me),
             groceryOwnerSubscriptionID(for: me),
+            groceryAlertSubscriptionID(for: me),
         ]
         for id in ids {
             _ = try? await CloudKitService.publicDB.deleteSubscription(withID: id)
@@ -361,7 +406,8 @@ enum CloudKitSubscriptions {
             kind = .friendship
         } else if subscriptionID.hasPrefix("recipe-import-events-") {
             kind = .recipeImport
-        } else if subscriptionID.hasPrefix("grocery-list-events-") {
+        } else if subscriptionID.hasPrefix("grocery-list-events-") ||
+                    subscriptionID.hasPrefix("grocery-list-alerts-") {
             kind = .groceryList
         } else {
             kind = nil

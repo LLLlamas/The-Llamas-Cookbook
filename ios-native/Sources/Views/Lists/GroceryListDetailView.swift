@@ -33,6 +33,7 @@ struct GroceryListDetailView: View {
     /// own `item`-binding reset so `onDismiss` can push any note change to
     /// the cloud for a shared list.
     @State private var noteSyncItem: GroceryItem?
+    @State private var noteSyncInitialAvailability: AvailabilitySnapshot?
     @State private var showingShare = false
     @FocusState private var addFieldFocused: Bool
 
@@ -64,6 +65,10 @@ struct GroceryListDetailView: View {
     }
 
     private var showsAisleHeaders: Bool { sections.count > 1 }
+
+    private var liveSyncKey: String {
+        "\(list.id.uuidString)|\(list.shareRecordName ?? "local")"
+    }
 
     /// Extra runway under the add-item bar so a minimized Cook-Mode pill
     /// (painted by `CookingPillsOverlay` over this tab's bottom edge)
@@ -139,7 +144,17 @@ struct GroceryListDetailView: View {
             if isOwner { addItemBar }
         }
         .overlay { triagingOverlay }
-        .task { await autoTriage() }
+        .task(id: liveSyncKey) {
+            await autoTriage()
+            await runVisibleSharedListSync()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CloudKitSubscriptions.didFireNotification)) { note in
+            guard list.isShared,
+                  let kindRaw = note.userInfo?["kind"] as? String,
+                  CloudKitSubscriptions.FiredKind(rawValue: kindRaw) == .groceryList
+            else { return }
+            Task { await groceryStore.refreshSharedList(list) }
+        }
         .sheet(item: $helperItem, onDismiss: pushHelperNoteIfShared) { item in
             ItemHelperSheet(item: item)
                 .presentationDetents([.medium, .large])
@@ -214,6 +229,7 @@ struct GroceryListDetailView: View {
                             onHelp: {
                                 helperItem = item
                                 noteSyncItem = item
+                                noteSyncInitialAvailability = AvailabilitySnapshot(item)
                             }
                         )
                         .listRowBackground(Color.clear)
@@ -353,6 +369,21 @@ struct GroceryListDetailView: View {
         syncStructureIfShared()
     }
 
+    /// Keep the currently-open shared list fresh. CloudKit pushes should
+    /// usually drive this immediately; the short single-record polling loop
+    /// covers delayed/missed pushes without forcing the user to leave Detail
+    /// and re-enter the Lists tab to trigger its broader refresh.
+    private func runVisibleSharedListSync() async {
+        guard list.isShared else { return }
+        await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
+        await groceryStore.refreshSharedList(list)
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, list.isShared else { return }
+            await groceryStore.refreshSharedList(list)
+        }
+    }
+
     /// User-initiated "Sort by aisle" — re-classifies every item's aisle,
     /// behind a 1 s overlay debounce so the instant heuristic path never
     /// flashes the scrim.
@@ -417,7 +448,7 @@ struct GroceryListDetailView: View {
         list.touch()
         if item.outOfStock { Haptics.warning() } else { Haptics.selection() }
         if list.isShared {
-            Task { await groceryStore.pushNote(item) }
+            Task { await groceryStore.pushNote(item, notifyOwner: item.outOfStock) }
         }
     }
 
@@ -453,13 +484,35 @@ struct GroceryListDetailView: View {
     /// Push a note change made through the helper sheet ("they're out of
     /// oat milk") to the shared record, for the item that was open.
     private func pushHelperNoteIfShared() {
-        guard list.isShared, let item = noteSyncItem else {
+        guard let item = noteSyncItem else {
             noteSyncItem = nil
+            noteSyncInitialAvailability = nil
             return
         }
         let captured = item
+        let current = AvailabilitySnapshot(captured)
+        let changed = noteSyncInitialAvailability != current
         noteSyncItem = nil
-        Task { await groceryStore.pushNote(captured) }
+        noteSyncInitialAvailability = nil
+        guard changed else { return }
+        list.touch()
+        guard list.isShared else { return }
+        Task {
+            await groceryStore.pushNote(
+                captured,
+                notifyOwner: current.outOfStock
+            )
+        }
+    }
+}
+
+private struct AvailabilitySnapshot: Equatable {
+    let outOfStock: Bool
+    let substitution: String?
+
+    init(_ item: GroceryItem) {
+        outOfStock = item.outOfStock
+        substitution = item.substitution.trimmedIfNonEmpty
     }
 }
 
@@ -516,7 +569,7 @@ private struct GroceryItemRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("What is \(item.name)? Or mark unavailable")
+            .accessibilityLabel("What is \(item.name)?")
 
             Button(action: onToggleOutOfStock) {
                 Image(systemName: item.outOfStock ? "exclamationmark.circle.fill" : "exclamationmark.circle")
@@ -555,7 +608,6 @@ private struct GroceryItemRow: View {
     }
 }
 
-// (Removed `GrocerySwapSheet` + `GlassChipBackground` — superseded by
-// origin's `ItemHelperSheet` (the live "?" helper, backed by
-// `GroceryKnowledge` + `IngredientAssistant`) and the have/need axis being
-// dropped. `IngredientVisual` lives on, now wired into `ItemHelperSheet`.)
+// (Removed `GrocerySwapSheet` + `GlassChipBackground` — superseded by the
+// live "?" helper and the separate "!" unavailable flag. The have/need axis
+// was dropped.)

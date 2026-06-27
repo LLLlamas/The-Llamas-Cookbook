@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Observation
+import CloudKit
 
 /// Coordinator for the app-to-app shared grocery list — the live
 /// "husband at the store" checklist. Owns three jobs:
@@ -93,6 +94,40 @@ final class GroceryListStore {
         }
     }
 
+    /// Pull just the cloud record backing the currently-open detail view.
+    /// Used by `GroceryListDetailView` for push-driven refreshes and a
+    /// lightweight active-screen polling fallback, so shoppers do not have
+    /// to pop back to Lists before they see what someone else bought.
+    func refreshSharedList(_ list: GroceryList) async {
+        guard let context = modelContext,
+              let recordName = list.shareRecordName else { return }
+        do {
+            let snapshot = try await CloudGroceryListService.fetchShare(recordName: recordName)
+            if list.ownerIsMe {
+                list.ownerID = snapshot.ownerID
+                list.sharedRecipientIDs = snapshot.recipientIDs
+                _ = applyLiveState(snapshot.items, to: list)
+                list.updatedAt = snapshot.updatedAt
+            } else {
+                list.name = snapshot.listName
+                list.ownerName = snapshot.ownerName.isEmpty ? nil : snapshot.ownerName
+                list.ownerID = snapshot.ownerID
+                list.shareRecordName = snapshot.recordName
+                applyItems(snapshot.items, to: list, in: context, ownerAuthoritative: true)
+                list.updatedAt = snapshot.updatedAt
+            }
+        } catch let ckError as CKError where ckError.code == .unknownItem {
+            if list.ownerIsMe {
+                clearSharingMetadata(on: list)
+                list.touch()
+            } else {
+                context.delete(list)
+            }
+        } catch {
+            // Best-effort; the active-screen polling loop / next push retries.
+        }
+    }
+
     // MARK: - Reconcile (recipient mirrors)
 
     private func reconcileReceived(_ snapshots: [GroceryShareSnapshot], in context: ModelContext) {
@@ -129,6 +164,7 @@ final class GroceryListStore {
             }
             list.name = snapshot.listName
             list.ownerName = snapshot.ownerName.isEmpty ? nil : snapshot.ownerName
+            list.ownerID = snapshot.ownerID
             list.shareRecordName = snapshot.recordName
             applyItems(snapshot.items, to: list, in: context, ownerAuthoritative: true)
             list.updatedAt = snapshot.updatedAt
@@ -148,7 +184,10 @@ final class GroceryListStore {
             }
             // The owner owns the item *structure*; only the live
             // check/note state flows back down onto existing rows.
-            applyLiveState(snapshot.items, to: list)
+            list.ownerID = snapshot.ownerID
+            list.sharedRecipientIDs = snapshot.recipientIDs
+            _ = applyLiveState(snapshot.items, to: list)
+            list.updatedAt = snapshot.updatedAt
         }
     }
 
@@ -186,7 +225,8 @@ final class GroceryListStore {
             item.unit = state.meta.unit
             item.aisle = state.meta.aisle
             item.isChecked = state.isChecked
-            item.substitution = state.note
+            item.outOfStock = state.outOfStock
+            item.substitution = state.substitution
             item.order = state.index
             item.shareIndex = state.index
         }
@@ -202,16 +242,29 @@ final class GroceryListStore {
 
     /// Owner path: keep my local structure, only sync the live mutable
     /// fields (check + note) down onto rows I already have.
-    private func applyLiveState(_ states: [SharedGroceryItemState], to list: GroceryList) {
+    @discardableResult
+    private func applyLiveState(_ states: [SharedGroceryItemState], to list: GroceryList) -> Bool {
         var byIndex: [Int: GroceryItem] = [:]
         for item in list.items {
             if let idx = item.shareIndex { byIndex[idx] = item }
         }
+        var changed = false
         for state in states {
             guard let item = byIndex[state.index] else { continue }
-            item.isChecked = state.isChecked
-            item.substitution = state.note
+            if item.isChecked != state.isChecked {
+                item.isChecked = state.isChecked
+                changed = true
+            }
+            if item.outOfStock != state.outOfStock {
+                item.outOfStock = state.outOfStock
+                changed = true
+            }
+            if item.substitution != state.substitution {
+                item.substitution = state.substitution
+                changed = true
+            }
         }
+        return changed
     }
 
     // MARK: - Share / unshare (owner)
@@ -245,7 +298,12 @@ final class GroceryListStore {
                 aisle: item.aisle
             ))
             checkedByIndex[i] = item.isChecked
-            if let sub = item.substitution, !sub.isEmpty { noteByIndex[i] = sub }
+            if let note = CloudGroceryListService.encodeAvailabilityNote(
+                outOfStock: item.outOfStock,
+                substitution: item.substitution
+            ) {
+                noteByIndex[i] = note
+            }
         }
         // Rows past the cap can't sync live — clear any stale index.
         for item in list.sortedItems.dropFirst(CloudGroceryListService.maxSharedItems) {
@@ -269,6 +327,7 @@ final class GroceryListStore {
         }
 
         list.shareRecordName = recordName
+        list.ownerID = ownerID
         list.sharedRecipientIDs = recipientIDs
         list.sharedWithName = recipientLabel
         list.touch()
@@ -301,17 +360,41 @@ final class GroceryListStore {
         )
     }
 
-    /// Push a single item's shopper note / substitution.
-    func pushNote(_ item: GroceryItem) async {
+    /// Push a single item's shopper availability note / substitution.
+    /// `notifyOwner` creates a separate one-shot alert record after the note
+    /// save succeeds, so the owner gets a visible push for the shopper's `!`
+    /// without turning every check-off into a banner.
+    func pushNote(_ item: GroceryItem, notifyOwner: Bool = false) async {
         guard let list = item.list, list.isShared,
               let recordName = list.shareRecordName,
               let index = item.shareIndex else { return }
-        try? await CloudGroceryListService.setItemNote(
-            recordName: recordName,
-            index: index,
-            note: item.substitution,
-            revisedByName: myDisplayName
-        )
+        let outOfStock = item.outOfStock
+        let substitution = item.substitution
+        let shouldNotifyOwner = notifyOwner && outOfStock && !list.ownerIsMe
+        let ownerID = list.ownerID
+        let listName = list.name
+        let itemName = item.name
+        do {
+            try await CloudGroceryListService.setItemNote(
+                recordName: recordName,
+                index: index,
+                outOfStock: outOfStock,
+                substitution: substitution,
+                revisedByName: myDisplayName
+            )
+            if shouldNotifyOwner, let ownerID, !ownerID.isEmpty {
+                try? await CloudGroceryListService.createOutOfStockAlert(
+                    ownerID: ownerID,
+                    listRecordName: recordName,
+                    listName: listName,
+                    itemName: itemName,
+                    shopperName: myDisplayName
+                )
+            }
+        } catch {
+            // Best-effort; local optimistic state remains and the next refresh
+            // reconciles against CloudKit.
+        }
     }
 
     /// Re-upload the full item set after the owner adds/removes rows on an
@@ -344,6 +427,7 @@ final class GroceryListStore {
 
     private func clearSharingMetadata(on list: GroceryList) {
         list.shareRecordName = nil
+        list.ownerID = nil
         list.sharedRecipientIDs = []
         list.sharedWithName = nil
         for item in list.items { item.shareIndex = nil }

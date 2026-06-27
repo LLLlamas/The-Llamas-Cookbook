@@ -60,4 +60,31 @@ final class GroceryListTests: XCTestCase {
         XCTAssertTrue(list.isAllSet)
         XCTAssertFalse(list.isOpen)
     }
+
+    func testSharedAvailabilityNoteEncoding() {
+        XCTAssertNil(CloudGroceryListService.encodeAvailabilityNote(
+            outOfStock: false,
+            substitution: nil
+        ))
+        XCTAssertEqual(CloudGroceryListService.encodeAvailabilityNote(
+            outOfStock: true,
+            substitution: nil
+        ), "out")
+        XCTAssertEqual(CloudGroceryListService.encodeAvailabilityNote(
+            outOfStock: true,
+            substitution: "  almond milk  "
+        ), "sub:almond milk")
+
+        let out = CloudGroceryListService.decodeAvailabilityNote("out")
+        XCTAssertTrue(out.outOfStock)
+        XCTAssertNil(out.substitution)
+
+        let swap = CloudGroceryListService.decodeAvailabilityNote("sub:margarine")
+        XCTAssertTrue(swap.outOfStock)
+        XCTAssertEqual(swap.substitution, "margarine")
+
+        let legacy = CloudGroceryListService.decodeAvailabilityNote("brown eggs")
+        XCTAssertTrue(legacy.outOfStock)
+        XCTAssertEqual(legacy.substitution, "brown eggs")
+    }
 }

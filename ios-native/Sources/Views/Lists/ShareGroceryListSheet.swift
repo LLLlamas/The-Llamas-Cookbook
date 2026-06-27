@@ -240,6 +240,7 @@ struct ShareGroceryListSheet: View {
         )
         isSharing = false
         if ok {
+            await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
             Haptics.success()
             dismiss()
         } else {

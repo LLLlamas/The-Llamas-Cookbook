@@ -249,7 +249,8 @@ final class UserAccount {
                 // `deleteAllRecipeImports` for the
                 // hard-delete-vs-anonymize tradeoff.
                 await CloudKitService.deleteAllRecipeImports(for: me)
-                // Cascade: every GroceryListShare record this user owns.
+                // Cascade: every GroceryListShare / GroceryListAlert record
+                // this user owns.
                 // Recipients' mirrors fall away on their next refresh once
                 // the source record is gone.
                 await CloudGroceryListService.deleteAllOwned(ownerID: me)

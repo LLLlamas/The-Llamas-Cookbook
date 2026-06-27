@@ -1,13 +1,9 @@
 import SwiftUI
 
-/// The per-item "?" helper. Two jobs for whoever's at the store:
-///   • **What is this?** — an on-device blurb (what it is + which aisle) for
-///     a shopper who doesn't recognize the item, plus a "See photos" link to
-///     a web image search (the on-device model is text-only).
-///   • **They don't have this** — flags the item out-of-stock and surfaces
-///     substitute swaps (researched reference first, then the model). In a
-///     shared list this also pings the cook (Phase 6/8); for a local list it
-///     just records the swap the shopper picks.
+/// The per-item "?" helper. Recognition only: an actual searched photo when
+/// one is available, an on-device blurb for a shopper who doesn't recognize
+/// the item, and a web image search fallback. Out-of-stock lives only in the
+/// row's separate "!" button.
 struct ItemHelperSheet: View {
     @Bindable var item: GroceryItem
 
@@ -17,9 +13,8 @@ struct ItemHelperSheet: View {
 
     @State private var blurb: String?
     @State private var loadingBlurb = true
-    @State private var substitutes: [String] = []
-    @State private var loadingSubs = false
-    @State private var revealedSubs = false
+    @State private var photo: IngredientPhotoLookup.Result?
+    @State private var loadingPhoto = true
 
     private var accent: Color { appearance.cookbookTitleAccentColor }
 
@@ -27,7 +22,6 @@ struct ItemHelperSheet: View {
         NavigationStack {
             List {
                 whatIsItSection
-                outOfStockSection
             }
             .navigationTitle(item.name.capitalized)
             .navigationBarTitleDisplayMode(.inline)
@@ -37,7 +31,7 @@ struct ItemHelperSheet: View {
                     Button("Done") { dismiss() }.foregroundStyle(accent)
                 }
             }
-            .task { await loadBlurb() }
+            .task(id: item.id) { await loadContent() }
         }
     }
 
@@ -45,17 +39,7 @@ struct ItemHelperSheet: View {
 
     private var whatIsItSection: some View {
         Section("What is it?") {
-            // A quick, offline visual cue when we confidently recognize the
-            // item (`IngredientVisual`) — instant in-app recognition; the
-            // "See photos" button below opens real photographs on the web.
-            if IngredientVisual.hasGlyph(for: item.name) {
-                HStack {
-                    Spacer()
-                    IngredientGlyphView(itemName: item.name, size: 56, accent: accent)
-                    Spacer()
-                }
-                .listRowBackground(Color.clear)
-            }
+            photoCard
             if loadingBlurb {
                 HStack(spacing: AppSpacing.sm) {
                     ProgressView().tint(accent)
@@ -77,95 +61,87 @@ struct ItemHelperSheet: View {
                 Haptics.selection()
                 openURL(imageSearchURL)
             } label: {
-                Label("See photos", systemImage: "photo.on.rectangle.angled")
+                Label(photo == nil ? "Search photos" : "More photos", systemImage: "photo.on.rectangle.angled")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(accent)
             }
         }
     }
 
-    // MARK: - Out of stock
-
     @ViewBuilder
-    private var outOfStockSection: some View {
-        Section("Can't find it?") {
-            if let swap = item.substitution, !swap.isEmpty {
-                HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "arrow.triangle.swap")
-                        .foregroundStyle(accent)
-                    Text("Getting \(swap) instead")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(AppColor.textPrimary)
-                }
-                Button("Clear substitute", role: .destructive) {
-                    item.substitution = nil
-                    item.outOfStock = false
-                }
-                .font(.system(size: 14, weight: .semibold))
-            } else if revealedSubs {
-                if loadingSubs {
-                    HStack(spacing: AppSpacing.sm) {
-                        ProgressView().tint(accent)
-                        Text("Finding swaps…")
-                            .font(AppFont.caption)
-                            .foregroundStyle(AppColor.textSecondary)
-                    }
-                } else if substitutes.isEmpty {
-                    Text("No common swap on hand — tap “See photos” above, or check with whoever's cooking.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(AppColor.textSecondary)
-                } else {
-                    Text("Tap a swap to use it:")
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                    ForEach(substitutes, id: \.self) { swap in
-                        Button {
-                            choose(swap)
-                        } label: {
-                            HStack(spacing: AppSpacing.sm) {
-                                Image(systemName: "arrow.right.circle")
-                                    .foregroundStyle(accent)
-                                Text(swap)
-                                    .font(.system(size: 15))
-                                    .foregroundStyle(AppColor.textPrimary)
-                                    .multilineTextAlignment(.leading)
-                            }
-                        }
+    private var photoCard: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: AppRadius.md)
+                .fill(AppColor.surface)
+            if let photo {
+                AsyncImage(url: photo.imageURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        photoPlaceholder
+                    case .empty:
+                        ProgressView()
+                            .tint(accent)
+                    @unknown default:
+                        photoPlaceholder
                     }
                 }
+            } else if loadingPhoto {
+                ProgressView()
+                    .tint(accent)
             } else {
-                Button {
-                    Task { await flagOutOfStock() }
-                } label: {
-                    Label("They don't have this", systemImage: "exclamationmark.circle")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.orange)
-                }
+                photoPlaceholder
             }
         }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(16.0 / 10.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .overlay(alignment: .bottomTrailing) {
+            if let sourceURL = photo?.sourceURL {
+                Button {
+                    Haptics.selection()
+                    openURL(sourceURL)
+                } label: {
+                    Image(systemName: "link")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(AppColor.onAccent)
+                        .frame(width: 30, height: 30)
+                        .background(accent.opacity(0.9), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(AppSpacing.sm)
+                .accessibilityLabel("Open photo source")
+            }
+        }
+        .listRowInsets(EdgeInsets(top: AppSpacing.sm, leading: AppSpacing.lg, bottom: AppSpacing.sm, trailing: AppSpacing.lg))
+    }
+
+    private var photoPlaceholder: some View {
+        VStack(spacing: AppSpacing.sm) {
+            Image(systemName: "photo")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(accent.opacity(0.65))
+            Text("Photo unavailable")
+                .font(AppFont.caption)
+                .foregroundStyle(AppColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Actions
 
-    private func loadBlurb() async {
-        blurb = await IngredientAssistant.describe(item.name)
+    private func loadContent() async {
+        loadingBlurb = true
+        loadingPhoto = true
+        async let fetchedBlurb = IngredientAssistant.describe(item.name)
+        async let fetchedPhoto = IngredientPhotoLookup.fetch(for: item.name)
+        blurb = await fetchedBlurb
+        photo = await fetchedPhoto
         loadingBlurb = false
-    }
-
-    private func flagOutOfStock() async {
-        Haptics.warning()
-        item.outOfStock = true
-        revealedSubs = true
-        loadingSubs = true
-        substitutes = await IngredientAssistant.suggestSubstitutes(for: item.name)
-        loadingSubs = false
-    }
-
-    private func choose(_ swap: String) {
-        item.substitution = swap
-        item.outOfStock = true
-        Haptics.success()
-        dismiss()
+        loadingPhoto = false
     }
 
     private var imageSearchURL: URL {

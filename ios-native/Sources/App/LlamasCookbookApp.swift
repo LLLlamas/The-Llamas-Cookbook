@@ -151,7 +151,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         // Kick off the APNs registration handshake so CloudKit's
-        // silent CKQuerySubscription pushes can reach the app.
+        // silent and visible CKQuerySubscription pushes can reach the app.
         // iOS calls back through one of the two
         // `didRegister…` / `didFailToRegister…` methods below;
         // CloudKit auto-routes pushes via the device token, so
@@ -194,12 +194,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Self.logger.error("APNs registration failed: \(error.localizedDescription, privacy: .public)")
     }
 
-    /// Silent CKQuerySubscription push receipt. The payload's
+    /// CKQuerySubscription push receipt. The payload's
     /// shape is fully determined by CloudKit (we don't custom-
     /// craft anything in the push); `CloudKitSubscriptions`
-    /// inspects the subscriptionID to figure out which of our
-    /// two streams fired and posts a NotificationCenter event
-    /// for in-app observers (FriendsStore, RecipeDetailView).
+    /// inspects the subscriptionID to figure out which stream fired
+    /// and posts a NotificationCenter event for in-app observers
+    /// (FriendsStore, RecipeDetailView, GroceryListStore).
     /// Returning `.newData` so iOS knows we acted on the push
     /// (better future-proofing if Apple ever throttles apps
     /// that report `.noData` repeatedly).
