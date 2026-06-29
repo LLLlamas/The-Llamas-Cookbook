@@ -35,10 +35,11 @@ testing/
 .wrangler/
 
 # Local planning docs, design handoffs, prior audits — kept on disk for
-# reference but not shipped or shared in the repo. CLAUDE.md and README.md
-# remain at root (CLAUDE.md is the agent source of truth; README.md is the
-# GitHub front door). Add new planning notes to md_files/.
+# reference but not shipped or shared in the repo. README.md remains the
+# GitHub front door; local agent notes belong in CLAUDE.md or md_files/.
 md_files/
+/CLAUDE.md
+/claude.md
 
 # Editor / OS scratch
 .idea/

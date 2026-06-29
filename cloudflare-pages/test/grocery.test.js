@@ -36,12 +36,32 @@ describe('grocery constants', () => {
   it('AISLE_FALLBACK is in AISLE_ORDER', () => {
     expect(AISLE_ORDER).toContain(AISLE_FALLBACK);
   });
+  it('has the full 22-department store-walk taxonomy', () => {
+    expect(AISLE_ORDER).toHaveLength(22);
+  });
+  it('includes the new center-store departments', () => {
+    for (const aisle of [
+      'Deli', 'Breakfast & Cereal', 'Canned & Jarred', 'Condiments & Sauces',
+      'Pasta, Rice & Grains', 'Baking', 'Snacks', 'International',
+    ]) {
+      expect(AISLE_ORDER).toContain(aisle);
+    }
+  });
+  it('keeps the backward-compat Pantry & Dry Goods bucket', () => {
+    expect(AISLE_ORDER).toContain('Pantry & Dry Goods');
+  });
   it('includes the non-food departments after Beverages and before Other', () => {
     for (const aisle of ['Baby', 'Health & Pharmacy', 'Personal Care', 'Pet']) {
       expect(AISLE_ORDER).toContain(aisle);
     }
     expect(AISLE_ORDER.indexOf('Health & Pharmacy')).toBeGreaterThan(AISLE_ORDER.indexOf('Beverages'));
     expect(AISLE_ORDER.indexOf('Pet')).toBeLessThan(AISLE_ORDER.indexOf('Other'));
+  });
+  it('orders the new perimeter/center aisles correctly', () => {
+    // Deli sits right after Produce; the dry center aisles precede Beverages.
+    expect(AISLE_ORDER.indexOf('Deli')).toBe(AISLE_ORDER.indexOf('Produce') + 1);
+    expect(AISLE_ORDER.indexOf('Baking')).toBeGreaterThan(AISLE_ORDER.indexOf('Canned & Jarred'));
+    expect(AISLE_ORDER.indexOf('International')).toBeLessThan(AISLE_ORDER.indexOf('Beverages'));
   });
   it('field names are check<N> / note<N>', () => {
     expect(checkFieldName(0)).toBe('check0');
@@ -60,6 +80,13 @@ describe('normalizeAisle', () => {
     expect(normalizeAisle('  dairy & eggs ')).toBe('Dairy & Eggs');
     expect(normalizeAisle('health & pharmacy')).toBe('Health & Pharmacy');
     expect(normalizeAisle(' Personal Care ')).toBe('Personal Care');
+  });
+  it('passes through the new center-store departments', () => {
+    expect(normalizeAisle('canned & jarred')).toBe('Canned & Jarred');
+    expect(normalizeAisle('  condiments & sauces')).toBe('Condiments & Sauces');
+    expect(normalizeAisle('pasta, rice & grains')).toBe('Pasta, Rice & Grains');
+    expect(normalizeAisle('INTERNATIONAL')).toBe('International');
+    expect(normalizeAisle('Deli')).toBe('Deli');
   });
   it('maps unknown / empty / null to Other', () => {
     expect(normalizeAisle('Garden Center')).toBe('Other');
@@ -158,6 +185,21 @@ describe('groupByAisle', () => {
     const sections = groupByAisle([{ name: 'Batteries', aisle: 'Hardware', order: 0 }]);
     expect(sections).toHaveLength(1);
     expect(sections[0].aisle).toBe('Other');
+  });
+
+  it('orders the new center-store departments by store-walk', () => {
+    const items = [
+      { name: 'Soy sauce', aisle: 'Condiments & Sauces', order: 0 },
+      { name: 'Spaghetti', aisle: 'Pasta, Rice & Grains', order: 1 },
+      { name: 'Flour', aisle: 'Baking', order: 2 },
+      { name: 'Black beans (canned)', aisle: 'Canned & Jarred', order: 3 },
+      { name: 'Tortilla chips', aisle: 'Snacks', order: 4 },
+      { name: 'Sliced turkey', aisle: 'Deli', order: 5 },
+    ];
+    const sections = groupByAisle(items);
+    expect(sections.map((s) => s.aisle)).toEqual([
+      'Deli', 'Canned & Jarred', 'Condiments & Sauces', 'Pasta, Rice & Grains', 'Baking', 'Snacks',
+    ]);
   });
 });
 

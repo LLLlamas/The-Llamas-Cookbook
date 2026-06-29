@@ -129,7 +129,7 @@ enum IngredientAssistant {
     struct TriagedItem {
         @Guide(description: "The item's number from the input list.")
         let index: Int
-        @Guide(description: "Grocery aisle. Choose exactly one of: Produce, Bakery, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Spices, Beverages, Baby, Health & Pharmacy, Personal Care, Household, Pet, Other.")
+        @Guide(description: "Grocery aisle. Choose exactly one of: Produce, Deli, Bakery, Meat & Seafood, Dairy & Eggs, Frozen, Breakfast & Cereal, Canned & Jarred, Condiments & Sauces, Pasta, Rice & Grains, Baking, Spices, Snacks, International, Beverages, Pantry & Dry Goods, Baby, Health & Pharmacy, Personal Care, Household, Pet, Other.")
         let aisle: String
     }
 
@@ -142,11 +142,43 @@ enum IngredientAssistant {
     // MARK: - Instructions (grounded by GroceryKnowledge)
 
     private static let triageInstructions = """
-    You sort items on a grocery / drugstore shopping list. For each numbered item, pick the single best aisle from EXACTLY this list: \(GroceryKnowledge.aisleVocabulary). These include non-food departments: Baby (diapers, formula), Health & Pharmacy (OTC meds, vitamins, first aid — e.g. Tylenol, Benadryl, Bonine), Personal Care (soap, shampoo, toothpaste, deodorant, skincare — e.g. Cerave), Household (cleaning, paper goods, laundry), and Pet. Use each item's own number as its index. Never invent items and never change their names.
+    You sort items on a grocery / drugstore shopping list into store departments. For each numbered item, pick the single best aisle from EXACTLY this list: \(GroceryKnowledge.aisleVocabulary). Use each item's own number as its index. Never invent items and never change their names.
+
+    What each department holds:
+    \(triageHints)
+
+    Tie-breakers: a more specific form wins over the generic one — dried/ground "garlic powder" is Spices not Produce; a canned/jarred form is Canned & Jarred not the fresh aisle; "baby <item>" is Baby; an OTC medicine with a brand name is Health & Pharmacy. Use Pantry & Dry Goods only when no more specific center aisle fits, and Other only when nothing matches.
+    """
+
+    /// Compact per-department guidance handed to the triage prompt so the
+    /// model knows what each of the new center/non-food aisles holds.
+    /// Sourced from the researched grocery taxonomy.
+    private static let triageHints = """
+    - Produce: Fresh whole fruit, vegetables, fresh-cut herbs, fresh garlic/ginger, refrigerated tofu/guacamole at the produce edge. NOT dried, canned, frozen, or jarred versions.
+    - Deli: Refrigerated sliced cold cuts, cured meats, deli-counter cheese, rotisserie chicken, and refrigerated dips/spreads (hummus, tzatziki) + prepared salads.
+    - Bakery: Fresh bread, rolls, buns, bagels, tortillas, pita/naan, and sweet bakery (croissants, muffins, cake). NOT crackers/cookies (Snacks) or mixes (Baking).
+    - Meat & Seafood: Raw/fresh meat, poultry, pork, bacon, fresh sausage, and fresh/raw fish & shellfish. NOT canned, frozen-breaded, deli-sliced, or jerky.
+    - Dairy & Eggs: Refrigerated milk & plant-milk cartons, butter, eggs, yogurt, packaged cheese, sour cream, refrigerated tofu/dough. NOT canned/condensed/evaporated milk (Baking).
+    - Frozen: Anything sold frozen: vegetables, fruit, meals, pizza, ice cream, frozen breakfast, frozen seafood, ice. The word 'frozen' is decisive.
+    - Breakfast & Cereal: Boxed cereal, oatmeal/oats, hot cereal, granola, toaster pastries, pancake/waffle mix, breakfast syrups. NOT frozen waffles/pancakes (Frozen).
+    - Canned & Jarred: Shelf-stable cans/jars: tomatoes, canned beans, canned veg/fruit, canned fish, broth/stock, soup. Plain canned 'tomato sauce' lives here, seasoned pasta sauce does not.
+    - Condiments & Sauces: Bottled/jarred table condiments, dressings, hot sauce, jarred pasta sauce & salsa, pickles & olives, nut-butter spreads, jams/jelly, table vinegars, honey.
+    - Pasta, Rice & Grains: Dry pasta & noodles, rice, quinoa and other grains, and DRIED beans/lentils. Canned beans go to Canned & Jarred; flours go to Baking.
+    - Baking: Flour, sugar, leaveners, extracts, baking chocolate/chips & cocoa, baking mixes, cooking oils, canned condensed/evaporated milk, baking nuts & raisins.
+    - Spices: Dried/ground spices & herbs, salt & pepper, seasoning blends and rubs. Dried forms win over the fresh produce equivalent.
+    - Snacks: Chips, crackers, cookies, pretzels, popcorn, candy/chocolate bars, snack/granola bars, jerky, trail mix & snacking nuts, fruit snacks, shelf-stable snack cups.
+    - International: Ethnic-aisle staples: Asian sauces/noodles, curry pastes, canned coconut milk, Hispanic masa/chiles/sauces, Indian dals/masalas, Mediterranean & Kosher specialties.
+    - Beverages: Coffee, tea, soda, sparkling & bottled water, shelf-stable juice, sports/energy drinks, drink mixes, and all alcohol.
+    - Pantry & Dry Goods: Catch-all for shelf-stable items that don't fit a more specific center aisle (e.g. plain olive oil, breadcrumbs); also the backward-compat bucket for already-stored values.
+    - Baby: Diapers, wipes, formula, baby food, and baby-care toiletries. 'Baby <item>' always wins over the generic toiletry.
+    - Health & Pharmacy: OTC medicine (brand + active ingredient), first aid, vitamins & supplements, eye/family-planning care.
+    - Personal Care: Hair, skin, oral, shave, deodorant, cosmetics, feminine care, sun care, and personal hygiene toiletries.
+    - Household: Cleaning supplies, laundry/dish products, paper goods, foil/wraps/bags, batteries, bulbs, and general home/utility items.
+    - Pet: Pet food, treats, litter, and pet-care supplies for any animal.
     """
 
     private static let describeInstructions = """
-    You help a shopper who doesn't recognize an item on their grocery / drugstore list. In ONE short clause of about 12 words or fewer, say what it is and which aisle to find it. Handle non-food items too (e.g. "Bonine — motion-sickness tablets, usually the pharmacy aisle."). No markdown, no lists, no full paragraphs.
+    You help a shopper who doesn't recognize an item on their grocery / drugstore list. In ONE short clause of about 12 words or fewer, say what it is and which aisle to find it. For a non-food product, lead with its generic CATEGORY and primary use, not a recipe-style line, and add the brand only as an aside — e.g. "Swiffer — floor-cleaning wet/dry mop, the cleaning aisle." For an OTC medicine, name the active ingredient in parentheses (e.g. "Tylenol — pain/fever reliever (acetaminophen), the pharmacy aisle."). For an ambiguous brand word (Dove, Bounty, Gain, Secret) pick the grocery sense, not the homonym. Stay factual: no marketing language, and never invent dosages, sizes, or health claims. No markdown, no lists, no full paragraphs.
     """
 
     private static let substituteInstructions = """
