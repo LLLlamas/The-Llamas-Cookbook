@@ -16,8 +16,8 @@ import {
 // Build a CloudKit-shaped record from a compact spec.
 function makeRecord(title, items, overrides = {}) {
   const fields = {
-    title: { value: title },
-    payload: { value: JSON.stringify(items) },
+    listName: { value: title },
+    itemsJSON: { value: JSON.stringify(items) },
     ...overrides,
   };
   return { fields };
@@ -101,8 +101,8 @@ describe('normalizeAisle', () => {
 describe('parseGroceryRecord', () => {
   it('parses title + items with measures and aisles', () => {
     const record = makeRecord('Taco Night', [
-      { name: 'Tomatoes', qty: '3', unit: '', aisle: 'Produce', order: 0 },
-      { name: 'Ground beef', qty: '1', unit: 'lb', aisle: 'Meat & Seafood', order: 1 },
+      { name: 'Tomatoes', quantity: '3', unit: '', aisle: 'Produce' },
+      { name: 'Ground beef', quantity: '1', unit: 'lb', aisle: 'Meat & Seafood' },
     ]);
     const parsed = parseGroceryRecord(record);
     expect(parsed.title).toBe('Taco Night');
@@ -111,10 +111,10 @@ describe('parseGroceryRecord', () => {
     expect(parsed.items[1]).toMatchObject({ name: 'Ground beef', unit: 'lb', aisle: 'Meat & Seafood' });
   });
 
-  it('reads per-item check flags by order index', () => {
+  it('reads per-item check flags by array slot', () => {
     const record = makeRecord('List', [
-      { name: 'Milk', aisle: 'Dairy & Eggs', order: 0 },
-      { name: 'Eggs', aisle: 'Dairy & Eggs', order: 1 },
+      { name: 'Milk', aisle: 'Dairy & Eggs' },
+      { name: 'Eggs', aisle: 'Dairy & Eggs' },
     ], {
       check0: { value: 1 },
       // check1 absent → unchecked
@@ -126,8 +126,8 @@ describe('parseGroceryRecord', () => {
 
   it('decodes note fields into outOfStock / substitution', () => {
     const record = makeRecord('List', [
-      { name: 'White eggs', aisle: 'Dairy & Eggs', order: 0 },
-      { name: 'Butter', aisle: 'Dairy & Eggs', order: 1 },
+      { name: 'White eggs', aisle: 'Dairy & Eggs' },
+      { name: 'Butter', aisle: 'Dairy & Eggs' },
     ], {
       note0: { value: 'out' },
       note1: { value: 'sub:margarine' },
@@ -140,10 +140,30 @@ describe('parseGroceryRecord', () => {
   });
 
   it('is defensive about a malformed payload', () => {
-    const record = { fields: { title: { value: 'Broken' }, payload: { value: '{not json' } } };
+    const record = { fields: { listName: { value: 'Broken' }, itemsJSON: { value: '{not json' } } };
     const parsed = parseGroceryRecord(record);
     expect(parsed.title).toBe('Broken');
     expect(parsed.items).toEqual([]);
+  });
+
+  it('keeps legacy title/payload/qty/order records readable', () => {
+    const record = {
+      fields: {
+        title: { value: 'Legacy' },
+        payload: { value: JSON.stringify([{ name: 'Milk', qty: '1', unit: 'gal', aisle: 'Dairy & Eggs', order: 2 }]) },
+        check2: { value: 1 },
+      },
+    };
+    const parsed = parseGroceryRecord(record);
+    expect(parsed.title).toBe('Legacy');
+    expect(parsed.items[0]).toMatchObject({
+      name: 'Milk',
+      quantity: '1',
+      unit: 'gal',
+      aisle: 'Dairy & Eggs',
+      order: 2,
+      checked: true,
+    });
   });
 
   it('falls back to a default title and empty items for an empty record', () => {
@@ -153,7 +173,7 @@ describe('parseGroceryRecord', () => {
   });
 
   it('caps at MAX_ITEMS', () => {
-    const many = Array.from({ length: 50 }, (_, i) => ({ name: `Item ${i}`, order: i }));
+    const many = Array.from({ length: 50 }, (_, i) => ({ name: `Item ${i}` }));
     const parsed = parseGroceryRecord(makeRecord('Big', many));
     expect(parsed.items).toHaveLength(MAX_ITEMS);
   });

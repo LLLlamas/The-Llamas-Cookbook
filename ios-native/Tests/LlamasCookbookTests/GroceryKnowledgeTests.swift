@@ -277,4 +277,12 @@ final class GroceryKnowledgeTests: XCTestCase {
             XCTAssertTrue(GroceryAisle.ordered.contains(aisle), "missing \(aisle)")
         }
     }
+
+    func testAisleKeywordTableIsCanonicalAndUnique() {
+        var seen = Set<String>()
+        for entry in GroceryKnowledge.aisleKeywords {
+            XCTAssertTrue(GroceryAisle.ordered.contains(entry.value), "\(entry.keyword) uses non-canonical aisle \(entry.value)")
+            XCTAssertTrue(seen.insert(entry.keyword).inserted, "duplicate aisle keyword \(entry.keyword)")
+        }
+    }
 }

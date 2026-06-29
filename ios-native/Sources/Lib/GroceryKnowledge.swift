@@ -64,7 +64,7 @@ enum GroceryKnowledge {
     /// corn" → International beats "corn" → Produce). The list is re-sorted
     /// longest-keyword-first at use; source order only breaks equal-length
     /// ties. Every aisle value MUST exactly match an entry in
-    /// `GroceryAisle.ordered` or the item silently falls to "Other".
+    /// `GroceryAisle.ordered`; tests enforce this table invariant.
     static let aisleKeywords: [(keyword: String, value: String)] = sortedLongestFirst([
         // MARK band: Spices
         ("garlic salt", "Spices"), ("celery salt", "Spices"), ("seasoning salt", "Spices"),
@@ -160,7 +160,6 @@ enum GroceryKnowledge {
         ("sunflower oil", "Baking"), ("grapeseed oil", "Baking"), ("cooking spray", "Baking"),
         ("cooking oil", "Baking"),
 
-        // Depth expansion (2026-06-29)
         ("bob's red mill gluten free flour", "Baking"), ("bobs red mill gluten free flour", "Baking"), ("pamela's gluten free baking mix", "Baking"),
         ("pamelas gluten free baking mix", "Baking"), ("king arthur gluten free flour", "Baking"), ("bragg nutritional yeast", "Baking"),
         ("one to one baking flour", "Baking"), ("super fine almond flour", "Baking"), ("blanched almond flour", "Baking"),
@@ -251,7 +250,6 @@ enum GroceryKnowledge {
         ("amaretti", "International"), ("pizzelle", "International"), ("panettone", "International"),
         ("san marzano", "International"),
 
-        // Depth expansion (2026-06-29)
         ("golden mountain seasoning sauce", "International"), ("la costena chipotles in adobo", "International"), ("lee kum kee hoisin sauce", "International"),
         ("lee kum kee oyster sauce", "International"), ("maya kaimal simmer sauce", "International"), ("black bean garlic sauce", "International"),
         ("fly by jing chili crisp", "International"), ("kitchens of india paste", "International"), ("tajin clasico seasoning", "International"),
@@ -374,7 +372,6 @@ enum GroceryKnowledge {
         ("fresh tarragon", "Produce"), ("fresh herbs", "Produce"), ("fresh cilantro", "Produce"),
         ("cilantro", "Produce"), ("lemongrass", "Produce"), ("thai basil", "Produce"),
 
-        // Depth expansion (2026-06-29)
         ("fresh makrut lime leaves", "Produce"), ("organic sweet potatoes", "Produce"), ("organic baby spinach", "Produce"),
         ("organic strawberries", "Produce"), ("organic blueberries", "Produce"), ("organic cauliflower", "Produce"),
         ("organic spring mix", "Produce"), ("deglet noor dates", "Produce"), ("lemongrass stalks", "Produce"),
@@ -402,7 +399,6 @@ enum GroceryKnowledge {
         ("potato salad", "Deli"), ("macaroni salad", "Deli"), ("chicken salad", "Deli"),
         ("antipasto", "Deli"), ("olive bar", "Deli"),
 
-        // Depth expansion (2026-06-29)
         ("field roast deli slices", "Deli"), ("plant based deli slices", "Deli"), ("plant-based deli slices", "Deli"),
         ("plant based pepperoni", "Deli"), ("plant-based pepperoni", "Deli"), ("mortadella deli meat", "Deli"),
         ("prosciutto di parma", "Deli"), ("refrigerated hummus", "Deli"), ("tofurky deli slices", "Deli"),
@@ -430,7 +426,6 @@ enum GroceryKnowledge {
         ("cupcakes", "Bakery"), ("cupcake", "Bakery"), ("muffins", "Bakery"),
         ("muffin", "Bakery"), ("sponge cake", "Bakery"), ("pastry", "Bakery"),
 
-        // Depth expansion (2026-06-29)
         ("mission carb balance tortillas", "Bakery"), ("siete almond flour tortillas", "Bakery"), ("gluten free english muffins", "Bakery"),
         ("gluten-free english muffins", "Bakery"), ("schaer gluten free bread", "Bakery"), ("schar gluten free bread", "Bakery"),
         ("canyon bakehouse bread", "Bakery"), ("udis gluten free bread", "Bakery"), ("fresh flour tortillas", "Bakery"),
@@ -473,7 +468,6 @@ enum GroceryKnowledge {
         ("crawfish", "Meat & Seafood"), ("calamari", "Meat & Seafood"), ("squid", "Meat & Seafood"),
         ("octopus", "Meat & Seafood"), ("seafood", "Meat & Seafood"),
 
-        // Depth expansion (2026-06-29)
         ("plant based ground beef", "Meat & Seafood"), ("plant-based ground beef", "Meat & Seafood"), ("impossible ground beef", "Meat & Seafood"),
         ("organic chicken breast", "Meat & Seafood"), ("beyond meat patties", "Meat & Seafood"), ("organic ground beef", "Meat & Seafood"),
         ("plant based burgers", "Meat & Seafood"), ("plant based sausage", "Meat & Seafood"), ("plant-based burgers", "Meat & Seafood"),
@@ -506,7 +500,6 @@ enum GroceryKnowledge {
         ("tofu", "Dairy & Eggs"), ("tempeh", "Dairy & Eggs"), ("refrigerated dough", "Dairy & Eggs"),
         ("biscuit dough", "Dairy & Eggs"), ("crescent roll", "Dairy & Eggs"), ("cookie dough", "Dairy & Eggs"),
 
-        // Depth expansion (2026-06-29)
         ("outer aisle cauliflower sandwich thins", "Dairy & Eggs"), ("earth balance buttery spread", "Dairy & Eggs"), ("siggi's plant based yogurt", "Dairy & Eggs"),
         ("siggis plant based yogurt", "Dairy & Eggs"), ("so delicious coconut milk", "Dairy & Eggs"), ("follow your heart cheese", "Dairy & Eggs"),
         ("dairy free cream cheese", "Dairy & Eggs"), ("dairy-free cream cheese", "Dairy & Eggs"), ("egglife egg white wraps", "Dairy & Eggs"),
@@ -597,7 +590,6 @@ enum GroceryKnowledge {
         ("frozen pie crust", "Frozen"), ("ice cube", "Frozen"), ("bag of ice", "Frozen"),
         ("frozen", "Frozen"),
 
-        // Depth expansion (2026-06-29)
         ("so delicious dairy free ice cream", "Frozen"), ("nadamoo dairy free ice cream", "Frozen"), ("plant based chicken nuggets", "Frozen"),
         ("plant-based chicken nuggets", "Frozen"), ("dairy free whipped topping", "Frozen"), ("dairy-free whipped topping", "Frozen"),
         ("frozen plant based burgers", "Frozen"), ("frozen plant-based burgers", "Frozen"), ("gluten free frozen waffles", "Frozen"),
@@ -644,7 +636,6 @@ enum GroceryKnowledge {
         ("maple syrup", "Breakfast & Cereal"), ("log cabin", "Breakfast & Cereal"), ("mrs butterworth", "Breakfast & Cereal"),
         ("instant breakfast", "Breakfast & Cereal"), ("carnation breakfast", "Breakfast & Cereal"), ("wheat germ cereal", "Breakfast & Cereal"),
 
-        // Depth expansion (2026-06-29)
         ("birch benders keto pancake mix", "Breakfast & Cereal"), ("certified gluten free oats", "Breakfast & Cereal"), ("kodiak protein pancake mix", "Breakfast & Cereal"),
         ("gluten free pancake mix", "Breakfast & Cereal"), ("gluten-free pancake mix", "Breakfast & Cereal"), ("catalina crunch cereal", "Breakfast & Cereal"),
         ("gluten free oatmeal", "Breakfast & Cereal"), ("gluten-free oatmeal", "Breakfast & Cereal"), ("organic maple syrup", "Breakfast & Cereal"),
@@ -692,7 +683,6 @@ enum GroceryKnowledge {
         ("canned peaches", "Canned & Jarred"), ("canned pears", "Canned & Jarred"), ("canned fruit", "Canned & Jarred"),
         ("applesauce", "Canned & Jarred"), ("apple sauce", "Canned & Jarred"), ("cranberry sauce", "Canned & Jarred"),
 
-        // Depth expansion (2026-06-29)
         ("jarred piquillo peppers", "Canned & Jarred"), ("organic canned tomatoes", "Canned & Jarred"), ("hearts of palm pasta", "Canned & Jarred"),
         ("organic canned beans", "Canned & Jarred"), ("organic tomato sauce", "Canned & Jarred"), ("hearts of palm rice", "Canned & Jarred"),
         ("organic black beans", "Canned & Jarred"), ("organic chickpeas", "Canned & Jarred"), ("calabrian chiles", "Canned & Jarred"),
@@ -738,7 +728,6 @@ enum GroceryKnowledge {
         ("apple cider vinegar", "Condiments & Sauces"), ("cider vinegar", "Condiments & Sauces"), ("white vinegar", "Condiments & Sauces"),
         ("distilled vinegar", "Condiments & Sauces"), ("vinegar", "Condiments & Sauces"),
 
-        // Depth expansion (2026-06-29)
         ("follow your heart vegenaise", "Condiments & Sauces"), ("chosen foods keto mayo", "Condiments & Sauces"), ("hellmann's vegan mayo", "Condiments & Sauces"),
         ("organic almond butter", "Condiments & Sauces"), ("organic peanut butter", "Condiments & Sauces"), ("hellmanns vegan mayo", "Condiments & Sauces"),
         ("vegan ranch dressing", "Condiments & Sauces"), ("bragg liquid aminos", "Condiments & Sauces"), ("organic pasta sauce", "Condiments & Sauces"),
@@ -784,7 +773,6 @@ enum GroceryKnowledge {
         ("banza", "Pasta, Rice & Grains"), ("ben's original", "Pasta, Rice & Grains"), ("instant ramen", "Pasta, Rice & Grains"),
         ("ramen", "Pasta, Rice & Grains"),
 
-        // Depth expansion (2026-06-29)
         ("tinkyada brown rice pasta", "Pasta, Rice & Grains"), ("jovial gluten free pasta", "Pasta, Rice & Grains"), ("banza chickpea pasta", "Pasta, Rice & Grains"),
         ("gluten free pasta", "Pasta, Rice & Grains"), ("gluten-free pasta", "Pasta, Rice & Grains"), ("brown rice pasta", "Pasta, Rice & Grains"),
         ("calasparra rice", "Pasta, Rice & Grains"), ("chickpea pasta", "Pasta, Rice & Grains"), ("organic quinoa", "Pasta, Rice & Grains"),
@@ -847,7 +835,6 @@ enum GroceryKnowledge {
         ("snack sticks", "Snacks"), ("dried fruit", "Snacks"), ("fruit cup", "Snacks"),
         ("pudding cup", "Snacks"), ("jello cup", "Snacks"), ("snack pack", "Snacks"),
 
-        // Depth expansion (2026-06-29)
         ("simple mills almond flour crackers", "Snacks"), ("clif builders protein bar", "Snacks"), ("grain free tortilla chips", "Snacks"),
         ("grain-free tortilla chips", "Snacks"), ("lily's stevia chocolate", "Snacks"), ("gluten free snack bars", "Snacks"),
         ("gluten-free snack bars", "Snacks"), ("lilys stevia chocolate", "Snacks"), ("siete grain free chips", "Snacks"),
@@ -910,7 +897,6 @@ enum GroceryKnowledge {
         ("liqueur", "Beverages"), ("rum", "Beverages"), ("protein shake", "Beverages"),
         ("ensure", "Beverages"),
 
-        // Depth expansion (2026-06-29)
         ("shelf stable almond milk", "Beverages"), ("shelf-stable almond milk", "Beverages"), ("premier protein shake", "Beverages"),
         ("shelf stable oat milk", "Beverages"), ("shelf-stable oat milk", "Beverages"), ("ensure protein shake", "Beverages"),
         ("orgain protein shake", "Beverages"), ("boost protein drink", "Beverages"), ("fairlife core power", "Beverages"),
@@ -936,7 +922,6 @@ enum GroceryKnowledge {
         ("gerber", "Baby"), ("good start", "Baby"), ("desitin", "Baby"),
         ("a and d ointment", "Baby"), ("butt paste", "Baby"), ("formula", "Baby"),
 
-        // Depth expansion (2026-06-29)
         ("breastfeeding storage bags", "Baby"), ("lansinoh milk storage bags", "Baby"), ("rascal and friends diapers", "Baby"),
         ("concentrated baby formula", "Baby"), ("fragrance free baby wipes", "Baby"), ("lactose free baby formula", "Baby"),
         ("munchkin diaper pail bags", "Baby"), ("disposable changing pads", "Baby"), ("huggies little snugglers", "Baby"),
@@ -1062,7 +1047,6 @@ enum GroceryKnowledge {
         ("lactaid pills", "Health & Pharmacy"), ("lactase", "Health & Pharmacy"), ("medicine", "Health & Pharmacy"),
         ("ointment", "Health & Pharmacy"),
 
-        // Depth expansion (2026-06-29)
         ("vital proteins collagen peptides", "Health & Pharmacy"), ("liquid i.v. electrolyte powder", "Health & Pharmacy"), ("optimum nutrition whey protein", "Health & Pharmacy"),
         ("first response pregnancy test", "Health & Pharmacy"), ("garden of life protein powder", "Health & Pharmacy"), ("liquid iv electrolyte powder", "Health & Pharmacy"),
         ("apple cider vinegar gummies", "Health & Pharmacy"), ("ancient nutrition collagen", "Health & Pharmacy"), ("plant based protein powder", "Health & Pharmacy"),
@@ -1265,7 +1249,6 @@ enum GroceryKnowledge {
         ("kibble dog", "Pet"), ("dog", "Pet"), ("cat", "Pet"),
         ("pet", "Pet"),
 
-        // Depth expansion (2026-06-29)
         ("hill's science diet dog food", "Pet"), ("hills science diet dog food", "Pet"), ("aquarium water conditioner", "Pet"),
         ("paper small animal bedding", "Pet"), ("sensitive stomach cat food", "Pet"), ("sensitive stomach dog food", "Pet"),
         ("taste of the wild dog food", "Pet"), ("simple solution pet stain", "Pet"), ("advantage flea treatment", "Pet"),

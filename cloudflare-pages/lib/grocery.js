@@ -5,12 +5,14 @@
 // write endpoints.
 //
 // A shared grocery list is one `GroceryListShare` CloudKit public record:
-//   - title   (String)  list name
-//   - payload (String)  JSON array of items: [{name,qty,unit,aisle,order}]
-//                       (a String, not an Asset — lists are tiny + photoless,
-//                       so the Worker reads them inline with no second fetch)
-//   - check0..check39 (Int64)  per-item in-cart flag, indexed by `order`
+//   - listName  (String)  list name
+//   - itemsJSON (String)  JSON array of items: [{name,quantity,unit,aisle}]
+//                         (a String, not an Asset — lists are tiny + photoless,
+//                         so the Worker reads them inline with no second fetch)
+//   - check0..check39 (Int64)  per-item in-cart flag, indexed by array position
 //   - note0..note39   (String) per-item substitution state: "out" | "sub:<text>"
+// Older test/dev records used `title`, `payload`, `qty`, and item `order`;
+// parsing keeps a fallback for those so old links don't render empty.
 //
 // Per-item scalar fields (rather than one JSON blob) so simultaneous
 // check-offs from the app + the web don't clobber each other.
@@ -76,11 +78,13 @@ export function normalizeAisle(raw) {
  */
 export function parseGroceryRecord(record) {
   const fields = record?.fields || {};
-  const title = (fields.title?.value ?? '').toString() || 'Grocery List';
+  const title = (fields.listName?.value ?? fields.title?.value ?? '').toString() || 'Grocery List';
 
   let raw = [];
+  let usesArraySlots = true;
   try {
-    const payload = fields.payload?.value;
+    const payload = fields.itemsJSON?.value ?? fields.payload?.value;
+    usesArraySlots = fields.itemsJSON?.value != null;
     if (typeof payload === 'string' && payload.length) {
       const decoded = JSON.parse(payload);
       if (Array.isArray(decoded)) raw = decoded;
@@ -90,17 +94,16 @@ export function parseGroceryRecord(record) {
   }
 
   const items = raw.slice(0, MAX_ITEMS).map((it, i) => {
-    // `order` is item-supplied and indexes the provisioned check0..N /
-    // note0..N fields, so clamp it to [0, MAX_ITEMS); a malicious
-    // `order: 9999` falls back to the array index rather than reaching
-    // past the fields a writer keys on.
-    const claimed = Number.isInteger(it?.order) ? it.order : i;
+    // Current records use array position as the live check/note slot.
+    // Legacy `payload` records may include `order`; clamp it so a malicious
+    // value falls back to the array index rather than reaching past check0..39.
+    const claimed = usesArraySlots ? i : (Number.isInteger(it?.order) ? it.order : i);
     const order = (claimed >= 0 && claimed < MAX_ITEMS) ? claimed : i;
     const checkVal = fields[checkFieldName(order)]?.value;
     const note = (fields[noteFieldName(order)]?.value ?? '').toString();
     return {
       name: (it?.name ?? '').toString(),
-      quantity: it?.qty != null ? String(it.qty) : '',
+      quantity: it?.quantity != null ? String(it.quantity) : (it?.qty != null ? String(it.qty) : ''),
       unit: it?.unit != null ? String(it.unit) : '',
       aisle: normalizeAisle(it?.aisle),
       order,
