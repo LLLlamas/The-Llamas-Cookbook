@@ -17,28 +17,52 @@ import SwiftUI
 
 // MARK: - Saved toast
 
-/// Centered badge in the iOS screen-capture / "delivered" idiom: solid
-/// dark fill, thin white ring, big white glyph. Deliberately icon-only
-/// so it reads at a glance — the surrounding fly animation supplies
-/// the semantic context.
+/// Centered badge in the iOS "delivered" idiom — icon-only so it reads
+/// at a glance, with the surrounding fly animation supplying the semantic
+/// context. The fill mirrors the *tonal secondary* "Add to grocery list"
+/// bar in `RecipeDetailView` (accent at 0.12 opacity + a 1.5pt accent
+/// border + accent-tinted glyph) so the toast reads as the same family of
+/// translucent affordance rather than an opaque badge — the accent is
+/// passed in so a friend's accent (friend-import) or the user's accent
+/// (recipe → list) both carry through.
 struct SavedToast: View {
     /// SF Symbol shown in the badge. Defaults to the friend-import
     /// bookmark; the add-to-grocery-list toast passes a basket.
     var glyph: String = "bookmark.fill"
     /// Accessibility label describing what was saved/added.
     var label: String = "Saved to your cookbook"
+    /// Tint for the tonal fill / border / glyph — matches the
+    /// `addToListBar` tonal secondary style.
+    var accent: Color = AppColor.accent
+    /// Flips true on completion: the badge cutely shrinks toward ~0 and
+    /// fades as it's absorbed into the destination tab (see
+    /// `RootView.runFriendImportToast`, which also offsets it toward the
+    /// tab so the shrink reads as a pop *into* the bar).
+    var shrinking: Bool = false
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.black.opacity(0.78))
+                // Same 0.12 tonal fill the "Add to grocery list" bar uses,
+                // layered over the system material so it stays translucent
+                // against whatever sits behind the overlay.
+                .fill(.ultraThinMaterial)
             Circle()
-                .strokeBorder(Color.white.opacity(0.95), lineWidth: 1.5)
+                .fill(accent.opacity(0.12))
+            Circle()
+                .strokeBorder(accent.opacity(0.7), lineWidth: 1.5)
             Image(systemName: glyph)
                 .font(.system(size: 36, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(accent)
+                .accentTextOutline()
         }
         .frame(width: 92, height: 92)
+        // Cute shrink-and-pop: a soft spring carries scale toward a tiny
+        // remnant (not fully 0, so the fade does the final vanish) while
+        // the badge fades out — the parent simultaneously offsets it onto
+        // the Lists tab so the shrink lands *at* the icon.
+        .scaleEffect(shrinking ? 0.05 : 1.0)
+        .opacity(shrinking ? 0.0 : 1.0)
         .shadow(color: AppColor.shadow, radius: 14, x: 0, y: 6)
         .accessibilityLabel(label)
     }

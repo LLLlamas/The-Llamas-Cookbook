@@ -1,8 +1,8 @@
 import Foundation
 
-/// Shared keyword matching for grocery-item names. `IngredientVisual`
-/// (curated ingredient glyphs) and `AddToGroceryListSheet` (recipe→list
-/// dedup) need the same job: given a free-text item name like
+/// Shared keyword matching for grocery-item names. `AddToGroceryListSheet`
+/// (recipe→list dedup) and other curated lookups need the same job: given a
+/// free-text item name like
 /// "2 large brown eggs" or "Unsalted Butter", normalize it / find the best
 /// entry in a curated keyword table — one normalization rule, one
 /// longest-match policy. (Substitution + aisle data live in

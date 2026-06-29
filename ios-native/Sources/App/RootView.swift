@@ -61,6 +61,17 @@ struct RootView: View {
     /// Drives the ghost's spring source → destination on appear.
     /// Flipped from false to true immediately after mount.
     @State private var ghostFlying: Bool = false
+    /// Flips true at the end of the toast sequence: the centered
+    /// `SavedToast` cutely shrinks toward ~0 and travels onto the
+    /// destination tab icon (computed in `friendImportToastOverlay`) so
+    /// the badge reads as being absorbed into the tab rather than just
+    /// fading in place.
+    @State private var toastShrinking: Bool = false
+    /// Handle to the in-flight toast teardown coroutine. A back-to-back
+    /// toast cancels the prior sequence before starting its own — without
+    /// this, the stale Task's late `activeFriendImportToast = nil` (and
+    /// shrink flip) would tear down the *newer* toast mid-flight.
+    @State private var toastTask: Task<Void, Never>? = nil
     init() {
         Self.configureTabBarAppearance()
         // Open on Profile for fresh installs and the first launch after a
@@ -697,19 +708,39 @@ struct RootView: View {
             )
             let toastAccent = resolveToastAccent(activeFriendImportToast?.accentHex)
 
+            // Vector from screen-center (where SavedToast mounts) to the
+            // destination tab — the shrink travels along this so the badge
+            // pops *into* the Lists (or Home) icon rather than vanishing in
+            // place. Zero until `toastShrinking` flips.
+            let toastShrinkOffset = CGSize(
+                width: destination.x - width / 2,
+                height: destination.y - height / 2
+            )
+
             ZStack {
                 // Transparent sizer so the GeometryReader fills the
                 // window without intercepting taps.
                 Color.clear
 
                 if let payload = activeFriendImportToast {
-                    // Centered iOS-screen-capture-style badge: scales
-                    // up from a small footprint and fades in.
-                    SavedToast(glyph: payload.glyph, label: payload.label)
-                        .transition(
-                            .scale(scale: 0.7)
-                                .combined(with: .opacity)
-                        )
+                    // Centered iOS-screen-capture-style badge: scales up
+                    // from a small footprint and fades in; on completion it
+                    // cutely shrinks + drifts onto the destination tab.
+                    SavedToast(
+                        glyph: payload.glyph,
+                        label: payload.label,
+                        accent: toastAccent,
+                        shrinking: toastShrinking
+                    )
+                    .offset(toastShrinking ? toastShrinkOffset : .zero)
+                    .animation(
+                        .spring(response: 0.5, dampingFraction: 0.72),
+                        value: toastShrinking
+                    )
+                    .transition(
+                        .scale(scale: 0.7)
+                            .combined(with: .opacity)
+                    )
 
                     ImportFlyGhost(
                         source: source,
@@ -746,10 +777,14 @@ struct RootView: View {
     ///   5. Tear everything down.
     @MainActor
     private func runFriendImportToast(_ payload: FriendImportToast) {
-        // Reset spring source position before mount — without this, a
-        // back-to-back import would start the ghost from its previous
-        // destination.
+        // Cancel any in-flight teardown so a back-to-back toast doesn't let
+        // the prior sequence's late `nil`/shrink land on this new payload.
+        toastTask?.cancel()
+        // Reset spring source position + the shrink flag before mount —
+        // without this, a back-to-back import would start the ghost from
+        // its previous destination and the badge would mount mid-shrink.
         ghostFlying = false
+        toastShrinking = false
         withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
             activeFriendImportToast = payload
         }
@@ -758,25 +793,42 @@ struct RootView: View {
         // `ghostFlying = true` and let the spring carry it to
         // `destination`. Without the hop, both states collapse into
         // the same layout pass and the ghost teleports.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(20))
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
-                ghostFlying = true
+        toastTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(20))
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
+                    ghostFlying = true
+                }
+                // Land time matches the spring response above plus a beat
+                // for the spring to settle. ~580ms feels right; the
+                // success haptic fires here so the buzz lands with the
+                // ghost rather than after.
+                try await Task.sleep(for: .milliseconds(580))
+                Haptics.success()
+                // Toast lingers ~450ms past the landing so the user has
+                // time to read "Saved" after their eye has tracked the
+                // ghost down to the tab.
+                try await Task.sleep(for: .milliseconds(450))
+                // Cute shrink-and-pop: the badge scales toward ~0 and drifts
+                // onto the destination tab (offset applied in the overlay) so
+                // it reads as being absorbed into the Lists / Home icon. A
+                // light impact gives the "pop" a tactile beat as it lands.
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
+                    toastShrinking = true
+                }
+                Haptics.impact(.light)
+                // Hold until the shrink spring has settled before teardown.
+                try await Task.sleep(for: .milliseconds(480))
+            } catch {
+                // Cancelled by a newer toast — leave its freshly-set state
+                // alone; this stale sequence must not touch shared flags.
+                return
             }
-            // Land time matches the spring response above plus a beat
-            // for the spring to settle. ~580ms feels right; the
-            // success haptic fires here so the buzz lands with the
-            // ghost rather than after.
-            try? await Task.sleep(for: .milliseconds(580))
-            Haptics.success()
-            // Toast lingers ~450ms past the landing so the user has
-            // time to read "Saved" after their eye has tracked the
-            // ghost down to the tab.
-            try? await Task.sleep(for: .milliseconds(450))
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.85)) {
-                activeFriendImportToast = nil
-            }
+            // Tear the payload down (instant — the badge is already
+            // invisible) and reset both spring flags for the next import.
+            activeFriendImportToast = nil
             ghostFlying = false
+            toastShrinking = false
         }
     }
 

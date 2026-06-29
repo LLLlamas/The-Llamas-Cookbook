@@ -33,10 +33,70 @@ final class GroceryKnowledgeTests: XCTestCase {
     }
 
     func testAisleResultsAreAlwaysCanonical() {
-        for name in ["tomato", "garlic powder", "chicken", "milk", "frozen peas", "ketchup", "qwerty"] {
+        for name in ["tomato", "garlic powder", "chicken", "milk", "frozen peas", "ketchup", "qwerty",
+                     "tylenol", "shampoo", "trash bags", "diapers", "dog food"] {
             XCTAssertTrue(GroceryAisle.ordered.contains(GroceryKnowledge.aisle(for: name)),
                           "\(name) classified to a non-canonical aisle")
         }
+    }
+
+    // MARK: - Non-food domains (drugstore / household / etc.)
+
+    func testAisleHealthAndPharmacy() {
+        // Active ingredients + brand names both route to the pharmacy aisle.
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Tylenol"), "Health & Pharmacy")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "acetaminophen"), "Health & Pharmacy")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Advil"), "Health & Pharmacy")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "ibuprofen"), "Health & Pharmacy")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Benadryl"), "Health & Pharmacy")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Bonine"), "Health & Pharmacy")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Band-aids"), "Health & Pharmacy")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "vitamin D"), "Health & Pharmacy")
+    }
+
+    func testAislePersonalCare() {
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Shampoo"), "Personal Care")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Toothpaste"), "Personal Care")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Deodorant"), "Personal Care")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Cerave"), "Personal Care")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Cetaphil"), "Personal Care")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "razors"), "Personal Care")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Hair Product"), "Personal Care")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Travel Containers"), "Personal Care")
+        // Bare "soap" is personal care…
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "bar soap"), "Personal Care")
+    }
+
+    func testAisleHousehold() {
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Paper towels"), "Household")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Trash bags"), "Household")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Laundry detergent"), "Household")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Tide"), "Household")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Clorox"), "Household")
+        // …but "dish soap" is a household cleaner, not personal care
+        // (longest-keyword-first must win here).
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "dish soap"), "Household")
+    }
+
+    func testAisleBaby() {
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Diapers"), "Baby")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Baby formula"), "Baby")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Baby wipes"), "Baby")
+    }
+
+    func testAislePet() {
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Dog food"), "Pet")
+        XCTAssertEqual(GroceryKnowledge.aisle(for: "Cat litter"), "Pet")
+    }
+
+    func testHeuristicTriageRoutesNonFoodDomains() {
+        let names = ["Tylenol", "Shampoo", "Paper towels", "Diapers", "Dog food"]
+        let result = IngredientAssistant.heuristicTriage(names: names)
+        XCTAssertEqual(result.aisleByIndex[0], "Health & Pharmacy")
+        XCTAssertEqual(result.aisleByIndex[1], "Personal Care")
+        XCTAssertEqual(result.aisleByIndex[2], "Household")
+        XCTAssertEqual(result.aisleByIndex[3], "Baby")
+        XCTAssertEqual(result.aisleByIndex[4], "Pet")
     }
 
     // MARK: - Substitutions

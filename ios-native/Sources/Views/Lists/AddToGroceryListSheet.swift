@@ -204,7 +204,8 @@ struct AddToGroceryListSheet: View {
             .foregroundStyle(AppColor.textSecondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppSpacing.sm)
-            .background(.regularMaterial)
+            // Floating header strip — LG glass (full-width edge bar).
+            .glassEffect(.regular, in: Rectangle())
     }
 
     private var headerText: String {

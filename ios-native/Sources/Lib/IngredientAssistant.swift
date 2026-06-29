@@ -129,7 +129,7 @@ enum IngredientAssistant {
     struct TriagedItem {
         @Guide(description: "The item's number from the input list.")
         let index: Int
-        @Guide(description: "Grocery aisle. Choose exactly one of: Produce, Bakery, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Spices, Beverages, Household, Other.")
+        @Guide(description: "Grocery aisle. Choose exactly one of: Produce, Bakery, Meat & Seafood, Dairy & Eggs, Frozen, Pantry & Dry Goods, Spices, Beverages, Baby, Health & Pharmacy, Personal Care, Household, Pet, Other.")
         let aisle: String
     }
 
@@ -142,11 +142,11 @@ enum IngredientAssistant {
     // MARK: - Instructions (grounded by GroceryKnowledge)
 
     private static let triageInstructions = """
-    You sort grocery items for a shopping list. For each numbered item, pick the single best grocery aisle from EXACTLY this list: \(GroceryKnowledge.aisleVocabulary). Use each item's own number as its index. Never invent items and never change their names.
+    You sort items on a grocery / drugstore shopping list. For each numbered item, pick the single best aisle from EXACTLY this list: \(GroceryKnowledge.aisleVocabulary). These include non-food departments: Baby (diapers, formula), Health & Pharmacy (OTC meds, vitamins, first aid — e.g. Tylenol, Benadryl, Bonine), Personal Care (soap, shampoo, toothpaste, deodorant, skincare — e.g. Cerave), Household (cleaning, paper goods, laundry), and Pet. Use each item's own number as its index. Never invent items and never change their names.
     """
 
     private static let describeInstructions = """
-    You help a grocery shopper who doesn't recognize an item. In 1–2 short, friendly sentences, say what the item is, what it looks like, and which grocery aisle or section to look in. Be concrete and brief. No markdown, no lists.
+    You help a shopper who doesn't recognize an item on their grocery / drugstore list. In ONE short clause of about 12 words or fewer, say what it is and which aisle to find it. Handle non-food items too (e.g. "Bonine — motion-sickness tablets, usually the pharmacy aisle."). No markdown, no lists, no full paragraphs.
     """
 
     private static let substituteInstructions = """

@@ -28,7 +28,11 @@ export const AISLE_ORDER = [
   'Pantry & Dry Goods',
   'Spices',
   'Beverages',
+  'Baby',
+  'Health & Pharmacy',
+  'Personal Care',
   'Household',
+  'Pet',
   'Other',
 ];
 

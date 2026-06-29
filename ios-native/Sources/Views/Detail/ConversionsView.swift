@@ -267,7 +267,11 @@ private struct ConversionCalculator: View {
             .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, 4)
-            .glassEffect(.regular, in: Capsule())
+            // Liquid Glass: interactive accent-tinted glass on the menu LABEL
+            // only — the Menu's open/select behavior is unchanged (the label is
+            // just chrome the menu hangs off). PREVIOUSLY-DEFERRED surface
+            // pending on-device verification that the menu still opens/selects.
+            .glassEffect(.regular.tint(appearance.accentColor.opacity(0.12)).interactive(), in: Capsule())
         }
     }
 
@@ -304,7 +308,11 @@ private struct ConversionCalculator: View {
             .foregroundStyle(appearance.accentColor)
             .padding(.horizontal, AppSpacing.sm + 2)
             .padding(.vertical, 4)
-            .glassEffect(.regular, in: Capsule())
+            // Liquid Glass: interactive accent-tinted glass on the menu LABEL
+            // only — the Menu's open/select behavior is unchanged (the label is
+            // just chrome the menu hangs off). PREVIOUSLY-DEFERRED surface
+            // pending on-device verification that the menu still opens/selects.
+            .glassEffect(.regular.tint(appearance.accentColor.opacity(0.12)).interactive(), in: Capsule())
         }
     }
 

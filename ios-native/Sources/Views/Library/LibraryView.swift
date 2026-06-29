@@ -449,48 +449,59 @@ struct LibraryView: View {
             allChipMenu
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: AppSpacing.xs) {
-                    if favoriteCount > 0 {
-                        FilterChip(
-                            label: "Favorites  ·  \(favoriteCount)",
-                            isActive: filter == .favorites,
-                            iconName: "heart.fill",
-                            accent: appearance.categoryAccentColor,
-                            glowActive: appearance.isAccentGlowActive(.categories),
-                            index: 0,
-                            cascadeToken: appearance.categoryCascadeToken,
-                            previousAccent: appearance.cascadePreviousAccentColor
-                        ) {
-                            filter = filter == .favorites ? .all : .favorites
+                // Liquid Glass: group the sibling glass chips so they sample a
+                // shared backdrop and morph at their edges as the filter /
+                // accent cascade changes (rather than each compositing as a
+                // separately cut capsule). PREVIOUSLY-DEFERRED surface — a glass
+                // container between the ScrollView and its
+                // `.scrollTargetLayout()` content can perturb `.viewAligned`
+                // snapping, so `.scrollTargetLayout()` stays on the chip-holding
+                // HStack (the snap-target stack) and the container only wraps it.
+                // Pending on-device scroll-snapping verification.
+                GlassEffectContainer(spacing: AppSpacing.xs) {
+                    HStack(spacing: AppSpacing.xs) {
+                        if favoriteCount > 0 {
+                            FilterChip(
+                                label: "Favorites  ·  \(favoriteCount)",
+                                isActive: filter == .favorites,
+                                iconName: "heart.fill",
+                                accent: appearance.categoryAccentColor,
+                                glowActive: appearance.isAccentGlowActive(.categories),
+                                index: 0,
+                                cascadeToken: appearance.categoryCascadeToken,
+                                previousAccent: appearance.cascadePreviousAccentColor
+                            ) {
+                                filter = filter == .favorites ? .all : .favorites
+                            }
+                            .scrollSectionHaptic(section: "favorites", ticker: filterStripTicker)
                         }
-                        .scrollSectionHaptic(section: "favorites", ticker: filterStripTicker)
-                    }
 
-                    // Build tag→count in one O(n) pass — avoids a separate
-                    // O(n) filter per chip (O(n×m) total) every body pass.
-                    let tagCounts = recipes.reduce(into: [String: Int]()) { d, r in
-                        r.tags.forEach { d[$0, default: 0] += 1 }
-                    }
-                    let favOffset = favoriteCount > 0 ? 1 : 0
-                    ForEach(Array(allTags.enumerated()), id: \.element) { chipIndex, tag in
-                        let count = tagCounts[tag, default: 0]
-                        FilterChip(
-                            label: "\(StringCase.titleCase(tag))  ·  \(count)",
-                            isActive: filter == .tag(tag),
-                            iconName: nil,
-                            accent: appearance.categoryAccentColor,
-                            glowActive: appearance.isAccentGlowActive(.categories),
-                            index: favOffset + chipIndex,
-                            cascadeToken: appearance.categoryCascadeToken,
-                            previousAccent: appearance.cascadePreviousAccentColor
-                        ) {
-                            filter = filter == .tag(tag) ? .all : .tag(tag)
+                        // Build tag→count in one O(n) pass — avoids a separate
+                        // O(n) filter per chip (O(n×m) total) every body pass.
+                        let tagCounts = recipes.reduce(into: [String: Int]()) { d, r in
+                            r.tags.forEach { d[$0, default: 0] += 1 }
                         }
-                        .scrollSectionHaptic(section: "tag:\(tag)", ticker: filterStripTicker)
+                        let favOffset = favoriteCount > 0 ? 1 : 0
+                        ForEach(Array(allTags.enumerated()), id: \.element) { chipIndex, tag in
+                            let count = tagCounts[tag, default: 0]
+                            FilterChip(
+                                label: "\(StringCase.titleCase(tag))  ·  \(count)",
+                                isActive: filter == .tag(tag),
+                                iconName: nil,
+                                accent: appearance.categoryAccentColor,
+                                glowActive: appearance.isAccentGlowActive(.categories),
+                                index: favOffset + chipIndex,
+                                cascadeToken: appearance.categoryCascadeToken,
+                                previousAccent: appearance.cascadePreviousAccentColor
+                            ) {
+                                filter = filter == .tag(tag) ? .all : .tag(tag)
+                            }
+                            .scrollSectionHaptic(section: "tag:\(tag)", ticker: filterStripTicker)
+                        }
                     }
+                    .padding(.trailing, AppSpacing.lg)
+                    .scrollTargetLayout()
                 }
-                .padding(.trailing, AppSpacing.lg)
-                .scrollTargetLayout()
             }
             .scrollTargetBehavior(.viewAligned)
             .onChange(of: allTags) { _, _ in
@@ -594,7 +605,7 @@ struct LibraryView: View {
         }
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, AppSpacing.xs + 2)
-        .modifier(ChipBackground(isActive: isActive, accent: allAccent))
+        .glassChip(isActive: isActive, accent: allAccent)
         .overlay(
             Capsule().stroke(isActive ? allAccent : AppColor.divider, lineWidth: 1)
         )
@@ -798,7 +809,7 @@ private struct FilterChip: View {
             }
             .padding(.horizontal, AppSpacing.md)
             .padding(.vertical, AppSpacing.xs + 2)
-            .modifier(ChipBackground(isActive: isActive, accent: effectiveAccent))
+            .glassChip(isActive: isActive, accent: effectiveAccent)
             .overlay(
                 Capsule().stroke(isActive ? effectiveAccent : AppColor.divider, lineWidth: 1)
             )
@@ -827,25 +838,6 @@ private struct FilterChip: View {
             }
             try? await Task.sleep(for: .seconds(hold))
             withAnimation(.easeInOut(duration: 0.14)) { localGlowActive = false }
-        }
-    }
-}
-
-/// Chip background that switches between a solid accent capsule (active
-/// state) and an LG glass capsule (inactive state). Selection clarity
-/// stays strong because the active chip keeps its opaque accent fill;
-/// inactive chips read as native iOS 26 frosted glass.
-private struct ChipBackground: ViewModifier {
-    let isActive: Bool
-    let accent: Color
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content
-                .background(accent, in: Capsule())
-        } else {
-            content
-                .glassEffect(.regular, in: Capsule())
         }
     }
 }

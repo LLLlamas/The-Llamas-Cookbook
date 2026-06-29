@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends tab badges + ?/! shopper controls + recipe→list "Add to list" toast; content-moderation for user-chosen names)
+Last refreshed: 2026-06-29 (grocery lists: floating glass add-item bar + static non-pinned aisle headers; "?" helper now brief description + likely aisle — photo/glyph recognition REMOVED, `IngredientVisual`/`IngredientPhotoLookup` deleted; aisle knowledge expanded beyond food → Baby/Health & Pharmacy/Personal Care/Household/Pet incl. brands; "Added" toast matches the tonal Add-to-list button + cute shrink-and-pop into the Lists tab; app-wide Liquid Glass + DRY — shared `View.glassChip` helper, `GlassEffectContainer` now also fuses the add-item bar AND wraps the filter chip strips, `ConversionsView` menus glass)
 
 > **Planning docs / design handoffs / prior audits live in `md_files/`** —
 > gitignored, kept on disk for reference. Only `CLAUDE.md` (this file) and
@@ -88,12 +88,12 @@ Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends 
 - `ListsView.swift` — list-of-lists (Lists tab). Rows flip to green (`AppColor.success`) "All set" when fully shopped (`GroceryList.isAllSet`): green check icon + green border. New-list naming screened by `ContentModeration`.
 - `GroceryListDetailView.swift` — one open list. Each item row has 5 bounded hit zones: leading in-cart check, the name label, a "?" swap helper (opens `GrocerySwapSheet`), a "!" can't-find / out-of-stock flag (`GroceryItem.outOfStock` — local today; the cross-user owner notification is deferred until grocery sharing/sync ships), and the have/need toggle. A set `substitution` shows a green "Swap: …" line. Rename screened by `ContentModeration`.
 - `GroceryList.swift` — `GroceryList` + `GroceryItem`. `toBuyCount` / `isAllSet` / `isOpen` are the SINGLE SOURCE OF TRUTH for shopping progress (Lists row summary, Lists tab badge, done indicator all read these — never re-derive `needed && !isChecked`). `isAllSet` requires a NON-empty list. `touch()` bumps `updatedAt` on EVERY mutation incl. child scalars, so the `@Query`-driven Lists tab badge in `RootView` re-fires.
-- Lib: `GroceryAisle.swift` (store-walk grouping), `GrocerySwaps.swift` (curated offline substitution table), `IngredientVisual.swift` (curated ingredient glyph + `IngredientGlyphView` — confident-or-nil, never shows a *wrong* picture; the `Glyph?` API lets a real licensed photo source / AI image lookup slot in later), `GroceryKeyword.swift` (plural-tolerant keyword matcher shared by `GrocerySwaps` + `IngredientVisual`).
+- Lib: `GroceryAisle.swift` (store-walk grouping + ordered aisle taxonomy — now incl. non-food Baby / Health & Pharmacy / Personal Care / Household / Pet), `GroceryKnowledge.swift` (researched aisle-keyword table + substitution chart; longest-keyword-first matching), `GroceryKeyword.swift` (plural-tolerant keyword matcher shared by the aisle/substitution lookup + the recipe→list dedup). **REMOVED 2026-06-29:** `IngredientVisual.swift`/`IngredientGlyphView` (curated glyph) and `IngredientPhotoLookup.swift` (web image search) — visual recognition was too unreliable to ship; the "?" helper shows a brief on-device description + likely aisle instead.
 - **Recipe → list**: `RecipeDetailView.addToListChip` (basket in the Ingredients-header accessory) drops `recipe.sortedIngredients` into a list — auto when the user has 0–1 lists (creating one named after the recipe), a `confirmationDialog` picker when more. Dedups by `GroceryKeyword.normalize`, stamps `sourceRecipeID`, then fires the fly-to-Lists "Added" toast (see ### Toasts).
 - **Tab badges** (`RootView`): Lists tab = count of `isOpen` lists (a `@Query<GroceryList>`); Friends tab = `friendsStore.incomingRequests.count`.
 - **Accent cascade:** `GroceryListRow` participates in the global accent cascade exactly like `RecipeCardView` — `@Environment(AppearanceSettings)`, an `index:`, `heldAccentOverride` + `glowActive`, and `scheduleStaggeredGlow()` driven by the SHARED `recipeCardCascadeToken` (so the Lists tab retints top → bottom in lockstep with the Library). The Lists header icon (`checklist`) glows on `isAccentGlowActive(.header)` like the Library logo.
 - **"Done" marking:** a fully-shopped list (`isAllSet`) renders a green-tinted card + stronger green border + a "Done" (`checkmark.seal.fill`) badge in place of the date, on top of the green check icon + green "All set" summary — so "finished" is unmistakable from the list-of-lists.
-- **Swap "?" visuals:** the swap sheet shows `IngredientGlyphView` for the item AND for each suggested substitute (`suggestionRow`), but ONLY when `IngredientVisual.hasGlyph(for:)` returns a confident curated match — never a wrong/guessed picture. "?" and "!" are two separate always-visible buttons side by side (no tap-to-reveal).
+- **Item "?" helper (`ItemHelperSheet`):** photo-recognition was REMOVED 2026-06-29 (it could show a wrong/guessed picture and wasn't reliable enough). The "?" sheet now shows a VERY brief on-device `IngredientAssistant.describe` blurb + a prominent "Likely aisle" row (`item.aisle ?? GroceryKnowledge.aisle(for:)`). "?" and "!" remain two separate always-visible buttons side by side (no tap-to-reveal).
 - Web: `cloudflare-pages/lib/grocery.js` — share-record parse + aisle group + plain-text render; SERVER FOUNDATION ONLY, no `/list/<id>` route yet.
 
 **Cook mode** — `Sources/Views/Cook/`
@@ -134,7 +134,8 @@ Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends 
 | Helper | File | Purpose |
 |---|---|---|
 | `ContentModeration.check/isClean` | `Lib/ContentModeration.swift` | Profanity/slur screen for user-chosen NAMES — BLOCK-at-commit. Mirrored server-side in `cloudflare-pages/lib/moderation.js` (keep the two word lists in sync). See ### Content Moderation |
-| `GroceryKeyword.bestKey/normalize` | `Lib/GroceryKeyword.swift` | Plural-tolerant keyword match for grocery item names; shared by `GrocerySwaps` + `IngredientVisual` + the recipe→list dedup |
+| `GroceryKeyword.bestKey/normalize` | `Lib/GroceryKeyword.swift` | Plural-tolerant keyword match for grocery item names; shared by `GroceryKnowledge` (aisle + substitution lookup) + the recipe→list dedup |
+| `View.glassChip(isActive:accent:)` | `Components/View+GlassChip.swift` | Shared active-solid-accent / inactive-LG-glass capsule split for filter chips — single source of truth; replaced the duplicated `ChipBackground`/`GlassChipBackground` structs in `LibraryView` + `CategoryFilterStrip` |
 | `FlyToast` + `runFriendImportToast` | `App/NavigationContext.swift`, `App/RootView.swift` | Spring-to-a-tab "Saved/Added" toast — friend-import AND recipe→list both use it. See ### Toasts |
 | `View.cardScrollTransition()` | `Components/View+CardScrollTransition.swift` | Scroll-focus zoom on card lists |
 | `View.cardGlare(cornerRadius:)` | `Components/View+CardGlare.swift` | Card glare: soft sweep-in on entry + scroll-reactive shine + static top/bottom edge depth rim, clipped to card shape |
@@ -295,8 +296,10 @@ Push subscriptions: `friendship-events-A/B-<me>`, `recipe-import-events-<me>`. S
 **Liquid Glass** — opted IN (2026-05-25). `UIDesignRequiresCompatibility` removed from `AppInfo.plist`; stock SwiftUI/UIKit surfaces render with iOS 26 glass materials. `RootView.configureTabBarAppearance` calls `configureWithDefaultBackground()` explicitly so the tab-bar proxy survives the flip.
 - **Established glass call shapes (the only forms confirmed compiling in-repo — reuse these, don't invent):** inactive chip → `.glassEffect(.regular, in: Capsule())`; interactive tinted control → `.glassEffect(.regular.tint(<Color>).interactive(), in: <Capsule/.circle/RoundedRectangle>)`. The active/inactive capsule split lives in `LibraryView.ChipBackground` / `CategoryFilterStrip.ChipBackground` / `GroceryListDetailView.GlassChipBackground` (active = solid accent fill, inactive = glass).
 - **Convention:** floating CONTROLS/chips/action-bars use `.glassEffect`; content CARDS stay solid (`.liftedCard()` / `.surfaceCard()`); decorative icon wells are tinted fills (not glass); tab badges are native `.badge()`. Cream `AppColor.onAccent` glyphs ON glass carry `.accentTextOutline()` to lift off the translucent backing.
-- **Adopted glass (2026-06-26 LG pass):** `RecipeDetailView.startCookingBar` (tinted interactive glass, matching its CookPill twin), `RootView.AddToCookButton` (outline), grocery add-item "+" disc, have/need toggle (`GlassChipBackground`), swap-sheet "Save", `ListsView` empty-state CTA. **Second pass (finish-everywhere):** removed `LibraryView`'s `.toolbarBackground` (nav bar now glass), grocery add bar `.regularMaterial` + `PhotoCarouselView` keyboard bar `.thinMaterial` → `.glassEffect(.regular, in: Rectangle())`, CookMode timer pill `.buttonStyle(.lifted)`→`.plain`, and the cook-pills bar (`CookingPillsBar`) wrapped in `GlassEffectContainer(spacing:)` — the **only** `GlassEffectContainer` in the repo, so it's the reference for the API. **All of the second pass needs an iOS 26 build to confirm it compiles** (`GlassEffectContainer` + `Rectangle()` glass containers are first uses).
-- **Still deferred (scroll-target risk — needs build + device):** `GlassEffectContainer` around the horizontal filter chip strips (`LibraryView` / `CategoryFilterStrip`) and the `ConversionsView` unit menus. Skipped because a container between a `ScrollView` and its `.scrollTargetLayout()` content can break scroll snapping — verify on device before wrapping.
+- **Adopted glass (2026-06-26 LG pass):** `RecipeDetailView.startCookingBar` (tinted interactive glass, matching its CookPill twin), `RootView.AddToCookButton` (success-tinted interactive glass — `.glassEffect(.regular.tint(AppColor.success).interactive(), in: RoundedRectangle)`), grocery add-item "+" disc, have/need toggle (`GlassChipBackground`), swap-sheet "Save", `ListsView` empty-state CTA. **Second pass (finish-everywhere):** removed `LibraryView`'s `.toolbarBackground` (nav bar now glass), grocery add bar `.regularMaterial` + `PhotoCarouselView` keyboard bar `.thinMaterial` → `.glassEffect(.regular, in: Rectangle())`, CookMode timer pill `.buttonStyle(.lifted)`→`.plain`, and the cook-pills bar (`CookingPillsBar`) wrapped in `GlassEffectContainer(spacing:)`.
+- **`GlassEffectContainer` call sites (multiple as of 2026-06-29):** `RootView.CookingPillsBar`, `GroceryListDetailView.addItemBar` (fuses the TextField + "+" disc into one floating glass capsule), and the two filter chip strips below. `CookingPillsBar` is still the canonical reference for the API.
+- **Third pass (2026-06-29 — app-wide LG + DRY):** new floating grocery add-item bar (`GlassEffectContainer` fusing field + "+"); grocery `sharedStatusBanner` + `ShareGroceryListSheet`/`AddToGroceryListSheet` floating bars `.regularMaterial` → `.glassEffect(.regular, in: Rectangle())`; **DRY**: extracted `View.glassChip(isActive:accent:)` (`Components/View+GlassChip.swift`) and deleted the duplicated `ChipBackground` structs in `LibraryView` + `CategoryFilterStrip`. The `SavedToast` fly-to-tab badge stays a layered `.ultraThinMaterial` token (animated, not action-bar chrome) — intentionally not `.glassEffect`.
+- **Previously-deferred items ADOPTED 2026-06-29 (pending on-device verification):** `GlassEffectContainer(spacing:)` now wraps the horizontal filter chip strips (`LibraryView.filterStrip` + `CategoryFilterStrip`) — placed INSIDE the `ScrollView` with `.scrollTargetLayout()` kept on the inner chip `HStack` and `.scrollTargetBehavior(.viewAligned)` on the `ScrollView`, so snap targets are unchanged. `ConversionsView` unit/ingredient `Menu` labels → `.glassEffect(.regular.tint(accent.opacity(0.12)).interactive(), in: Capsule())`. Each site carries a "PREVIOUSLY-DEFERRED … pending on-device verification" comment. **MUST verify on a real device:** chip-to-chip horizontal snapping on both strips, chip glass-morph at edges, scroll haptics, menu open/select. **Rollback if snapping regresses:** drop just the `GlassEffectContainer` wrapper (chips revert to individually-cut `glassChip` capsules), keeping `.scrollTargetLayout()` in place.
 - **Device-verification checklist:** `md_files/liquid-glass-adoption.md` (regenerated 2026-06-26 — 14 items, incl. the new grocery surfaces + the sage `AppColor.success` "All set"/"Swap:" contrast risk). NOTE: `CookbookHeader` no longer uses `.regularMaterial` (it's now a plain outlined title on the system nav-bar glass) — the old "CookbookHeader's `.regularMaterial`" review note is obsolete.
 
 **AASA** (`cloudflare-pages/.well-known/apple-app-site-association`): `GYFN949Q5E.com.llamascookbook.app` against `/r/*`.
@@ -400,9 +403,35 @@ selection in `AddToGroceryListSheet` and an "Added N items" toast); Conversions
 chip in Cook Mode; on-device AI aisle triage (auto on appear, manual
 "Sort by aisle" with llama overlay) with researched heuristic fallback; in-cart
 check-off (single per-item axis — the old have/need toggle was removed as
-redundant 2026-06-25; tapping the row label OR the circle toggles it); per-row "?" helper (what-is-this via on-device describe +
-web image search; "they don't have this" → researched substitute swaps); Friends
+redundant 2026-06-25; tapping the row label OR the circle toggles it); per-row "?" helper (brief on-device description + likely aisle — the
+photo/web-image recognition was REMOVED 2026-06-29; "they don't have this" → researched substitute swaps); Friends
 tab badge (incoming requests). Each phase audited by a reviewer subagent.
+
+**Polish + expansion pass (2026-06-29):** (1) **Add-item bar** redesigned from an
+edge-to-edge `.glassEffect(.regular, in: Rectangle())` strip (which read as a 2nd
+docked bar against the tab bar) into a FLOATING capsule — field + "+" disc fused in
+one `GlassEffectContainer(spacing:)`, inset with bottom breathing room (preserves
+`cookPillClearance`/focus/owner-gating). (2) **Aisle headers de-stickied** — the
+plain `List` pinned `Section` headers; the aisle title is now a non-pinned leading
+`Text` row (`.deleteDisabled(true)`) inside each section's `ForEach`, so it scrolls
+away instead of overlapping (owner-only swipe-to-delete + `showsAisleHeaders` gate
+intact). (3) **"?" helper** rewritten (see above) — `IngredientVisual`/`IngredientGlyphView`
++ `IngredientPhotoLookup` DELETED. (4) **Aisle knowledge expanded beyond food** —
+`GroceryAisle.ordered` gained Baby / Health & Pharmacy / Personal Care / Household /
+Pet (Other still last); `GroceryKnowledge.aisleKeywords` + brands (Tylenol/Advil/
+Benadryl/Bonine → Health & Pharmacy; Cerave/Dove → Personal Care; Tide/Clorox →
+Household; …); `describe` made ≤~12 words + non-food-aware; `triage` prompt lists the
+full 14-aisle vocab; `GroceryKnowledgeTests` extended; `grocery.js` `AISLE_ORDER`
+mirrored. **Bare `"pad"` keyword → `"maxi pad"`/`"menstrual pad"`/`"panty liner"`** so
+it can't false-positive "pad thai". (5) **"Added" toast** now matches the tonal
+Add-to-list button (`.ultraThinMaterial` + `accent.opacity(0.12)` fill + `0.7` 1.5pt
+border) and cutely shrinks + pops INTO the destination tab (Lists = `3·width/8`); the
+runner now stores a cancellable `toastTask` so a back-to-back toast can't tear down a
+newer one mid-flight. (6) **App-wide Liquid Glass + DRY** — see the Liquid Glass
+section's third pass + adopted-deferred items. Haptic audit: no violations found.
+**NOTE:** none of this is build-verified here (no iOS toolchain on the dev host) —
+needs an Xcode/iOS 26 build + the on-device LG checklist before shipping; `grocery.test.js`
+needs CI's Node ≥ 20 (local host is Node 18, vitest v3 won't run).
 
 **App-to-app friend sharing + live checklist (built 2026-06-24):** share a list
 with friend(s) → one `GroceryListShare` public-DB record per shared list is the

@@ -33,19 +33,30 @@ struct CategoryFilterStrip: View {
             allPill
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: AppSpacing.xs) {
-                    ForEach(categories, id: \.self) { tag in
-                        let isActive = selection == tag
-                        let label = "\(StringCase.titleCase(tag))  ·  \(countFor(tag))"
-                        pill(label: label, isActive: isActive) {
-                            Haptics.selection()
-                            selection = isActive ? nil : tag
+                // Liquid Glass: group the sibling glass chips so they sample a
+                // shared backdrop and morph at their edges as the selection /
+                // scroll changes (rather than each compositing as a separately
+                // cut capsule). PREVIOUSLY-DEFERRED surface — a glass container
+                // between the ScrollView and its `.scrollTargetLayout()` content
+                // can perturb `.viewAligned` snapping, so `.scrollTargetLayout()`
+                // stays on the chip-holding HStack (the snap-target stack) and
+                // the container only wraps it. Pending on-device scroll-snapping
+                // verification.
+                GlassEffectContainer(spacing: AppSpacing.xs) {
+                    HStack(spacing: AppSpacing.xs) {
+                        ForEach(categories, id: \.self) { tag in
+                            let isActive = selection == tag
+                            let label = "\(StringCase.titleCase(tag))  ·  \(countFor(tag))"
+                            pill(label: label, isActive: isActive) {
+                                Haptics.selection()
+                                selection = isActive ? nil : tag
+                            }
+                            .scrollSectionHaptic(section: tag, ticker: stripTicker)
                         }
-                        .scrollSectionHaptic(section: tag, ticker: stripTicker)
                     }
+                    .padding(.trailing, AppSpacing.lg)
+                    .scrollTargetLayout()
                 }
-                .padding(.trailing, AppSpacing.lg)
-                .scrollTargetLayout()
             }
             .scrollTargetBehavior(.viewAligned)
             .onChange(of: categories) { _, _ in
@@ -69,7 +80,7 @@ struct CategoryFilterStrip: View {
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
-                .modifier(ChipBackground(isActive: isActive, accent: accent))
+                .glassChip(isActive: isActive, accent: accent)
                 .overlay(
                     Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
                 )
@@ -84,27 +95,11 @@ struct CategoryFilterStrip: View {
                 .foregroundStyle(isActive ? AppColor.onAccent : AppColor.textPrimary)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.vertical, AppSpacing.xs + 2)
-                .modifier(ChipBackground(isActive: isActive, accent: accent))
+                .glassChip(isActive: isActive, accent: accent)
                 .overlay(
                     Capsule().stroke(isActive ? accent : AppColor.divider, lineWidth: 1)
                 )
         }
         .buttonStyle(.scaleOnly)
-    }
-}
-
-/// Active = solid accent fill; inactive = LG glass capsule.
-/// Mirrors LibraryView.ChipBackground so FriendLibraryView's category
-/// strip matches the home filter strip visually.
-private struct ChipBackground: ViewModifier {
-    let isActive: Bool
-    let accent: Color
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.background(accent, in: Capsule())
-        } else {
-            content.glassEffect(.regular, in: Capsule())
-        }
     }
 }

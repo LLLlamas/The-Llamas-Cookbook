@@ -200,7 +200,10 @@ struct GroceryListDetailView: View {
         .padding(.horizontal, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)
         .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
+        // Slim floating status banner — LG glass per the floating-chrome
+        // convention (full-width edge bar, so `Rectangle()` like the photo
+        // keyboard bar, not a capsule).
+        .glassEffect(.regular, in: Rectangle())
     }
 
     private var sharedStatusText: String {
@@ -219,36 +222,42 @@ struct GroceryListDetailView: View {
     private var itemList: some View {
         List {
             ForEach(sections, id: \.aisle) { section in
-                Section {
-                    ForEach(section.items) { item in
-                        GroceryItemRow(
-                            item: item,
-                            accent: accent,
-                            onToggleChecked: { toggleChecked(item) },
-                            onToggleOutOfStock: { toggleOutOfStock(item) },
-                            onHelp: {
-                                helperItem = item
-                                noteSyncItem = item
-                                noteSyncInitialAvailability = AvailabilitySnapshot(item)
-                            }
-                        )
+                // The aisle title is emitted as the FIRST scrolling row of its
+                // section (not a `Section`/`header:`), so plain List can't pin
+                // it to the top — it scrolls away like any other row instead of
+                // overlapping content as the user scrolls. The `showsAisleHeaders`
+                // gate keeps a lone "Other" group label-free.
+                if showsAisleHeaders {
+                    Text(section.aisle)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(accent)
+                        .textCase(nil)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 3, leading: AppSpacing.lg, bottom: 3, trailing: AppSpacing.lg))
-                        // Recipients shop the list (check off) but don't edit
-                        // its structure — suppress swipe-to-delete for them, or
-                        // a "deleted" row resurrects on the next owner sync.
-                        .deleteDisabled(!isOwner)
-                    }
-                    .onDelete { offsets in deleteItems(section.items, at: offsets) }
-                } header: {
-                    if showsAisleHeaders {
-                        Text(section.aisle)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(accent)
-                            .textCase(nil)
-                    }
+                        .listRowInsets(EdgeInsets(top: AppSpacing.sm, leading: AppSpacing.lg, bottom: 2, trailing: AppSpacing.lg))
+                        .deleteDisabled(true)
                 }
+                ForEach(section.items) { item in
+                    GroceryItemRow(
+                        item: item,
+                        accent: accent,
+                        onToggleChecked: { toggleChecked(item) },
+                        onToggleOutOfStock: { toggleOutOfStock(item) },
+                        onHelp: {
+                            helperItem = item
+                            noteSyncItem = item
+                            noteSyncInitialAvailability = AvailabilitySnapshot(item)
+                        }
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 3, leading: AppSpacing.lg, bottom: 3, trailing: AppSpacing.lg))
+                    // Recipients shop the list (check off) but don't edit
+                    // its structure — suppress swipe-to-delete for them, or
+                    // a "deleted" row resurrects on the next owner sync.
+                    .deleteDisabled(!isOwner)
+                }
+                .onDelete { offsets in deleteItems(section.items, at: offsets) }
             }
         }
         .listStyle(.plain)
@@ -258,38 +267,41 @@ struct GroceryListDetailView: View {
     // MARK: - Add-item bar
 
     private var addItemBar: some View {
-        HStack(spacing: AppSpacing.sm) {
-            TextField("Add an item", text: $newItemName)
-                .textInputAutocapitalization(.never)
-                .submitLabel(.done)
-                .focused($addFieldFocused)
-                .onSubmit(addItem)
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.sm)
-                .background(AppColor.surface)
-                .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(AppColor.divider.opacity(0.6), lineWidth: 1))
+        // A floating, inset control — NOT an edge-to-edge docked strip, which
+        // read as a second nav bar stacked on the OS tab bar. The field and
+        // the "+" share ONE `GlassEffectContainer` (mirroring the cook-pills
+        // bar — the repo's reference for the API) so they sample a shared
+        // backdrop and fuse into a single cohesive glass surface.
+        GlassEffectContainer(spacing: AppSpacing.sm) {
+            HStack(spacing: AppSpacing.sm) {
+                TextField("Add an item", text: $newItemName)
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.done)
+                    .focused($addFieldFocused)
+                    .onSubmit(addItem)
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.sm + 2)
+                    .glassEffect(.regular, in: Capsule())
 
-            Button(action: addItem) {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(AppColor.onAccent)
-                    .accentTextOutline()
-                    .frame(width: 40, height: 40)
-                    .glassEffect(.regular.tint(accent).interactive(), in: .circle)
+                Button(action: addItem) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(AppColor.onAccent)
+                        .accentTextOutline()
+                        .frame(width: 44, height: 44)
+                        .glassEffect(.regular.tint(accent).interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Circle())
+                .disabled(trimmedNewItem == nil)
+                .opacity(trimmedNewItem == nil ? 0.5 : 1)
+                .accessibilityLabel("Add item")
             }
-            .buttonStyle(.plain)
-            .contentShape(Circle())
-            .disabled(trimmedNewItem == nil)
-            .opacity(trimmedNewItem == nil ? 0.5 : 1)
-            .accessibilityLabel("Add item")
         }
+        // Inset from the screen edges so it floats clear of the tab bar with
+        // breathing room — a deliberate "add" control, not a docked bar.
         .padding(.horizontal, AppSpacing.lg)
-        .padding(.vertical, AppSpacing.sm)
-        // Liquid Glass floating chrome (was `.regularMaterial`) so the
-        // add-item bar reads consistently with the cook pills + tab bar.
-        .glassEffect(.regular, in: Rectangle())
-        .padding(.bottom, cookPillClearance)
+        .padding(.bottom, AppSpacing.sm + cookPillClearance)
     }
 
     // MARK: - Empty state

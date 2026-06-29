@@ -36,6 +36,13 @@ describe('grocery constants', () => {
   it('AISLE_FALLBACK is in AISLE_ORDER', () => {
     expect(AISLE_ORDER).toContain(AISLE_FALLBACK);
   });
+  it('includes the non-food departments after Beverages and before Other', () => {
+    for (const aisle of ['Baby', 'Health & Pharmacy', 'Personal Care', 'Pet']) {
+      expect(AISLE_ORDER).toContain(aisle);
+    }
+    expect(AISLE_ORDER.indexOf('Health & Pharmacy')).toBeGreaterThan(AISLE_ORDER.indexOf('Beverages'));
+    expect(AISLE_ORDER.indexOf('Pet')).toBeLessThan(AISLE_ORDER.indexOf('Other'));
+  });
   it('field names are check<N> / note<N>', () => {
     expect(checkFieldName(0)).toBe('check0');
     expect(checkFieldName(39)).toBe('check39');
@@ -51,6 +58,8 @@ describe('normalizeAisle', () => {
   });
   it('is case- and whitespace-insensitive', () => {
     expect(normalizeAisle('  dairy & eggs ')).toBe('Dairy & Eggs');
+    expect(normalizeAisle('health & pharmacy')).toBe('Health & Pharmacy');
+    expect(normalizeAisle(' Personal Care ')).toBe('Personal Care');
   });
   it('maps unknown / empty / null to Other', () => {
     expect(normalizeAisle('Garden Center')).toBe('Other');

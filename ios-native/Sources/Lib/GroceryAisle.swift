@@ -17,7 +17,11 @@ enum GroceryAisle {
         "Pantry & Dry Goods",
         "Spices",
         "Beverages",
+        "Baby",
+        "Health & Pharmacy",
+        "Personal Care",
         "Household",
+        "Pet",
         "Other",
     ]
 

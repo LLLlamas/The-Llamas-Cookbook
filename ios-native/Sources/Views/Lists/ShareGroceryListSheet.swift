@@ -148,7 +148,8 @@ struct ShareGroceryListSheet: View {
         .disabled(selectedIDs.isEmpty || isSharing)
         .padding(.horizontal, AppSpacing.lg)
         .padding(.vertical, AppSpacing.sm)
-        .background(.regularMaterial)
+        // Floating bottom action-bar chrome — LG glass (full-width edge bar).
+        .glassEffect(.regular, in: Rectangle())
     }
 
     private var shareButtonLabel: String {
