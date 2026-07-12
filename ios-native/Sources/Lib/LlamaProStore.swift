@@ -18,8 +18,8 @@ final class LlamaProStore {
         }
     }
 
-    static let monthlyProductID = "com.llamascookbook.app.pro.monthly"
-    static let yearlyProductID  = "com.llamascookbook.app.pro.yearly"
+    nonisolated static let monthlyProductID = "com.llamascookbook.app.pro.monthly"
+    nonisolated static let yearlyProductID  = "com.llamascookbook.app.pro.yearly"
 
     private(set) var plan:           Plan     = .none
     private(set) var monthlyProduct: Product? = nil

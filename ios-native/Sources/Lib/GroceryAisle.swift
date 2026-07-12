@@ -56,18 +56,46 @@ enum GroceryAisle {
         index[GroceryAisle.normalize(raw).lowercased()] ?? ordered.count
     }
 
-    /// Group items into `(aisle, items)` sections in canonical store-walk
-    /// order. Items keep their incoming relative order within a section;
-    /// empty sections are omitted. `aisleOf` extracts each item's raw aisle
-    /// (nil → `fallback`).
-    static func group<T>(_ items: [T], aisleOf: (T) -> String?) -> [(aisle: String, items: [T])] {
+    /// Group items into `(aisle, items)` sections in store-walk order —
+    /// canonical by default, or a store profile's custom walk when
+    /// `order` is provided (run through `resolvedOrder`, so stale/partial
+    /// permutations degrade gracefully). Items keep their incoming
+    /// relative order within a section; empty sections are omitted.
+    /// `aisleOf` extracts each item's raw aisle (nil → `fallback`).
+    static func group<T>(
+        _ items: [T],
+        order customOrder: [String]? = nil,
+        aisleOf: (T) -> String?
+    ) -> [(aisle: String, items: [T])] {
         var buckets: [String: [T]] = [:]
         for item in items {
             buckets[normalize(aisleOf(item)), default: []].append(item)
         }
-        return ordered.compactMap { aisle in
+        let sequence = customOrder.map(resolvedOrder) ?? ordered
+        return sequence.compactMap { aisle in
             guard let bucket = buckets[aisle], !bucket.isEmpty else { return nil }
             return (aisle, bucket)
         }
+    }
+
+    /// Heal a stored aisle permutation (a store profile's walk order)
+    /// against the current taxonomy: drop entries that no longer name a
+    /// canonical aisle (renamed/removed since the profile was saved) and
+    /// any duplicates, then append canonical aisles the stored order
+    /// predates — so old profiles keep working, with new aisles landing
+    /// at the end in canonical order.
+    static func resolvedOrder(_ stored: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for raw in stored {
+            let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard let position = index[key] else { continue }
+            let name = ordered[position]
+            if seen.insert(name).inserted { out.append(name) }
+        }
+        for aisle in ordered where !seen.contains(aisle) {
+            out.append(aisle)
+        }
+        return out
     }
 }

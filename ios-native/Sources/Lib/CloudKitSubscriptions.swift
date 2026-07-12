@@ -75,7 +75,11 @@ enum CloudKitSubscriptions {
     /// grocery streams. The version bump forces one re-register pass.
     /// Bumped `.v2` → `.v3` when the out-of-stock grocery alert subscription
     /// was added.
-    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v3"
+    /// Bumped `.v3` → `.v4` when the alert's push body switched to the
+    /// localized "%@ couldn't find %@" form interpolating the
+    /// `GroceryListAlert` record fields — the payload shape is baked into
+    /// the saved subscription, so existing installs must re-register.
+    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v4"
 
     /// SHA-256 of the most recent APNs device token we observed at
     /// registration time. CKQuerySubscription delivery is bound to
@@ -281,7 +285,14 @@ enum CloudKitSubscriptions {
         alertInfo.shouldSendContentAvailable = true
         alertInfo.shouldBadge = false
         alertInfo.title = "Item unavailable"
-        alertInfo.alertBody = "Someone couldn't find an item on your shared grocery list."
+        // Interpolate the alert record's own fields into the push body so
+        // the owner reads "Sam couldn't find “oat milk” on Weekly Groceries."
+        // instead of a generic sentence. The key lives in
+        // Resources/Localizable.strings; the args are field NAMES on the
+        // `GroceryListAlert` record, resolved server-side per push.
+        // (`createOutOfStockAlert` guarantees all three are non-empty.)
+        alertInfo.alertLocalizationKey = "GROCERY_OOS_ALERT_BODY"
+        alertInfo.alertLocalizationArgs = ["shopperName", "itemName", "listName"]
         alertInfo.soundName = "default"
         alertSub.notificationInfo = alertInfo
         _ = try await CloudKitService.publicDB.save(alertSub)

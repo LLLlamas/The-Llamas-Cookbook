@@ -27,6 +27,12 @@ targets:
       # App Store Connect auto-rejects the upload. See
       # Resources/PrivacyInfo.xcprivacy for the full declaration.
       - path: Resources/PrivacyInfo.xcprivacy
+      # Push-notification body templates. CloudKit's grocery "!" alert
+      # (CloudKitSubscriptions.registerGrocerySubscriptions) delivers an
+      # alertLocalizationKey payload that iOS resolves against this table
+      # on-device — if the file drops out of the bundle, banners show the
+      # raw GROCERY_OOS_ALERT_BODY key instead of the sentence.
+      - path: Resources/Localizable.strings
       # "Your Llama" seed friend recipes — bundled JSON decoded once
       # at first access by `SeedFriend.swift`. The synthetic seed
       # friend always appears at position 0 in every user's Friends

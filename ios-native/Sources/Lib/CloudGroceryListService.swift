@@ -254,11 +254,15 @@ enum CloudGroceryListService {
             recordType: alertRecordType,
             recordID: CKRecord.ID(recordName: UUID().uuidString)
         )
+        // The owner's push body interpolates shopperName/itemName/listName
+        // (see GROCERY_OOS_ALERT_BODY) — keep every slot non-empty so a
+        // blank display name can't render " couldn't find …".
+        let shopper = shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
         record["ownerID"] = ownerID as NSString
         record["listRecordName"] = listRecordName as NSString
         record["listName"] = listName as NSString
         record["itemName"] = itemName as NSString
-        record["shopperName"] = shopperName as NSString
+        record["shopperName"] = (shopper.isEmpty ? "Your shopper" : shopper) as NSString
         record["createdAt"] = Date() as NSDate
         _ = try await publicDB.save(record)
     }

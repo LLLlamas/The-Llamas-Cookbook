@@ -30,6 +30,11 @@ struct LlamasCookbookApp: App {
     @State private var quotaService  = QuotaService()
     /// StoreKit 2 wrapper for Llama Pro subscriptions. Phase 1: isPro = false.
     @State private var llamaProStore = LlamaProStore()
+    /// Named store profiles (per-store aisle walk orders) + per-list store
+    /// assignment. Device-local viewing preference in UserDefaults — a
+    /// persisted-preferences Observable sibling to `appearance`, never
+    /// synced (each participant of a shared list shops their own store).
+    @State private var storeProfiles = StoreProfileStore()
     /// Owns the UNUserNotificationCenter delegate. SwiftUI keeps this
     /// alive for the app lifetime so foreground notification handling
     /// (sound + banner while Cook Mode is minimized) keeps working.
@@ -58,6 +63,7 @@ struct LlamasCookbookApp: App {
                 .environment(friendsStore)
                 .environment(quotaService)
                 .environment(llamaProStore)
+                .environment(storeProfiles)
                 .task { await llamaProStore.start() }
                 // The cream + terracotta palette has no dark-mode variant
                 // (AppColor values are hard sRGB, not asset-catalog system

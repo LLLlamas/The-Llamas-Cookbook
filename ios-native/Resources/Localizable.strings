@@ -1,0 +1,17 @@
+/*
+  Push-notification bodies for CloudKit CKQuerySubscription alerts.
+
+  iOS resolves `alertLocalizationKey` payloads against this table ON THE
+  RECEIVING DEVICE, substituting `alertLocalizationArgs` (CloudKit record
+  field values) into the positional %n$@ slots. The app itself is
+  English-only, so this single unlocalized table is the lookup target for
+  every install.
+
+  GROCERY_OOS_ALERT_BODY args, in order (see
+  CloudKitSubscriptions.registerGrocerySubscriptions):
+    %1$@ — shopperName   who flagged the item
+    %2$@ — itemName      the item they couldn't find
+    %3$@ — listName      which shared list it's on
+*/
+
+"GROCERY_OOS_ALERT_BODY" = "%1$@ couldn't find “%2$@” on %3$@.";

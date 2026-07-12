@@ -20,8 +20,10 @@ struct GroceryListDetailView: View {
     @Environment(UserAccount.self) private var userAccount
     @Environment(OwnerProfile.self) private var ownerProfile
     @Environment(FriendsStore.self) private var friendsStore
+    @Environment(StoreProfileStore.self) private var storeProfiles
 
     @State private var newItemName = ""
+    @State private var showingStoreEditor = false
     @State private var showingRename = false
     @State private var renameText = ""
     /// Drives the "pick another name" alert when a rename is rejected by
@@ -57,11 +59,41 @@ struct GroceryListDetailView: View {
         return ownerProfile.userName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Aisle sections in store-walk order. When nothing has been triaged
-    /// yet (every item falls in "Other"), we render a single flat list
-    /// without a header rather than a lone "Other" label.
+    /// Aisle sections in store-walk order — canonical, or the assigned
+    /// store profile's custom walk. Items are alphabetized within each
+    /// section (display-only: `GroceryItem.order` is load-bearing for the
+    /// CloudKit share-slot mapping and is never rewritten). When nothing
+    /// has been triaged yet (every item falls in "Other"), we render a
+    /// single flat list without a header rather than a lone "Other" label.
     private var sections: [(aisle: String, items: [GroceryItem])] {
-        GroceryAisle.group(list.sortedItems, aisleOf: \.aisle)
+        let alphabetized = list.sortedItems.sorted { a, b in
+            let cmp = a.name.localizedCaseInsensitiveCompare(b.name)
+            // Explicit `order` tie-break — Swift's sort isn't stable.
+            if cmp == .orderedSame { return a.order < b.order }
+            return cmp == .orderedAscending
+        }
+        return GroceryAisle.group(alphabetized, order: activeAisleOrder, aisleOf: \.aisle)
+    }
+
+    /// The assigned store profile's healed walk order, or nil for the
+    /// canonical default. A stale assignment (deleted store) resolves to
+    /// nil inside the store, so this can't dangle.
+    private var activeAisleOrder: [String]? {
+        storeProfiles.aisleOrder(forList: list.id)
+    }
+
+    /// Store-picker selection for the toolbar menu. Setting reshuffles the
+    /// aisle sections in place (List diffing animates the move).
+    private var storeSelection: Binding<UUID?> {
+        Binding(
+            get: { storeProfiles.assignedStoreID(forList: list.id) },
+            set: { newValue in
+                Haptics.selection()
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    storeProfiles.assign(newValue, toList: list.id)
+                }
+            }
+        )
     }
 
     private var showsAisleHeaders: Bool { sections.count > 1 }
@@ -104,8 +136,28 @@ struct GroceryListDetailView: View {
                     }
                     .accessibilityLabel(list.isShared ? "Manage sharing" : "Share list with a friend")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+            }
+            // The overflow menu shows for recipients too — the store-layout
+            // pick is a per-device viewing preference (each shopper walks
+            // their own store), while the structural actions inside stay
+            // owner-gated.
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Store layout", selection: storeSelection) {
+                        Label("Default order", systemImage: "list.bullet")
+                            .tag(UUID?.none)
+                        ForEach(storeProfiles.profiles) { profile in
+                            Text(profile.name).tag(UUID?.some(profile.id))
+                        }
+                    }
+                    Button {
+                        Haptics.selection()
+                        showingStoreEditor = true
+                    } label: {
+                        Label("Edit stores…", systemImage: "storefront")
+                    }
+                    if isOwner {
+                        Divider()
                         Button {
                             Task { await sortByAisle() }
                         } label: {
@@ -126,13 +178,13 @@ struct GroceryListDetailView: View {
                                 Label("Stop sharing", systemImage: "person.crop.circle.badge.xmark")
                             }
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(accent)
                     }
-                    .accessibilityLabel("List options")
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(accent)
                 }
+                .accessibilityLabel("List options")
             }
         }
         .safeAreaInset(edge: .top) {
@@ -166,6 +218,11 @@ struct GroceryListDetailView: View {
                 .environment(appearance)
                 .environment(friendsStore)
                 .environment(groceryStore)
+        }
+        .sheet(isPresented: $showingStoreEditor) {
+            StoreLayoutsView()
+                .environment(appearance)
+                .environment(storeProfiles)
         }
         .alert("Rename list", isPresented: $showingRename) {
             TextField("List name", text: $renameText)
@@ -229,12 +286,12 @@ struct GroceryListDetailView: View {
                 // gate keeps a lone "Other" group label-free.
                 if showsAisleHeaders {
                     Text(section.aisle)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(accent)
                         .textCase(nil)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: AppSpacing.sm, leading: AppSpacing.lg, bottom: 2, trailing: AppSpacing.lg))
+                        .listRowInsets(EdgeInsets(top: AppSpacing.xs, leading: AppSpacing.lg, bottom: 1, trailing: AppSpacing.lg))
                         .deleteDisabled(true)
                 }
                 ForEach(section.items) { item in
@@ -251,7 +308,7 @@ struct GroceryListDetailView: View {
                     )
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 3, leading: AppSpacing.lg, bottom: 3, trailing: AppSpacing.lg))
+                    .listRowInsets(EdgeInsets(top: 1, leading: AppSpacing.lg, bottom: 1, trailing: AppSpacing.lg))
                     // Recipients shop the list (check off) but don't edit
                     // its structure — suppress swipe-to-delete for them, or
                     // a "deleted" row resurrects on the next owner sync.
@@ -442,7 +499,14 @@ struct GroceryListDetailView: View {
     private func toggleChecked(_ item: GroceryItem) {
         item.isChecked.toggle()
         list.touch()
-        Haptics.selection()
+        // Checking off gets a soft, weighty thump to pair with the row's
+        // stamp/poof/sweep celebration; unchecking stays a plain tick.
+        // Local taps only — remote flips animate but never buzz the phone.
+        if item.isChecked {
+            Haptics.impact(.soft)
+        } else {
+            Haptics.selection()
+        }
         // Live check-off: push just this item's slot to every participant.
         if list.isShared {
             Task { await groceryStore.pushCheck(item) }
@@ -539,16 +603,43 @@ private struct GroceryItemRow: View {
     let onToggleOutOfStock: () -> Void
     let onHelp: () -> Void
 
+    /// Bumped on every unchecked→checked flip — a local tap OR a live
+    /// remote sync landing — to run the one-shot stamp/poof/sweep
+    /// celebration. Starts at 0 so freshly-rendered rows (list open,
+    /// scroll-in, already-checked items) never replay it.
+    @State private var celebration = 0
+
+    /// Reduce Motion suppresses the celebration entirely (the check still
+    /// flips with its gentle color fade — that's a state change, not motion).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var display: MeasureDisplay { item.display() }
 
     var body: some View {
         HStack(spacing: AppSpacing.xs) {
-            // Leading: in-cart check-off.
+            // Leading: in-cart check-off. The mark stamps down (lift →
+            // sink → spring settle) with a brief green glow, and a poof
+            // bursts over it — layered ABOVE the phase animator so the
+            // burst isn't scaled by the stamp.
             Button(action: onToggleChecked) {
                 Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(item.isChecked ? accent : AppColor.textTertiary)
-                    .frame(width: 44, height: 44)
+                    .font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(item.isChecked ? AppColor.success : AppColor.textTertiary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(.easeInOut(duration: 0.2), value: item.isChecked)
+                    .phaseAnimator(CheckStampPhase.allCases, trigger: celebration) { view, phase in
+                        view
+                            .scaleEffect(phase.scale)
+                            .shadow(color: AppColor.success.opacity(phase.glowOpacity), radius: phase.glowRadius)
+                    } animation: { phase in
+                        phase.animation
+                    }
+                    .overlay {
+                        if celebration > 0 {
+                            CheckPoof().id(celebration)
+                        }
+                    }
+                    .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -558,9 +649,9 @@ private struct GroceryItemRow: View {
             // so the user needn't hit the little circle. The helper buttons
             // stay separate trailing tap targets.
             Button(action: onToggleChecked) {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 0) {
                     Text(item.name.capitalized)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(item.isChecked ? AppColor.textTertiary : AppColor.textPrimary)
                         .strikethrough(item.isChecked, color: AppColor.textTertiary)
                         .lineLimit(1)
@@ -569,13 +660,14 @@ private struct GroceryItemRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
+                .animation(.easeInOut(duration: 0.22), value: item.isChecked)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
 
             Button(action: onHelp) {
                 Image(systemName: item.substitution == nil ? "questionmark.circle" : "questionmark.circle.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(item.substitution == nil ? AppColor.textTertiary : AppColor.success)
                     .frame(width: 34, height: 38)
                     .contentShape(Rectangle())
@@ -585,7 +677,7 @@ private struct GroceryItemRow: View {
 
             Button(action: onToggleOutOfStock) {
                 Image(systemName: item.outOfStock ? "exclamationmark.circle.fill" : "exclamationmark.circle")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(item.outOfStock ? AppColor.destructive : AppColor.textTertiary)
                     .frame(width: 34, height: 38)
                     .contentShape(Rectangle())
@@ -595,7 +687,17 @@ private struct GroceryItemRow: View {
                 ? "Clear unavailable flag on \(item.name)"
                 : "Flag \(item.name) as unavailable")
         }
-        .padding(.vertical, 2)
+        // The green highlight that washes across the row, leading →
+        // trailing, as the item lands in the cart.
+        .overlay {
+            if celebration > 0 {
+                CheckSweep().id(celebration)
+            }
+        }
+        .onChange(of: item.isChecked) { wasChecked, isChecked in
+            guard isChecked, !wasChecked, !reduceMotion else { return }
+            celebration += 1
+        }
     }
 
     /// Second line under the name: the chosen swap, an out-of-stock flag, or
@@ -604,19 +706,125 @@ private struct GroceryItemRow: View {
     private var statusSubline: some View {
         if let swap = item.substitution, !swap.isEmpty {
             Text("Swap: \(swap)")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(AppColor.success)
                 .lineLimit(1)
                 .truncationMode(.tail)
         } else if item.outOfStock {
             Text("Couldn't find it")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(AppColor.destructive)
         } else if !display.measure.isEmpty {
             Text(display.measure)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(AppColor.textTertiary)
         }
+    }
+}
+
+// MARK: - Check-off celebration
+
+/// Phases of the check-off stamp: the mark lifts, crashes down slightly
+/// below resting size (the "sink"), then springs back to settle. The glow
+/// peaks on the lift and dies as the mark comes to rest.
+private enum CheckStampPhase: CaseIterable {
+    case settled, lift, sink
+
+    var scale: CGFloat {
+        switch self {
+        case .settled: return 1.0
+        case .lift: return 1.3
+        case .sink: return 0.82
+        }
+    }
+
+    var glowRadius: CGFloat {
+        switch self {
+        case .settled: return 0
+        case .lift: return 7
+        case .sink: return 3
+        }
+    }
+
+    var glowOpacity: Double {
+        switch self {
+        case .settled: return 0
+        case .lift: return 0.55
+        case .sink: return 0.3
+        }
+    }
+
+    /// The animation used to ENTER this phase — quick lift, sharper drop,
+    /// then a bouncy spring back to rest.
+    var animation: Animation {
+        switch self {
+        case .settled: return .spring(duration: 0.32, bounce: 0.45)
+        case .lift: return .easeOut(duration: 0.12)
+        case .sink: return .easeIn(duration: 0.1)
+        }
+    }
+}
+
+/// One-shot "poof" over the check circle the moment an item lands in the
+/// cart: a soft green ring plus a few radial specks that expand and fade.
+/// Self-animating on appear — the parent replays it per check-off by
+/// re-creating it with `.id(celebration)`.
+private struct CheckPoof: View {
+    @State private var burst = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(AppColor.success.opacity(burst ? 0 : 0.7), lineWidth: 1.5)
+                .frame(width: 23, height: 23)
+                .scaleEffect(burst ? 1.9 : 0.5)
+            ForEach(0..<6, id: \.self) { i in
+                let angle = Double(i) * .pi / 3 - .pi / 2
+                Circle()
+                    .fill(AppColor.success.opacity(burst ? 0 : 0.85))
+                    .frame(width: 3.5, height: 3.5)
+                    .scaleEffect(burst ? 0.4 : 1)
+                    .offset(
+                        x: CGFloat(cos(angle)) * (burst ? 19 : 5),
+                        y: CGFloat(sin(angle)) * (burst ? 19 : 5)
+                    )
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5)) { burst = true }
+        }
+    }
+}
+
+/// One-shot green highlight band that sweeps the full row, leading edge to
+/// trailing, as an item is checked off. Same self-animating/`.id` replay
+/// contract as `CheckPoof`. Hit-testing is disabled so the wash never
+/// steals a tap from the row's buttons.
+private struct CheckSweep: View {
+    @State private var swept = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let bandWidth = max(geo.size.width * 0.42, 80)
+            LinearGradient(
+                colors: [
+                    AppColor.success.opacity(0),
+                    AppColor.success.opacity(0.2),
+                    AppColor.success.opacity(0),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: bandWidth)
+            .frame(maxHeight: .infinity)
+            .offset(x: swept ? geo.size.width : -bandWidth)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.55)) { swept = true }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+        .allowsHitTesting(false)
     }
 }
 
