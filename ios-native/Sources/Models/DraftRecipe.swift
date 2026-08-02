@@ -124,53 +124,6 @@ extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
-extension DraftRecipe {
-    /// Serialize the draft into the block format `RecipeImporter.parse(_:)`
-    /// expects. Used by the URL-import flow to seed the paste editor after
-    /// a structured fetch succeeds, so the user can edit the parsed result
-    /// as text and fall back to text parsing without losing the URL data.
-    func toImportText() -> String {
-        var lines: [String] = []
-
-        let t = title.trimmed
-        if !t.isEmpty { lines.append(t) }
-
-        if !sourceUrl.trimmed.isEmpty {
-            lines.append("Source: \(sourceUrl.trimmed)")
-        }
-        if !servings.trimmed.isEmpty {
-            lines.append("Serves: \(servings.trimmed)")
-        }
-        if !cookTimeMinutes.trimmed.isEmpty {
-            lines.append("Cook time: \(cookTimeMinutes.trimmed) min")
-        }
-        if !summary.trimmed.isEmpty {
-            lines.append(summary.trimmed)
-        }
-
-        if !ingredients.isEmpty {
-            lines.append("")
-            for ing in ingredients {
-                let pieces = [ing.quantity, ing.unit, ing.name]
-                    .map { $0.trimmed }
-                    .filter { !$0.isEmpty }
-                let joined = pieces.joined(separator: " ")
-                if !joined.isEmpty { lines.append(joined) }
-            }
-        }
-
-        if !steps.isEmpty {
-            lines.append("")
-            for s in steps {
-                let line = s.text.trimmed
-                if !line.isEmpty { lines.append(line) }
-            }
-        }
-
-        return lines.joined(separator: "\n")
-    }
-}
-
 extension Recipe {
     func toDraft() -> DraftRecipe {
         DraftRecipe(

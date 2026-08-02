@@ -72,7 +72,6 @@ enum InstagramExtractor {
     }
 
     enum ExtractionError: Error {
-        case invalidURL
         case fetchFailed
         case blocked
         case empty

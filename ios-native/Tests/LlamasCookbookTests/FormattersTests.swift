@@ -1,5 +1,5 @@
 import XCTest
-@testable import LlamasCookbookNative
+@testable import LlamasCookbook
 
 final class FormattersTests: XCTestCase {
 
@@ -11,8 +11,11 @@ final class FormattersTests: XCTestCase {
     }
 
     func testShortMonthDayForJune1() {
-        // 2026-06-01 00:00 UTC
-        let date = Date(timeIntervalSince1970: 1_780_272_000)
+        // Noon local time so the calendar day is June 1 in every timezone
+        // (midnight UTC renders as May 31 west of Greenwich).
+        let date = Calendar.current.date(
+            from: DateComponents(year: 2026, month: 6, day: 1, hour: 12)
+        )!
         let result = Formatters.shortMonthDay.string(from: date)
         XCTAssertTrue(result.contains("1"), "Expected '1' in '\(result)'")
         XCTAssertTrue(result.contains("Jun") || result.contains("June"),

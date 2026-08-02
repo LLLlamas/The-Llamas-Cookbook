@@ -1,5 +1,5 @@
 import XCTest
-@testable import LlamasCookbookNative
+@testable import LlamasCookbook
 
 final class QuantityTests: XCTestCase {
 
@@ -25,20 +25,20 @@ final class QuantityTests: XCTestCase {
         XCTAssertEqual(Quantity.parse("3"), 3.0)
     }
 
-    func testParseSimpleFraction() {
-        XCTAssertEqual(Quantity.parse("1/4"), 0.25, accuracy: 1e-9)
+    func testParseSimpleFraction() throws {
+        XCTAssertEqual(try XCTUnwrap(Quantity.parse("1/4")), 0.25, accuracy: 1e-9)
     }
 
-    func testParseMixedNumberSpaceFormat() {
-        XCTAssertEqual(Quantity.parse("3 1/4"), 3.25, accuracy: 1e-9)
+    func testParseMixedNumberSpaceFormat() throws {
+        XCTAssertEqual(try XCTUnwrap(Quantity.parse("3 1/4")), 3.25, accuracy: 1e-9)
     }
 
-    func testParseMixedNumberAmpersandFormat() {
-        XCTAssertEqual(Quantity.parse("3 & 1/4"), 3.25, accuracy: 1e-9)
+    func testParseMixedNumberAmpersandFormat() throws {
+        XCTAssertEqual(try XCTUnwrap(Quantity.parse("3 & 1/4")), 3.25, accuracy: 1e-9)
     }
 
-    func testParseDecimal() {
-        XCTAssertEqual(Quantity.parse("0.5"), 0.5, accuracy: 1e-9)
+    func testParseDecimal() throws {
+        XCTAssertEqual(try XCTUnwrap(Quantity.parse("0.5")), 0.5, accuracy: 1e-9)
     }
 
     // MARK: - Quantity.format

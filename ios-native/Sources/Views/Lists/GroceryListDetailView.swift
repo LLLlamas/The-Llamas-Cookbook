@@ -96,8 +96,6 @@ struct GroceryListDetailView: View {
         )
     }
 
-    private var showsAisleHeaders: Bool { sections.count > 1 }
-
     private var liveSyncKey: String {
         "\(list.id.uuidString)|\(list.shareRecordName ?? "local")"
     }
@@ -200,13 +198,8 @@ struct GroceryListDetailView: View {
             await autoTriage()
             await runVisibleSharedListSync()
         }
-        .onReceive(NotificationCenter.default.publisher(for: CloudKitSubscriptions.didFireNotification)) { note in
-            guard list.isShared,
-                  let kindRaw = note.userInfo?["kind"] as? String,
-                  CloudKitSubscriptions.FiredKind(rawValue: kindRaw) == .groceryList
-            else { return }
-            Task { await groceryStore.refreshSharedList(list) }
-        }
+        // Push-driven updates land via GroceryListStore.observeRemotePushes
+        // (its refresh() reconciles this list too) — no per-view push fetch.
         .sheet(item: $helperItem, onDismiss: pushHelperNoteIfShared) { item in
             ItemHelperSheet(item: item)
                 .presentationDetents([.medium, .large])
@@ -277,7 +270,11 @@ struct GroceryListDetailView: View {
     // MARK: - Item list
 
     private var itemList: some View {
-        List {
+        // Hoisted once per body pass — `sections` sorts + groups on every
+        // access, and it's read by the ForEach and each section's header gate.
+        let sections = self.sections
+        let showsAisleHeaders = sections.count > 1
+        return List {
             ForEach(sections, id: \.aisle) { section in
                 // The aisle title is emitted as the FIRST scrolling row of its
                 // section (not a `Section`/`header:`), so plain List can't pin
@@ -446,10 +443,17 @@ struct GroceryListDetailView: View {
         guard list.isShared else { return }
         await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
         await groceryStore.refreshSharedList(list)
+        // Tight polls right after opening (when a shopping partner is most
+        // likely mid-edit), then back off — pushes are the primary channel
+        // and this loop only covers delayed/missed ones.
+        var interval: Double = 8
+        var polls = 0
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(8))
+            try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, list.isShared else { return }
             await groceryStore.refreshSharedList(list)
+            polls += 1
+            if polls >= 4 { interval = 30 }
         }
     }
 
@@ -554,7 +558,7 @@ struct GroceryListDetailView: View {
     /// No-op for purely local lists or a recipient's mirror.
     private func syncStructureIfShared() {
         guard isOwner, list.isShared else { return }
-        Task { await groceryStore.syncStructure(list, ownerName: myDisplayName) }
+        groceryStore.syncStructureDebounced(list, ownerName: myDisplayName)
     }
 
     /// Push a note change made through the helper sheet ("they're out of

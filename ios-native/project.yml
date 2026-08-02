@@ -8,10 +8,12 @@ settings:
   base:
     SWIFT_VERSION: "5.10"
     MARKETING_VERSION: "1.2.0"
-    # CURRENT_PROJECT_VERSION is overridden at archive time by CI to a
-    # Unix timestamp (`date -u +%s`) — the "1" here is just a default
-    # so a local generator run produces a valid pbxproj. See
-    # `.github/workflows/ios-native-ci.yml` "Inject build settings".
+    # CURRENT_PROJECT_VERSION must be a Unix timestamp at archive time
+    # (`date -u +%s`) — every shipped build uses that scheme, so anything
+    # lower is rejected by App Store Connect. CI injects it on the
+    # xcodebuild CLI; for a LOCAL archive run, after `xcodegen generate`:
+    #   agvtool new-version -all $(date -u +%s)
+    # (regenerating resets it to this "1" placeholder — rerun agvtool).
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: GYFN949Q5E
 
@@ -67,16 +69,24 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_USER_SCRIPT_SANDBOXING: YES
         SWIFT_STRICT_CONCURRENCY: minimal
-        # Signing — $(MAIN_PROFILE_NAME) is passed as a CLI arg by the CI
-        # workflow (xcodebuild treats CLI args as top-level build settings,
-        # so $(...) references resolve at archive time). Each target
-        # carries its own specifier so we don't need to do any per-target
-        # CLI gymnastics.
-        CODE_SIGN_STYLE: Manual
+        # Signing — Automatic for local Xcode dev/archive (team via
+        # DEVELOPMENT_TEAM). The CI fallback overrides CODE_SIGN_STYLE=Manual
+        # on the xcodebuild CLI and passes $(MAIN_PROFILE_NAME) etc. as
+        # top-level build settings, so the per-target specifiers below
+        # resolve there and to empty (harmless) locally.
+        CODE_SIGN_STYLE: Automatic
         # App Group entitlement (paired with the same on the share
         # extension target below) — see Share-Extension-Plan.md §3.
         CODE_SIGN_ENTITLEMENTS: Resources/LlamasCookbook.entitlements
         PROVISIONING_PROFILE_SPECIFIER: "$(MAIN_PROFILE_NAME)"
+      configs:
+        # Expanded into the aps-environment entitlement at sign time —
+        # Debug device runs need `development` to match Xcode's automatic
+        # Development profile; Release archives must ship `production`.
+        Debug:
+          LC_APS_ENVIRONMENT: development
+        Release:
+          LC_APS_ENVIRONMENT: production
 
   LlamasCookbookTimerWidget:
     type: app-extension
@@ -98,7 +108,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: YES
         SWIFT_STRICT_CONCURRENCY: minimal
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
-        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_STYLE: Automatic
         PROVISIONING_PROFILE_SPECIFIER: "$(WIDGET_PROFILE_NAME)"
 
   LlamasCookbookShareExtension:
@@ -123,7 +133,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: YES
         SWIFT_STRICT_CONCURRENCY: minimal
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
-        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_STYLE: Automatic
         # App Group entitlement — paired with the main app's. See
         # Share-Extension-Plan.md §3.
         CODE_SIGN_ENTITLEMENTS: ShareExtension/LlamasCookbookShareExtension.entitlements
@@ -142,3 +152,19 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_STRICT_CONCURRENCY: minimal
         CODE_SIGN_STYLE: Automatic
+        # XcodeGen derives TEST_HOST from the target name, but the app's
+        # PRODUCT_NAME is LlamasCookbook — set it explicitly or the test
+        # action can't find the host binary.
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/LlamasCookbook.app/LlamasCookbook
+        BUNDLE_LOADER: $(TEST_HOST)
+
+# Explicit scheme so `xcodebuild test` works locally — the auto-generated
+# scheme had no test action. Archive still uses Release (CI unaffected).
+schemes:
+  LlamasCookbookNative:
+    build:
+      targets:
+        LlamasCookbookNative: all
+    test:
+      targets:
+        - LlamasCookbookNativeTests

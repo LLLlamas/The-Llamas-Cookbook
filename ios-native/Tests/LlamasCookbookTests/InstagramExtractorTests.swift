@@ -1,5 +1,5 @@
 import XCTest
-@testable import LlamasCookbookNative
+@testable import LlamasCookbook
 
 final class InstagramExtractorTests: XCTestCase {
 

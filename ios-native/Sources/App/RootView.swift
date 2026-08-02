@@ -11,13 +11,6 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
-    /// All grocery lists — read only to drive the Lists tab-bar badge (the
-    /// count of *open* lists, i.e. ones with shopping still to do).
-    /// `GroceryList.touch()` bumps `updatedAt` on every item mutation, so
-    /// this @Query re-fires as items are checked off and the badge stays
-    /// live without any manual refresh.
-    @Query private var groceryLists: [GroceryList]
-
     @State private var session = CookingSession()
     @State private var editor = EditorCoordinator()
     @State private var navContext = NavigationContext()
@@ -258,21 +251,6 @@ struct RootView: View {
             }
     }
 
-    /// Open grocery lists — those with shopping still to do. Surfaced as
-    /// the Lists tab-bar badge so the user sees at a glance how many lists
-    /// still need a store run. Reads `GroceryList.isOpen` (the single
-    /// source of truth), never re-deriving the predicate here.
-    private var openGroceryListCount: Int {
-        groceryLists.reduce(0) { $0 + ($1.isOpen ? 1 : 0) }
-    }
-
-    /// Prefer the open-list count when there is active shopping; otherwise a
-    /// shared-list push can still surface a small badge until ListsView marks
-    /// it seen and refreshes.
-    private var listsTabBadgeCount: Int {
-        max(openGroceryListCount, groceryStore.hasSharedUpdate ? 1 : 0)
-    }
-
     private var tabViewBody: some View {
         TabView(selection: tabSelection) {
             NavigationStack(path: $libraryPath) {
@@ -297,7 +275,7 @@ struct RootView: View {
                 lookupRecipe: lookupRecipe
             ))
             .tabItem { tabLabel(for: .lists) }
-            .badge(listsTabBadgeCount)
+            .modifier(GroceryListsBadge(groceryStore: groceryStore))
             .tag(AppTab.lists)
 
             NavigationStack {
@@ -343,7 +321,13 @@ struct RootView: View {
                 glow: true
             )
         }
-        .onChange(of: appearance.accentTransitionStage) { _, _ in
+        .onChange(of: appearance.accentTransitionStage) { _, newStage in
+            // `bottomNavAccentColor` holds the previous accent through every
+            // stage before `.bottomNav` and only flips there (then stays put
+            // through the end-of-cascade nil reset) — reconfiguring on the
+            // earlier beats would just re-walk the window hierarchy for the
+            // same color.
+            guard newStage == .bottomNav || newStage == nil else { return }
             Self.configureTabBarAppearance(
                 accent: appearance.bottomNavAccentColor,
                 glow: true
@@ -1188,6 +1172,39 @@ struct RootView: View {
 // Tab-bar Pro-icon cache — populated on first render, reused every subsequent
 // body pass. Always accessed on the main thread (SwiftUI tabItem evaluation).
 private var _proIconCache: [String: Image] = [:]
+
+/// Lists tab-bar badge, isolated in its own modifier so the grocery-list
+/// @Query invalidates just this modifier — not all of RootView.
+/// `GroceryList.touch()` bumps `updatedAt` on every item mutation; hosting
+/// the query on RootView itself made each check-off rebuild the whole
+/// TabView.
+private struct GroceryListsBadge: ViewModifier {
+    /// All grocery lists — read only to drive the badge (the count of
+    /// *open* lists, i.e. ones with shopping still to do). The @Query
+    /// re-fires as items are checked off so the badge stays live without
+    /// any manual refresh.
+    @Query private var groceryLists: [GroceryList]
+    let groceryStore: GroceryListStore
+
+    /// Open grocery lists — those with shopping still to do. Surfaced as
+    /// the Lists tab-bar badge so the user sees at a glance how many lists
+    /// still need a store run. Reads `GroceryList.isOpen` (the single
+    /// source of truth), never re-deriving the predicate here.
+    private var openGroceryListCount: Int {
+        groceryLists.reduce(0) { $0 + ($1.isOpen ? 1 : 0) }
+    }
+
+    /// Prefer the open-list count when there is active shopping; otherwise a
+    /// shared-list push can still surface a small badge until ListsView marks
+    /// it seen and refreshes.
+    private var listsTabBadgeCount: Int {
+        max(openGroceryListCount, groceryStore.hasSharedUpdate ? 1 : 0)
+    }
+
+    func body(content: Content) -> some View {
+        content.badge(listsTabBadgeCount)
+    }
+}
 
 /// Wraps the editor/import/new-recipe flow in its own detent-managed
 /// sheet content. Owns a local `@State` for the selected detent so each

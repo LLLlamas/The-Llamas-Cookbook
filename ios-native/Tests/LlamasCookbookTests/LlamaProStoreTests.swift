@@ -1,7 +1,8 @@
 import XCTest
 import CryptoKit
-@testable import LlamasCookbookNative
+@testable import LlamasCookbook
 
+@MainActor
 final class LlamaProStoreTests: XCTestCase {
 
     // MARK: - Plan.isPro

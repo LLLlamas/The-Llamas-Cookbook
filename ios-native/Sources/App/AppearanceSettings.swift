@@ -295,12 +295,6 @@ final class AppearanceSettings {
         isInitializing = false
     }
 
-    func resetToDefault() {
-        accentColor = AppColor.accent
-        UserDefaults.standard.removeObject(forKey: Self.storageKey)
-        applyToUIKit()
-    }
-
     /// Called on sign-out. Reverts the visible accent to terracotta
     /// without overwriting the stored preference — signing back in
     /// restores the user's color via `restoreFromDefaults`.

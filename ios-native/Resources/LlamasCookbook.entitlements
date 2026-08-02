@@ -104,9 +104,10 @@
       issue the device a sandbox or production token, so a
       `development` value on a TestFlight build silently routes
       pushes to sandbox APNs and they never reach the device.
-      We don't conditionalize per-build because the only build
-      that targets a real device is the CI Distribution archive;
-      Windows dev box can't sign for device.
+      The value is per-configuration via $(LC_APS_ENVIRONMENT)
+      (project.yml): Release archives get `production`; Debug
+      gets `development` so run-on-device from Xcode matches the
+      automatic Development profile instead of failing to sign.
 
       Same portal+profile dance as the other capabilities in this
       file: Push Notifications capability enabled on the App ID
@@ -130,6 +131,6 @@
       the existing permission grant suffices.
     -->
     <key>aps-environment</key>
-    <string>production</string>
+    <string>$(LC_APS_ENVIRONMENT)</string>
 </dict>
 </plist>

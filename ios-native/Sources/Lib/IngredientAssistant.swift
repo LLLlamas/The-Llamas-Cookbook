@@ -92,31 +92,6 @@ enum IngredientAssistant {
         }
     }
 
-    // MARK: - Substitutes
-
-    /// Suggested swaps for an out-of-stock item. Leads with the researched
-    /// reference (instant, offline, trustworthy); only asks the model for
-    /// the long tail it doesn't cover.
-    static func suggestSubstitutes(for name: String, inRecipe recipeTitle: String? = nil) async -> [String] {
-        let known = GroceryKnowledge.substitutes(for: name).map { sub in
-            sub.note.map { "\(sub.replacement) — \($0)" } ?? sub.replacement
-        }
-        if !known.isEmpty { return known }
-
-        guard #available(iOS 26.0, *), isAvailable else { return [] }
-        let session = LanguageModelSession(instructions: substituteInstructions)
-        let context = recipeTitle.map { " for \($0)" } ?? ""
-        do {
-            let response = try await session.respond(
-                to: "Suggest substitutes for \"\(name)\"\(context).",
-                generating: SubstituteSuggestions.self
-            )
-            return response.content.substitutes
-        } catch {
-            return []
-        }
-    }
-
     // MARK: - Generable schemas
 
     @Generable
@@ -131,12 +106,6 @@ enum IngredientAssistant {
         let index: Int
         @Guide(description: "Grocery aisle. Choose exactly one of: Produce, Deli, Bakery, Meat & Seafood, Dairy & Eggs, Frozen, Breakfast & Cereal, Canned & Jarred, Condiments & Sauces, Pasta, Rice & Grains, Baking, Spices, Snacks, International, Beverages, Pantry & Dry Goods, Baby, Health & Pharmacy, Personal Care, Household, Pet, Other.")
         let aisle: String
-    }
-
-    @Generable
-    struct SubstituteSuggestions {
-        @Guide(description: "1 to 3 common substitutes, each a short grocery item name with amounts if relevant.")
-        let substitutes: [String]
     }
 
     // MARK: - Instructions (grounded by GroceryKnowledge)
@@ -179,9 +148,5 @@ enum IngredientAssistant {
 
     private static let describeInstructions = """
     You help a shopper who doesn't recognize an item on their grocery / drugstore list. In ONE short clause of about 12 words or fewer, say what it is and which aisle to find it. For a non-food product, lead with its generic CATEGORY and primary use, not a recipe-style line, and add the brand only as an aside — e.g. "Swiffer — floor-cleaning wet/dry mop, the cleaning aisle." For an OTC medicine, name the active ingredient in parentheses (e.g. "Tylenol — pain/fever reliever (acetaminophen), the pharmacy aisle."). For an ambiguous brand word (Dove, Bounty, Gain, Secret) pick the grocery sense, not the homonym. Stay factual: no marketing language, and never invent dosages, sizes, or health claims. No markdown, no lists, no full paragraphs.
-    """
-
-    private static let substituteInstructions = """
-    You suggest practical cooking substitutes for an ingredient a shopper can't find. Give 1–3 common swaps a typical grocery store stocks, each short (e.g. "1 cup plain yogurt"). Prefer everyday items. Never invent obscure products.
     """
 }

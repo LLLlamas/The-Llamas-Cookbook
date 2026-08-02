@@ -55,6 +55,20 @@ final class GroceryListStore {
     @ObservationIgnored
     private var remotePushObserver: NSObjectProtocol?
 
+    /// True while a push-driven refresh + its quiet window are in flight
+    /// (see `scheduleCoalescedRefresh`).
+    @ObservationIgnored
+    private var pushRefreshInFlight = false
+
+    /// Set when a push lands during the quiet window, so one trailing
+    /// refresh catches whatever the leading one missed.
+    @ObservationIgnored
+    private var pushArrivedDuringWindow = false
+
+    /// Per-list pending structure uploads (see `syncStructureDebounced`).
+    @ObservationIgnored
+    private var pendingStructureSyncs: [UUID: Task<Void, Never>] = [:]
+
     func configure(modelContext: ModelContext, myDisplayName: String) {
         self.modelContext = modelContext
         self.myDisplayName = myDisplayName
@@ -220,15 +234,18 @@ final class GroceryListStore {
                 context.insert(item)
                 item.list = list
             }
-            item.name = state.meta.name
-            item.quantity = state.meta.quantity
-            item.unit = state.meta.unit
-            item.aisle = state.meta.aisle
-            item.isChecked = state.isChecked
-            item.outOfStock = state.outOfStock
-            item.substitution = state.substitution
-            item.order = state.index
-            item.shareIndex = state.index
+            // Guard every write behind an inequality check (mirrors
+            // applyLiveState) so an unchanged snapshot doesn't dirty
+            // SwiftData and re-fire every @Query on each refresh.
+            if item.name != state.meta.name { item.name = state.meta.name }
+            if item.quantity != state.meta.quantity { item.quantity = state.meta.quantity }
+            if item.unit != state.meta.unit { item.unit = state.meta.unit }
+            if item.aisle != state.meta.aisle { item.aisle = state.meta.aisle }
+            if item.isChecked != state.isChecked { item.isChecked = state.isChecked }
+            if item.outOfStock != state.outOfStock { item.outOfStock = state.outOfStock }
+            if item.substitution != state.substitution { item.substitution = state.substitution }
+            if item.order != state.index { item.order = state.index }
+            if item.shareIndex != state.index { item.shareIndex = state.index }
         }
 
         if ownerAuthoritative {
@@ -409,6 +426,23 @@ final class GroceryListStore {
         )
     }
 
+    /// Debounced `syncStructure` for rapid-fire structural edits (typing
+    /// five items into the add bar = one full-record upload, not five).
+    /// Same trailing-timer shape as `LibraryMirrorService.enqueueUpsert`.
+    /// Check-offs and notes are NOT routed here — `pushCheck`/`pushNote`
+    /// stay immediate.
+    func syncStructureDebounced(_ list: GroceryList, ownerName: String) {
+        guard list.ownerIsMe, list.isShared else { return }
+        let id = list.id
+        pendingStructureSyncs[id]?.cancel()
+        pendingStructureSyncs[id] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            if Task.isCancelled { return }
+            await self?.syncStructure(list, ownerName: ownerName)
+            self?.pendingStructureSyncs.removeValue(forKey: id)
+        }
+    }
+
     // MARK: - Badge
 
     func markSharedSeen() { hasSharedUpdate = false }
@@ -451,8 +485,29 @@ final class GroceryListStore {
             else { return }
             Task { @MainActor in
                 self.hasSharedUpdate = true
-                await self.refresh()
+                self.scheduleCoalescedRefresh()
             }
+        }
+    }
+
+    /// One edit can fan out as several pushes (owner subscription + per-
+    /// recipient), and our own writes push back to us — so refresh on the
+    /// leading edge, then hold a 2 s quiet window. Pushes landing inside
+    /// the window collapse into a single trailing refresh instead of each
+    /// paying the full two-query + reconcile cost.
+    private func scheduleCoalescedRefresh() {
+        if pushRefreshInFlight {
+            pushArrivedDuringWindow = true
+            return
+        }
+        pushRefreshInFlight = true
+        Task { @MainActor in
+            repeat {
+                pushArrivedDuringWindow = false
+                await refresh()
+                try? await Task.sleep(for: .seconds(2))
+            } while pushArrivedDuringWindow
+            pushRefreshInFlight = false
         }
     }
 

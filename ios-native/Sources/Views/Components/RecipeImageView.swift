@@ -96,7 +96,7 @@ struct RecipeImageView<Placeholder: View>: View {
             UIImage(data: data)
         }.value
         guard let image else { return }
-        imageCache.setObject(image, forKey: key)
+        imageCache.setObject(image, forKey: key, cost: data.count)
         decoded = image
     }
 }
@@ -142,7 +142,7 @@ enum RecipeImagePrewarm {
                 let key = data as NSData
                 if imageCache.object(forKey: key) != nil { continue }
                 guard let image = UIImage(data: data) else { continue }
-                imageCache.setObject(image, forKey: key)
+                imageCache.setObject(image, forKey: key, cost: data.count)
             }
         }
     }

@@ -17,7 +17,7 @@ Live SwiftUI app.
 
 ## Build
 
-Do not build from Windows. CI archives via `.github/workflows/ios-native-ci.yml`. On a Mac:
+Local Xcode (26.x stable, not beta) is the primary path. Automatic signing, team `GYFN949Q5E`; targets `com.llamascookbook.app` / `.widget` / `.shareext`.
 
 ```sh
 brew install xcodegen
@@ -25,6 +25,16 @@ cd ios-native
 xcodegen generate
 open LlamasCookbookNative.xcodeproj
 ```
+
+TestFlight upload: after `xcodegen generate`, set the build number (required — every shipped build uses a Unix timestamp, so lower values are rejected):
+
+```sh
+agvtool new-version -all $(date -u +%s)
+```
+
+then Product → Archive → Distribute App → TestFlight. Rerun `agvtool` after every `xcodegen generate` (regeneration resets it to `1`).
+
+Fallback: `.github/workflows/ios-native-ci.yml` (manual dispatch) still archives + uploads on `macos-26`.
 
 ## Notes
 

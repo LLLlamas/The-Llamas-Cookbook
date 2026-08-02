@@ -30,7 +30,6 @@ enum TimerNotifications {
     // way `UNNotificationContent` did — recipe routing now lives on
     // `TimerAlarmMetadata` instead.
     static let recipeIDUserInfoKey = "recipeID"
-    static let cookIDUserInfoKey = "cookID"
 
     /// Request AlarmKit authorization. Idempotent; subsequent calls
     /// after the user's first decision return the cached state without
@@ -48,15 +47,6 @@ enum TimerNotifications {
                 // overlay's visual feedback.
             }
         }
-    }
-
-    /// Current AlarmKit authorization state. Useful for surfacing a
-    /// one-time "lock-screen alerts are off" hint in Cook Mode when
-    /// the user has denied. Returns nil if the AlarmKit accessor
-    /// shape on the running SDK doesn't match — degrades to "we don't
-    /// know," which the UI should treat as "don't show the hint."
-    static func currentAuthorizationState() -> AlarmManager.AuthorizationState {
-        AlarmManager.shared.authorizationState
     }
 
     /// Schedule (or replace) the AlarmKit alarm for one cook. Per cook,

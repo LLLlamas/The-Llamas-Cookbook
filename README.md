@@ -10,7 +10,7 @@ Personal, offline-first iOS recipe keeper. SwiftUI + SwiftData.
 
 ## Build
 
-Windows can't build iOS. Use `.github/workflows/ios-native-ci.yml` (manual dispatch). Runs on `macos-26`, archives, optionally uploads to TestFlight.
+Primary: local Xcode on the Mac — see `ios-native/README.md`. Fallback: `.github/workflows/ios-native-ci.yml` (manual dispatch) still archives on `macos-26` and optionally uploads to TestFlight.
 
 ## Product shape
 

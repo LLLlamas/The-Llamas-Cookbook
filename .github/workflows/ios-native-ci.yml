@@ -262,43 +262,6 @@ jobs:
           echo "SHARE_EXT_PROFILE_NAME=$SHARE_EXT_NAME" >> "$GITHUB_ENV"
           echo "Installed share extension profile: $SHARE_EXT_NAME ($SHARE_EXT_UUID)"
 
-      - name: Generate timer alarm sound
-        run: |
-          set -euo pipefail
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            echo "Installing ffmpeg..."
-            for attempt in 1 2 3; do
-              if [ "$attempt" -lt 3 ]; then
-                brew install ffmpeg && break
-              else
-                echo "::warning::Bottle download failed twice; falling back to --build-from-source"
-                brew install --build-from-source ffmpeg && break
-              fi
-              wait_seconds=$((attempt * 30))
-              echo "::warning::brew install ffmpeg attempt $attempt failed; retrying in ${wait_seconds}s"
-              sleep "$wait_seconds"
-            done
-          fi
-          mkdir -p Resources
-          # Three short beeps at 880 Hz with gaps, total ~1.9s.
-          # ima4-encoded .caf is Apple's preferred format for
-          # UNNotificationSound — stays under the 30s notification limit
-          # and loops cleanly when AVAudioPlayer replays it in-app.
-          ffmpeg -y \
-            -f lavfi -i "sine=frequency=880:duration=0.3" \
-            -f lavfi -i "anullsrc=duration=0.15:channel_layout=mono:sample_rate=44100" \
-            -f lavfi -i "sine=frequency=880:duration=0.3" \
-            -f lavfi -i "anullsrc=duration=0.15:channel_layout=mono:sample_rate=44100" \
-            -f lavfi -i "sine=frequency=880:duration=0.3" \
-            -f lavfi -i "anullsrc=duration=0.7:channel_layout=mono:sample_rate=44100" \
-            -filter_complex "[0:a][1:a][2:a][3:a][4:a][5:a]concat=n=6:v=0:a=1[out]" \
-            -map "[out]" \
-            -ac 1 -ar 44100 -c:a pcm_s16le \
-            Resources/timer-alarm.wav
-          afconvert Resources/timer-alarm.wav Resources/timer-alarm.caf -d ima4 -f caff -v
-          rm Resources/timer-alarm.wav
-          ls -la Resources/timer-alarm.caf
-
       - name: Sanitize app icon PNGs
         run: |
           set -euo pipefail
@@ -370,6 +333,8 @@ jobs:
           # matches either "Apple Distribution" or legacy "iPhone
           # Distribution" certs — not a guess, it's what the main app
           # was using before the widget existed.
+          # CODE_SIGN_STYLE=Manual on the CLI — project.yml now defaults to
+          # Automatic for local Mac dev, so CI must force manual signing here.
           xcodebuild \
             -project LlamasCookbookNative.xcodeproj \
             -scheme LlamasCookbookNative \
@@ -377,6 +342,7 @@ jobs:
             -archivePath "$RUNNER_TEMP/app.xcarchive" \
             -destination "generic/platform=iOS" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE="Manual" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             MAIN_PROFILE_NAME="$PROFILE_NAME" \

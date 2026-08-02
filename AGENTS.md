@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends tab badges + ?/! shopper controls + recipe→list "Add to list" toast; content-moderation for user-chosen names)
+Last refreshed: 2026-08-02 (dev moved from Windows to a MacBook Pro — local Xcode is now the primary build/TestFlight path, CI is fallback; project.yml signing flipped to Automatic)
 
 > **Planning docs / design handoffs / prior audits live in `md_files/`** —
 > gitignored, kept on disk for reference. Only `AGENTS.md` (this file) and
@@ -14,7 +14,7 @@ Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends 
 - Swift 5.10, SwiftUI, SwiftData, iOS 26+ / iOS 26 SDK
 - `SWIFT_STRICT_CONCURRENCY: minimal`
 - XcodeGen: `ios-native/project.yml` — do not hand-edit generated Xcode files
-- CI: `macos-26` runner, Xcode 26. **Windows dev — do NOT run `xcodegen`/`xcodebuild`/CocoaPods**
+- Build: local Mac + Xcode 26 (primary; automatic signing — see `ios-native/README.md`). CI fallback: `macos-26` runner, Xcode 26, manual signing forced on the CLI
 - Bundle IDs: `com.llamascookbook.app` (main), `.widget`, `.shareext`
 - App Group: `group.com.llamascookbook.app` — must match in 4 places: `SharedContainer.appGroupID`, main app entitlements, share extension entitlements, portal profiles
 - CloudKit container: `iCloud.com.llamascookbook.app` — public DB, world-readable/writable
@@ -63,7 +63,7 @@ Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends 
 - `AppColor`, `AppFont`, `AppSpacing`, `ColorHex`, `AccentTextOutline`
 
 **Library / import** — `Sources/Views/Library/`
-- `LibraryView.swift`, `RecipeCardView.swift`, `EmptyLibraryView.swift`, `ImportHelpView.swift`
+- `LibraryView.swift`, `RecipeCardView.swift`, `EmptyLibraryView.swift`
 - `ImportFromTextLinkView.swift` — merged paste + URL sheet; focus-mode dimming, duplicate-title check via `nextAvailableTitle(base:)`
 - `ImportFromPhotoView.swift`, `RecipeImportPreviewView.swift`, `PhotoImportPreviewView.swift`
 - `LetterIndex.swift`, `CookbookHeader.swift`
@@ -133,7 +133,7 @@ Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends 
 | Helper | File | Purpose |
 |---|---|---|
 | `ContentModeration.check/isClean` | `Lib/ContentModeration.swift` | Profanity/slur screen for user-chosen NAMES — BLOCK-at-commit. Mirrored server-side in `cloudflare-pages/lib/moderation.js` (keep the two word lists in sync). See ### Content Moderation |
-| `GroceryKeyword.bestKey/normalize` | `Lib/GroceryKeyword.swift` | Plural-tolerant keyword match for grocery item names; shared by `GrocerySwaps` + `IngredientVisual` + the recipe→list dedup |
+| `GroceryKeyword.normalize` | `Lib/GroceryKeyword.swift` | Shared normalization for grocery item names (recipe→list dedup) |
 | `FlyToast` + `runFriendImportToast` | `App/NavigationContext.swift`, `App/RootView.swift` | Spring-to-a-tab "Saved/Added" toast — friend-import AND recipe→list both use it. See ### Toasts |
 | `View.cardScrollTransition()` | `Components/View+CardScrollTransition.swift` | Scroll-focus zoom on card lists |
 | `View.cardGlare(cornerRadius:)` | `Components/View+CardGlare.swift` | Card glare: soft sweep-in on entry + scroll-reactive shine + static top/bottom edge depth rim, clipped to card shape |
@@ -188,7 +188,7 @@ Last refreshed: 2026-06-26 (grocery lists: green done-indicator + Lists/Friends 
 - `FriendsStore` friends → key `"friendsStore.cachedFriends"` — only real CloudKit friends cached; seed friend always prepended programmatically. `clearOnSignOut()` removes the key
 
 ### Accent / Appearance
-- Unsigned user accent is always terracotta — `applySignedOut()` uses `isForcingDefault` flag, never `resetToDefault()` (erases stored prefs)
+- Unsigned user accent is always terracotta — `applySignedOut()` uses `isForcingDefault` flag so stored prefs survive sign-out
 - Plan pills and upgrade chips use `AppColor.accent` (terracotta `#C97C5D`), never `appearance.accentColor`
 - `AppearanceSettings.previewAccentColor` is the uncommitted live pick — set continuously from `AccentColorPicker`'s `pickerColor` so the cookbook title retints instantly (no wait for the `.onDisappear` commit). It has NO didSet side-effects and `AccentColorPicker.body` must never read it (would re-snapshot `UIColorPickerViewController`). `cookbookTitleAccentColor` returns it when non-nil; `commitSelection` clears it. Only set while signed in
 - Accent-cascade sequence (`startAccentTransition`) is strictly ordered, total run ~0.7s: All chip at t=0 (`.allChip` stage, `allChipAccentColor`) → header (llama glow + profile button) at t=0.08 → categories (Favorites + tag chips) at t=0.14 → `recipeList` stage at t=0.20 + BOTH per-row tokens bumped synchronously (`recipeCardCascadeToken`, `letterIndexCascadeToken`) → plus button at t=0.55 → bottom tab bar at t=0.66 → state clears at t=0.85. **The cookbook title is EXCLUDED from the header stage's color application**: `cookbookTitleAccentColor` returns `accentColor` directly (bypassing `transitionColor`), never the cascade-held old color — the title is already showing the new color from `previewAccentColor` before Done is tapped, and must not briefly revert to the old hue when the cascade fires. The header stage's glow (`isAccentGlowActive(.header)`) still applies to the llama and profile button; only the title color is excluded. Per-row stagger: each `RecipeCardView` and each `LetterRow` snapshot `cascadePreviousAccentColor` as a local `heldAccentOverride`, then clear it (and pulse glow) at `recipeListFlipDelay (0.20) + index * stagger` — cards at `recipeCardGlowStagger` (0.035s), letter rows at `letterIndexGlowStagger` (0.012s). Result: titles AND letter strip retint top → bottom in lockstep rather than flipping in unison. `LibraryView` MUST pass `index:` to `RecipeCardView` (via `filtered.enumerated()`) AND pass `previousAccent:` + `cascadeToken:` into `LetterIndex` or both staggers collapse. `isAccentGlowActive(.recipeList)` stays a single shared boolean that drives the global `LetterIndex` glow halo and the recipe-list color floor; per-row holds are layered on top. The All chip's `.allChip` stage is SEPARATE from `.categories` so the All pill can lead the cascade visibly before the rest of the chips. **Category chips** advance left → right via `categoryCascadeToken` (bumped synchronously at cascade start); each `FilterChip` schedules its own reveal at `categoriesFlipDelay (0.14) + index * categoryChipGlowStagger (0.025)` — a 15-chip strip completes in ~0.375 s, inside the `.categories` → `.recipeList` window. **ProfileView** now has its own parallel `ProfileTransitionStage` 6-stage cascade: `header (t=0)` → `colorNudge (0.08)` → `nameCard (0.14)` → `lastCooked (0.20)` → `requests (0.26)` → `friendsList (0.33)`; `friendLetterCascadeToken` is bumped at cascade start and ProfileView's `LetterIndex` uses `profileFriendsListFlipDelay (0.33)` as its base delay (instead of `recipeListFlipDelay (0.20)`) so its per-row stagger fires inside the profile beat. `FriendLibraryView`'s `LetterIndex` still passes `cascadeToken: 0` and never bumps — that list doesn't participate

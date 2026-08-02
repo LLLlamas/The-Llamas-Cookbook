@@ -1,6 +1,6 @@
 import XCTest
 import SwiftData
-@testable import LlamasCookbookNative
+@testable import LlamasCookbook
 
 /// Locks the `GroceryList` shopping-progress predicates that the Lists row
 /// summary, the Lists tab badge, and the "all set" done indicator all read
@@ -9,53 +9,40 @@ import SwiftData
 @MainActor
 final class GroceryListTests: XCTestCase {
 
-    private func makeContext() throws -> ModelContext {
-        let container = try ModelContainer(
-            for: GroceryList.self, GroceryItem.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        return container.mainContext
-    }
-
+    // No ModelContainer here: the host app already builds the full-schema
+    // container at launch, and SwiftData traps on a second container over
+    // the same @Model classes in-process. These predicates are pure
+    // computed properties, so un-inserted instances suffice.
     private func add(
-        _ ctx: ModelContext,
         to list: GroceryList,
         _ name: String,
         checked: Bool,
         order: Int
     ) {
-        let item = GroceryItem(name: name, isChecked: checked, order: order)
-        ctx.insert(item)
-        item.list = list
+        list.items.append(GroceryItem(name: name, isChecked: checked, order: order))
     }
 
-    func testEmptyListIsNeitherAllSetNorOpen() throws {
-        let ctx = try makeContext()
+    func testEmptyListIsNeitherAllSetNorOpen() {
         let list = GroceryList(name: "Empty")
-        ctx.insert(list)
         XCTAssertEqual(list.toBuyCount, 0)
         XCTAssertFalse(list.isAllSet, "An empty list must NOT read as all set")
         XCTAssertFalse(list.isOpen)
     }
 
-    func testListWithItemsToBuyIsOpen() throws {
-        let ctx = try makeContext()
+    func testListWithItemsToBuyIsOpen() {
         let list = GroceryList(name: "Shop")
-        ctx.insert(list)
-        add(ctx, to: list, "milk", checked: false, order: 0) // to buy
-        add(ctx, to: list, "eggs", checked: true, order: 1)  // in cart
-        add(ctx, to: list, "salt", checked: false, order: 2) // to buy
+        add(to: list, "milk", checked: false, order: 0) // to buy
+        add(to: list, "eggs", checked: true, order: 1)  // in cart
+        add(to: list, "salt", checked: false, order: 2) // to buy
         XCTAssertEqual(list.toBuyCount, 2, "Only unchecked items count")
         XCTAssertFalse(list.isAllSet)
         XCTAssertTrue(list.isOpen)
     }
 
-    func testFullyShoppedListIsAllSet() throws {
-        let ctx = try makeContext()
+    func testFullyShoppedListIsAllSet() {
         let list = GroceryList(name: "Done")
-        ctx.insert(list)
-        add(ctx, to: list, "milk", checked: true, order: 0)
-        add(ctx, to: list, "salt", checked: true, order: 1)
+        add(to: list, "milk", checked: true, order: 0)
+        add(to: list, "salt", checked: true, order: 1)
         XCTAssertEqual(list.toBuyCount, 0)
         XCTAssertTrue(list.isAllSet)
         XCTAssertFalse(list.isOpen)

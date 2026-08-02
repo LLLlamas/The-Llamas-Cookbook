@@ -124,44 +124,6 @@ final class StreamingRecipeState {
     }
 }
 
-// MARK: - SSE event parser
-
-/// Minimal Server-Sent Events parser for Anthropic's streaming response.
-/// Anthropic frames each event as `event: <name>\ndata: <json>\n\n`. This
-/// parser accepts byte-chunks, buffers across chunk boundaries, and emits
-/// complete `(name, data)` pairs.
-struct SSEEventParser {
-    struct Event {
-        let name: String
-        let data: String
-    }
-
-    private var buffer = ""
-
-    mutating func consume(_ chunk: String) -> [Event] {
-        buffer += chunk
-        var events: [Event] = []
-        while let range = buffer.range(of: "\n\n") {
-            let raw = String(buffer[..<range.lowerBound])
-            buffer = String(buffer[range.upperBound...])
-            var name = "message"
-            var data = ""
-            for line in raw.split(separator: "\n", omittingEmptySubsequences: false) {
-                if line.hasPrefix("event:") {
-                    name = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                } else if line.hasPrefix("data:") {
-                    // Multi-line `data:` is technically possible in SSE; concatenate.
-                    data += String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                }
-            }
-            if !data.isEmpty {
-                events.append(Event(name: name, data: data))
-            }
-        }
-        return events
-    }
-}
-
 // MARK: - Incremental JSON accumulator
 
 /// State machine that accumulates `input_json_delta` chunks from the

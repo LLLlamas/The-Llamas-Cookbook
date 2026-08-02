@@ -1,5 +1,5 @@
 import XCTest
-@testable import LlamasCookbookNative
+@testable import LlamasCookbook
 
 /// Covers the pure first-run / first-launch-after-update decision logic in
 /// `LaunchState`. The UserDefaults/Bundle-backed wrappers are integration

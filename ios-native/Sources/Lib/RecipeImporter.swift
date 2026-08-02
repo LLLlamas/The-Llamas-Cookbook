@@ -199,13 +199,6 @@ enum RecipeImporter {
         parseIngredients(line)
     }
 
-    /// Parse a single instruction string into a `DraftStep`. Strips any
-    /// leading numbering or bullet so a JSON-LD `HowToStep.text` like
-    /// "1. Preheat oven" comes out clean.
-    static func parseStepLine(_ line: String) -> DraftStep? {
-        parseStep(line).map(enrichStep)
-    }
-
     /// Title cleanup pass — exposed so the AI parser can run it on the
     /// model's title output. The model is *told* to strip "Recipe👇"
     /// and trailing emoji runs, but small on-device models drift; this

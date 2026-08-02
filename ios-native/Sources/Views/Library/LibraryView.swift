@@ -237,6 +237,10 @@ struct LibraryView: View {
         if recipes.isEmpty {
             EmptyLibraryView()
         } else {
+            // Compute the filtered/sorted list once per body pass and
+            // thread it down — `filtered` sorts on every access, and it
+            // feeds four sites (empty check, list, letter index, scrub).
+            let filtered = self.filtered
             VStack(spacing: 0) {
                 if !allTags.isEmpty || favoriteCount > 0 {
                     filterStrip
@@ -251,13 +255,13 @@ struct LibraryView: View {
                 if filtered.isEmpty {
                     emptyFilterState
                 } else {
-                    recipeList
+                    recipeList(filtered)
                 }
             }
         }
     }
 
-    private var recipeList: some View {
+    private func recipeList(_ filtered: [Recipe]) -> some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
@@ -333,7 +337,7 @@ struct LibraryView: View {
                 if sort == .aToZ {
                     LetterIndex(
                         letters: Self.allLetters,
-                        populated: populatedLetters,
+                        populated: populatedLetters(in: filtered),
                         accent: appearance.recipeListAccentColor,
                         glowActive: appearance.isAccentGlowActive(.recipeList),
                         previousAccent: appearance.cascadePreviousAccentColor,
@@ -341,7 +345,7 @@ struct LibraryView: View {
                         externalHighlightLetter: highlightLetter,
                         scrollFocusLetter: nil
                     ) { letter in
-                        guard let target = firstRecipe(atOrAfter: letter) else { return }
+                        guard let target = firstRecipe(atOrAfter: letter, in: filtered) else { return }
                         Haptics.selection()
                         withAnimation(.easeInOut(duration: 0.2)) {
                             proxy.scrollTo(target.id, anchor: .top)
@@ -409,14 +413,14 @@ struct LibraryView: View {
         return ["#"] + az
     }()
 
-    private var populatedLetters: Set<String> {
+    private func populatedLetters(in filtered: [Recipe]) -> Set<String> {
         Set(filtered.map(Self.sectionLetter))
     }
 
     /// Find the first recipe whose section letter is `letter` or the next
     /// populated letter after it. Keeps taps on empty letters useful
     /// instead of no-ops.
-    private func firstRecipe(atOrAfter letter: String) -> Recipe? {
+    private func firstRecipe(atOrAfter letter: String, in filtered: [Recipe]) -> Recipe? {
         LetterIndex.firstItem(
             in: filtered,
             atOrAfter: letter,

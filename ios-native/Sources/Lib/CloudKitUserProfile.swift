@@ -237,19 +237,6 @@ extension CloudKitService {
         _ = try await publicDB.save(record)
     }
 
-    /// Delete the caller's `UserProfile` record. Used by the
-    /// account-deletion cascade. Idempotent — `unknownItem` is
-    /// treated as success (the record's already gone, which is the
-    /// post-condition we want).
-    static func deleteUserProfile(userRecordName: String) async throws {
-        let recordID = userProfileRecordID(for: userRecordName)
-        do {
-            _ = try await publicDB.deleteRecord(withID: recordID)
-        } catch let ckError as CKError where ckError.code == .unknownItem {
-            return
-        }
-    }
-
     /// Account-deletion cascade variant — enqueues the UserProfile
     /// record into `CloudPendingDeleteQueue` (with the right
     /// `profile_` prefixed recordName) and drains. Lets the cascade

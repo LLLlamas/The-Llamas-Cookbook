@@ -1,5 +1,5 @@
 import XCTest
-@testable import LlamasCookbookNative
+@testable import LlamasCookbook
 
 /// Mirrors `cloudflare-pages/test/moderation.test.js` — the Swift and JS
 /// screens must agree, so the two suites cover the same cases.
