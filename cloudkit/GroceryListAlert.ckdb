@@ -1,20 +1,19 @@
 DEFINE SCHEMA
 
     RECORD TYPE GroceryListAlert (
-        ownerID         STRING QUERYABLE SEARCHABLE,
-        listRecordName  STRING,
-        listName        STRING,
-        itemName        STRING,
-        shopperName     STRING,
-        createdAt       TIMESTAMP QUERYABLE SORTABLE,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,
-        "___modTime"    TIMESTAMP QUERYABLE SORTABLE,
+        "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
-        "___recordID"   REFERENCE QUERYABLE,
-        GRANT READ TO "_world",
-        GRANT WRITE TO "_world",
-        GRANT CREATE TO "_icloud",
-        GRANT READ, WRITE TO "_creator"
+        "___recordID"   REFERENCE,
+        createdAt       TIMESTAMP,
+        itemName        STRING,
+        listName        STRING,
+        listRecordName  STRING,
+        ownerID         STRING QUERYABLE,
+        shopperName     STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE, WRITE TO "_icloud",
+        GRANT READ TO "_world"
     );

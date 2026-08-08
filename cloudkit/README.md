@@ -66,7 +66,7 @@ Then a second New Type named exactly **`GroceryListAlert`**:
 | `listName` | String | — |
 | `itemName` | String | — |
 | `shopperName` | String | — |
-| `createdAt` | Date/Time | **Queryable + Sortable** |
+| `createdAt` | Date/Time | — |
 
 `shopperName` / `itemName` / `listName` are not merely decorative — the owner's
 push body is built server-side from those exact field names
@@ -74,8 +74,13 @@ push body is built server-side from those exact field names
 against `GROCERY_OOS_ALERT_BODY` in `Localizable.strings`). Rename one and the
 push arrives with an empty slot.
 
-Set record-level security on both to world read/write (match `PublishedRecipe`).
-Then **Deploy Schema Changes** → Development → Production.
+Record-level security on both: **world READ, but write only for `_icloud`** —
+i.e. Authenticated/iCloud users get Read + Create + Write, `_world` gets Read
+only. Do NOT grant Write to `_world`: every field on these records is
+attacker-controlled already (see the escaping/moderation notes in
+`functions/list/[id].js`), and world-write would let an unauthenticated caller
+rewrite anyone's list. Signed-in recipients are `_icloud`, so they can still
+tick items off. Then **Deploy Schema Changes** → Development → Production.
 
 The `check*` / `note*` fields don't need indexes. Missing the **Queryable**
 index on `ownerID` (either type) or `recipientIDs` is the one thing that looks
@@ -83,8 +88,14 @@ deployed but still fails on fetch — double-check those.
 
 ## Files
 
-- `GroceryListShare.ckdb` — shared-list record type (generated).
-- `GroceryListAlert.ckdb` — out-of-stock alert record type (generated).
+Both fragments were regenerated from the **live Production schema** on
+2026-08-08, so importing them is a verified no-op against the current
+container. Keep it that way: if you change the schema in the Console, re-export
+and update the fragment rather than hand-editing it, or the next person to run
+this script silently reverts your change.
+
+- `GroceryListShare.ckdb` — shared-list record type (exported from Production).
+- `GroceryListAlert.ckdb` — out-of-stock alert record type (exported from Production).
 - `deploy-grocery-schema.sh` — export-merge-import helper, with a post-import
   verification pass over both types.
 - `current-*.ckdb` — produced by the script at run time (gitignored; safe to delete).
