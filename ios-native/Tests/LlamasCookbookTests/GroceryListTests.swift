@@ -74,4 +74,70 @@ final class GroceryListTests: XCTestCase {
         XCTAssertTrue(legacy.outOfStock)
         XCTAssertEqual(legacy.substitution, "brown eggs")
     }
+
+    // MARK: - Share-slot reseed diff
+
+    // `upsertShare` rewrites only the slots these identify. Everything else
+    // keeps the server's live check/note state, so an owner's debounced
+    // structure push can't un-check what a shopper just ticked.
+
+    private func meta(_ id: String, _ name: String) -> SharedGroceryItemMeta {
+        SharedGroceryItemMeta(id: id, name: name, quantity: nil, unit: nil, aisle: nil)
+    }
+
+    func testFirstShareReseedsEverySlot() {
+        let incoming = [meta("a", "milk"), meta("b", "eggs")]
+        XCTAssertEqual(
+            CloudGroceryListService.slotsNeedingReseed(existing: [], incoming: incoming),
+            [0, 1],
+            "A brand-new record has no live state to preserve"
+        )
+    }
+
+    func testUnchangedStructureReseedsNothing() {
+        let items = [meta("a", "milk"), meta("b", "eggs")]
+        XCTAssertTrue(
+            CloudGroceryListService.slotsNeedingReseed(existing: items, incoming: items).isEmpty,
+            "Re-sharing an unchanged list must not touch a single live slot"
+        )
+    }
+
+    func testAppendingAnItemReseedsOnlyTheNewSlot() {
+        let existing = [meta("a", "milk"), meta("b", "eggs")]
+        let incoming = existing + [meta("c", "bread")]
+        XCTAssertEqual(
+            CloudGroceryListService.slotsNeedingReseed(existing: existing, incoming: incoming),
+            [2],
+            "Adding a row must leave the shopper's existing check-offs alone"
+        )
+    }
+
+    func testDeletingAMiddleItemReseedsTheShiftedSlots() {
+        let existing = [meta("a", "milk"), meta("b", "eggs"), meta("c", "bread")]
+        let incoming = [meta("a", "milk"), meta("c", "bread")]
+        XCTAssertEqual(
+            CloudGroceryListService.slotsNeedingReseed(existing: existing, incoming: incoming),
+            [1],
+            "Only slots that changed occupant reseed; slot 0 still holds milk"
+        )
+    }
+
+    func testRenamingInPlaceKeepsTheSlot() {
+        let existing = [meta("a", "milk")]
+        let incoming = [meta("a", "whole milk")]
+        XCTAssertTrue(
+            CloudGroceryListService.slotsNeedingReseed(existing: existing, incoming: incoming).isEmpty,
+            "Identity is the item id, so a rename must not reset its check state"
+        )
+    }
+
+    func testReseedNeverExceedsTheSlotRange() {
+        let many = (0..<60).map { meta("id-\($0)", "item \($0)") }
+        let slots = CloudGroceryListService.slotsNeedingReseed(existing: [], incoming: many)
+        XCTAssertEqual(slots.count, CloudGroceryListService.maxSharedItems)
+        XCTAssertNil(
+            slots.first { $0 >= CloudGroceryListService.maxSharedItems },
+            "Rows past the cap have no check<N>/note<N> field to write"
+        )
+    }
 }

@@ -144,16 +144,47 @@ enum CloudGroceryListService {
 
     // MARK: - Upsert (share / re-sync structure)
 
+    /// Slots whose live check/note state must be reseeded from the owner's
+    /// local values, because the slot's *occupant* changed — a different
+    /// item moved into it (rows shifted after a delete), or the slot is new.
+    ///
+    /// Every other slot still holds the same item, so its live state on the
+    /// server is newer than anything the owner has locally and must be left
+    /// alone. Identity is the owner's stable `GroceryItem` id, so an in-place
+    /// rename keeps the slot (and its check-off) rather than resetting it.
+    static func slotsNeedingReseed(
+        existing: [SharedGroceryItemMeta],
+        incoming: [SharedGroceryItemMeta]
+    ) -> Set<Int> {
+        var slots: Set<Int> = []
+        for i in 0..<min(incoming.count, maxSharedItems) {
+            if i >= existing.count || existing[i].id != incoming[i].id {
+                slots.insert(i)
+            }
+        }
+        return slots
+    }
+
     /// Create or overwrite the share record for a list. Called when the
     /// owner first shares, when they add/remove recipients, and when they
     /// edit the item set (add/remove rows) on an already-shared list.
     ///
     /// `checkedByIndex` / `noteByIndex` seed the live slots from the
     /// owner's current local state so a freshly-shared list lands on the
-    /// recipient already reflecting whatever the owner had ticked. On a
-    /// re-sync we re-read the server record first and preserve any slot
-    /// the owner didn't explicitly pass, so a recipient's in-flight
-    /// check-off isn't stomped by an owner adding an unrelated item.
+    /// recipient already reflecting whatever the owner had ticked.
+    ///
+    /// **A re-sync must not rewrite live state it didn't change.** The
+    /// owner's structure pushes are debounced and their local copy of the
+    /// check state lags the shopper's by a refresh interval, so blanket-
+    /// writing every slot would un-check whatever the shopper ticked in that
+    /// window. We therefore diff the server's `itemsJSON` against the
+    /// incoming one and touch ONLY the slots whose occupant actually changed
+    /// (`slotsNeedingReseed`); untouched slots keep the server's values. An
+    /// owner adding a row at the end now writes exactly one new slot.
+    ///
+    /// A reseeded slot is written in full — including clearing a `note` the
+    /// previous occupant left behind, so a new item never inherits a stale
+    /// "couldn't find it".
     @discardableResult
     static func upsertShare(
         recordName: String,
@@ -174,6 +205,12 @@ enum CloudGroceryListService {
             record = CKRecord(recordType: recordType, recordID: recordID)
         }
 
+        // Read the slot layout we're replacing BEFORE overwriting itemsJSON —
+        // it's what tells us which slots changed hands. A brand-new record
+        // decodes to `[]`, so every slot reseeds. (See `slotsNeedingReseed`.)
+        let previousMetas = decodeItems(record["itemsJSON"] as? String)
+        let reseed = slotsNeedingReseed(existing: previousMetas, incoming: items)
+
         record["ownerID"] = ownerID as NSString
         record["ownerName"] = ownerName as NSString
         record["listName"] = listName as NSString
@@ -185,13 +222,17 @@ enum CloudGroceryListService {
         let cap = min(items.count, maxSharedItems)
         for i in 0..<maxSharedItems {
             if i < cap {
-                // Owner-supplied seed wins; otherwise preserve whatever the
-                // server already had for that slot (re-sync path).
-                if let owned = checkedByIndex[i] {
-                    record["check\(i)"] = (owned ? 1 : 0) as NSNumber
-                }
-                if let note = noteByIndex[i] {
-                    record["note\(i)"] = note.isEmpty ? nil : (note as NSString)
+                // Same item still in this slot → the server's live state is
+                // authoritative (a shopper may have just ticked it). Leave the
+                // fetched record's fields untouched.
+                guard reseed.contains(i) else { continue }
+                // New occupant → write the owner's state in full, clearing the
+                // previous occupant's note rather than letting it carry over.
+                record["check\(i)"] = ((checkedByIndex[i] ?? false) ? 1 : 0) as NSNumber
+                if let note = noteByIndex[i], !note.isEmpty {
+                    record["note\(i)"] = note as NSString
+                } else {
+                    record["note\(i)"] = nil
                 }
             } else {
                 // Slot no longer used (item removed) — clear stale state.

@@ -1,10 +1,18 @@
 # CloudKit schema deploy
 
-The shared-grocery-list feature needs a `GroceryListShare` record type on the
-public database. The iOS code degrades to a silent no-op until it exists, which
-is why "Share" currently shows *"Sharing needs iCloud and a network connection."*
+The shared-grocery-list feature needs **two** record types on the public
+database:
 
-## Fastest path — `cktool` (one command, all 84 fields)
+| Record type | Why | Symptom if missing |
+|---|---|---|
+| `GroceryListShare` | One row per shared list — the live checklist. | "Share" fails with *"Sharing needs iCloud and a network connection."* |
+| `GroceryListAlert` | One row per "shopper couldn't find it" event; exists so the owner's subscription has something to fire a visible push on. | Tapping `!` looks fine locally but the owner is never notified. |
+
+The iOS code degrades to a silent no-op for whichever one is absent, so a
+half-deployed schema looks like a working build right up until someone
+actually shops a list.
+
+## Fastest path — `cktool` (one command, both types)
 
 On a **Mac with Xcode** (cktool ships inside it):
 
@@ -21,7 +29,9 @@ cd cloudkit
 
 The script **exports your current schema first and merges**, so it never
 touches the existing `RecipeShare` / `PublishedRecipe` / `Friendship` /
-`UserProfile` / `RecipeImport` types.
+`UserProfile` / `RecipeImport` types. After importing it re-exports and
+asserts both grocery types are present, so a half-applied import fails the
+script instead of passing quietly.
 
 If `import-schema` complains about the `GRANT …` lines (cktool's grammar shifts
 between Xcode versions), open the generated `cloudkit/current-development.ckdb`,
@@ -47,15 +57,34 @@ Types → New Type named exactly **`GroceryListShare`**. Add fields:
 | `check0` … `check39` | Int (Int64) | — |
 | `note0` … `note39` | String | — |
 
-Set record-level security to world read/write (match `PublishedRecipe`). Then
-**Deploy Schema Changes** → Development → Production.
+Then a second New Type named exactly **`GroceryListAlert`**:
+
+| Field | Type | Index |
+|---|---|---|
+| `ownerID` | String | **Queryable** |
+| `listRecordName` | String | — |
+| `listName` | String | — |
+| `itemName` | String | — |
+| `shopperName` | String | — |
+| `createdAt` | Date/Time | **Queryable + Sortable** |
+
+`shopperName` / `itemName` / `listName` are not merely decorative — the owner's
+push body is built server-side from those exact field names
+(`alertLocalizationArgs` in `CloudKitSubscriptions.registerGrocerySubscriptions`,
+against `GROCERY_OOS_ALERT_BODY` in `Localizable.strings`). Rename one and the
+push arrives with an empty slot.
+
+Set record-level security on both to world read/write (match `PublishedRecipe`).
+Then **Deploy Schema Changes** → Development → Production.
 
 The `check*` / `note*` fields don't need indexes. Missing the **Queryable**
-index on `ownerID` or `recipientIDs` is the one thing that looks deployed but
-still fails on fetch — double-check those two.
+index on `ownerID` (either type) or `recipientIDs` is the one thing that looks
+deployed but still fails on fetch — double-check those.
 
 ## Files
 
-- `GroceryListShare.ckdb` — the record-type definition (generated).
-- `deploy-grocery-schema.sh` — export-merge-import helper.
+- `GroceryListShare.ckdb` — shared-list record type (generated).
+- `GroceryListAlert.ckdb` — out-of-stock alert record type (generated).
+- `deploy-grocery-schema.sh` — export-merge-import helper, with a post-import
+  verification pass over both types.
 - `current-*.ckdb` — produced by the script at run time (gitignored; safe to delete).
