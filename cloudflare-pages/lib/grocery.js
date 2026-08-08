@@ -74,11 +74,21 @@ export function normalizeAisle(raw) {
  * and endpoints can use. Defensive about missing fields and a malformed
  * payload (returns an empty item list rather than throwing).
  *
- * @returns {{title:string, items:Array<{name,quantity,unit,aisle,order,checked,note,outOfStock,substitution}>}}
+ * `ownerName` / `updatedAt` are the record's provenance fields — who owns
+ * the list and when it last changed. Both are optional (older dev records
+ * predate them) and `ownerName` is world-writable, so the page MUST screen
+ * it through `lib/moderation.js` + escape it like any other item text.
+ *
+ * @returns {{title:string, ownerName:string, updatedAt:number|null,
+ *            items:Array<{name,quantity,unit,aisle,order,checked,note,outOfStock,substitution}>}}
  */
 export function parseGroceryRecord(record) {
   const fields = record?.fields || {};
   const title = (fields.listName?.value ?? fields.title?.value ?? '').toString() || 'Grocery List';
+  const ownerName = (fields.ownerName?.value ?? '').toString();
+  // CloudKit Web Services returns Date/Time fields as epoch MILLISECONDS.
+  const rawUpdated = fields.updatedAt?.value;
+  const updatedAt = Number.isFinite(rawUpdated) ? Number(rawUpdated) : null;
 
   let raw = [];
   let usesArraySlots = true;
@@ -114,7 +124,24 @@ export function parseGroceryRecord(record) {
     };
   });
 
-  return { title, items };
+  return { title, ownerName, updatedAt, items };
+}
+
+/**
+ * Display form of an item name — mirrors the iOS row's `name.capitalized`
+ * so the same list reads identically in the app and on the web ("baby
+ * spinach" → "Baby Spinach"). Swift's `.capitalized` lowercases the rest of
+ * each word and treats hyphens/apostrophes/slashes as word breaks, so this
+ * does too.
+ *
+ * Presentation only — it never sanitizes. Callers rendering HTML must still
+ * run the result through their own escape (and screen the raw name through
+ * `lib/moderation.js` first).
+ */
+export function displayName(name) {
+  return String(name)
+    .toLowerCase()
+    .replace(/(^|[\s\-–—'’"(\[/])([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase());
 }
 
 /**
