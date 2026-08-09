@@ -35,10 +35,19 @@ script instead of passing quietly.
 
 If `import-schema` complains about the `GRANT …` lines (cktool's grammar shifts
 between Xcode versions), open the generated `cloudkit/current-development.ckdb`,
-find the `RECORD TYPE PublishedRecipe` block (also a public, world-writable
-type), and copy its exact `GRANT …` lines over the ones in the appended
-`GroceryListShare` block, then re-run. Everything else in the block is plain
-field definitions and won't trip the parser.
+find the `RECORD TYPE PublishedRecipe` block (same public read / iCloud write
+shape), and copy its exact `GRANT …` lines over the ones in the appended
+block, then re-run. Everything else in the block is plain field definitions and
+won't trip the parser.
+
+Whatever you copy, keep `_world` at READ only. The deployed grants across every
+type in this container are:
+
+```
+GRANT WRITE TO "_creator",
+GRANT READ, CREATE, WRITE TO "_icloud",
+GRANT READ TO "_world"
+```
 
 ## Manual path — CloudKit Console (if you'd rather click)
 

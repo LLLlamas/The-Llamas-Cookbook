@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-08-02 (dev moved from Windows to a MacBook Pro — local Xcode is now the primary build/TestFlight path, CI is fallback; project.yml signing flipped to Automatic)
+Last refreshed: 2026-08-09 (shared grocery lists verified end-to-end: CloudKit schema confirmed deployed in Production, both grocery pushes fixed, check-off sync latency cut, shared-list toast + deep link added, `Sources/Views/Lists/` split into feature-sized files)
 
 > **Planning docs / design handoffs / prior audits live in `md_files/`** —
 > gitignored, kept on disk for reference. Only `AGENTS.md` (this file) and
@@ -17,7 +17,7 @@ Last refreshed: 2026-08-02 (dev moved from Windows to a MacBook Pro — local Xc
 - Build: local Mac + Xcode 26 (primary; automatic signing — see `ios-native/README.md`). CI fallback: `macos-26` runner, Xcode 26, manual signing forced on the CLI
 - Bundle IDs: `com.llamascookbook.app` (main), `.widget`, `.shareext`
 - App Group: `group.com.llamascookbook.app` — must match in 4 places: `SharedContainer.appGroupID`, main app entitlements, share extension entitlements, portal profiles
-- CloudKit container: `iCloud.com.llamascookbook.app` — public DB, world-readable/writable
+- CloudKit container: `iCloud.com.llamascookbook.app` — public DB. Grants (verified against Production 2026-08-09): world **READ**, write scoped to `_icloud` (signed-in users). Do NOT grant WRITE to `_world` — see ### CloudKit Schema
 - Universal Link host: `llamascookbook.pages.dev`
 - Team: `GYFN949Q5E`. ASC app id: `6762527184`
 
@@ -83,17 +83,60 @@ Last refreshed: 2026-08-02 (dev moved from Windows to a MacBook Pro — local Xc
 - `ImportersListSheet.swift`, `AttributionSheet.swift`, `ConversionsView.swift`, `SourdoughCalculatorView.swift`
 - Lib: `RecipeShare.swift` (wire format), `CloudKitService.swift` (upload/fetch/delete), `ImportCountCache.swift`
 
-**Grocery Lists** — `Sources/Views/Lists/`, `Sources/Models/`, `Sources/Lib/`
-- `ListsView.swift` — list-of-lists (Lists tab). Rows flip to green (`AppColor.success`) "All set" when fully shopped (`GroceryList.isAllSet`): green check icon + green border. New-list naming screened by `ContentModeration`.
-- `GroceryListDetailView.swift` — one open list. Each item row has 5 bounded hit zones: leading in-cart check, the name label, a "?" swap helper (opens `GrocerySwapSheet`), a "!" can't-find / out-of-stock flag (`GroceryItem.outOfStock` — local today; the cross-user owner notification is deferred until grocery sharing/sync ships), and the have/need toggle. A set `substitution` shows a green "Swap: …" line. Rename screened by `ContentModeration`.
-- `GroceryList.swift` — `GroceryList` + `GroceryItem`. `toBuyCount` / `isAllSet` / `isOpen` are the SINGLE SOURCE OF TRUTH for shopping progress (Lists row summary, Lists tab badge, done indicator all read these — never re-derive `needed && !isChecked`). `isAllSet` requires a NON-empty list. `touch()` bumps `updatedAt` on EVERY mutation incl. child scalars, so the `@Query`-driven Lists tab badge in `RootView` re-fires.
-- Lib: `GroceryAisle.swift` (store-walk grouping), `GrocerySwaps.swift` (curated offline substitution table), `IngredientVisual.swift` (curated ingredient glyph + `IngredientGlyphView` — confident-or-nil, never shows a *wrong* picture; the `Glyph?` API lets a real licensed photo source / AI image lookup slot in later), `GroceryKeyword.swift` (plural-tolerant keyword matcher shared by `GrocerySwaps` + `IngredientVisual`).
-- **Recipe → list**: `RecipeDetailView.addToListChip` (basket in the Ingredients-header accessory) drops `recipe.sortedIngredients` into a list — auto when the user has 0–1 lists (creating one named after the recipe), a `confirmationDialog` picker when more. Dedups by `GroceryKeyword.normalize`, stamps `sourceRecipeID`, then fires the fly-to-Lists "Added" toast (see ### Toasts).
-- **Tab badges** (`RootView`): Lists tab = count of `isOpen` lists (a `@Query<GroceryList>`); Friends tab = `friendsStore.incomingRequests.count`.
-- **Accent cascade:** `GroceryListRow` participates in the global accent cascade exactly like `RecipeCardView` — `@Environment(AppearanceSettings)`, an `index:`, `heldAccentOverride` + `glowActive`, and `scheduleStaggeredGlow()` driven by the SHARED `recipeCardCascadeToken` (so the Lists tab retints top → bottom in lockstep with the Library). The Lists header icon (`checklist`) glows on `isAccentGlowActive(.header)` like the Library logo.
-- **"Done" marking:** a fully-shopped list (`isAllSet`) renders a green-tinted card + stronger green border + a "Done" (`checkmark.seal.fill`) badge in place of the date, on top of the green check icon + green "All set" summary — so "finished" is unmistakable from the list-of-lists.
-- **Swap "?" visuals:** the swap sheet shows `IngredientGlyphView` for the item AND for each suggested substitute (`suggestionRow`), but ONLY when `IngredientVisual.hasGlyph(for:)` returns a confident curated match — never a wrong/guessed picture. "?" and "!" are two separate always-visible buttons side by side (no tap-to-reveal).
-- Web: `cloudflare-pages/lib/grocery.js` — share-record parse + aisle group + plain-text render; SERVER FOUNDATION ONLY, no `/list/<id>` route yet.
+**Grocery Lists** — `Sources/Views/Lists/`, `Sources/Models/`, `Sources/Lib/`, `Sources/App/`
+
+Free (no Pro gate). Two halves: a local list you build and shop, and an
+app-to-app **shared** list a friend shops live while you watch.
+
+- `ListsView.swift` — list-of-lists (Lists tab). Rows flip to green (`AppColor.success`) "All set" when fully shopped (`GroceryList.isAllSet`): green check icon + green border. New-list naming screened by `ContentModeration`. `.task` also requests visible-notification permission (iCloud-gated) — see ### Grocery Push.
+- `GroceryListDetailView.swift` — one open list (aisle-grouped, store-walk order). Owns the view + its actions; the row, the celebration, and the surrounding chrome are separate files (split 2026-08-08, 837 → 516 lines):
+  - `GroceryItemRow.swift` — the row. Four bounded hit zones: leading in-cart check, the name/measure column (also toggles the check), a "?" helper (`ItemHelperSheet`), and a "!" out-of-stock flag. Separated so a stray tap never cross-fires.
+  - `CheckOffCelebration.swift` — `CheckStampPhase` / `CheckPoof` / `CheckSweep`, the one-shot check-off animation. Suppressed under Reduce Motion.
+  - `GroceryListChrome.swift` — shared-status banner, add-item bar, empty state.
+- `ItemHelperSheet.swift` — the "?" helper: a brief on-device blurb (`IngredientAssistant.describe`) + likely aisle. **Read-only** — the swap/substitution picker was removed 2026-06-29. `GroceryItem.substitution` is still parsed, synced, and rendered ("Swap: …", filled `?` glyph) but NOTHING in the app or the web page can currently SET it. Either restore a picker or strip the plumbing; don't assume it's reachable.
+- `ShareGroceryListSheet.swift` — pick friend(s) to share with; re-opening pre-selects current recipients so it doubles as "change who".
+- `StoreLayoutsView.swift` + Lib `StoreProfiles.swift` — per-store custom aisle walk order; assignment is a per-device viewing preference, so recipients get the menu too.
+- `GroceryList.swift` — `GroceryList` + `GroceryItem`. `toBuyCount` / `isAllSet` / `isOpen` are the SINGLE SOURCE OF TRUTH for shopping progress (Lists row summary, Lists tab badge, done indicator all read these). `isAllSet` requires a NON-empty list. `touch()` bumps `updatedAt` on EVERY mutation incl. child scalars, so the `@Query`-driven Lists tab badge in `RootView` re-fires.
+- Lib: `GroceryAisle.swift` (store-walk grouping), `GroceryKnowledge.swift` (~200-keyword aisle taxonomy incl. non-food depts + brands), `GroceryKeyword.swift` (plural-tolerant matcher), `IngredientAssistant.swift` (`triage` / `describe`).
+- **Sharing** — `App/GroceryListStore.swift` + `Lib/CloudGroceryListService.swift`. See ### Shared Grocery Lists.
+- **Recipe → list**: `AddToGroceryListSheet` from `RecipeDetailView` — pick which ingredients (all preselected), then a list or a new one named after the recipe. Dedups by `GroceryKeyword.normalize`, stamps `sourceRecipeID`, fires the fly-to-Lists "Added" toast (see ### Toasts).
+- **Tab badges** (`RootView`): Lists tab = count of `isOpen` lists (a `@Query<GroceryList>`) OR'd with `groceryStore.hasSharedUpdate`; Friends tab = `friendsStore.incomingRequests.count`.
+- **Accent cascade:** `GroceryListRow` participates in the global accent cascade exactly like `RecipeCardView` — `@Environment(AppearanceSettings)`, an `index:`, `heldAccentOverride` + `glowActive`, and `scheduleStaggeredGlow()` driven by the SHARED `recipeCardCascadeToken`. The Lists header icon (`checklist`) glows on `isAccentGlowActive(.header)` like the Library logo.
+- **"Done" marking:** a fully-shopped list (`isAllSet`) renders a green-tinted card + stronger green border + a "Done" (`checkmark.seal.fill`) badge in place of the date.
+- Web: `cloudflare-pages/functions/list/[id].js` — public read-only page for a shared list, `cloudflare-pages/lib/grocery.js` — record parse + aisle group + plain-text render. **No in-app entry point yet**: nothing generates a `/list/<recordName>` URL, so the page is only reachable if you know the record name.
+
+### Shared Grocery Lists
+
+One `GroceryListShare` CloudKit record per shared list is the source of truth for the state both sides race on. Public DB + `recipientIDs` membership (not CKShare) to reuse the existing social-graph pattern.
+
+- **Slot model** — item metadata rides in `itemsJSON`; live state lives in flat `check0…check39` / `note0…note39` fields. Array position IS the slot index (`GroceryItem.shareIndex`). Two shoppers ticking *different* items write different fields, so they can't clobber each other. Cap = `maxSharedItems` (40); rows past it still work locally but silently don't sync (no UI warning — known gap).
+- **Who owns what** — the owner is authoritative for item *structure*; anyone may flip a check or set a note. `applyItems` (recipient) rewrites rows to match the snapshot; `applyLiveState` (owner) only syncs check/note onto rows they already have.
+- **INVARIANT — a re-sync must not rewrite live state it didn't change.** `upsertShare` diffs the server's existing `itemsJSON` against the incoming one and writes ONLY slots whose *occupant* changed (`slotsNeedingReseed`, keyed on the owner's stable `GroceryItem.id`). Untouched slots keep the server's values. Callers still pass every slot — `upsertShare` decides. Do not "simplify" `shareList` to pass only changed slots; the diff needs the full picture. Without this, an owner adding one item un-checked whatever the shopper had just ticked. Reseeded slots are written in FULL (including clearing a stale note) so a new item can't inherit the previous occupant's "couldn't find it".
+- **Writes are blind single-round-trip patches** — `mutateSlot` builds the record locally and saves with `savePolicy = .changedKeys` at `.userInitiated` QoS; no pre-fetch. More clobber-safe than fetch-modify-save (the payload cannot contain another shopper's slot). Fetch-modify-save with `serverRecordChanged` retry remains as a fallback.
+- **Reads** — on a push, `scheduleCoalescedRefresh` refreshes the list ON SCREEN first (one `record(for:)`, tracked implicitly via `refreshSharedList`) before the two-query full reconcile. Detail view also polls every 3 s for the first 20 polls, then 30 s — the owner's subscription is content-available only and iOS throttles silent pushes, so the poll is often what actually delivers.
+- **Destructive-reconcile guard** — a THROWN fetch must never be flattened to `[]`: `reconcileReceived` deletes every mirror not present, and `reconcileOwned` strips sharing metadata. `refresh()` reconciles only the side whose fetch actually succeeded.
+- **Deletion** — deleting an owned+shared list tears down the cloud record too, or recipients keep a ghost mirror.
+
+### Grocery Push
+
+Four subscriptions; see ### CloudKit Schema for IDs.
+
+- **First share** (creation) — visible, personalized: *"Dad just shared a new grocery list with you! “Weekend Shop”"* via `GROCERY_SHARE_NEW_BODY` + args `["ownerName", "listName"]`. Carries category `GROCERY_SHARE_NEW` with **View List** / **Close** actions (registered in `AppDelegate.registerNotificationCategories`). Tap or "View List" → `llamascookbook://list/<recordName>`.
+- **Later edits** (update) — visible, generic. Split from creation because a CKSubscription's payload is FIXED AT SAVE TIME: one subscription covering both can only ever carry one body.
+- **Owner** — silent, update-only (no banner for your own edits).
+- **Owner out-of-stock alert** — visible, creation-only on `GroceryListAlert`, via `GROCERY_OOS_ALERT_BODY`.
+- **INVARIANT — `Localizable.strings` MUST live in `Resources/Localizations/en.lproj/`.** iOS string lookup only searches `.lproj` directories. A copy at the bundle root ships and is invisible, and a loc-key push then renders as the RAW KEY with no fallback (shipped that way until 2026-08-08). Nothing warns you: SwiftUI `Text("literal")` falls back to the literal, so ordinary UI looks identical either way. In `project.yml`, point the source at the PARENT dir (`Resources/Localizations`) — naming the `.lproj` or the file directly silently drops it. Verify: `find LlamasCookbook.app -name '*.lproj'`. Locked by `PushLocalizationTests`.
+- **INVARIANT — permission must be asked before someone can be a recipient.** Visible pushes need `UNUserNotificationCenter` authorization; iOS silently drops the alert half when `.notDetermined`. Requested from `ListsView.task`, `ShareGroceryListSheet`, and `GroceryListDetailView`. The Lists-tab one is load-bearing: a pure recipient has never shared or opened a shared list, so without it the push announcing the list is the one being suppressed.
+- **Registration gate** — `registeredForKey` is version-suffixed (`.v5`). Bump it whenever a subscription's payload/predicate/ID set changes, or existing installs skip re-registration and keep the old push forever.
+
+### Shared-list toast
+
+`Components/SharedListToast.swift` + `GroceryListStore.incomingShare` + `RootView.sharedListToastOverlay`.
+
+- Top banner at the app root (above every tab — a share can land anywhere). Row opens the list; trailing ✕ dismisses and leaves you put. Auto-clears after 6 s.
+- The row and the ✕ are **sibling buttons with disjoint hit areas**, never a parent `.onTapGesture` wrapping a nested `Button` — precedence between those is a SwiftUI implementation detail, and a dismiss that navigates is the worst bug an unprompted banner can have.
+- **Announce only genuinely-new shares.** `hasHydratedReceivedShares` gates on the first reconcile completing; otherwise a fresh install / re-install / new device toasts every list already shared with the user.
+- `openSharedList(recordName:)` in `RootView` is the ONE destination for both the banner and the push. Resolves via `groceryStore.list(withShareRecordName:)`; falls back to the Lists tab when the mirror hasn't synced yet (tapping a push can beat the reconcile). Pushes onto `listsPath` (the Lists `NavigationStack`'s programmatic path, sibling of `libraryPath`).
 
 **Cook mode** — `Sources/Views/Cook/`
 - `CookModeView.swift`
@@ -125,7 +168,7 @@ Last refreshed: 2026-08-02 (dev moved from Windows to a MacBook Pro — local Xc
 **Reusable components** — `Sources/Views/Components/`
 - `PhotoCarouselView`, `PhotoReorderView`, `CameraCaptureView`, `ShareSheet`, `LlamaLogo`, `LlamaWatermark`, `LlamaProgressIndicator`
 - `LlamaFloatModifier.swift` — `.llamaFloat()` bob animation; 250ms delayed start (do not remove)
-- `AccentColorPicker.swift`, `SavedToast.swift`, `RecipeImageView.swift`
+- `AccentColorPicker.swift`, `SavedToast.swift`, `SharedListToast.swift`, `RecipeImageView.swift`
 - Lib: `ImageProcessing.swift`, `Conversions.swift`, `Quantity.swift`, `SourdoughCalculator.swift`, `Haptics.swift`, `SwipeBack.swift`, `AppMetadata.swift`
 
 **Shared helpers — always reuse, never re-inline**
@@ -234,7 +277,7 @@ Last refreshed: 2026-08-02 (dev moved from Windows to a MacBook Pro — local Xc
 
 ### Content Moderation
 - User-chosen NAMES are BLOCK-at-commit screened by `ContentModeration` (`Lib/ContentModeration.swift`): recipe title (`RecipeEditorView.save`), grocery list name (`ListsView.createList` + `GroceryListDetailView.renameList`), display name (`UserAccount.updateDisplayName` is `@discardableResult -> Bool`, returns false WITHOUT applying when blocked; `ProfileView.commitNameEdit` checks first + shows the alert), custom tags (`TagInputView.commitPending`). All surface `ContentModeration.blockedMessage`. Long-form body prose is deliberately NOT screened (false-positive friction).
-- `cloudflare-pages/lib/moderation.js` MIRRORS the Swift word list + normalizer EXACTLY — edit both together. It's the non-bypassable backstop (the CloudKit public DB is world-writable). Wired into the public OG render (`functions/r/[id].js` → `sanitizedOr` neutralizes a profane title). The future `/list/<id>` route must call it too.
+- `cloudflare-pages/lib/moderation.js` MIRRORS the Swift word list + normalizer EXACTLY — edit both together. It's the non-bypassable backstop (any signed-in iCloud user can write these public records). Wired into the public OG render (`functions/r/[id].js` → `sanitizedOr` neutralizes a profane title) AND the shared-list page (`functions/list/[id].js` screens the list title, every item name, each substitution, and `ownerName`).
 - Matching is whole-token (+ leetspeak/diacritic/separator/repeat-collapse normalization) to dodge the Scunthorpe problem; a culinary allowlist (shiitake, bass, cumin, coq…) backstops false positives. Tests: `ContentModerationTests.swift` + `cloudflare-pages/test/moderation.test.js`.
 - Complementary App Store 1.2 requirements NOT yet built (fast-follow): report-a-shared-recipe/list, block-a-user.
 
@@ -266,7 +309,7 @@ Last refreshed: 2026-08-02 (dev moved from Windows to a MacBook Pro — local Xc
 
 ## CloudKit Schema
 
-Public DB. World-readable/writable.
+Public DB. **World READ; write scoped to `_icloud`** (`GRANT WRITE TO "_creator"`, `GRANT READ, CREATE, WRITE TO "_icloud"`, `GRANT READ TO "_world"`). Signed-in recipients are `_icloud`, so they can still tick items off. Never grant WRITE to `_world` — every field on these records is already attacker-controlled (hence the escaping + moderation on the public web renders); world-write would let an unauthenticated caller rewrite anyone's data.
 
 | Record type | Key fields | Notes |
 |---|---|---|
@@ -275,9 +318,14 @@ Public DB. World-readable/writable.
 | `Friendship` | `userA`, `userB` (queryable, lexicographic pair), `requesterID`, `status`, `acceptedAt` | One record per pair; deny is destructive |
 | `PublishedRecipe` | `ownerID`, `localRecipeID`, `recipeTitle`, `updatedAt`, `originalCreatorID`, `originalRecipeID`, `summary`, `tags` (String List), `photo0`–`photo19` | recordName = `Recipe.id.uuidString`; `summary`+`tags` not queryable |
 | `RecipeImport` | `originalCreatorID`, `originalRecipeID`, `importerID`, `importerDisplayName`, `sourceUserID`, `importedAt` | Append-only audit log |
+| `GroceryListShare` | `ownerID` (Q), `ownerName`, `listName`, `itemsJSON`, `revisedByName`, `recipientIDs` (List, Q), `updatedAt` (Q+S), `check0`–`check39` (Int64), `note0`–`note39` | recordName = `GroceryList.id.uuidString`. Note format: `"out"` \| `"sub:<text>"` |
+| `GroceryListAlert` | `ownerID` (Q), `listRecordName`, `listName`, `itemName`, `shopperName`, `createdAt` | Creation-only; exists solely so the owner's subscription has something to fire a visible push on. `shopperName`/`itemName`/`listName` are load-bearing NAMES — the push body interpolates them server-side |
 
 Photo cap: 10 MB per asset, 40 MB total. `photo0`–`photo19` must be added manually in CloudKit Console.
-Push subscriptions: `friendship-events-A/B-<me>`, `recipe-import-events-<me>`. Silent pushes only. Fan-out: `AppDelegate` → `CloudKitSubscriptions.dispatchRemoteNotification` → `Notification.Name.cloudKitSubscriptionFired`.
+
+**Deploy** — `cloudkit/` holds `.ckdb` fragments + `deploy-grocery-schema.sh` (export → merge → import → verify both types). Fragments are exported verbatim from Production; if you change the schema in the Console, re-export rather than hand-editing, or the next run of the script reverts you. Needs a management token: `xcrun cktool save-token --type management` (account-level Settings → Tokens in CloudKit Console — NOT the container's API Access section, which holds the server-to-server key the Worker uses). Verified deployed in Dev + Production 2026-08-09.
+
+**Push subscriptions** — `friendship-events-A/B-<me>`, `recipe-import-events-<me>`, `grocery-list-shared-<me>` (first share, visible + actionable), `grocery-list-events-recipient-<me>` (later edits, visible), `grocery-list-events-owner-<me>` (silent), `grocery-list-alerts-<me>` (out-of-stock, visible). Fan-out: `AppDelegate` → `CloudKitSubscriptions.dispatchRemoteNotification` → `Notification.Name.cloudKitSubscriptionFired`; the grocery prefixes all map to `.groceryList`. See ### Grocery Push.
 
 ---
 
@@ -292,9 +340,9 @@ Push subscriptions: `friendship-events-A/B-<me>`, `recipe-import-events-<me>`. S
 **Keychain** (`KeychainStore.swift`): `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable.
 
 **Liquid Glass** — opted IN (2026-05-25). `UIDesignRequiresCompatibility` removed from `AppInfo.plist`; stock SwiftUI/UIKit surfaces render with iOS 26 glass materials. `RootView.configureTabBarAppearance` calls `configureWithDefaultBackground()` explicitly so the tab-bar proxy survives the flip.
-- **Established glass call shapes (the only forms confirmed compiling in-repo — reuse these, don't invent):** inactive chip → `.glassEffect(.regular, in: Capsule())`; interactive tinted control → `.glassEffect(.regular.tint(<Color>).interactive(), in: <Capsule/.circle/RoundedRectangle>)`. The active/inactive capsule split lives in `LibraryView.ChipBackground` / `CategoryFilterStrip.ChipBackground` / `GroceryListDetailView.GlassChipBackground` (active = solid accent fill, inactive = glass).
+- **Established glass call shapes (the only forms confirmed compiling in-repo — reuse these, don't invent):** inactive chip → `.glassEffect(.regular, in: Capsule())`; interactive tinted control → `.glassEffect(.regular.tint(<Color>).interactive(), in: <Capsule/.circle/RoundedRectangle>)`. The active/inactive capsule split lives in `LibraryView.ChipBackground` / `CategoryFilterStrip.ChipBackground` (active = solid accent fill, inactive = glass). (`GroceryListDetailView.GlassChipBackground` is gone — it backed the removed have/need toggle.)
 - **Convention:** floating CONTROLS/chips/action-bars use `.glassEffect`; content CARDS stay solid (`.liftedCard()` / `.surfaceCard()`); decorative icon wells are tinted fills (not glass); tab badges are native `.badge()`. Cream `AppColor.onAccent` glyphs ON glass carry `.accentTextOutline()` to lift off the translucent backing.
-- **Adopted glass (2026-06-26 LG pass):** `RecipeDetailView.startCookingBar` (tinted interactive glass, matching its CookPill twin), `RootView.AddToCookButton` (outline), grocery add-item "+" disc, have/need toggle (`GlassChipBackground`), swap-sheet "Save", `ListsView` empty-state CTA. **Second pass (finish-everywhere):** removed `LibraryView`'s `.toolbarBackground` (nav bar now glass), grocery add bar `.regularMaterial` + `PhotoCarouselView` keyboard bar `.thinMaterial` → `.glassEffect(.regular, in: Rectangle())`, CookMode timer pill `.buttonStyle(.lifted)`→`.plain`, and the cook-pills bar (`CookingPillsBar`) wrapped in `GlassEffectContainer(spacing:)` — the **only** `GlassEffectContainer` in the repo, so it's the reference for the API. **All of the second pass needs an iOS 26 build to confirm it compiles** (`GlassEffectContainer` + `Rectangle()` glass containers are first uses).
+- **Adopted glass (2026-06-26 LG pass):** `RecipeDetailView.startCookingBar` (tinted interactive glass, matching its CookPill twin), `RootView.AddToCookButton` (outline), grocery add-item "+" disc, `ListsView` empty-state CTA. **Second pass (finish-everywhere):** removed `LibraryView`'s `.toolbarBackground` (nav bar now glass), grocery add bar `.regularMaterial` + `PhotoCarouselView` keyboard bar `.thinMaterial` → `.glassEffect(.regular, in: Rectangle())`, CookMode timer pill `.buttonStyle(.lifted)`→`.plain`, and the cook-pills bar (`CookingPillsBar`) wrapped in `GlassEffectContainer(spacing:)`. **Compiles** — confirmed on Xcode 26 / iOS 26 simulator (the "needs a build to confirm" caveat is resolved; visual verification on device is still open). Since then: the grocery add bar also uses `GlassEffectContainer`, and `SharedListToast` uses `.glassEffect(.regular, in: RoundedRectangle(...))`, so `CookingPillsBar` is no longer the only container in the repo.
 - **Still deferred (scroll-target risk — needs build + device):** `GlassEffectContainer` around the horizontal filter chip strips (`LibraryView` / `CategoryFilterStrip`) and the `ConversionsView` unit menus. Skipped because a container between a `ScrollView` and its `.scrollTargetLayout()` content can break scroll snapping — verify on device before wrapping.
 - **Device-verification checklist:** `md_files/liquid-glass-adoption.md` (regenerated 2026-06-26 — 14 items, incl. the new grocery surfaces + the sage `AppColor.success` "All set"/"Swap:" contrast risk). NOTE: `CookbookHeader` no longer uses `.regularMaterial` (it's now a plain outlined title on the system nav-bar glass) — the old "CookbookHeader's `.regularMaterial`" review note is obsolete.
 
@@ -345,11 +393,22 @@ Product IDs: `com.llamascookbook.app.pro.monthly`, `com.llamascookbook.app.pro.y
 
 ## Testing
 
-**JavaScript (Cloudflare)** — run from `cloudflare-pages/`: `npm test` (Vitest v3, Node ≥ 20)
-- Tests: `test/quota.test.js` — 26 tests across quota constants, timezone helpers, cap arithmetic, `deriveAppAccountToken`
+**JavaScript (Cloudflare)** — run from `cloudflare-pages/`: `npm test` (Vitest v3, Node ≥ 20). **115 tests across 4 files** as of 2026-08-09.
+- `test/quota.test.js` (39) — quota constants, timezone helpers, cap arithmetic, `deriveAppAccountToken`
+- `test/moderation.test.js` (29) — the word list + normalizer mirror of `ContentModeration`
+- `test/grocery.test.js` (29) — aisle taxonomy, `parseGroceryRecord`, grouping, plain-text render
+- `test/list-page.test.js` (18) — `/list/<id>` HTML: escaping, moderation, title-casing, Smart App Banner id, og/canonical tags, a11y, `relativeTime`
 - Shared module: `lib/quota.js` — single source for `FREE_CAP`, `PRO_CAP`, `getLocalYYYYMM`, `nextMonthResetUTC`, `deriveAppAccountToken`; never re-inline these
 
-**Swift (iOS)** — `LlamasCookbookNativeTests` target in `project.yml`; run via ⌘U in Xcode
+**Swift (iOS)** — `LlamasCookbookNativeTests` target in `project.yml`; ⌘U in Xcode, or:
+
+```sh
+cd ios-native && xcodegen generate && xcodebuild \
+  -project LlamasCookbookNative.xcodeproj -scheme LlamasCookbookNative \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+```
+
+Note the scheme is `LlamasCookbookNative` (not `LlamasCookbook`). **216 tests** as of 2026-08-09.
 
 Test files in `ios-native/Tests/LlamasCookbookTests/`:
 
@@ -363,22 +422,57 @@ Test files in `ios-native/Tests/LlamasCookbookTests/`:
 | `StringExtensionsTests.swift` | `Optional<String>.trimmedIfNonEmpty` |
 | `SeedFriendTests.swift` | sentinel, `isSeed`, profile fields (no `loadPayload()`) |
 | `RecipeImporterTests.swift` | `cleanTitle`, `mergeOrphanDurationSteps` |
+| `ContentModerationTests.swift` | whole-token matching, leetspeak/diacritic normalization, culinary allowlist |
+| `InstagramExtractorTests.swift` | inline-JSON / `og:*` extraction shapes |
+| `LaunchStateTests.swift` | first-launch / seed gating |
+| `GroceryListTests.swift` | `toBuyCount`/`isAllSet`/`isOpen`, availability-note encode/decode, **`slotsNeedingReseed`** (the re-sync invariant) |
+| `GroceryKnowledgeTests.swift` | aisle classification incl. plural matching + brand keywords |
+| `StoreProfilesTests.swift` | custom walk order: persistence, stale-profile healing, permutation completeness |
+| `PushLocalizationTests.swift` | **both push bodies resolve from the bundle** (the `.lproj` regression guard), positional slots, category/action identifiers, create-vs-update subscription split, `IncomingShare.headline` |
 
-Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, SwiftUI views — integration concerns only.
+Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, SwiftUI views — integration concerns only. Where a CloudKit path has a decision worth locking (e.g. which slots a re-sync rewrites), extract it as a pure function and test THAT rather than the I/O around it.
+
+**SwiftData test-container trap:** the test host app already builds the full-schema `ModelContainer` at launch, and SwiftData traps on a second container over the same `@Model` types in-process. Model tests therefore use un-inserted instances and exercise pure computed properties — do not add a `ModelContainer` to a test.
 
 ---
 
 ## Open Work
 
-**App status: live on the App Store. Current version shipping: v1.1.2 (2026-06-08).**
+**App status: live on the App Store. Current version shipping: v1.1.2 (2026-06-08). `MARKETING_VERSION` in `project.yml` is 1.2.0, unreleased — the Grocery Lists TestFlight build.**
+
+**Blocking v1.2.0 — one real two-device run against Production.** Everything below is code-complete and green in CI/simulator, but none of it can be proven from a build machine:
+- Check-off syncs both ways, and fast enough (the `.changedKeys` blind write is the one change with no simulator coverage — it falls back safely, but verify it takes the fast path).
+- First share produces the personalized banner with working View List / Close, and the tap lands on the right list.
+- The in-app toast fires exactly once per new share (not on a fresh install's backlog).
+- `!` produces a push on the owner's phone reading as a sentence, not `GROCERY_OOS_ALERT_BODY`.
+- **Existing installs must launch once** after this build before any of the new pushes apply — `registeredForKey` v4 → v5 re-registration happens at launch.
+
+Before archiving: `xcodegen generate` then `agvtool new-version -all $(date -u +%s)` — regeneration resets `CURRENT_PROJECT_VERSION` to 1, and ASC rejects a duplicate/lower build number.
 
 Carry-forward from launch (still unverified on real devices):
 - Verify Universal Links on real devices
 - Verify Liquid Glass adoption on real devices — checklist in `md_files/liquid-glass-adoption.md` (sheets, custom back chevrons, accent-text-outline legibility, CookingPillsOverlay contrast)
 
+Known gaps in shared grocery lists (documented, not blockers):
+- **Substitutions are display-only** — the `?` helper's swap picker was removed 2026-06-29, so nothing in the app or the read-only web page can SET `GroceryItem.substitution`. The parse/sync/render path is intact and the CloudKit `note` format still carries `sub:<text>`. Restore a picker or strip the plumbing.
+- **The web list page has no in-app entry point** — `/list/<recordName>` is built, tested, CSP-hardened and moderation-screened, but nothing generates the URL (only `/r/<id>` recipe links exist). Needs a "Copy link" affordance to be reachable.
+- **The 40-item shared cap is silent** — rows past `maxSharedItems` get `shareIndex = nil` and never sync, with no warning to the owner.
+- **`functions/r/[id].js` has the Smart App Banner bug** the list page just fixed: `app-id=com.llamascookbook.app` should be the numeric ASC id `6762527184`, or Safari drops the banner.
+
 Accepted limitations (documented, not blockers):
 - **Server-side `Friendship(userA,userB)` uniqueness** — currently client-side dedup only (`CloudKitFriendship.swift` ll. 65–67, 148–154, 218–221 explicitly guard duplicate sends and dedupe symmetric reads). Race window between two devices is sub-second; collision produces a benign duplicate row that the next refresh's defensive dedup hides. Acceptable for initial launch scale; revisit if abuse appears or scale grows. Real fix would require a CF Worker write-proxy with CAS — meaningful new architecture, not a one-line patch.
 - **Account-deletion cascade** — `UserAccount.deleteAccount()` cascades through `deleteAuthoredShares` → `UserProfileMirror.deleteOnAccountDeletion` → `deleteAllFriendships` → `deleteAllPublishedRecipes` → `deleteAllRecipeImports` → `CloudKitSubscriptions.unregisterAll`, with `CloudPendingDeleteQueue` providing persistent retry across launches for the 5 record types. The subscription unregister is best-effort (orphaned subscriptions are cheap server-side state CloudKit GCs; APNs token rotates on reinstall). Meets App Store Review Guideline 5.1.1(v).
+
+Recently resolved (2026-08-09 shared-grocery-list hardening):
+- **CloudKit schema verified, not missing** — `GroceryListShare` AND `GroceryListAlert` are both deployed in Development and Production with the right queryable indexes and all 80 slot fields. Earlier suspicion that the feature was blocked on schema was wrong; it had been deployed through the Console. What WAS wrong: the checked-in `.ckdb` granted `WRITE` to `_world`, so running the deploy script would have downgraded a live container to world-writable. Fragments now exported verbatim from Production, and the script verifies both types after import.
+- **Out-of-stock push rendered as a raw key** — `Localizable.strings` was bundled at the app root instead of `en.lproj`, so it shipped but was invisible to iOS string lookup and the loc-key had no fallback. Moved to `Resources/Localizations/en.lproj/`; `PushLocalizationTests` guards it.
+- **"Shared with you" banner was suppressed for recipients** — notification permission was only requested after sharing a list yourself or opening a shared list, neither of which a pure recipient has done, so the push announcing the list was the one being dropped. Now also requested from `ListsView.task`.
+- **First-share push is personalized + actionable** — recipient stream split into creation-only and update-only subscriptions (a CKSubscription's body is fixed at save time). New body names the friend and the list; `GROCERY_SHARE_NEW` category adds View List / Close; tap routes via the new `llamascookbook://list/<recordName>` deep link. `registeredForKey` v4 → v5.
+- **In-app shared-list toast** — `SharedListToast` at the app root; open or dismiss, auto-clears after 6 s, and only announces shares that arrive after the first reconcile.
+- **Owner structure syncs no longer clobber live check-offs** — `upsertShare` now diffs server vs incoming `itemsJSON` and rewrites only slots whose occupant changed; also fixed a new item inheriting the previous occupant's out-of-stock note.
+- **Check-off latency** — blind single-round-trip `.changedKeys` write at `.userInitiated` QoS (was fetch-then-save), visible list refreshed ahead of the full reconcile on push, detail poll 8 s → 3 s.
+- **`Sources/Views/Lists/` split** — `GroceryListDetailView` 837 → 516 lines; row, celebration, and chrome extracted.
+- **Shared-list web page** — valid markup (a `<div>` was nested in a `<span>`), title-cased names matching the iOS row, "Shared by X · updated N min ago", green check matching the app, dark-mode-correct "all set" pill, og:image/og:url/canonical/theme-color, a11y labels, and the Smart App Banner fixed to the numeric ASC id.
 
 Recently resolved (2026-06-08 v1.1.2):
 - **Friend requests UI** — `FriendsTabView` now shows a `requestsSection` compact card above the friend grid whenever `friendsStore.incomingRequests` or `friendsStore.outgoingRequestProfiles` are non-empty. Incoming rows have deny/accept buttons; outgoing rows show a "Sent" clock badge + cancel. Animates in/out via `.spring(response:0.4, dampingFraction:0.85)`.
