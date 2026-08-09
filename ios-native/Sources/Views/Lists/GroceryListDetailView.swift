@@ -112,7 +112,11 @@ struct GroceryListDetailView: View {
     var body: some View {
         Group {
             if list.items.isEmpty {
-                emptyState
+                GroceryEmptyState(
+                    isOwner: isOwner,
+                    ownerName: list.ownerName,
+                    accent: accent
+                )
             } else {
                 itemList
             }
@@ -186,14 +190,23 @@ struct GroceryListDetailView: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            if list.isShared { sharedStatusBanner }
+            if list.isShared {
+                GroceryShareStatusBanner(
+                    isOwner: isOwner,
+                    sharedWithName: list.sharedWithName,
+                    ownerName: list.ownerName,
+                    accent: accent
+                )
+            }
         }
         .safeAreaInset(edge: .bottom) {
             // Recipients shop the list (check items off) but don't edit its
             // structure — only the owner adds/removes rows.
             if isOwner { addItemBar }
         }
-        .overlay { triagingOverlay }
+        .overlay {
+            if isTriaging { GroceryTriagingOverlay(accent: accent) }
+        }
         .task(id: liveSyncKey) {
             await autoTriage()
             await runVisibleSharedListSync()
@@ -227,44 +240,6 @@ struct GroceryListDetailView: View {
         } message: {
             Text(ContentModeration.blockedMessage)
         }
-    }
-
-    /// Slim live-status banner. Owner sees who they shared with; a
-    /// recipient sees who shared it to them — both with a pulsing dot to
-    /// signal the list is syncing live.
-    private var sharedStatusBanner: some View {
-        HStack(spacing: AppSpacing.sm) {
-            Circle()
-                .fill(AppColor.success)
-                .frame(width: 8, height: 8)
-            Text(sharedStatusText)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppColor.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(accent)
-        }
-        .padding(.horizontal, AppSpacing.lg)
-        .padding(.vertical, AppSpacing.sm)
-        .frame(maxWidth: .infinity)
-        // Slim floating status banner — LG glass per the floating-chrome
-        // convention (full-width edge bar, so `Rectangle()` like the photo
-        // keyboard bar, not a capsule).
-        .glassEffect(.regular, in: Rectangle())
-    }
-
-    private var sharedStatusText: String {
-        if isOwner {
-            let who = list.sharedWithName?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let who, !who.isEmpty { return "Shared with \(who) · syncing live" }
-            return "Shared · syncing live"
-        }
-        let who = list.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let who, !who.isEmpty { return "Shared by \(who) · check items off as you shop" }
-        return "Shared with you · check items off as you shop"
     }
 
     // MARK: - Item list
@@ -356,66 +331,6 @@ struct GroceryListDetailView: View {
         // breathing room — a deliberate "add" control, not a docked bar.
         .padding(.horizontal, AppSpacing.lg)
         .padding(.bottom, AppSpacing.sm + cookPillClearance)
-    }
-
-    // MARK: - Empty state
-
-    private var emptyState: some View {
-        VStack(spacing: AppSpacing.md) {
-            Image(systemName: "basket")
-                .font(.system(size: 48, weight: .regular))
-                .foregroundStyle(accent.opacity(0.85))
-                .accentTextOutline()
-                .llamaFloat()
-            Text("This list is empty")
-                .font(AppFont.sectionHeading)
-                .foregroundStyle(accent)
-                .accentTextOutline()
-            Text(emptyStateDetail)
-                .font(AppFont.caption)
-                .foregroundStyle(AppColor.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, AppSpacing.xl)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Empty-state guidance. Owners get the "add it yourself" instructions;
-    /// a recipient viewing an empty shared mirror has no add bar, so those
-    /// instructions would be impossible to follow — give them a passive
-    /// "nothing here yet" instead.
-    private var emptyStateDetail: String {
-        if isOwner {
-            return "Add items below, or open a recipe and tap the basket on its ingredients to fill this list."
-        }
-        let who = list.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let who, !who.isEmpty {
-            return "Nothing on this list yet — \(who) hasn't added items, or everything's been checked off."
-        }
-        return "Nothing on this list yet — the owner hasn't added items, or everything's been checked off."
-    }
-
-    // MARK: - Triaging overlay
-
-    /// "Asking the llama…" scrim shown only when a manual aisle sort takes
-    /// long enough to matter (1 s debounce inside `sortByAisle`). The silent
-    /// auto-triage on appear never shows it.
-    @ViewBuilder
-    private var triagingOverlay: some View {
-        if isTriaging {
-            ZStack {
-                Color.black.opacity(0.35).ignoresSafeArea()
-                VStack(spacing: AppSpacing.md) {
-                    LlamaProgressIndicator(size: 96, accent: accent)
-                    Text("Asking the llama…")
-                        .font(AppFont.caption)
-                        .foregroundStyle(AppColor.textSecondary)
-                }
-                .padding(AppSpacing.xl)
-                .background(AppColor.surface, in: RoundedRectangle(cornerRadius: AppRadius.lg))
-            }
-            .transition(.opacity)
-        }
     }
 
     // MARK: - Triage
@@ -593,242 +508,6 @@ private struct AvailabilitySnapshot: Equatable {
     init(_ item: GroceryItem) {
         outOfStock = item.outOfStock
         substitution = item.substitution.trimmedIfNonEmpty
-    }
-}
-
-/// One item row. The leading circle AND the central label both toggle the
-/// check (so the user needn't hit the small circle); the trailing "?" helper
-/// and "!" unavailable flag are separate bounded tap targets so taps don't
-/// cross-fire. Checked items dim + strike through.
-private struct GroceryItemRow: View {
-    let item: GroceryItem
-    let accent: Color
-    let onToggleChecked: () -> Void
-    let onToggleOutOfStock: () -> Void
-    let onHelp: () -> Void
-
-    /// Bumped on every unchecked→checked flip — a local tap OR a live
-    /// remote sync landing — to run the one-shot stamp/poof/sweep
-    /// celebration. Starts at 0 so freshly-rendered rows (list open,
-    /// scroll-in, already-checked items) never replay it.
-    @State private var celebration = 0
-
-    /// Reduce Motion suppresses the celebration entirely (the check still
-    /// flips with its gentle color fade — that's a state change, not motion).
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var display: MeasureDisplay { item.display() }
-
-    var body: some View {
-        HStack(spacing: AppSpacing.xs) {
-            // Leading: in-cart check-off. The mark stamps down (lift →
-            // sink → spring settle) with a brief green glow, and a poof
-            // bursts over it — layered ABOVE the phase animator so the
-            // burst isn't scaled by the stamp.
-            Button(action: onToggleChecked) {
-                Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 19, weight: .regular))
-                    .foregroundStyle(item.isChecked ? AppColor.success : AppColor.textTertiary)
-                    .contentTransition(.symbolEffect(.replace))
-                    .animation(.easeInOut(duration: 0.2), value: item.isChecked)
-                    .phaseAnimator(CheckStampPhase.allCases, trigger: celebration) { view, phase in
-                        view
-                            .scaleEffect(phase.scale)
-                            .shadow(color: AppColor.success.opacity(phase.glowOpacity), radius: phase.glowRadius)
-                    } animation: { phase in
-                        phase.animation
-                    }
-                    .overlay {
-                        if celebration > 0 {
-                            CheckPoof().id(celebration)
-                        }
-                    }
-                    .frame(width: 40, height: 40)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
-
-            // Center: the whole name + measure column toggles the check too,
-            // so the user needn't hit the little circle. The helper buttons
-            // stay separate trailing tap targets.
-            Button(action: onToggleChecked) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(item.name.capitalized)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(item.isChecked ? AppColor.textTertiary : AppColor.textPrimary)
-                        .strikethrough(item.isChecked, color: AppColor.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    statusSubline
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .animation(.easeInOut(duration: 0.22), value: item.isChecked)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.isChecked ? "Uncheck \(item.name)" : "Check off \(item.name)")
-
-            Button(action: onHelp) {
-                Image(systemName: item.substitution == nil ? "questionmark.circle" : "questionmark.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(item.substitution == nil ? AppColor.textTertiary : AppColor.success)
-                    .frame(width: 34, height: 38)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("What is \(item.name)?")
-
-            Button(action: onToggleOutOfStock) {
-                Image(systemName: item.outOfStock ? "exclamationmark.circle.fill" : "exclamationmark.circle")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(item.outOfStock ? AppColor.destructive : AppColor.textTertiary)
-                    .frame(width: 34, height: 38)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.outOfStock
-                ? "Clear unavailable flag on \(item.name)"
-                : "Flag \(item.name) as unavailable")
-        }
-        // The green highlight that washes across the row, leading →
-        // trailing, as the item lands in the cart.
-        .overlay {
-            if celebration > 0 {
-                CheckSweep().id(celebration)
-            }
-        }
-        .onChange(of: item.isChecked) { wasChecked, isChecked in
-            guard isChecked, !wasChecked, !reduceMotion else { return }
-            celebration += 1
-        }
-    }
-
-    /// Second line under the name: the chosen swap, an out-of-stock flag, or
-    /// the measure — in that priority.
-    @ViewBuilder
-    private var statusSubline: some View {
-        if let swap = item.substitution, !swap.isEmpty {
-            Text("Swap: \(swap)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(AppColor.success)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        } else if item.outOfStock {
-            Text("Couldn't find it")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(AppColor.destructive)
-        } else if !display.measure.isEmpty {
-            Text(display.measure)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppColor.textTertiary)
-        }
-    }
-}
-
-// MARK: - Check-off celebration
-
-/// Phases of the check-off stamp: the mark lifts, crashes down slightly
-/// below resting size (the "sink"), then springs back to settle. The glow
-/// peaks on the lift and dies as the mark comes to rest.
-private enum CheckStampPhase: CaseIterable {
-    case settled, lift, sink
-
-    var scale: CGFloat {
-        switch self {
-        case .settled: return 1.0
-        case .lift: return 1.3
-        case .sink: return 0.82
-        }
-    }
-
-    var glowRadius: CGFloat {
-        switch self {
-        case .settled: return 0
-        case .lift: return 7
-        case .sink: return 3
-        }
-    }
-
-    var glowOpacity: Double {
-        switch self {
-        case .settled: return 0
-        case .lift: return 0.55
-        case .sink: return 0.3
-        }
-    }
-
-    /// The animation used to ENTER this phase — quick lift, sharper drop,
-    /// then a bouncy spring back to rest.
-    var animation: Animation {
-        switch self {
-        case .settled: return .spring(duration: 0.32, bounce: 0.45)
-        case .lift: return .easeOut(duration: 0.12)
-        case .sink: return .easeIn(duration: 0.1)
-        }
-    }
-}
-
-/// One-shot "poof" over the check circle the moment an item lands in the
-/// cart: a soft green ring plus a few radial specks that expand and fade.
-/// Self-animating on appear — the parent replays it per check-off by
-/// re-creating it with `.id(celebration)`.
-private struct CheckPoof: View {
-    @State private var burst = false
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(AppColor.success.opacity(burst ? 0 : 0.7), lineWidth: 1.5)
-                .frame(width: 23, height: 23)
-                .scaleEffect(burst ? 1.9 : 0.5)
-            ForEach(0..<6, id: \.self) { i in
-                let angle = Double(i) * .pi / 3 - .pi / 2
-                Circle()
-                    .fill(AppColor.success.opacity(burst ? 0 : 0.85))
-                    .frame(width: 3.5, height: 3.5)
-                    .scaleEffect(burst ? 0.4 : 1)
-                    .offset(
-                        x: CGFloat(cos(angle)) * (burst ? 19 : 5),
-                        y: CGFloat(sin(angle)) * (burst ? 19 : 5)
-                    )
-            }
-        }
-        .allowsHitTesting(false)
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) { burst = true }
-        }
-    }
-}
-
-/// One-shot green highlight band that sweeps the full row, leading edge to
-/// trailing, as an item is checked off. Same self-animating/`.id` replay
-/// contract as `CheckPoof`. Hit-testing is disabled so the wash never
-/// steals a tap from the row's buttons.
-private struct CheckSweep: View {
-    @State private var swept = false
-
-    var body: some View {
-        GeometryReader { geo in
-            let bandWidth = max(geo.size.width * 0.42, 80)
-            LinearGradient(
-                colors: [
-                    AppColor.success.opacity(0),
-                    AppColor.success.opacity(0.2),
-                    AppColor.success.opacity(0),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: bandWidth)
-            .frame(maxHeight: .infinity)
-            .offset(x: swept ? geo.size.width : -bandWidth)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.55)) { swept = true }
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-        .allowsHitTesting(false)
     }
 }
 
