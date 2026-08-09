@@ -27,6 +27,13 @@ struct RootView: View {
     /// than back on the library list.
     @State private var libraryPath = NavigationPath()
 
+    /// Programmatic-path binding for the Lists NavigationStack. Same role
+    /// `libraryPath` plays for Home: `ListsView`'s `NavigationLink(value:)`
+    /// taps keep working, and we additionally get to push a specific list's
+    /// Detail from outside the stack — used by the "a friend shared a list"
+    /// banner and by a tap on the matching push notification.
+    @State private var listsPath = NavigationPath()
+
     /// Decoded incoming share envelope. Non-nil → present
     /// `RecipeImportPreviewView` as a sheet so the user can review +
     /// Save / Cancel. Set by the `share-url` and `.llamarecipe` file
@@ -241,6 +248,13 @@ struct RootView: View {
                 // immediately afterward.
                 friendImportToastOverlay
             }
+            .overlay(alignment: .top) {
+                // "A friend shared a grocery list with you" banner. Sits at
+                // the app root, above every tab, because the share can land
+                // while the user is anywhere — the whole point is that it
+                // doesn't move them until they ask to be moved.
+                sharedListToastOverlay
+            }
             .onChange(of: navContext.pendingFriendImportToast) { _, payload in
                 guard let payload else { return }
                 // Pop the signal off navContext immediately — we've
@@ -265,7 +279,7 @@ struct RootView: View {
             .tabItem { tabLabel(for: .home) }
             .tag(AppTab.home)
 
-            NavigationStack {
+            NavigationStack(path: $listsPath) {
                 ListsView()
             }
             .modifier(CookingPillsOverlay(
@@ -454,6 +468,14 @@ struct RootView: View {
 
             if let recipeID = parseCookDeepLink(url) {
                 routeCookDeepLink(recipeID)
+            } else if url.scheme == "llamascookbook", url.host == "list" {
+                // 8. llamascookbook://list/<shareRecordName> ← tap on the
+                //    "a friend shared a grocery list with you" push (or its
+                //    "View List" action button). Same destination the in-app
+                //    banner routes to, so both entry points converge.
+                let recordName = url.lastPathComponent
+                    .removingPercentEncoding ?? url.lastPathComponent
+                if !recordName.isEmpty { openSharedList(recordName: recordName) }
             } else if url.scheme == "llamascookbook", url.host == "recipe" {
                 routeShareURL(url)
             } else if url.scheme == "llamascookbook", url.host == "share" {
@@ -658,6 +680,62 @@ struct RootView: View {
         } message: { _ in
             Text("You have unsaved changes. Leaving will lose them.")
         }
+    }
+
+    /// "A friend shared a grocery list with you" banner.
+    ///
+    /// Auto-dismisses after 6 s so an unattended phone doesn't keep it
+    /// forever, but never steals focus: dismissing leaves the user exactly
+    /// where they were, and only an explicit tap navigates. Keyed by record
+    /// name so a second share replaces the first cleanly (and restarts the
+    /// timer) rather than stacking banners.
+    @ViewBuilder
+    private var sharedListToastOverlay: some View {
+        if let share = groceryStore.incomingShare {
+            SharedListToast(
+                share: share,
+                accent: appearance.cookbookTitleAccentColor,
+                onOpen: { openSharedList(recordName: share.recordName) },
+                onDismiss: {
+                    Haptics.selection()
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        groceryStore.clearIncomingShare()
+                    }
+                }
+            )
+            .id(share.recordName)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .task(id: share.recordName) {
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.22)) {
+                    groceryStore.clearIncomingShare()
+                }
+            }
+        }
+    }
+
+    /// Route to a shared list's Detail — from the in-app banner or from a
+    /// tap on the push notification.
+    ///
+    /// Resolving by `shareRecordName` (not by object) because the caller
+    /// only ever has the cloud record name: the push payload carries a
+    /// record ID, and the banner deliberately holds a value type.
+    private func openSharedList(recordName: String) {
+        Haptics.impact(.light)
+        groceryStore.clearIncomingShare()
+        guard let list = groceryStore.list(withShareRecordName: recordName) else {
+            // The mirror hasn't synced yet (tapping the push can beat the
+            // reconcile). Land them on the Lists tab, which refreshes on
+            // appear, rather than doing nothing.
+            selectedTab = .lists
+            return
+        }
+        selectedTab = .lists
+        // Reset first so tapping a second banner while already deep in a
+        // list replaces the destination instead of stacking onto it.
+        listsPath = NavigationPath()
+        listsPath.append(list)
     }
 
     /// Friend-import "Saved" toast + fly-ghost overlay. Source +

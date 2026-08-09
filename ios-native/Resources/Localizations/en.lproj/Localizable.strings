@@ -7,11 +7,20 @@
   English-only, so this single unlocalized table is the lookup target for
   every install.
 
+  MUST live inside `en.lproj` — iOS string lookup only searches .lproj
+  directories, so a copy at the bundle root ships but never resolves, and
+  loc-key pushes then render as the raw key with no fallback.
+
   GROCERY_OOS_ALERT_BODY args, in order (see
   CloudKitSubscriptions.registerGrocerySubscriptions):
     %1$@ — shopperName   who flagged the item
     %2$@ — itemName      the item they couldn't find
     %3$@ — listName      which shared list it's on
+
+  GROCERY_SHARE_NEW_BODY args, in order:
+    %1$@ — ownerName     the friend who shared the list
+    %2$@ — listName      what they called it
 */
 
 "GROCERY_OOS_ALERT_BODY" = "%1$@ couldn't find “%2$@” on %3$@.";
+"GROCERY_SHARE_NEW_BODY" = "%1$@ just shared a new grocery list with you! “%2$@”";

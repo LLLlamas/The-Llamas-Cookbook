@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import UIKit
 import UserNotifications
+import CloudKit
 import os
 
 @main
@@ -156,6 +157,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        registerNotificationCategories()
         // Kick off the APNs registration handshake so CloudKit's
         // silent and visible CKQuerySubscription pushes can reach the app.
         // iOS calls back through one of the two
@@ -226,18 +228,66 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         completionHandler([.banner, .sound, .list])
     }
 
-    /// Tap on a delivered notification → re-open the relevant Cook
-    /// Mode session if a recipe id is present. Cooking-timer alerts
-    /// route through AlarmKit now (which doesn't deliver via this
-    /// callback), so this path is effectively reserved for legacy /
-    /// future UN-delivered notifications that piggyback the same
-    /// `recipeID` userInfo key.
+    /// Buttons on the "a friend shared a grocery list with you" banner.
+    /// "View List" foregrounds the app and routes to the list; "Close" is a
+    /// deliberate no-op so the banner offers a symmetric choice instead of
+    /// relying on swipe-to-clear being discovered.
+    ///
+    /// `setNotificationCategories` REPLACES the whole set, so every category
+    /// the app defines has to be registered in this one call.
+    private func registerNotificationCategories() {
+        let view = UNNotificationAction(
+            identifier: CloudKitSubscriptions.groceryViewListAction,
+            title: "View List",
+            options: [.foreground]
+        )
+        let dismiss = UNNotificationAction(
+            identifier: CloudKitSubscriptions.groceryDismissAction,
+            title: "Close",
+            options: []
+        )
+        let shared = UNNotificationCategory(
+            identifier: CloudKitSubscriptions.groceryShareCategory,
+            actions: [view, dismiss],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([shared])
+    }
+
+    /// Tap on a delivered notification. Two routes:
+    ///
+    /// - A shared-grocery-list banner (or its "View List" button) → open
+    ///   that list. The record name comes off the CloudKit payload itself
+    ///   (`CKQueryNotification.recordID`), which is the same string as
+    ///   `GroceryList.shareRecordName`, so no extra userInfo plumbing.
+    /// - A recipe id → re-open the relevant Cook Mode session. Cooking-timer
+    ///   alerts route through AlarmKit now (which doesn't deliver via this
+    ///   callback), so that path is effectively reserved for legacy / future
+    ///   UN-delivered notifications carrying the same key.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let info = response.notification.request.content.userInfo
+        let content = response.notification.request.content
+        let info = content.userInfo
+
+        // Explicit "Close" — the user asked for this banner to go away, so
+        // do exactly nothing else.
+        guard response.actionIdentifier != CloudKitSubscriptions.groceryDismissAction else {
+            completionHandler()
+            return
+        }
+
+        if content.categoryIdentifier == CloudKitSubscriptions.groceryShareCategory,
+           let recordName = Self.sharedListRecordName(from: info),
+           let url = URL(string: "llamascookbook://list/\(recordName)") {
+            DispatchQueue.main.async { UIApplication.shared.open(url) }
+            completionHandler()
+            return
+        }
+
         if let raw = info[TimerNotifications.recipeIDUserInfoKey] as? String,
            let id = UUID(uuidString: raw),
            let url = URL(string: "llamascookbook://cook/\(id.uuidString)") {
@@ -250,5 +300,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             }
         }
         completionHandler()
+    }
+
+    /// The `GroceryListShare` record name a CloudKit query push is about.
+    /// Percent-encoded for the deep-link path — CloudKit record names are
+    /// URL-safe in practice (we mint them from UUIDs), but this is parsing
+    /// a remote payload, so don't assume.
+    private static func sharedListRecordName(from userInfo: [AnyHashable: Any]) -> String? {
+        guard let raw = userInfo as? [String: NSObject],
+              let notification = CKNotification(fromRemoteNotificationDictionary: raw)
+                as? CKQueryNotification,
+              let recordName = notification.recordID?.recordName,
+              !recordName.isEmpty
+        else { return nil }
+        return recordName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
     }
 }

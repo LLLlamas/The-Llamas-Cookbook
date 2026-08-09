@@ -79,7 +79,25 @@ enum CloudKitSubscriptions {
     /// localized "%@ couldn't find %@" form interpolating the
     /// `GroceryListAlert` record fields — the payload shape is baked into
     /// the saved subscription, so existing installs must re-register.
-    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v4"
+    /// Bumped `.v4` → `.v5` when the recipient stream split into a
+    /// creation-only "X just shared a new grocery list with you" push and an
+    /// update-only "the list changed" push. Both payloads are baked into the
+    /// saved subscriptions, so existing installs must re-register to stop
+    /// getting the old generic body on a first share.
+    private static let registeredForKey = "cloudKitSubscriptions.registeredForRecordID.v5"
+
+    /// Notification category on the "a friend shared a list with you" push.
+    /// Carries the View / Close actions registered in `AppDelegate`, and is
+    /// what `didReceive` matches on to route the tap to the list.
+    static let groceryShareCategory = "GROCERY_SHARE_NEW"
+
+    /// Action identifier for the push's "View List" button.
+    static let groceryViewListAction = "GROCERY_VIEW_LIST"
+
+    /// Action identifier for the push's explicit "Close" button. Handled as
+    /// a no-op — it exists so the banner offers a symmetric choice rather
+    /// than relying on the system swipe-to-clear alone.
+    static let groceryDismissAction = "GROCERY_DISMISS"
 
     /// SHA-256 of the most recent APNs device token we observed at
     /// registration time. CKQuerySubscription delivery is bound to
@@ -121,10 +139,22 @@ enum CloudKitSubscriptions {
         "recipe-import-events-\(me)"
     }
 
+    /// Per-user identifier for the FIRST-share half of the recipient stream
+    /// (`recipientIDs CONTAINS me`, creation only). Visible, and the one
+    /// push in the app that names names: "Sam just shared a new grocery list
+    /// with you! “Weekend Shop”". Split out from the update half because a
+    /// CKSubscription's payload is fixed at save time — one subscription
+    /// covering create+update can only ever have one body, and "a list
+    /// shared with you changed" is wrong for a list you're hearing about for
+    /// the first time.
+    static func groceryShareCreatedSubscriptionID(for me: String) -> String {
+        "grocery-list-shared-\(me)"
+    }
+
     /// Per-user identifier for the grocery-share stream where I'm a
-    /// **recipient** (`recipientIDs CONTAINS me`). This one carries a
-    /// VISIBLE push — the "your shared grocery list was updated" banner
-    /// the husband-at-the-store gets when the owner shares or edits.
+    /// **recipient** (`recipientIDs CONTAINS me`), update half. Visible —
+    /// the "the list you're shopping changed" banner. Creation is handled by
+    /// `groceryShareCreatedSubscriptionID` above.
     static func groceryRecipientSubscriptionID(for me: String) -> String {
         "grocery-list-events-recipient-\(me)"
     }
@@ -234,23 +264,48 @@ enum CloudKitSubscriptions {
 
     /// Grocery-share subscriptions.
     ///
-    /// - **Recipient** (`recipientIDs CONTAINS me`): fires on create +
-    ///   update with a banner ("Your shared grocery list was updated").
-    ///   This is the husband-at-the-store getting told the list is ready /
-    ///   changed. `shouldSendContentAvailable` is also on so the app
-    ///   refreshes the mirror in the same wake-up.
+    /// - **Recipient, first share** (`recipientIDs CONTAINS me`, creation):
+    ///   visible, and names the friend and the list — "Sam just shared a new
+    ///   grocery list with you! “Weekend Shop”". Carries the
+    ///   `GROCERY_SHARE_NEW` category so the banner offers View / Close, and
+    ///   a tap routes straight to the list.
+    /// - **Recipient, later edits** (same predicate, update): visible but
+    ///   generic — you already know the list exists.
     /// - **Owner** (`ownerID == me`): silent, update-only. Refreshes my
     ///   app so I watch a shopper tick items off live — but no banner,
     ///   since most updates on my own record are my own edits.
     /// - **Owner alert** (`GroceryListAlert.ownerID == me`): visible,
     ///   creation-only. Fires when a shopper flags an item unavailable.
     private static func registerGrocerySubscriptions(for me: String) async throws {
-        // Recipient — visible.
+        let recipientPredicate = NSPredicate(format: "recipientIDs CONTAINS %@", me)
+
+        // Recipient, FIRST share — visible, personalized, actionable.
+        let sharedSub = CKQuerySubscription(
+            recordType: CloudGroceryListService.recordType,
+            predicate: recipientPredicate,
+            subscriptionID: groceryShareCreatedSubscriptionID(for: me),
+            options: [.firesOnRecordCreation]
+        )
+        let sharedInfo = CKSubscription.NotificationInfo()
+        sharedInfo.shouldSendContentAvailable = true
+        sharedInfo.shouldBadge = false
+        sharedInfo.title = "New grocery list"
+        // Same server-side field interpolation the out-of-stock alert uses:
+        // the args are field NAMES on the GroceryListShare record, resolved
+        // per push, against a key in Resources/Localizations/en.lproj.
+        sharedInfo.alertLocalizationKey = "GROCERY_SHARE_NEW_BODY"
+        sharedInfo.alertLocalizationArgs = ["ownerName", "listName"]
+        sharedInfo.category = groceryShareCategory
+        sharedInfo.soundName = "default"
+        sharedSub.notificationInfo = sharedInfo
+        _ = try await CloudKitService.publicDB.save(sharedSub)
+
+        // Recipient, subsequent edits — visible but generic.
         let recipientSub = CKQuerySubscription(
             recordType: CloudGroceryListService.recordType,
-            predicate: NSPredicate(format: "recipientIDs CONTAINS %@", me),
+            predicate: recipientPredicate,
             subscriptionID: groceryRecipientSubscriptionID(for: me),
-            options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+            options: [.firesOnRecordUpdate]
         )
         let recipientInfo = CKSubscription.NotificationInfo()
         recipientInfo.shouldSendContentAvailable = true
@@ -350,6 +405,7 @@ enum CloudKitSubscriptions {
             friendshipSubscriptionIDA(for: me),
             friendshipSubscriptionIDB(for: me),
             recipeImportSubscriptionID(for: me),
+            groceryShareCreatedSubscriptionID(for: me),
             groceryRecipientSubscriptionID(for: me),
             groceryOwnerSubscriptionID(for: me),
             groceryAlertSubscriptionID(for: me),
@@ -418,7 +474,8 @@ enum CloudKitSubscriptions {
         } else if subscriptionID.hasPrefix("recipe-import-events-") {
             kind = .recipeImport
         } else if subscriptionID.hasPrefix("grocery-list-events-") ||
-                    subscriptionID.hasPrefix("grocery-list-alerts-") {
+                    subscriptionID.hasPrefix("grocery-list-alerts-") ||
+                    subscriptionID.hasPrefix("grocery-list-shared-") {
             kind = .groceryList
         } else {
             kind = nil

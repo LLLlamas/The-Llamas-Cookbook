@@ -69,4 +69,78 @@ final class PushLocalizationTests: XCTestCase {
         XCTAssertTrue(rendered.contains("Weekend Shop"))
         XCTAssertFalse(rendered.contains("%"), "Unsubstituted format specifier left in: \(rendered)")
     }
+
+    // MARK: - "A friend shared a list with you"
+
+    func testSharedListAlertBodyResolvesFromTheBundle() {
+        let body = localized("GROCERY_SHARE_NEW_BODY")
+        XCTAssertNotEqual(body, missing, "GROCERY_SHARE_NEW_BODY did not resolve")
+        XCTAssertNotEqual(body, "GROCERY_SHARE_NEW_BODY")
+    }
+
+    /// Args are ["ownerName", "listName"] — two slots, in that order.
+    func testSharedListAlertBodyHasBothPositionalSlots() {
+        let body = localized("GROCERY_SHARE_NEW_BODY")
+        XCTAssertTrue(body.contains("%1$@"), "Missing owner-name slot")
+        XCTAssertTrue(body.contains("%2$@"), "Missing list-name slot")
+        XCTAssertFalse(body.contains("%3$@"), "Only two args are supplied")
+    }
+
+    func testSharedListAlertBodyReadsAsTheIntendedSentence() {
+        let body = localized("GROCERY_SHARE_NEW_BODY")
+        let rendered = String(format: body, "Dad", "Weekend Shop")
+        XCTAssertTrue(rendered.hasPrefix("Dad just shared a new grocery list with you!"), rendered)
+        XCTAssertTrue(rendered.contains("Weekend Shop"), rendered)
+        XCTAssertFalse(rendered.contains("%"), "Unsubstituted format specifier left in: \(rendered)")
+    }
+
+    /// The push's category and action identifiers are baked into saved
+    /// CKSubscriptions AND matched in `AppDelegate.didReceive`. If the two
+    /// sides drift, the banner still arrives but its buttons do nothing.
+    func testNotificationCategoryAndActionIdentifiersAreStable() {
+        XCTAssertEqual(CloudKitSubscriptions.groceryShareCategory, "GROCERY_SHARE_NEW")
+        XCTAssertEqual(CloudKitSubscriptions.groceryViewListAction, "GROCERY_VIEW_LIST")
+        XCTAssertEqual(CloudKitSubscriptions.groceryDismissAction, "GROCERY_DISMISS")
+    }
+
+    /// The creation half and the update half must be distinct subscriptions
+    /// — CloudKit bakes the payload in at save time, so one subscription
+    /// covering both can only ever carry one body.
+    func testShareCreatedAndUpdateSubscriptionsAreDistinct() {
+        let me = "_abc123"
+        let created = CloudKitSubscriptions.groceryShareCreatedSubscriptionID(for: me)
+        let updated = CloudKitSubscriptions.groceryRecipientSubscriptionID(for: me)
+        XCTAssertNotEqual(created, updated)
+        // Both must map to the .groceryList stream in dispatch, which keys
+        // off these prefixes.
+        XCTAssertTrue(created.hasPrefix("grocery-list-shared-"))
+        XCTAssertTrue(updated.hasPrefix("grocery-list-events-"))
+    }
+}
+
+/// The in-app banner's copy, which is assembled locally rather than by
+/// CloudKit and so is worth pinning separately from the push table.
+final class IncomingShareTests: XCTestCase {
+
+    func testHeadlineNamesTheOwner() {
+        let share = IncomingShare(recordName: "r1", listName: "Weekend Shop", ownerName: "Dad")
+        XCTAssertEqual(share.headline, "Dad shared a grocery list with you")
+    }
+
+    /// A friend who never set a profile name would otherwise render a
+    /// headline starting with a space — " shared a grocery list with you".
+    func testHeadlineFallsBackWhenOwnerNameIsBlank() {
+        for blank in ["", "   ", "\n"] {
+            let share = IncomingShare(recordName: "r1", listName: "Shop", ownerName: blank)
+            XCTAssertEqual(share.headline, "A friend shared a grocery list with you")
+        }
+    }
+
+    /// Identity is the cloud record name so a second share replaces the
+    /// first banner rather than stacking, and re-announcing the same list
+    /// is a no-op for the `.id()`-keyed overlay.
+    func testIdentityIsTheShareRecordName() {
+        let share = IncomingShare(recordName: "rec-42", listName: "Shop", ownerName: "Dad")
+        XCTAssertEqual(share.id, "rec-42")
+    }
 }

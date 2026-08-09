@@ -48,6 +48,22 @@ final class GroceryListStore {
     /// `markSharedSeen()` when they look.
     private(set) var hasSharedUpdate = false
 
+    /// Set when a list a friend shared shows up for the first time. Drives
+    /// the in-app banner in `RootView`, which the user can dismiss or tap to
+    /// open the list. Cleared by `clearIncomingShare()` once handled.
+    private(set) var incomingShare: IncomingShare?
+
+    /// False until the first successful recipient reconcile completes.
+    ///
+    /// Guards against announcing history: on a fresh install, a re-install,
+    /// or a sign-in on a new device, the very first reconcile mirrors EVERY
+    /// list already shared with this user. Those aren't news, and firing a
+    /// banner per list would bury the user under toasts for lists they've
+    /// been shopping for weeks. Only shares that appear *after* we know what
+    /// the baseline looks like are genuinely new.
+    @ObservationIgnored
+    private var hasHydratedReceivedShares = false
+
     /// True while a `refresh()` is in flight (re-entrancy guard).
     @ObservationIgnored
     private var isRefreshing = false
@@ -186,6 +202,16 @@ final class GroceryListStore {
                     shareRecordName: snapshot.recordName
                 )
                 context.insert(list)
+                // A share we've never seen before. Announce it — but only
+                // once we've established a baseline, so a fresh install
+                // doesn't toast every list the user already had.
+                if hasHydratedReceivedShares {
+                    incomingShare = IncomingShare(
+                        recordName: snapshot.recordName,
+                        listName: snapshot.listName,
+                        ownerName: snapshot.ownerName
+                    )
+                }
             }
             list.name = snapshot.listName
             list.ownerName = snapshot.ownerName.isEmpty ? nil : snapshot.ownerName
@@ -194,6 +220,8 @@ final class GroceryListStore {
             applyItems(snapshot.items, to: list, in: context, ownerAuthoritative: true)
             list.updatedAt = snapshot.updatedAt
         }
+
+        hasHydratedReceivedShares = true
     }
 
     // MARK: - Reconcile (my own shared lists)
@@ -458,6 +486,17 @@ final class GroceryListStore {
 
     func markSharedSeen() { hasSharedUpdate = false }
 
+    /// Dismiss the in-app "a friend shared a list" banner — whether the user
+    /// tapped the X or tapped through to the list.
+    func clearIncomingShare() { incomingShare = nil }
+
+    /// Look up a mirrored list by its cloud record name. Used to resolve a
+    /// banner tap / push tap into the actual `GroceryList` to navigate to.
+    func list(withShareRecordName recordName: String) -> GroceryList? {
+        guard let context = modelContext else { return nil }
+        return allLists(in: context).first { $0.shareRecordName == recordName }
+    }
+
     // MARK: - Helpers
 
     private func allLists(in context: ModelContext) -> [GroceryList] {
@@ -537,5 +576,28 @@ final class GroceryListStore {
         if let remotePushObserver {
             NotificationCenter.default.removeObserver(remotePushObserver)
         }
+    }
+}
+
+/// A grocery list a friend just shared, surfaced once for the in-app banner.
+///
+/// Carries the display strings rather than the `GroceryList` itself so the
+/// banner is a plain value: the SwiftData object may be re-fetched, and the
+/// record name is the stable handle for resolving it at tap time.
+struct IncomingShare: Equatable, Identifiable {
+    let recordName: String
+    let listName: String
+    let ownerName: String
+
+    var id: String { recordName }
+
+    /// "Dad shared a grocery list with you" — falls back to a friend-less
+    /// phrasing when the owner's display name is blank, which happens if
+    /// they never set a profile name.
+    var headline: String {
+        let who = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return who.isEmpty
+            ? "A friend shared a grocery list with you"
+            : "\(who) shared a grocery list with you"
     }
 }
