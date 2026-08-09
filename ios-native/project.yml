@@ -34,7 +34,21 @@ targets:
       # alertLocalizationKey payload that iOS resolves against this table
       # on-device — if the file drops out of the bundle, banners show the
       # raw GROCERY_OOS_ALERT_BODY key instead of the sentence.
-      - path: Resources/Localizable.strings
+      #
+      # MUST stay inside `en.lproj`. iOS's string lookup only searches
+      # `.lproj` localization directories, so a Localizable.strings sitting
+      # at the bundle root is present-but-invisible: it ships, and every
+      # loc-key resolution still fails. (It lived at the root until
+      # 2026-08-08, which is exactly why the "!" push rendered as the raw
+      # key.) `en` matches CFBundleDevelopmentRegion in AppInfo.plist.
+      #
+      # Point at the PARENT dir, not the .lproj and not the file: XcodeGen
+      # only builds the variant group that preserves the .lproj structure
+      # when it discovers the localization while scanning a directory.
+      # Naming the .lproj or the file directly silently drops it from the
+      # bundle — verify with `find LlamasCookbook.app -name '*.lproj'`
+      # after any change here.
+      - path: Resources/Localizations
       # "Your Llama" seed friend recipes — bundled JSON decoded once
       # at first access by `SeedFriend.swift`. The synthetic seed
       # friend always appears at position 0 in every user's Friends

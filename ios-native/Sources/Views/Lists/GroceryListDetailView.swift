@@ -358,17 +358,29 @@ struct GroceryListDetailView: View {
         guard list.isShared else { return }
         await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
         await groceryStore.refreshSharedList(list)
-        // Tight polls right after opening (when a shopping partner is most
-        // likely mid-edit), then back off — pushes are the primary channel
-        // and this loop only covers delayed/missed ones.
-        var interval: Double = 8
+        // Tight polls while the list is actually on screen, then back off.
+        //
+        // Pushes are nominally the primary channel, but the OWNER's grocery
+        // subscription is content-available only (no banner, by design —
+        // most updates on your own record are your own edits), and iOS
+        // throttles silent pushes hard. So for the person watching a shopper
+        // tick items off, this loop is often what actually delivers the
+        // update, not the push. At 8 s that read as laggy; 3 s lands close
+        // enough to feel live. Each poll is one `record(for:)` on a known
+        // record name — cheap enough to run at this cadence for the couple
+        // of minutes a detail view is realistically open.
+        //
+        // The backoff still matters: a list left open on a counter all
+        // afternoon settles to a 30 s heartbeat rather than hammering
+        // CloudKit for hours.
+        var interval: Double = 3
         var polls = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, list.isShared else { return }
             await groceryStore.refreshSharedList(list)
             polls += 1
-            if polls >= 4 { interval = 30 }
+            if polls >= 20 { interval = 30 }
         }
     }
 

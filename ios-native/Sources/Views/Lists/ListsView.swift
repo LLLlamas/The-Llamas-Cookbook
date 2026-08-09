@@ -84,6 +84,22 @@ struct ListsView: View {
             // push.
             groceryStore.markSharedSeen()
             await groceryStore.refresh()
+            // Ask for banner permission HERE, not just from the sharing
+            // surfaces. The recipient's "a list was shared with you" push is
+            // visible, and iOS silently drops the alert half of a visible
+            // push when authorization is still `.notDetermined` — so a user
+            // who had only ever been shared TO never saw a banner, because
+            // the only two prompts lived behind actions a recipient hasn't
+            // taken (sharing a list themselves, or opening a shared list
+            // they don't know exists yet). Chicken-and-egg: the push that
+            // tells you about the list is the one being suppressed.
+            //
+            // Gated on iCloud because sharing is impossible without it, so a
+            // signed-out user is never prompted for a feature they can't use.
+            // No-ops after the first answer either way.
+            if UserProfileMirror.cachedRecordID() != nil {
+                await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
+            }
         }
     }
 

@@ -308,15 +308,46 @@ enum CloudGroceryListService {
         _ = try await publicDB.save(record)
     }
 
-    /// Shared fetch-modify-save with conflict retry. `apply` mutates only
-    /// the single slot field the caller cares about; we stamp the activity
-    /// metadata so the push body / "last touched" reads stay honest.
+    /// Write one slot. `apply` mutates only the single field the caller
+    /// cares about; we stamp the activity metadata so the push body /
+    /// "last touched" reads stay honest.
+    ///
+    /// **Fast path — one round trip.** We build the record locally rather
+    /// than fetching it, and let CloudKit merge just the keys we set
+    /// (`savePolicy = .changedKeys`). The old fetch-modify-save spent a
+    /// whole extra round trip re-reading a record we then ignored every
+    /// field of, which put ~2× the network latency between a shopper's tap
+    /// and the other phone learning about it. A blind patch is also *more*
+    /// clobber-safe, not less: the payload physically cannot contain
+    /// another shopper's slot, so there is nothing to race over and no
+    /// `serverRecordChanged` to retry.
+    ///
+    /// The fetch-modify-save loop stays as a fallback for anything the
+    /// blind write can't express (an environment that rejects `.changedKeys`
+    /// on an unfetched record, say) — a check-off is not worth losing to an
+    /// optimization, and the fallback is the exact code that shipped before.
     private static func mutateSlot(
         recordName: String,
         revisedByName: String,
         apply: @escaping (CKRecord) -> Void
     ) async throws {
         let recordID = CKRecord.ID(recordName: recordName)
+
+        let patch = CKRecord(recordType: recordType, recordID: recordID)
+        apply(patch)
+        patch["revisedByName"] = revisedByName as NSString
+        patch["updatedAt"] = Date() as NSDate
+        do {
+            try await saveMerging(patch)
+            return
+        } catch let ckError as CKError where ckError.code == .unknownItem {
+            // The share is genuinely gone — surface it; the caller's
+            // refresh path tears down the local mirror.
+            throw ckError
+        } catch {
+            // Anything else: fall through to the conservative path.
+        }
+
         var attempt = 0
         while true {
             do {
@@ -332,6 +363,35 @@ enum CloudGroceryListService {
                 attempt += 1
                 continue
             }
+        }
+    }
+
+    /// Save a locally-built partial record, merging only the keys it set
+    /// into whatever the server already has.
+    ///
+    /// `CKDatabase.save(_:)` can't express this — it uses
+    /// `.ifServerRecordUnchanged`, which needs a change tag we deliberately
+    /// never fetched — so we drop to the operation API. `.userInitiated`
+    /// matters as much as the saved round trip: a check-off is a direct
+    /// response to a tap, and at the default QoS CloudKit is free to let it
+    /// wait behind background traffic.
+    private static func saveMerging(_ record: CKRecord) async throws {
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        operation.savePolicy = .changedKeys
+        operation.isAtomic = true
+        operation.qualityOfService = .userInitiated
+        operation.configuration.isLongLived = false
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+            publicDB.add(operation)
         }
     }
 

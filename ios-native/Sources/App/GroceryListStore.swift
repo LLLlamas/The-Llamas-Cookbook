@@ -108,11 +108,22 @@ final class GroceryListStore {
         }
     }
 
+    /// The shared list a detail view is currently sitting on, if any.
+    ///
+    /// Set implicitly by `refreshSharedList` — the detail view already calls
+    /// that on appear and on every poll, so the store learns what's on screen
+    /// without the view having to tell it. Read by `scheduleCoalescedRefresh`
+    /// to update the visible list FIRST when a push lands (one record fetch)
+    /// instead of making the shopper wait on the two-query full reconcile.
+    @ObservationIgnored
+    private weak var activeSharedList: GroceryList?
+
     /// Pull just the cloud record backing the currently-open detail view.
     /// Used by `GroceryListDetailView` for push-driven refreshes and a
     /// lightweight active-screen polling fallback, so shoppers do not have
     /// to pop back to Lists before they see what someone else bought.
     func refreshSharedList(_ list: GroceryList) async {
+        activeSharedList = list
         guard let context = modelContext,
               let recordName = list.shareRecordName else { return }
         do {
@@ -492,9 +503,17 @@ final class GroceryListStore {
 
     /// One edit can fan out as several pushes (owner subscription + per-
     /// recipient), and our own writes push back to us — so refresh on the
-    /// leading edge, then hold a 2 s quiet window. Pushes landing inside
-    /// the window collapse into a single trailing refresh instead of each
+    /// leading edge, then hold a quiet window. Pushes landing inside the
+    /// window collapse into a single trailing refresh instead of each
     /// paying the full two-query + reconcile cost.
+    ///
+    /// The list the user is actually looking at is refreshed FIRST, on its
+    /// own, before the full reconcile runs. That's a single `record(for:)`
+    /// against a known record name versus two `CKQuery`s over every share
+    /// the user participates in plus a full SwiftData diff — so the row
+    /// under their eyes ticks over in roughly the time of one round trip,
+    /// and the housekeeping catches up behind it. Without this, a check-off
+    /// on the other phone visibly lagged the push that announced it.
     private func scheduleCoalescedRefresh() {
         if pushRefreshInFlight {
             pushArrivedDuringWindow = true
@@ -504,6 +523,9 @@ final class GroceryListStore {
         Task { @MainActor in
             repeat {
                 pushArrivedDuringWindow = false
+                if let visible = activeSharedList, visible.isShared {
+                    await refreshSharedList(visible)
+                }
                 await refresh()
                 try? await Task.sleep(for: .seconds(2))
             } while pushArrivedDuringWindow
