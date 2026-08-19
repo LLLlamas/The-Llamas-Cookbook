@@ -1,11 +1,15 @@
 # AGENTS.md
 
 Source of truth for agents. Code wins when this disagrees.
-Last refreshed: 2026-08-09 (shared grocery lists verified end-to-end: CloudKit schema confirmed deployed in Production, both grocery pushes fixed, check-off sync latency cut, shared-list toast + deep link added, `Sources/Views/Lists/` split into feature-sized files)
+Last refreshed: 2026-08-18 (grocery lists re-verified against the tree: full suite green — 216 Swift + 115 JS — file inventory and all four known gaps confirmed unchanged since 2026-08-09; no doc drift found)
+
+Previous refresh: 2026-08-09 (shared grocery lists verified end-to-end: CloudKit schema confirmed deployed in Production, both grocery pushes fixed, check-off sync latency cut, shared-list toast + deep link added, `Sources/Views/Lists/` split into feature-sized files)
 
 > **Planning docs / design handoffs / prior audits live in `md_files/`** —
 > gitignored, kept on disk for reference. Only `AGENTS.md` (this file) and
-> `README.md` live at the repo root.
+> `README.md` are TRACKED at the repo root. A local `CLAUDE.md` may exist for
+> Claude Code auto-load — it is gitignored (`.gitignore:41`) and must stay a
+> thin pointer to this file, never a second copy of these facts.
 
 ---
 
@@ -408,7 +412,7 @@ cd ios-native && xcodegen generate && xcodebuild \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-Note the scheme is `LlamasCookbookNative` (not `LlamasCookbook`). **216 tests** as of 2026-08-09.
+Note the scheme is `LlamasCookbookNative` (not `LlamasCookbook`). **216 tests**, all green on a local Xcode 26 run 2026-08-18.
 
 Test files in `ios-native/Tests/LlamasCookbookTests/`:
 
@@ -440,7 +444,7 @@ Not tested by design: network calls, CloudKit ops, StoreKit purchase flow, Swift
 
 **App status: live on the App Store. Current version shipping: v1.1.2 (2026-06-08). `MARKETING_VERSION` in `project.yml` is 1.2.0, unreleased — the Grocery Lists TestFlight build.**
 
-**Blocking v1.2.0 — one real two-device run against Production.** Everything below is code-complete and green in CI/simulator, but none of it can be proven from a build machine:
+**Blocking v1.2.0 — one real two-device run against Production.** Everything below is code-complete and green in CI/simulator (re-confirmed 2026-08-18: 216 Swift + 115 JS tests pass, no code drift since 2026-08-09), but none of it can be proven from a build machine:
 - Check-off syncs both ways, and fast enough (the `.changedKeys` blind write is the one change with no simulator coverage — it falls back safely, but verify it takes the fast path).
 - First share produces the personalized banner with working View List / Close, and the tap lands on the right list.
 - The in-app toast fires exactly once per new share (not on a fresh install's backlog).

@@ -53,8 +53,8 @@ The scheme is `LlamasCookbookNative` — there is no `LlamasCookbook` scheme.
 
 - Do not commit the generated `.xcodeproj`.
 - Do not hand-edit signing material into the repo.
-- Current behavior: see `AGENTS.md` at the repo root (the source of truth;
-  there is no `CLAUDE.md` in this tree).
+- Current behavior: see `AGENTS.md` at the repo root — the source of truth.
+  A root `CLAUDE.md` may exist locally but is gitignored and only points here.
 - **Localized strings must live in an `.lproj`.** iOS string lookup only
   searches `.lproj` directories, so a `Localizable.strings` at the bundle
   root ships but never resolves — and a CloudKit `alertLocalizationKey` push
