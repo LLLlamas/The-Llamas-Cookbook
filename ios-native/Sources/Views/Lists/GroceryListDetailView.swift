@@ -208,8 +208,22 @@ struct GroceryListDetailView: View {
             if isTriaging { GroceryTriagingOverlay(accent: accent) }
         }
         .task(id: liveSyncKey) {
-            await autoTriage()
+            // Sync FIRST and alone. This used to run `await autoTriage()`
+            // ahead of the sync, and the sync's own first line awaited the
+            // notification-permission prompt — so the first fetch sat behind
+            // an on-device model round trip AND a modal system alert. On the
+            // owner's phone, opening a freshly-built list meant the shopper's
+            // changes didn't appear until triage finished.
             await runVisibleSharedListSync()
+        }
+        .task(id: liveSyncKey) {
+            await autoTriage()
+        }
+        .task(id: liveSyncKey) {
+            // Off the sync path deliberately: this can block on a modal
+            // system alert. No-ops after the first answer either way.
+            guard list.isShared else { return }
+            await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
         }
         // Push-driven updates land via GroceryListStore.observeRemotePushes
         // (its refresh() reconciles this list too) — no per-view push fetch.
@@ -356,8 +370,7 @@ struct GroceryListDetailView: View {
     /// and re-enter the Lists tab to trigger its broader refresh.
     private func runVisibleSharedListSync() async {
         guard list.isShared else { return }
-        await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
-        await groceryStore.refreshSharedList(list)
+        var ok = await groceryStore.refreshSharedList(list)
         // Tight polls while the list is actually on screen, then back off.
         //
         // Pushes are nominally the primary channel, but the OWNER's grocery
@@ -370,18 +383,47 @@ struct GroceryListDetailView: View {
         // record name — cheap enough to run at this cadence for the couple
         // of minutes a detail view is realistically open.
         //
-        // The backoff still matters: a list left open on a counter all
-        // afternoon settles to a 30 s heartbeat rather than hammering
-        // CloudKit for hours.
-        var interval: Double = 3
+        // The backoff still matters, but 30 s was too deep for a screen the
+        // user is actively watching: after 20 polls the only working channel
+        // became a 30 s heartbeat, and `polls` never reset while the view
+        // stayed pushed. That is precisely why backing out and re-entering
+        // "fixed" it — re-entry restarts this task, which refetches
+        // immediately and resets the counter. 10 s is a ceiling you can
+        // stand in front of.
+        //
+        // A failed fetch backs off separately and much harder: a
+        // rate-limited container should not be polled every 3 s.
         var polls = 0
+        var failures = 0
         while !Task.isCancelled {
+            let interval = ok ? Self.visiblePollInterval(afterPolls: polls)
+                              : Self.failureBackoff(afterFailures: failures)
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, list.isShared else { return }
-            await groceryStore.refreshSharedList(list)
-            polls += 1
-            if polls >= 20 { interval = 30 }
+            ok = await groceryStore.refreshSharedList(list)
+            if ok {
+                failures = 0
+                polls += 1
+            } else {
+                failures += 1
+            }
         }
+    }
+
+    /// Ceiling for the healthy on-screen poll. The user is looking at the
+    /// screen; anything slower reads as "not live".
+    static let maxVisiblePollInterval: Double = 10
+
+    /// Healthy-path cadence: 3 s while the list is fresh on screen, easing
+    /// to the ceiling for a list left open on a counter all afternoon.
+    static func visiblePollInterval(afterPolls polls: Int) -> Double {
+        min(3 + Double(polls / 20) * 7, maxVisiblePollInterval)
+    }
+
+    /// Exponential-ish backoff for a failing fetch, capped so the loop still
+    /// recovers on its own once the container stops rejecting us.
+    static func failureBackoff(afterFailures failures: Int) -> Double {
+        min(5 * pow(2, Double(min(failures, 4))), 60)
     }
 
     /// User-initiated "Sort by aisle" — re-classifies every item's aisle,

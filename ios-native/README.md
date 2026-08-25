@@ -37,6 +37,17 @@ agvtool new-version -all $(date -u +%s)
 
 then Product → Archive → Distribute App → TestFlight. Rerun `agvtool` after every `xcodegen generate` (regeneration resets it to `1`).
 
+**Check the three `Info.plist`s still say `$(CURRENT_PROJECT_VERSION)` before archiving.** `agvtool` rewrites `Resources/AppInfo.plist`, `ShareExtension/Info.plist` and `WidgetExtension/Info.plist` in place, and if that literal gets committed or simply left in the tree, every later archive ships the SAME build number — ASC rejects it as a duplicate and the devices silently stay on the previous build. `git diff` on those three files should be empty; `git checkout --` them if it isn't.
+
+Verify what actually shipped in the archive:
+
+```sh
+APP=$(ls -dt ~/Library/Developer/Xcode/Archives/*/*.xcarchive/Products/Applications/*.app | head -1)
+/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"   # expect a fresh timestamp
+codesign -d --ent :- "$APP" 2>/dev/null | plutil -p -                   # expect "aps-environment" => "production"
+find "$APP" -name '*.lproj'                                             # expect en.lproj (push bodies)
+```
+
 Fallback: `.github/workflows/ios-native-ci.yml` (manual dispatch) still archives + uploads on `macos-26`.
 
 ## Test

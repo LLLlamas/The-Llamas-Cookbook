@@ -123,7 +123,9 @@ enum UserProfileMirror {
     /// denied, etc.). We dig into `userInfo` for the server message,
     /// then append the error code so the diagnostic surfaces the
     /// piece of information that actually identifies the fix.
-    private static func describeCloudKitError(_ error: Error) -> String {
+    /// Also used by `CloudKitSubscriptions` to name a failing subscription
+    /// save, so both push and profile diagnostics read the same wording.
+    static func describeCloudKitError(_ error: Error) -> String {
         let ck = error as? CKError
         let codeName = ck.map { describeCode($0.code) } ?? "Error"
         var parts: [String] = [codeName]

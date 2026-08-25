@@ -26,8 +26,46 @@ struct ListsView: View {
     /// Drives the "pick another name" alert when a list name is rejected
     /// by the profanity screen.
     @State private var nameRejected = false
+    /// Set when notification authorization is `.denied`. iOS never re-prompts
+    /// after the first refusal, so without a visible affordance the user has
+    /// no way to discover that every shared-list push is being suppressed —
+    /// and cook-timer alarms keep working, because AlarmKit authorization is
+    /// separate, which makes the app look healthy.
+    @State private var notificationsDenied = false
 
     private var accent: Color { appearance.cookbookTitleAccentColor }
+
+    /// Recovery affordance for a `.denied` authorization. iOS won't let the
+    /// app prompt again, so Settings is the only route back — without this
+    /// the user's only symptom is "sharing works but I'm never told", with
+    /// nothing anywhere connecting that to a permission they refused once.
+    private var notificationsDeniedBanner: some View {
+        Button {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        } label: {
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: "bell.slash.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(AppColor.destructive)
+                Text("Notifications are off — you won't be told when a list is shared with you.")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(accent)
+            }
+            .padding(.horizontal, AppSpacing.lg)
+            .padding(.vertical, AppSpacing.sm)
+            .frame(maxWidth: .infinity)
+            .glassEffect(.regular, in: Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Notifications are off. Open Settings to turn them on.")
+    }
 
     var body: some View {
         Group {
@@ -38,6 +76,9 @@ struct ListsView: View {
             }
         }
         .llamaBackground()
+        .safeAreaInset(edge: .top) {
+            if notificationsDenied { notificationsDeniedBanner }
+        }
         .navigationTitle("Lists")
         .navigationBarTitleDisplayMode(.inline)
         .tint(accent)
@@ -98,7 +139,11 @@ struct ListsView: View {
             // signed-out user is never prompted for a feature they can't use.
             // No-ops after the first answer either way.
             if UserProfileMirror.cachedRecordID() != nil {
-                await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
+                let status = await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
+                notificationsDenied = status == .denied
+            } else {
+                notificationsDenied = await CloudKitSubscriptions
+                    .currentNotificationAuthorizationStatus() == .denied
             }
         }
     }

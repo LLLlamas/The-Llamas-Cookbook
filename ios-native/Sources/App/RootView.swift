@@ -405,6 +405,16 @@ struct RootView: View {
             // path lights up after `UserAccount.completeSignIn`
             // runs the same call.
             await CloudKitSubscriptions.registerIfNeeded()
+            // Ask for banner permission here too. `ListsView.task` also asks
+            // (deliberately — see the invariant note there), but that call is
+            // gated on `UserProfileMirror.cachedRecordID()` being warm at the
+            // moment the tab is first opened. A cold launch that opens Lists
+            // before the mirror populates skips the prompt entirely and
+            // `.task` won't re-run, so a recipient can sit forever at
+            // `.notDetermined` with every visible push silently dropped. By
+            // this point `registerIfNeeded` has already resolved the same
+            // gate, so asking here is strictly more reliable.
+            await CloudKitSubscriptions.requestVisibleNotificationAuthorizationIfNeeded()
             // Bind the FriendsStore to friendship-event pushes
             // so the friends list / requests section refresh as
             // soon as a push lands rather than waiting for the

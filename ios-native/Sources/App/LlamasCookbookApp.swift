@@ -187,19 +187,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         CloudKitSubscriptions.noteAPNsTokenChanged(deviceToken)
+        CloudKitSubscriptions.noteAPNsRegistrationSucceeded()
     }
 
     /// APNs registration failed (no entitlement, simulator without
     /// push support, network denied push registration, etc.).
-    /// Silent — slice 6's pushes degrade to "user picks up
-    /// changes on next foreground refresh," which is the slice
-    /// 1-5 baseline behavior. The console log is enough for
-    /// post-mortem if a real device fails to register.
+    /// Pushes degrade to "user picks up changes on next foreground
+    /// refresh," which is the slice 1-5 baseline behavior — but the reason
+    /// is now persisted as well as logged, because a console log is
+    /// unreachable on a tester's TestFlight device and this is the one push
+    /// precondition nothing else can infer.
     func application(
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         Self.logger.error("APNs registration failed: \(error.localizedDescription, privacy: .public)")
+        CloudKitSubscriptions.noteAPNsRegistrationFailed(error)
     }
 
     /// CKQuerySubscription push receipt. The payload's

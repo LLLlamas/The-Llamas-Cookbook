@@ -2,6 +2,7 @@ import Foundation
 import SwiftData
 import Observation
 import CloudKit
+import os
 
 /// Coordinator for the app-to-app shared grocery list — the live
 /// "husband at the store" checklist. Owns three jobs:
@@ -32,6 +33,9 @@ import CloudKit
 @MainActor
 @Observable
 final class GroceryListStore {
+    @ObservationIgnored
+    private static let log = Logger(subsystem: "com.llamascookbook.app", category: "GroceryListStore")
+
     /// The local SwiftData context. Set once from `RootView.task`.
     @ObservationIgnored
     private var modelContext: ModelContext?
@@ -134,29 +138,76 @@ final class GroceryListStore {
     @ObservationIgnored
     private weak var activeSharedList: GroceryList?
 
+    /// Newest `updatedAt` already applied, per share record name.
+    ///
+    /// Two inbound paths race: `refreshSharedList` reads one record with
+    /// `record(for:)`, which is strongly consistent, while `refresh()` runs
+    /// `CKQuery`s, which are only EVENTUALLY consistent on the public DB. A
+    /// push fires both, fresh read first — so the query could return a
+    /// snapshot several seconds old and write it straight over the value the
+    /// user just watched arrive, reverting a check or an out-of-stock flag
+    /// on screen. `mutateSlot` stamps `updatedAt` on every slot write, so
+    /// the timestamp is a reliable ordering key. Older snapshot: drop it.
+    @ObservationIgnored
+    private var lastAppliedUpdatedAt: [String: (updatedAt: Date, appliedAt: Date)] = [:]
+
+    /// How long a ledger entry outranks an older snapshot.
+    ///
+    /// `updatedAt` is stamped by whichever CLIENT wrote the slot, so two
+    /// phones with skewed clocks can emit timestamps that go backwards. An
+    /// unbounded guard would then drop the slower phone's writes forever.
+    /// The race being defended against is the ~2 s push-coalescing window,
+    /// so a short expiry kills the flicker while capping any skew-induced
+    /// stall at this interval.
+    static let staleSnapshotGuardWindow: TimeInterval = 10
+
+    /// Gate an inbound snapshot on the monotonicity ledger. Returns false
+    /// only for a snapshot that is strictly older than one applied within
+    /// the guard window. Equal timestamps pass — application is idempotent,
+    /// and the per-field writes are inequality-guarded anyway.
+    /// Internal rather than private so `GrocerySyncGuardTests` can exercise
+    /// the ordering rule directly — it is the one piece of the inbound merge
+    /// with no other observable surface.
+    func shouldApply(_ snapshot: GroceryShareSnapshot, now: Date = Date()) -> Bool {
+        if let seen = lastAppliedUpdatedAt[snapshot.recordName],
+           snapshot.updatedAt < seen.updatedAt,
+           now.timeIntervalSince(seen.appliedAt) < Self.staleSnapshotGuardWindow {
+            return false
+        }
+        lastAppliedUpdatedAt[snapshot.recordName] = (snapshot.updatedAt, now)
+        return true
+    }
+
     /// Pull just the cloud record backing the currently-open detail view.
     /// Used by `GroceryListDetailView` for push-driven refreshes and a
     /// lightweight active-screen polling fallback, so shoppers do not have
     /// to pop back to Lists before they see what someone else bought.
-    func refreshSharedList(_ list: GroceryList) async {
+    /// Returns false when the fetch failed, so the caller's polling loop can
+    /// back off instead of hammering a rate-limited container at the same
+    /// cadence. Previously this swallowed every non-`.unknownItem` error and
+    /// returned Void, which made a persistently failing poll look exactly
+    /// like a successful one that found no changes.
+    @discardableResult
+    func refreshSharedList(_ list: GroceryList) async -> Bool {
         activeSharedList = list
         guard let context = modelContext,
-              let recordName = list.shareRecordName else { return }
+              let recordName = list.shareRecordName else { return true }
         do {
             let snapshot = try await CloudGroceryListService.fetchShare(recordName: recordName)
+            guard shouldApply(snapshot) else { return true }
             if list.ownerIsMe {
-                list.ownerID = snapshot.ownerID
-                list.sharedRecipientIDs = snapshot.recipientIDs
+                assign(&list.ownerID, snapshot.ownerID)
+                assign(&list.sharedRecipientIDs, snapshot.recipientIDs)
                 _ = applyLiveState(snapshot.items, to: list)
-                list.updatedAt = snapshot.updatedAt
             } else {
-                list.name = snapshot.listName
-                list.ownerName = snapshot.ownerName.isEmpty ? nil : snapshot.ownerName
-                list.ownerID = snapshot.ownerID
-                list.shareRecordName = snapshot.recordName
+                assign(&list.name, snapshot.listName)
+                assign(&list.ownerName, snapshot.ownerName.isEmpty ? nil : snapshot.ownerName)
+                assign(&list.ownerID, snapshot.ownerID)
+                assign(&list.shareRecordName, snapshot.recordName)
                 applyItems(snapshot.items, to: list, in: context, ownerAuthoritative: true)
-                list.updatedAt = snapshot.updatedAt
             }
+            advanceUpdatedAt(list, to: snapshot.updatedAt)
+            return true
         } catch let ckError as CKError where ckError.code == .unknownItem {
             if list.ownerIsMe {
                 clearSharingMetadata(on: list)
@@ -164,9 +215,31 @@ final class GroceryListStore {
             } else {
                 context.delete(list)
             }
+            return true
         } catch {
-            // Best-effort; the active-screen polling loop / next push retries.
+            // Best-effort for the data, but no longer silent: a poll that
+            // fails every time is indistinguishable from "nothing changed"
+            // without this, which is exactly how a dead sync loop hides.
+            Self.log.error("refreshSharedList failed: \(UserProfileMirror.describeCloudKitError(error), privacy: .public)")
+            return false
         }
+    }
+
+    /// Write only when the value actually differs. Every assignment to a
+    /// `@Model` dirties the object and re-fires the `@Query`s behind the
+    /// Lists tab and its badge — at one poll every 3 s that is a lot of
+    /// pointless invalidation, and it drowns out real changes.
+    private func assign<T: Equatable>(_ target: inout T, _ value: T) {
+        if target != value { target = value }
+    }
+
+    /// `updatedAt` doubles as the Lists-tab sort key, and `touch()` bumps it
+    /// on local edits. Taking the server's value verbatim can therefore drag
+    /// a list the user just edited backwards in their own ordering — take
+    /// whichever is newer.
+    private func advanceUpdatedAt(_ list: GroceryList, to serverValue: Date) {
+        let newest = max(list.updatedAt, serverValue)
+        if list.updatedAt != newest { list.updatedAt = newest }
     }
 
     // MARK: - Reconcile (recipient mirrors)
@@ -193,6 +266,7 @@ final class GroceryListStore {
 
         for snapshot in snapshots {
             let list: GroceryList
+            let isNewMirror = mirrorByRecord[snapshot.recordName] == nil
             if let existing = mirrorByRecord[snapshot.recordName] {
                 list = existing
             } else {
@@ -213,12 +287,20 @@ final class GroceryListStore {
                     )
                 }
             }
-            list.name = snapshot.listName
-            list.ownerName = snapshot.ownerName.isEmpty ? nil : snapshot.ownerName
-            list.ownerID = snapshot.ownerID
-            list.shareRecordName = snapshot.recordName
+            // The `CKQuery` feeding this reconcile is eventually consistent,
+            // so it can hand back a snapshot older than one `refreshSharedList`
+            // already applied to the list currently on screen. Applying it
+            // would visibly revert a check-off the user just saw land.
+            // A mirror we just inserted has no content yet, so it must be
+            // populated regardless of the ledger — skipping would leave an
+            // empty row in the Lists tab.
+            guard isNewMirror || shouldApply(snapshot) else { continue }
+            assign(&list.name, snapshot.listName)
+            assign(&list.ownerName, snapshot.ownerName.isEmpty ? nil : snapshot.ownerName)
+            assign(&list.ownerID, snapshot.ownerID)
+            assign(&list.shareRecordName, snapshot.recordName)
             applyItems(snapshot.items, to: list, in: context, ownerAuthoritative: true)
-            list.updatedAt = snapshot.updatedAt
+            advanceUpdatedAt(list, to: snapshot.updatedAt)
         }
 
         hasHydratedReceivedShares = true
@@ -237,10 +319,11 @@ final class GroceryListStore {
             }
             // The owner owns the item *structure*; only the live
             // check/note state flows back down onto existing rows.
-            list.ownerID = snapshot.ownerID
-            list.sharedRecipientIDs = snapshot.recipientIDs
+            guard shouldApply(snapshot) else { continue }
+            assign(&list.ownerID, snapshot.ownerID)
+            assign(&list.sharedRecipientIDs, snapshot.recipientIDs)
             _ = applyLiveState(snapshot.items, to: list)
-            list.updatedAt = snapshot.updatedAt
+            advanceUpdatedAt(list, to: snapshot.updatedAt)
         }
     }
 

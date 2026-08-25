@@ -1,6 +1,8 @@
 import Foundation
 import CloudKit
 import CryptoKit
+import os
+import UIKit
 import UserNotifications
 
 /// Coordinator for the slice 6 CKQuerySubscription registrations
@@ -65,6 +67,20 @@ import UserNotifications
 /// their respective state — no direct coupling between
 /// subscriptions and any specific consumer.
 enum CloudKitSubscriptions {
+    /// Registration is best-effort and used to be entirely silent, which
+    /// made "no pushes arrive" indistinguishable from "pushes arrive and
+    /// something downstream drops them" — the failure that cost the most
+    /// time on the 2026-08 two-device run. Every save failure now names the
+    /// subscription and the `CKError`, and `diagnostics()` reads the same
+    /// state back on-device.
+    private static let log = Logger(subsystem: "com.llamascookbook.app", category: "CloudKitSubscriptions")
+
+    /// Outcome of the most recent `registerForRemoteNotifications()` round
+    /// trip, written by `AppDelegate`. APNs registration failing is the one
+    /// push precondition the app cannot infer from anything else — without
+    /// a token, every CKSubscription is inert no matter how cleanly it saved.
+    private static let apnsOutcomeKey = "cloudKitSubscriptions.lastAPNsOutcome.v1"
+
     /// Last `userRecordName` we successfully registered
     /// subscriptions for. Stops re-registration on every cold
     /// launch when nothing's changed; flips through whenever
@@ -193,16 +209,35 @@ enum CloudKitSubscriptions {
         let already = UserDefaults.standard.string(forKey: registeredForKey)
         if already == me { return }
 
-        do {
-            try await registerFriendshipSubscription(for: me)
-            try await registerRecipeImportSubscription(for: me)
-            try await registerGrocerySubscriptions(for: me)
-            UserDefaults.standard.set(me, forKey: registeredForKey)
-        } catch {
-            // Silent — schema not deployed (RecipeImport land in
-            // slice 6's deploy ritual), CK throttling, network
-            // outage, etc. Next launch hits this path again.
+        // Per-group, not one chained `do` — the groups are independent, and
+        // a single chain meant a throw in the friendship group (saves 1-2 of
+        // 7) silently starved the four grocery subscriptions that come after
+        // it. The gate is only set when every group lands, so a partial
+        // failure still retries on the next cold launch.
+        var allSucceeded = true
+        for (name, register) in registrationGroups(for: me) {
+            do {
+                try await register()
+            } catch {
+                allSucceeded = false
+                log.error("subscription group \(name, privacy: .public) failed: \(UserProfileMirror.describeCloudKitError(error), privacy: .public)")
+            }
         }
+        guard allSucceeded else { return }
+        UserDefaults.standard.set(me, forKey: registeredForKey)
+    }
+
+    /// The three registration groups, in the order they are attempted.
+    /// Named so a failure log identifies which half of the push stack is
+    /// down without needing a tethered console.
+    private static func registrationGroups(
+        for me: String
+    ) -> [(String, () async throws -> Void)] {
+        [
+            ("friendship", { try await registerFriendshipSubscription(for: me) }),
+            ("recipeImport", { try await registerRecipeImportSubscription(for: me) }),
+            ("grocery", { try await registerGrocerySubscriptions(for: me) }),
+        ]
     }
 
     private static func registerFriendshipSubscription(for me: String) async throws {
@@ -358,11 +393,30 @@ enum CloudKitSubscriptions {
     /// Visible CloudKit pushes still need normal iOS notification
     /// authorization. Ask lazily from grocery-sharing surfaces instead of at
     /// launch, so the prompt is tied to the feature that needs banners.
-    static func requestVisibleNotificationAuthorizationIfNeeded() async {
+    /// Returns the status the app ends up with, so callers can surface a
+    /// `.denied` — which is otherwise a permanently invisible dead end: the
+    /// prompt is never shown twice, iOS silently drops the alert half of
+    /// every CloudKit push, and nothing in the UI says why. Cook timers use
+    /// AlarmKit's separate authorization, so working alarms are NOT evidence
+    /// that this one was ever granted.
+    @discardableResult
+    static func requestVisibleNotificationAuthorizationIfNeeded() async -> UNAuthorizationStatus {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .notDetermined else { return }
+        guard settings.authorizationStatus == .notDetermined else {
+            return settings.authorizationStatus
+        }
+        // Deliberately not `.provisional`: it auto-grants without prompting
+        // and demotes every banner to Notification-Center-only, which looks
+        // identical to the bug we're fixing.
         _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        return await center.notificationSettings().authorizationStatus
+    }
+
+    /// Current authorization status without ever prompting. For UI that
+    /// needs to explain why pushes are silent.
+    static func currentNotificationAuthorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
     // MARK: - APNs token rotation
@@ -391,6 +445,134 @@ enum CloudKitSubscriptions {
         UserDefaults.standard.removeObject(forKey: registeredForKey)
     }
 
+    // MARK: - APNs registration outcome
+
+    /// Record that iOS handed us a device token. Without one, every
+    /// CKSubscription is inert regardless of how cleanly it saved.
+    static func noteAPNsRegistrationSucceeded() {
+        UserDefaults.standard.set("registered", forKey: apnsOutcomeKey)
+    }
+
+    /// Record why iOS refused to register for remote notifications. The
+    /// classic cause is an `aps-environment` entitlement that doesn't match
+    /// the signing profile, which is otherwise invisible in a TestFlight build.
+    static func noteAPNsRegistrationFailed(_ error: Error) {
+        UserDefaults.standard.set("failed — \(error.localizedDescription)", forKey: apnsOutcomeKey)
+        log.error("APNs registration failed: \(error.localizedDescription, privacy: .public)")
+    }
+
+    // MARK: - Diagnostics
+
+    /// Everything needed to tell, on-device, which layer of the push stack
+    /// is down. Read-only; makes no network writes and never prompts.
+    struct PushDiagnostics: Sendable {
+        var authorizationStatus: UNAuthorizationStatus
+        var alertsEnabled: Bool
+        var notificationCenterEnabled: Bool
+        var isRegisteredForRemoteNotifications: Bool
+        var apnsOutcome: String
+        var userRecordName: String?
+        var gateIsSetForCurrentUser: Bool
+        var expectedSubscriptionIDs: [String]
+        var presentSubscriptionIDs: Set<String>
+        var lookupError: String?
+
+        var missingSubscriptionIDs: [String] {
+            expectedSubscriptionIDs.filter { !presentSubscriptionIDs.contains($0) }
+        }
+
+        /// Short lines for a settings row. Ordered so the first failing line
+        /// is the one to act on.
+        var summaryLines: [String] {
+            var lines: [String] = []
+            lines.append("Permission: \(Self.describe(authorizationStatus))")
+            if authorizationStatus == .authorized || authorizationStatus == .provisional {
+                lines.append("Banners: \(alertsEnabled ? "on" : "OFF — check Settings")")
+                if !notificationCenterEnabled {
+                    lines.append("Notification Centre: off")
+                }
+            }
+            lines.append("APNs: \(isRegisteredForRemoteNotifications ? "registered" : "NOT registered") (\(apnsOutcome))")
+            if let me = userRecordName {
+                lines.append("iCloud user: …\(String(me.suffix(6)))")
+                lines.append("Registration gate: \(gateIsSetForCurrentUser ? "set" : "NOT set — registration is failing")")
+            } else {
+                lines.append("iCloud user: unavailable — nothing can register")
+            }
+            if let lookupError {
+                lines.append("Subscriptions: lookup failed — \(lookupError)")
+            } else {
+                let found = expectedSubscriptionIDs.count - missingSubscriptionIDs.count
+                lines.append("Subscriptions: \(found) of \(expectedSubscriptionIDs.count) present")
+                for id in missingSubscriptionIDs {
+                    lines.append("  missing: \(id)")
+                }
+            }
+            return lines
+        }
+
+        private static func describe(_ status: UNAuthorizationStatus) -> String {
+            switch status {
+            case .notDetermined: return "never asked"
+            case .denied: return "DENIED — pushes are suppressed"
+            case .authorized: return "granted"
+            case .provisional: return "provisional (quiet)"
+            case .ephemeral: return "ephemeral"
+            @unknown default: return "unknown"
+            }
+        }
+    }
+
+    /// The seven subscription IDs this user should have. Single source of
+    /// truth for `unregisterAll` and `diagnostics` — AGENTS.md warns these
+    /// must move in lockstep, so they now read the same list.
+    static func expectedSubscriptionIDs(for me: String) -> [String] {
+        [
+            friendshipSubscriptionIDA(for: me),
+            friendshipSubscriptionIDB(for: me),
+            recipeImportSubscriptionID(for: me),
+            groceryShareCreatedSubscriptionID(for: me),
+            groceryRecipientSubscriptionID(for: me),
+            groceryOwnerSubscriptionID(for: me),
+            groceryAlertSubscriptionID(for: me),
+        ]
+    }
+
+    /// Read the live push state back off the device. This is the only way to
+    /// see the second tester's subscriptions — CloudKit Console can only show
+    /// the account the developer can sign in as.
+    static func diagnostics() async -> PushDiagnostics {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        let registered = await MainActor.run { UIApplication.shared.isRegisteredForRemoteNotifications }
+        let me = UserProfileMirror.cachedRecordID()
+        let expected = me.map { expectedSubscriptionIDs(for: $0) } ?? []
+
+        var present: Set<String> = []
+        var lookupError: String?
+        if me != nil {
+            do {
+                let subscriptions = try await CloudKitService.publicDB.allSubscriptions()
+                present = Set(subscriptions.map(\.subscriptionID))
+            } catch {
+                lookupError = UserProfileMirror.describeCloudKitError(error)
+            }
+        }
+
+        return PushDiagnostics(
+            authorizationStatus: settings.authorizationStatus,
+            alertsEnabled: settings.alertSetting == .enabled,
+            notificationCenterEnabled: settings.notificationCenterSetting == .enabled,
+            isRegisteredForRemoteNotifications: registered,
+            apnsOutcome: UserDefaults.standard.string(forKey: apnsOutcomeKey) ?? "no callback yet",
+            userRecordName: me,
+            gateIsSetForCurrentUser: me != nil
+                && UserDefaults.standard.string(forKey: registeredForKey) == me,
+            expectedSubscriptionIDs: expected,
+            presentSubscriptionIDs: present,
+            lookupError: lookupError
+        )
+    }
+
     // MARK: - Unregister
 
     /// Cleanup on sign-out / account-deletion. Drops this user's
@@ -401,16 +583,7 @@ enum CloudKitSubscriptions {
     /// orphan (if the network call failed) just consumes a
     /// little quota until CloudKit GCs it.
     static func unregisterAll(userRecordName me: String) async {
-        let ids = [
-            friendshipSubscriptionIDA(for: me),
-            friendshipSubscriptionIDB(for: me),
-            recipeImportSubscriptionID(for: me),
-            groceryShareCreatedSubscriptionID(for: me),
-            groceryRecipientSubscriptionID(for: me),
-            groceryOwnerSubscriptionID(for: me),
-            groceryAlertSubscriptionID(for: me),
-        ]
-        for id in ids {
+        for id in expectedSubscriptionIDs(for: me) {
             _ = try? await CloudKitService.publicDB.deleteSubscription(withID: id)
         }
         UserDefaults.standard.removeObject(forKey: registeredForKey)

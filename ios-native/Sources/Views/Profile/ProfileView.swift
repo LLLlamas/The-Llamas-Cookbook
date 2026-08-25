@@ -100,6 +100,9 @@ struct ProfileView: View {
     /// the spinner and the inline result message that surfaces
     /// per-recipe success/failure counts plus the first CKError so
     /// the user can see whether their bulk publish actually landed.
+    @State private var isCheckingPushHealth: Bool = false
+    @State private var pushHealthMessage: String? = nil
+    @State private var pushHealthSucceeded: Bool = false
     @State private var isRepublishingLibrary: Bool = false
     @State private var republishResultMessage: String? = nil
     @State private var republishSucceeded: Bool = false
@@ -990,6 +993,7 @@ struct ProfileView: View {
                     if let identity = userAccount.status.identity {
                         cloudSyncRow(identity: identity)
                         republishLibraryRow
+                        pushHealthRow
                     }
 
                     VStack(spacing: AppSpacing.md) {
@@ -1076,6 +1080,43 @@ struct ProfileView: View {
         ) {
             Task { await republishLibrary() }
         }
+    }
+
+    /// Push-delivery diagnostic. Grocery-share pushes have four independent
+    /// preconditions — notification authorization, an APNs token, a cached
+    /// iCloud record ID, and seven saved CKQuerySubscriptions — and until
+    /// this row existed every one of them failed silently and identically.
+    /// Reading them back on-device is also the only way to inspect a second
+    /// tester's account; CloudKit Console only shows the account you can
+    /// sign in as.
+    private var pushHealthRow: some View {
+        SettingsSyncRow(
+            eyebrow: "PUSH NOTIFICATIONS",
+            resultMessage: pushHealthMessage,
+            resultSucceeded: pushHealthSucceeded,
+            prompt: "Check whether shared-list notifications can reach this device.",
+            isBusy: isCheckingPushHealth,
+            buttonIcon: "bell.badge",
+            accent: appearance.accentColor,
+            buttonAccessibilityLabel: "Check push notification health"
+        ) {
+            Task { await checkPushHealth() }
+        }
+    }
+
+    private func checkPushHealth() async {
+        isCheckingPushHealth = true
+        let report = await CloudKitSubscriptions.diagnostics()
+        isCheckingPushHealth = false
+        // "Healthy" is deliberately strict: anything short of all four
+        // preconditions means a push can be dropped without a trace.
+        pushHealthSucceeded = report.authorizationStatus == .authorized
+            && report.alertsEnabled
+            && report.isRegisteredForRemoteNotifications
+            && report.gateIsSetForCurrentUser
+            && report.lookupError == nil
+            && report.missingSubscriptionIDs.isEmpty
+        pushHealthMessage = report.summaryLines.joined(separator: "\n")
     }
 
     /// Shared chrome for the two CloudKit diagnostic rows in the
